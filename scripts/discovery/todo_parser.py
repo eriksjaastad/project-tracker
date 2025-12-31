@@ -1,13 +1,21 @@
 """TODO.md parser for extracting project metadata."""
 
 import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+
+# Add parent directory to path for logger import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def parse_todo(todo_path: Path) -> Dict[str, Any]:
     """Extract metadata from TODO.md."""
     if not todo_path.exists():
+        logger.debug(f"TODO.md not found: {todo_path}")
         return {
             "status": "unknown",
             "phase": None,
@@ -19,7 +27,8 @@ def parse_todo(todo_path: Path) -> Dict[str, Any]:
     
     try:
         content = todo_path.read_text()
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to read TODO.md at {todo_path}: {e}", exc_info=True)
         return {
             "status": "unknown",
             "phase": None,

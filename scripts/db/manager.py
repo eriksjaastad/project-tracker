@@ -63,6 +63,17 @@ class DatabaseManager:
     
     def get_all_projects(self, order_by: str = "last_modified DESC") -> List[Dict[str, Any]]:
         """Get all projects, sorted."""
+        # Whitelist allowed order_by values to prevent SQL injection
+        allowed_order = {
+            "name", "name ASC", "name DESC",
+            "status", "status ASC", "status DESC",
+            "last_modified", "last_modified ASC", "last_modified DESC",
+            "completion_pct", "completion_pct ASC", "completion_pct DESC"
+        }
+        
+        if order_by not in allowed_order:
+            raise ValueError(f"Invalid order_by parameter: {order_by}")
+        
         conn = self._get_conn()
         cursor = conn.cursor()
         
@@ -78,10 +89,21 @@ class DatabaseManager:
         if not kwargs:
             return
         
+        # Whitelist allowed fields to prevent SQL injection
+        allowed_fields = {
+            "name", "path", "status", "phase", "description",
+            "completion_pct", "last_modified", "is_infrastructure"
+        }
+        
+        # Validate all field names
+        for key in kwargs.keys():
+            if key not in allowed_fields:
+                raise ValueError(f"Invalid field name: {key}")
+        
         conn = self._get_conn()
         cursor = conn.cursor()
         
-        # Build UPDATE query dynamically
+        # Build UPDATE query dynamically (now safe - fields are whitelisted)
         fields = ", ".join(f"{key} = ?" for key in kwargs.keys())
         values = list(kwargs.values()) + [project_id]
         

@@ -14,8 +14,10 @@ from rich.table import Table
 from rich.progress import Progress
 
 # Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
+from config import PROJECTS_BASE_DIR
 from db.schema import init_db
 from db.manager import DatabaseManager
 from discovery.project_scanner import discover_projects
@@ -42,8 +44,7 @@ def init():
 @app.command()
 def scan():
     """Scan projects directory and update database."""
-    path = "/Users/eriksjaastad/projects"
-    console.print(f"[bold blue]Scanning projects in {path}...[/bold blue]")
+    console.print(f"[bold blue]Scanning projects in {PROJECTS_BASE_DIR}...[/bold blue]")
     
     # Ensure database exists
     init_db()
@@ -52,7 +53,7 @@ def scan():
     # Discover projects
     with Progress() as progress:
         task = progress.add_task("[cyan]Discovering projects...", total=None)
-        projects = discover_projects(path)
+        projects = discover_projects(PROJECTS_BASE_DIR)
         progress.update(task, completed=True)
     
     console.print(f"\n[green]Found {len(projects)} projects[/green]\n")
