@@ -1,11 +1,18 @@
 """Cron job monitoring and failure detection."""
 
+import sys
 import re
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from croniter import croniter
+
+# Add parent directory to path for logger import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def check_cron_health(project_id: str, cron_jobs: List[Dict[str, str]], project_path: str) -> List[Dict[str, str]]:
@@ -92,7 +99,8 @@ def is_valid_cron(schedule: str) -> bool:
         # Validate standard cron expression
         croniter(schedule)
         return True
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Invalid cron schedule '{schedule}': {e}")
         return False
 
 
@@ -119,7 +127,8 @@ def check_crontab_installed(command: str) -> Tuple[bool, Optional[str]]:
                 return True, line.strip()
         
         return False, None
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to check crontab for command '{command}': {e}")
         return False, None
 
 
@@ -192,14 +201,16 @@ def check_log_file(log_path: Path) -> Tuple[Optional[datetime], Optional[str]]:
                             # Try to parse it
                             last_timestamp = parse_timestamp(timestamp_str)
                             break
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(f"Failed to parse timestamp '{timestamp_str}': {e}")
                             continue
             
             if last_timestamp:
                 break
         
         return last_timestamp, last_status
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to check log file {log_path}: {e}")
         return None, None
 
 
@@ -208,8 +219,8 @@ def parse_timestamp(timestamp_str: str) -> datetime:
     # Try ISO format first
     try:
         return datetime.fromisoformat(timestamp_str.replace(' ', 'T'))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to parse ISO timestamp '{timestamp_str}': {e}")
     
     # Try other common formats
     formats = [
@@ -221,7 +232,8 @@ def parse_timestamp(timestamp_str: str) -> datetime:
     for fmt in formats:
         try:
             return datetime.strptime(timestamp_str, fmt)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to parse timestamp '{timestamp_str}' with format '{fmt}': {e}")
             continue
     
     raise ValueError(f"Could not parse timestamp: {timestamp_str}")
@@ -248,7 +260,8 @@ def get_expected_next_run(schedule: str, last_run: datetime) -> Optional[datetim
         # Standard cron expression
         cron = croniter(schedule, last_run)
         return cron.get_next(datetime)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to calculate next run for schedule '{schedule}': {e}")
         return None
 
 

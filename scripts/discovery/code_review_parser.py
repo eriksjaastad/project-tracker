@@ -2,10 +2,17 @@
 Code Review Parser - Extract metadata from CODE_REVIEW.md files
 """
 
+import sys
 from pathlib import Path
 from typing import Dict, Optional
 import re
 from datetime import datetime
+
+# Add parent directory to path for logger import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def parse_code_review(file_path: Path) -> Optional[Dict]:
@@ -50,7 +57,8 @@ def parse_code_review(file_path: Path) -> Optional[Dict]:
                         break
                     except ValueError:
                         continue
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to parse review date '{date_str}': {e}")
                 review_date = date_str  # Fallback to original string
         
         # Extract summary (first paragraph after "The Verdict" section)
@@ -104,6 +112,6 @@ def parse_code_review(file_path: Path) -> Optional[Dict]:
         }
         
     except Exception as e:
-        print(f"Error parsing CODE_REVIEW.md: {e}")
+        logger.error(f"Error parsing CODE_REVIEW.md at {file_path}: {e}")
         return None
 
