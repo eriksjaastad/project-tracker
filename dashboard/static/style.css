@@ -395,6 +395,12 @@ main {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
+/* Projects with open code reviews get full border */
+.project-card.has-code-review {
+    border: 3px solid #ffa726 !important;
+    border-left: 3px solid #ffa726 !important;
+}
+
 .project-card.status-active {
     border-left-color: var(--status-active);
 }
@@ -514,6 +520,48 @@ main {
     font-weight: 600;
     color: #fff;
     text-shadow: 0 0 4px rgba(0, 0, 0, 0.7);
+}
+
+/* Code Review Status Bar on Project Cards */
+
+.code-review-status-bar {
+    background: rgba(255, 167, 38, 0.15);
+    border: 1px solid #ffa726;
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.code-review-header-small {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.code-review-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #ffa726;
+}
+
+.code-review-percentage {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #ffa726;
+}
+
+.progress-bar-mini {
+    background: rgba(0, 0, 0, 0.3);
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill-review {
+    background: linear-gradient(90deg, #ffa726, #ff9800);
+    height: 100%;
+    transition: width 0.3s ease;
 }
 
 /* Buttons */

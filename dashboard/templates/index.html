@@ -100,7 +100,7 @@
         
         <div class="projects-grid">
             {% for project in projects %}
-            <div class="project-card status-{{ project.status }}">
+            <div class="project-card status-{{ project.status }} {% if project.code_review %}has-code-review{% endif %}">
                 <div class="project-header">
                     <div class="project-title-row">
                         <h2>{{ project.name }}</h2>
@@ -244,6 +244,18 @@
                     <div class="progress-fill" style="width: {{ project.completion_pct }}%"></div>
                     <span class="progress-label">{{ project.completion_pct }}% complete</span>
                 </div>
+                
+                {% if project.code_review %}
+                <div class="code-review-status-bar">
+                    <div class="code-review-header-small">
+                        <span class="code-review-label">📝 Code Review: {{ project.code_review.verdict }}</span>
+                        <span class="code-review-percentage">{{ project.code_review.completion_pct }}% resolved</span>
+                    </div>
+                    <div class="progress-bar-mini">
+                        <div class="progress-fill-review" style="width: {{ project.code_review.completion_pct }}%"></div>
+                    </div>
+                </div>
+                {% endif %}
                 
                 <div class="project-actions">
                     <a href="/project/{{ project.id }}" class="btn btn-secondary">Details</a>
