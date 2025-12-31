@@ -13,7 +13,7 @@ DATABASE_PATH = Path(os.getenv("PT_DB_PATH", Path(__file__).parent / "data" / "t
 EXTERNAL_RESOURCES_FILE = Path(
     os.getenv(
         "PT_RESOURCES_FILE",
-        PROJECTS_BASE_DIR / "project-scaffolding" / "EXTERNAL_RESOURCES.md"
+        PROJECTS_BASE_DIR / "project-scaffolding" / "EXTERNAL_RESOURCES.yaml"
     )
 )
 
