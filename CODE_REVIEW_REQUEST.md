@@ -506,7 +506,17 @@ What should I **delete right now** because it's noise without value?
 5. **Top 3 things to fix** before adding more features
 6. **Top 3 things to delete** that add complexity without value
 
-**Format:** Markdown file, brutal honesty, specific examples.
+**Format:** 
+- Save as `CODE_REVIEW.md` in the project root
+- Markdown format, brutal honesty, specific examples
+- Include date, reviewer name/role, and verdict at top
+
+**Why CODE_REVIEW.md?**
+This is a **meta-test** of the project tracker itself! Once you submit the review:
+1. We'll add CODE_REVIEW.md detection to the scanner
+2. The dashboard should show "Code review pending" in alerts
+3. This validates the code review integration works
+4. Classic dogfooding - using the tool to track its own review
 
 **Estimated review time:** 30-45 minutes
 
