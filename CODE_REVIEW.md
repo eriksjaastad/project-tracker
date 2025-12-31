@@ -540,7 +540,7 @@ grep -rn "print(" scripts/discovery/ --include="*.py"  # Returns nothing ✅
 
 ---
 
-### ⚠️ One Issue Remains: Hardcoded Infrastructure Names
+### ❌ Hardcoded Infrastructure Names - UNACCEPTABLE
 
 `project_scanner.py:65-77` still has the hardcoded list:
 
@@ -554,7 +554,39 @@ infra_names = [
 ]
 ```
 
-**User Decision Required:** Keep this list (user said infrastructure detection is useful) or remove and rely solely on `**Type:** Infrastructure` marker in TODO.md?
+**This is not acceptable.** We are a data-driven house. **Nothing gets hardcoded. Ever.**
+
+Hardcoding project names is the biggest noob move in the book. This list will rot. Someone will add a new infrastructure project and forget to update this list. Then the dashboard shows wrong data and nobody knows why.
+
+The TODO.md marker detection already exists (line 84):
+```python
+if "**Type:** Infrastructure" in todo_content or "**Type:** Infra" in todo_content:
+    return True
+```
+
+**Required fix:** Delete the `infra_names` list entirely. Infrastructure detection must rely ONLY on the `**Type:** Infrastructure` marker in each project's TODO.md.
+
+If a project is infrastructure, add the marker to its TODO.md. The data lives with the project, not in some hardcoded list in scanner code.
+
+---
+
+### 🚨 House Rule: NO HARDCODING
+
+**This is non-negotiable.**
+
+- ❌ No hardcoded paths → use `config.py` ✅ (fixed)
+- ❌ No hardcoded project names → use TODO.md markers ❌ (NEEDS FIX)
+- ❌ No hardcoded credentials → use `.env`
+- ❌ No magic strings → use constants or config
+- ❌ No embedded lists of "known" values → derive from data
+
+If you find yourself typing a list of specific project names, file paths, or other values into source code, **STOP**. Put it in config, put it in data, or derive it from existing data.
+
+Hardcoded lists are:
+1. **Invisible** - nobody knows they exist until they break
+2. **Unmaintainable** - require code changes to update
+3. **Error-prone** - will inevitably get out of sync
+4. **Amateur hour** - we don't do this here
 
 ---
 
@@ -567,20 +599,27 @@ infra_names = [
 | Add Logging | ✅ **FIXED** | All 7 files now use logger |
 | Remove Unused | ✅ Fixed | work_log deprecated |
 | Write Tests | ✅ Fixed | 5 tests exist |
-| Hardcoded Infra Names | ⚠️ Pending | User decision needed |
+| Hardcoded Infra Names | ❌ **MUST FIX** | Delete the list, use TODO.md marker only |
 
 ---
 
 ### 🎯 Remaining Work
 
-1. **Decide on `infra_names` list** - keep or remove?
+**Delete the hardcoded `infra_names` list:**
 
-If keeping: Document why in a comment.
-If removing: Delete lines 62-77 in `project_scanner.py` and rely on TODO.md marker.
+```bash
+# In project_scanner.py, delete lines 62-77 (the infra_names list and name matching)
+# Keep ONLY the TODO.md marker detection at line 84
+```
+
+**Then ensure all infrastructure projects have the marker in their TODO.md:**
+```markdown
+**Type:** Infrastructure
+```
 
 ---
 
-**Status:** NEARLY COMPLETE - Pending user decision on infrastructure detection approach.
+**Status:** BLOCKED - Cannot mark complete until hardcoded list is removed.
 
 ---
 
