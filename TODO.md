@@ -457,39 +457,8 @@ Last work: 45 days ago              82% complete
 - [x] ~~Track repository size and file count~~ **WON'T DO** - Not useful for project tracking
 
 #### Task 3.3: Dashboard Enhancements
-- [ ] Add search/filter projects
-- [ ] Add project grouping (by status, by service, by AI agent)
-- [ ] Add timeline view (project activity over time)
-- [ ] Add export to JSON/CSV
 
----
-
-### 🟢 LOW PRIORITY - Phase 2: Advanced Features (Week 3+)
-
-#### Task 4.1: Context Switching Helper
-- [ ] Create `pt switch <project>` command
-- [ ] Show project summary when switching
-- [ ] Display quick links (README, CLAUDE.md, recent docs)
-- [ ] Show active cron jobs and services
-- [ ] Display reminders/warnings from project docs
-
-#### Task 4.2: Git Integration
-- [ ] Track commits per project over time
-- [ ] Show "days since last commit" metric
-- [ ] Detect branches and show current branch
-- [ ] Alert on uncommitted changes
-
-#### Task 4.3: Cost Tracking Integration
-- [ ] Link to cost data from EXTERNAL_RESOURCES.md
-- [ ] Show monthly spend per project
-- [ ] Alert when costs exceed thresholds
-- [ ] Project cost history charts
-
-#### Task 4.4: Cursor Integration (Future)
-- [ ] Detect which project is open in Cursor
-- [ ] Show "currently working on" indicator
-- [ ] Auto-update last_modified when Cursor opens project
-- [ ] Parse Cursor conversation history for context
+**No active tasks** - MVP is complete and working great!
 
 ---
 
@@ -676,6 +645,32 @@ To manually refresh data while dashboard is running:
 - Click the "🔄 Refresh" button in the web UI, OR
 - Run `./pt scan` from command line
 
+
+## 💭 Future Ideas / Shower Thoughts
+
+**Note:** These are not tasks to complete - just ideas to consider if they become useful.
+
+### Dashboard Polish
+- **Timeline view** - Visual graph showing project activity over time with milestones (could be cool!)
+- **Search/filter** - Filter projects by status, service, AI agent (might be handy with 50+ projects)
+- **Project grouping** - Group by status, service type, etc. (organizational tool)
+- **Export to JSON/CSV** - For external analysis (probably never needed)
+
+### Advanced Features
+- **Context switching helper** - `pt switch <project>` command to show summary and quick links
+- **Git integration** - Track commits over time, show current branch, detect uncommitted changes
+- **Cost tracking** - Monthly spend per project, cost history charts (EXTERNAL_RESOURCES.yaml has this data)
+- **Cursor integration** - Detect active project in Cursor, auto-update last_modified
+
+### Why These Are "Shower Thoughts"
+- Dashboard already does what we need (track projects, show status, find stalled work)
+- Adding features now = complexity without clear benefit
+- Better to use the tool for a while and see what's actually missing
+- If we hit 50+ projects and think "I wish I could filter these", *then* we build it
+
+**Philosophy:** Ship the MVP, use it, iterate based on real needs. Don't build features we *might* want.
+
+---
 
 ### Related Documentation
 
