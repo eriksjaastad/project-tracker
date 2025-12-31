@@ -217,86 +217,26 @@
 - Google Drive: image-workflow backups (free personal storage)
 - PostgreSQL: Trading (Railway, included in $5/mo)
 
-#### Task 3.4: Code Review System - Create Scaffolding Templates
+#### Task 3.4: Code Review System ✅ **COMPLETE** (Dec 31, 2025)
 
-**Goal:** Add CODE_REVIEW.md template and documentation to project-scaffolding (similar to TODO.md template we created)
+**Dashboard features (all working):**
+- [x] Parse CODE_REVIEW.md files from projects ✅ Detects review files
+- [x] Extract review status and action items ✅ Calculates completion %
+- [x] Show code review status on project cards ✅ Progress bar + full border
+- [x] CODE_REVIEW.md.template exists ✅ In project-scaffolding/templates/
 
-**What to add to project-scaffolding:**
+**What works:**
+- Dashboard detects CODE_REVIEW.md in project root
+- Shows progress bar (action items with checkboxes)
+- Adds orange border around project card when review is open
+- Progress bar disappears when 100% complete
 
-1. **`templates/CODE_REVIEW.md.template`** - Standardized template with:
-   - Review metadata (date, requester, reviewer)
-   - What's being reviewed (files, features, changes)
-   - Review checklist (security, performance, maintainability)
-   - Findings and feedback
-   - Status (Pending, In Progress, Changes Requested, Approved)
-   - Resolution/outcome
-
-2. **Update `docs/TODO_FORMAT_STANDARD.md`** - Add code review syntax:
-   - How to reference reviews: `- [ ] Feature X **[IN REVIEW]** - See CODE_REVIEW.md #123`
-   - When to use code review markers
-
-3. **Update `docs/PROJECT_STRUCTURE_STANDARDS.md`** - Document:
-   - When to create CODE_REVIEW.md files
-   - Where they live in project structure
-   - How to link from TODO.md
-
-4. **Optional: `patterns/code-review-process.md`** - Best practices
-   - Review workflow
-   - How to request reviews
-   - Review checklist guidelines
-
-**Implementation steps:**
-- [ ] Study existing code reviews in Trading Projects (`docs/reviews/` directory)
-- [ ] Extract best patterns from real reviews
-- [ ] Create CODE_REVIEW.md.template
-- [ ] Update TODO_FORMAT_STANDARD.md with review syntax
-- [ ] Update PROJECT_STRUCTURE_STANDARDS.md
-- [ ] Add examples from real code reviews
-
-**Then in project-tracker:**
-- [ ] Parse CODE_REVIEW.md files from projects
-- [ ] Extract review status (Pending, In Progress, Complete)
-- [ ] Show pending reviews in alerts table
-- [ ] Link TODO.md sections to CODE_REVIEW.md
-- [ ] Display review assignee and date requested
-
----
-
-### 🔵 MEDIUM PRIORITY - Phase 1: Code Review System (NEW!)
-
-**Goal:** Standardize code review process across projects
-
-#### Task 4.1: Code Review File Format
-- [ ] Create CODE_REVIEW.md.template in project-scaffolding
-- [ ] Define standard sections:
-  - [ ] Review request info (date, requester, purpose)
-  - [ ] Files/components under review
-  - [ ] Review checklist (security, performance, maintainability)
-  - [ ] Reviewer notes and feedback
-  - [ ] Status (Pending, In Progress, Changes Requested, Approved)
-  - [ ] Resolution (date completed, summary)
-- [ ] Add examples from real code reviews
-- [ ] Document in PROJECT_STRUCTURE_STANDARDS.md
-
-#### Task 4.2: TODO.md Integration
-- [ ] Add "Code Review" indicator to TODO.md format
-- [ ] Link TODO tasks to CODE_REVIEW.md file
-- [ ] Example: `- [ ] Feature X **[IN REVIEW]** - See CODE_REVIEW.md #123`
-- [ ] Update TODO_FORMAT_STANDARD.md with review syntax
-- [ ] Update template with code review examples
-
-#### Task 4.3: Dashboard Integration
-- [ ] 🔍 Parse CODE_REVIEW.md files from projects
-- [ ] Show pending code reviews in alerts table
-- [ ] Display review status and assignee
-- [ ] Link from alerts to CODE_REVIEW.md viewer
-
-#### Task 4.3: Dashboard Display
-- [ ] Show code review count per project
-- [ ] Badge/indicator on project cards
-- [ ] Separate view for all pending reviews
-- [ ] Filter by review status
-- [ ] Show reviewer and date info
+**What we don't need:**
+- ❌ Show reviewer/date info (always Erik + AI reviewer - not useful)
+- ❌ Code review count per project (always 0 or 1 - pointless)
+- ❌ Link TODO.md sections to CODE_REVIEW.md (not useful)
+- ❌ Code review indicator in TODO.md (card border is enough)
+- ❌ Separate view for all reviews (just check project cards)
 
 ---
 
