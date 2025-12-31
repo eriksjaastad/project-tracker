@@ -60,34 +60,11 @@ def discover_projects(base_path: Optional[Union[str, Path]] = None) -> List[Dict
 
 
 def is_infrastructure_project(project_name: str, todo_content: str = "") -> bool:
-    """Detect if a project is infrastructure based on name and TODO content."""
-    # Specific infrastructure project names
-    infra_names = [
-        "project-tracker",
-        "project-scaffolding", 
-        "agent_os",
-        "agent-skills-library",
-        "n8n"
-    ]
-    
-    # Check exact name matches (case-insensitive)
-    name_lower = project_name.lower()
-    name_slug = name_lower.replace(" ", "-")
-    
-    if name_slug in infra_names or name_lower in infra_names:
-        return True
-    
-    # Keywords that indicate infrastructure (more specific)
-    # Only match as complete words
-    infra_keywords = ["scaffolding", "scaffold", "library", "platform", "framework"]
-    if any(keyword in name_lower for keyword in infra_keywords):
-        return True
-    
-    # Check TODO.md for explicit infrastructure marker
-    if "**Type:** Infrastructure" in todo_content or "**Type:** Infra" in todo_content:
-        return True
-    
-    return False
+    """Detect if a project is infrastructure based on TODO.md marker only."""
+    # Infrastructure detection is data-driven: projects must explicitly declare
+    # their type in TODO.md with: **Type:** Infrastructure
+    # NO hardcoded lists. NO name matching. Data lives with the project.
+    return "**Type:** Infrastructure" in todo_content or "**Type:** Infra" in todo_content
 
 
 def extract_project_metadata(project_path: Path) -> Dict[str, Any]:

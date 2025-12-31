@@ -2,7 +2,8 @@
 
 **Last Updated:** December 30, 2025  
 **Project Status:** Active Development - Planning → Implementation  
-**Current Phase:** Phase 0 - Foundation & TODO Standardization
+**Current Phase:** Phase 0 - Foundation & TODO Standardization  
+**Type:** Infrastructure
 
 ---
 
