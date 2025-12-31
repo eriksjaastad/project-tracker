@@ -149,6 +149,13 @@ def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
     project["service_details"] = services
     project["services_by_category"] = categorize_services(services)
     
+    # Check for code review
+    review_path = Path(project["path"]) / "CODE_REVIEW.md"
+    if review_path.exists():
+        review_data = parse_code_review(review_path)
+        if review_data and review_data.get("completion_pct", 100) < 100:
+            project["code_review"] = review_data
+    
     # Format time
     project["last_modified_human"] = format_time_ago(project.get("last_modified", ""))
     
