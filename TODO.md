@@ -452,9 +452,9 @@ Last work: 45 days ago              82% complete
 
 #### Task 3.2: Enhanced Metadata
 - [x] Extract project description from README.md ✅ **DONE** - Already extracts first paragraph from README
-- [ ] Detect project layer/phase from ROADMAP.md (Future enhancement)
-- [ ] Parse requirements.txt for tech stack (Future enhancement)
-- [ ] Track repository size and file count (Future enhancement)
+- [ ] Detect project layer/phase from ROADMAP.md (Future enhancement - if needed)
+- [x] ~~Parse requirements.txt for tech stack~~ **WON'T DO** - No clear benefit
+- [x] ~~Track repository size and file count~~ **WON'T DO** - Not useful for project tracking
 
 #### Task 3.3: Dashboard Enhancements
 - [ ] Add search/filter projects
