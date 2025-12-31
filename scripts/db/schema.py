@@ -81,17 +81,17 @@ def create_database(db_path: Optional[Path] = None) -> None:
         )
     """)
     
-    # Activity log
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS work_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            event_type TEXT,
-            details TEXT,
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-        )
-    """)
+    # Activity log (DEPRECATED - not providing value, consider removing)
+    # cursor.execute("""
+    #     CREATE TABLE IF NOT EXISTS work_log (
+    #         id INTEGER PRIMARY KEY AUTOINCREMENT,
+    #         project_id TEXT NOT NULL,
+    #         timestamp TEXT NOT NULL,
+    #         event_type TEXT,
+    #         details TEXT,
+    #         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    #     )
+    # """)
     
     # Create indexes for performance
     cursor.execute("""
@@ -119,10 +119,10 @@ def create_database(db_path: Optional[Path] = None) -> None:
         ON service_dependencies(project_id)
     """)
     
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_work_log_project 
-        ON work_log(project_id)
-    """)
+    # cursor.execute("""
+    #     CREATE INDEX IF NOT EXISTS idx_work_log_project 
+    #     ON work_log(project_id)
+    # """)
     
     conn.commit()
     conn.close()

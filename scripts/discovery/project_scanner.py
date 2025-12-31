@@ -1,15 +1,22 @@
 """Project scanner for auto-discovery."""
 
+import sys
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
 
 from .git_metadata import get_last_modified
 from .todo_parser import parse_todo
 
+# Add parent directory to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from config import PROJECTS_BASE_DIR
 
-def discover_projects(base_path: str = "/Users/eriksjaastad/projects") -> List[Dict[str, Any]]:
+
+def discover_projects(base_path: Optional[Union[str, Path]] = None) -> List[Dict[str, Any]]:
     """Scan directory for projects."""
+    if base_path is None:
+        base_path = PROJECTS_BASE_DIR
     base = Path(base_path)
     
     if not base.exists():

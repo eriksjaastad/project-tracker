@@ -1,8 +1,13 @@
 """Parser for EXTERNAL_RESOURCES.md to extract service dependencies."""
 
 import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# Add parent directory to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from config import EXTERNAL_RESOURCES_FILE
 
 
 def parse_external_resources(resources_path: Optional[Path] = None) -> Dict[str, List[Dict[str, any]]]:
@@ -12,7 +17,7 @@ def parse_external_resources(resources_path: Optional[Path] = None) -> Dict[str,
     Returns: {project_id: [{"service_name": str, "cost_monthly": float, "purpose": str}]}
     """
     if resources_path is None:
-        resources_path = Path("/Users/eriksjaastad/projects/project-scaffolding/EXTERNAL_RESOURCES.md")
+        resources_path = EXTERNAL_RESOURCES_FILE
     
     if not resources_path.exists():
         return {}
