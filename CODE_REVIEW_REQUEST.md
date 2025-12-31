@@ -6,10 +6,28 @@
 
 ---
 
+## ⚠️ Reviewer Instructions
+
+**Your role:** You are a grumpy, brutally honest **Senior Principal Engineer** who has seen too many "side projects" become unmaintainable messes.
+
+**Your job:** Find what is **fragile, over-engineered, actually harmful, or solving the wrong problem.**
+
+### Rules:
+- ✋ **No politeness, no encouragement, no compliment sandwich**
+- 🔍 **Assume "it works for me" is not good enough** - This needs to work 6 months from now when I've forgotten how it works
+- 💀 **If you see Theater** (complexity without payoff, automation that costs more than manual), **call it out aggressively**
+- 🎯 **Focus on what will break, not what currently works**
+- ⛔ **"Everything looks good!" is NOT helpful** - Find the problems or this review is wasted
+
+**Be brutal. I need to know if this is actually useful or just me pretending to be productive.**
+
+---
+
 ## 🎯 Project Overview
 
-**Project Tracker** is a local-first dashboard that auto-discovers and tracks all projects in `/Users/eriksjaastad/projects/`. It provides:
+**Project Tracker** is a local-first dashboard that auto-discovers and tracks all projects in `/Users/eriksjaastad/projects/`.
 
+**The pitch:**
 - 📊 Dashboard showing 33+ projects sorted by last modified
 - 📝 TODO.md viewer with markdown rendering
 - ⚠️ Alerts system (blocked projects, stalled projects, missing TODOs)
@@ -19,9 +37,43 @@
 - 📈 Progress bars based on TODO.md checkboxes
 - 🔄 Meta-tracking: Dashboard tracks itself!
 
+**But does it actually solve a problem or is this just procrastination disguised as productivity?**
+
 ---
 
-## 🔍 What to Review
+## 🤔 The Problem (Allegedly)
+
+**What I claim this solves:**
+
+I have 33+ projects across `/Users/eriksjaastad/projects/`. Each has:
+- A `TODO.md` file tracking status, phase, completion %
+- AI agents working on them (documented in TODO.md)
+- External services (OpenAI, Railway, etc.) costing money
+- Cron jobs that might be failing silently
+- Different priority levels and blockers
+
+**The pain points:**
+1. **Lost track of what needs attention** - Some projects stalled 60+ days
+2. **Don't know what's costing money** - Services spread across 33 projects
+3. **Cron jobs failing silently** - No monitoring, no alerts
+4. **Opening 33 TODO.md files manually sucks** - Need overview
+
+**The solution (maybe?):**
+Build a dashboard that scans all projects, parses TODO.md files, tracks services, monitors cron jobs, and shows what needs attention.
+
+**But is this actually the right solution?**
+
+**Alternative approaches I DIDN'T do:**
+- Just use a spreadsheet (manual, but simple)
+- Just `grep -r "status:" */TODO.md` (ugly, but fast)
+- Just set calendar reminders to check projects (low-tech, works)
+- Just focus on fewer projects (eliminate the problem)
+
+**Reviewer: Challenge this assumption. Is this solving the right problem or just building for the sake of building?**
+
+---
+
+## 🔍 What to Review (Be Skeptical)
 
 ### 1. **Architecture & Structure**
 
@@ -290,19 +342,33 @@ infra_names = [
 
 ---
 
-## ✅ Checklist for Reviewer
+## ❌ Critical Flaws Checklist
 
-Please confirm:
-- [ ] No sensitive data or secrets in committed code
-- [ ] `.gitignore` is comprehensive
-- [ ] Code follows Python best practices (PEP 8)
-- [ ] Error handling is appropriate
-- [ ] Database design is sound
-- [ ] No obvious security vulnerabilities
-- [ ] Documentation is sufficient for handoff
-- [ ] Architecture is maintainable
-- [ ] Performance is acceptable for MVP
-- [ ] No major technical debt that blocks future development
+**Don't just check boxes. Find the problems.**
+
+Security & Data:
+- [ ] Found sensitive data or secrets in code? (paths, API keys, etc.)
+- [ ] `.gitignore` has holes? (what's missing?)
+- [ ] Local file scanning could be exploited? (arbitrary file access?)
+
+Code Quality:
+- [ ] Anti-patterns found? (list them with file:line)
+- [ ] Error handling is broken? (silent failures, no logging)
+- [ ] Functions too long/complex? (quote examples)
+- [ ] Code duplication everywhere? (DRY violations)
+
+Architecture:
+- [ ] Over-engineered for the problem? (too many abstraction layers?)
+- [ ] Database design has issues? (missing indexes, wrong schema)
+- [ ] Performance bottlenecks obvious? (N+1 queries, no caching)
+- [ ] Will break when scaled? (100+ projects, large files)
+
+Maintainability:
+- [ ] Can't figure out how it works? (poor documentation)
+- [ ] Would rage-quit trying to modify it? (too complex)
+- [ ] Technical debt blocks future work? (what needs refactor)
+
+**If you checked "no problems found" for all of these, you didn't look hard enough.**
 
 ---
 
@@ -323,15 +389,75 @@ Please confirm:
 
 ---
 
+## 💀 Find 10 Failure Modes
+
+**This is the most important part of the review.**
+
+List 10 specific ways this system will **fail me when I need it most**:
+- When TODO.md format changes?
+- When EXTERNAL_RESOURCES.md structure changes?
+- When I have 100+ projects?
+- When a cron job hangs the scanner?
+- When SQLite file gets corrupted?
+- When I upgrade Python/dependencies?
+- When file paths have special characters?
+- When dashboard is running and I run `pt scan`?
+- When git history is missing/corrupted?
+- When...?
+
+**Be specific. Quote file paths and line numbers where things will break.**
+
+---
+
+## 🎭 Theater vs. Tool Test
+
+**Which parts of this system will actually get used vs. created once and forgotten?**
+
+Rate each feature:
+- **Will use daily:** Core value, can't live without
+- **Will use occasionally:** Nice to have
+- **Will never use:** Delete it
+
+Features to rate:
+- [ ] Dashboard view (vs just opening TODO.md files manually)
+- [ ] TODO.md viewer (vs opening in editor)
+- [ ] Alerts system (vs just scrolling the list)
+- [ ] Infrastructure labels (does this actually help?)
+- [ ] Cron monitoring (vs just checking manually)
+- [ ] Service categorization (do I care about emoji icons?)
+- [ ] Progress bars (do I actually look at these?)
+
+**Be honest: What's actually useful vs. what's just cool to build?**
+
+---
+
+## 🚨 Anti-Patterns & Red Flags
+
+**Where is this code fighting Python instead of working with it?**
+
+Look for:
+- [ ] Unnecessary abstractions (DatabaseManager wrapping SQLite?)
+- [ ] Over-engineering (5 separate parser modules?)
+- [ ] Brittle parsing (regex on markdown files?)
+- [ ] Silent failures (`except Exception: pass` everywhere)
+- [ ] Hard-coded paths/assumptions (will break on other machines?)
+- [ ] N+1 query problems (loading services in a loop?)
+- [ ] No tests (how do I know it works?)
+
+**Quote specific examples with file:line numbers.**
+
+---
+
 ## 🎯 Specific Questions for Reviewer
 
-1. **Architecture:** Is the module separation appropriate or over-engineered?
-2. **Database:** Should we store service categories in DB vs runtime categorization?
-3. **Parsing:** Is regex-based EXTERNAL_RESOURCES.md parsing acceptable or should we use a structured format (JSON/YAML)?
-4. **Error handling:** Should we fail loudly or silently for missing/malformed files?
-5. **Testing:** What's the minimum viable test coverage for this project?
-6. **Performance:** Are there obvious bottlenecks we should fix now?
-7. **Security:** Any security concerns with local file reading/scanning?
+1. **Architecture:** Is the module separation appropriate or over-engineered? (5 parser modules seems like a lot)
+2. **Database:** Should we store service categories in DB vs runtime categorization? (Current approach is fragile)
+3. **Parsing:** Is regex-based EXTERNAL_RESOURCES.md parsing acceptable or is this a time bomb? (Will break on format changes)
+4. **Error handling:** Should we fail loudly or silently for missing/malformed files? (Currently silent failures everywhere)
+5. **Testing:** What's the minimum viable test coverage for this project? (Currently zero tests)
+6. **Performance:** Are there obvious bottlenecks we should fix now? (N+1 queries, no caching)
+7. **Security:** Any security concerns with local file reading/scanning? (Running arbitrary commands from TODO.md?)
+8. **Complexity:** Is this solving a $10 problem with a $1000 solution?
 
 ---
 
@@ -346,21 +472,57 @@ Please confirm:
 
 ---
 
-## 🙏 Thank You!
+## 💣 Your Verdict
 
-This is our first major project using the new project-scaffolding patterns. Your feedback will help us:
-- Establish code quality standards
-- Identify blind spots
-- Build better systems going forward
-- Create reusable patterns for future projects
+**Choose one (and defend it):**
 
-**Estimated review time:** 30-45 minutes
+- ✅ **Production-Grade Tooling** - Robust, will actually save time
+- ⚠️ **Needs Major Refactor** - Good ideas, bad execution  
+- 🚫 **Premature Optimization** - Solving problems I don't have yet
+- 🗑️ **Delete & Simplify** - More complexity than value
 
-**Priority:** Medium (MVP working, but want to validate approach before building more)
+**The 3-Month Test:**
+If I come back to this in 3 months, will I:
+- Use it immediately? (Good sign)
+- Need to re-learn it? (Neutral)
+- Curse past-me and rewrite it? (Bad sign)
 
-**Questions?** Comment on this file or open GitHub issues.
+**The Core Value Question:**
+What's the **single most useful** part of this system? What would I miss most if it disappeared?
+
+**Delete Candidates:**
+What should I **delete right now** because it's noise without value?
 
 ---
 
-*This code review request follows the pattern we're establishing in project-scaffolding.*
+## 🎯 Deliverables
+
+**Required from reviewer:**
+
+1. **Verdict** (pick one of the 4 options above)
+2. **10 Failure Modes** (specific, with file:line citations)
+3. **Theater vs Tool ratings** (which features are actually useful?)
+4. **5 Anti-Patterns** found in the code (with examples)
+5. **Top 3 things to fix** before adding more features
+6. **Top 3 things to delete** that add complexity without value
+
+**Format:** Markdown file, brutal honesty, specific examples.
+
+**Estimated review time:** 30-45 minutes
+
+**Priority:** HIGH (Need to know if this is worth continuing before building more)
+
+---
+
+## 🔥 Final Note
+
+**I don't want a nice review. I want a USEFUL review.**
+
+- If everything looks good, you didn't look hard enough
+- If you're being polite, you're wasting my time
+- If you can't find problems, this review failed
+
+**Challenge me. Prove I'm wrong. Find the landmines before I step on them.**
+
+*This code review follows the pattern from project-scaffolding/docs/CODE_REVIEW_PROMPT.md*
 
