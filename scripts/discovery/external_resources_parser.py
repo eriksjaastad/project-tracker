@@ -5,9 +5,12 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Add parent directory to path for config import
+# Add parent directory to path for config and logger imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from config import EXTERNAL_RESOURCES_FILE
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def parse_external_resources(resources_path: Optional[Path] = None) -> Dict[str, List[Dict[str, any]]]:
@@ -24,7 +27,8 @@ def parse_external_resources(resources_path: Optional[Path] = None) -> Dict[str,
     
     try:
         content = resources_path.read_text()
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to read EXTERNAL_RESOURCES.md at {resources_path}: {e}")
         return {}
     
     services_by_project = {}

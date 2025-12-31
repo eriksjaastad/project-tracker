@@ -1,5 +1,6 @@
 """Alert detection for project tracker."""
 
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Any
@@ -7,6 +8,12 @@ from typing import List, Dict, Any
 from .cron_monitor import check_cron_health
 from .code_review_parser import parse_code_review
 from scripts.db.manager import DatabaseManager
+
+# Add parent directory to path for logger import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 
 
@@ -29,8 +36,8 @@ def detect_stalled_projects(projects: List[Dict[str, Any]], days_threshold: int 
                         "message": f"No work in {days_ago} days",
                         "details": f"Last modified: {project['last_modified'].split('T')[0]}"
                     })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to parse last_modified for {project.get('name', 'unknown')}: {e}")
     
     return alerts
 
@@ -111,8 +118,8 @@ def detect_blocked_projects(projects: List[Dict[str, Any]]) -> List[Dict[str, An
                                 "details": first_blocker
                             })
                             break  # Only report once per project
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to detect blockers for {project.get('name', 'unknown')}: {e}")
     
     return alerts
 

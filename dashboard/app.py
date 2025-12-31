@@ -11,6 +11,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 import markdown
 
+# Add parent directory to path for logger import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from logger import get_logger
+
 # Add scripts directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
@@ -18,6 +22,8 @@ from db.manager import DatabaseManager
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
+
+logger = get_logger(__name__)
 
 app = FastAPI(title="Project Tracker Dashboard")
 
@@ -51,7 +57,8 @@ def format_time_ago(iso_date: str) -> str:
             return f"{minutes}m ago"
         else:
             return "just now"
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to format date '{iso_date}': {e}")
         return iso_date
 
 
@@ -248,6 +255,7 @@ async def view_todo(request: Request, project_id: str):
             )
             todo_html = md.convert(todo_content)
         except Exception as e:
+            logger.error(f"Error converting TODO.md for project {project_id}: {e}")
             todo_html = f"<p class='error'>Error reading TODO.md: {e}</p>"
     
     return templates.TemplateResponse("todo_viewer.html", {
@@ -288,6 +296,7 @@ async def refresh_data():
             "message": f"Refreshed {len(projects)} projects"
         })
     except Exception as e:
+        logger.error(f"Error refreshing data: {e}")
         return JSONResponse({
             "status": "error",
             "message": str(e)
