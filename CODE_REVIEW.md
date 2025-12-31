@@ -603,6 +603,91 @@ Hardcoded lists are:
 
 ---
 
+## ✅ Definition of Done (DOD) - READ THIS BEFORE MARKING ANYTHING COMPLETE
+
+**We don't do 14% complete marked as "done" here.**
+
+Every fix must pass its verification criteria. No exceptions. No "I think I got them all." Run the commands. Check the output. If it's not zero/empty/passing, it's not done.
+
+---
+
+### DOD: Silent Failures Fix
+
+**Verification commands (ALL must return empty):**
+```bash
+# Check for bare except:pass
+grep -rn "except.*: pass" scripts/ dashboard/ --include="*.py"
+
+# Check for except without logging
+grep -rn "except Exception:" scripts/ dashboard/ --include="*.py" | grep -v logger
+
+# Check for print() instead of logger in discovery
+grep -rn "print(" scripts/discovery/ --include="*.py"
+```
+
+**Definition of Done:** All three commands return zero results.
+
+---
+
+### DOD: Hardcoded Values Fix
+
+**Verification commands:**
+```bash
+# Check for hardcoded project names
+grep -rn "infra_names\|project-tracker\|project-scaffolding" scripts/ --include="*.py" | grep -v "# \|TODO\|config"
+
+# Check for hardcoded paths (should only be in config.py as defaults)
+grep -rn "/Users/" scripts/ dashboard/ --include="*.py" | grep -v config.py
+```
+
+**Definition of Done:**
+- First command returns zero results (no hardcoded project names)
+- Second command returns zero results (no hardcoded paths outside config.py)
+
+---
+
+### DOD: SQL Injection Fix
+
+**Verification:**
+```bash
+# Check for f-string SQL (should only have whitelisted patterns)
+grep -rn 'f".*SELECT\|f".*UPDATE\|f".*DELETE\|f".*INSERT' scripts/db/ --include="*.py"
+```
+
+**Definition of Done:** Any f-string SQL must have whitelist validation immediately before it.
+
+---
+
+### DOD: Logging Implementation
+
+**Verification:**
+```bash
+# Every file in discovery/ should import logger
+for f in scripts/discovery/*.py; do grep -L "from logger import" "$f" 2>/dev/null; done
+
+# Every file should have logger = get_logger
+for f in scripts/discovery/*.py; do grep -L "logger = get_logger" "$f" 2>/dev/null; done
+```
+
+**Definition of Done:** Both commands return zero results (all files have logger).
+
+---
+
+### DOD: Tests
+
+**Verification:**
+```bash
+# Tests must pass
+pytest tests/ -v
+
+# Check test count
+pytest tests/ --collect-only | grep "test session starts" -A 100 | grep "<Function"
+```
+
+**Definition of Done:** All tests pass. Minimum 5 test functions exist.
+
+---
+
 ### 🎯 Remaining Work
 
 **Delete the hardcoded `infra_names` list:**
@@ -617,9 +702,15 @@ Hardcoded lists are:
 **Type:** Infrastructure
 ```
 
+**Verification after fix:**
+```bash
+grep -rn "infra_names" scripts/
+# Must return: zero results
+```
+
 ---
 
-**Status:** BLOCKED - Cannot mark complete until hardcoded list is removed.
+**Status:** BLOCKED - Cannot mark complete until hardcoded list is removed AND verification passes.
 
 ---
 
