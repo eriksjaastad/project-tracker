@@ -8,9 +8,12 @@ from datetime import datetime
 from .git_metadata import get_last_modified
 from .todo_parser import parse_todo
 
-# Add parent directory to path for config import
+# Add parent directory to path for config and logger imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from config import PROJECTS_BASE_DIR
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def discover_projects(base_path: Optional[Union[str, Path]] = None) -> List[Dict[str, Any]]:
@@ -110,8 +113,8 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
     if todo_path.exists():
         try:
             todo_content = todo_path.read_text()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to read TODO.md for {project_path.name}: {e}")
         
         todo_data = parse_todo(todo_path)
         metadata.update({
@@ -186,7 +189,8 @@ def extract_readme_description(readme_path: Path) -> str:
             description = description[:197] + "..."
         
         return description
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to extract description from {readme_path}: {e}")
         return ""
 
 

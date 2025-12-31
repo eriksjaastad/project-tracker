@@ -1,9 +1,16 @@
 """Git metadata extraction."""
 
+import sys
 import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+# Add parent directory to path for logger import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def get_last_commit_date(project_path: Path) -> Optional[str]:
@@ -24,8 +31,15 @@ def get_last_commit_date(project_path: Path) -> Optional[str]:
         
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
-        pass
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Git command timed out for {project_path}")
+        return None
+    except FileNotFoundError:
+        logger.warning(f"Git executable not found for {project_path}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to get git commit date for {project_path}: {e}")
+        return None
     
     return None
 
@@ -46,8 +60,8 @@ def get_last_modified_fallback(project_path: Path) -> str:
         if files:
             most_recent = max(f.stat().st_mtime for f in files)
             return datetime.fromtimestamp(most_recent).isoformat()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to get file modification times for {project_path}: {e}")
     
     return datetime.now().isoformat()
 
