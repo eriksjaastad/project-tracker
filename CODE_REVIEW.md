@@ -325,13 +325,26 @@ When you come back to this in 3 months, you will:
 
 ## What You Should Actually Do
 
-1. **Fix the SQL injection** (non-negotiable)
-2. **Make paths configurable** (or it's just a personal toy)
-3. **Add logging** (or you'll never know when it breaks)
-4. **Delete work_log, service categories, infrastructure detection** (noise)
-5. **Write 5 tests for the parsers** (or you can't trust the data)
+- [ ] 1. **Fix the SQL injection** (non-negotiable)
+- [ ] 2. **Make paths configurable** (or it's just a personal toy)
+- [ ] 3. **Add logging** (or you'll never know when it breaks)
+- [ ] 4. **Delete work_log, service categories, infrastructure detection** (noise)
+- [ ] 5. **Write 5 tests for the parsers** (or you can't trust the data)
 
 Then decide if you actually use it for 2 weeks. If you don't, delete the project and use a spreadsheet like a normal person.
+
+---
+
+## Progress Update (Dec 31, 2025)
+
+**New features built DURING code review:**
+- ✅ Code review tracking system with progress bars
+- ✅ Full border highlighting for projects with open reviews
+- ✅ Prominent code review status on project cards
+- ✅ CODE_QUALITY_STANDARDS.md added to project-scaffolding (NO SILENT FAILURES rule)
+- ✅ Meta-tracking works: Dashboard tracks its own code review
+
+**Review action items:** 0/5 completed (see checkboxes above)
 
 ---
 
