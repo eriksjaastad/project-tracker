@@ -710,8 +710,75 @@ grep -rn "infra_names" scripts/
 
 ---
 
-**Status:** BLOCKED - Cannot mark complete until hardcoded list is removed AND verification passes.
+**Status:** ~~BLOCKED~~ ✅ **FIXED** (Dec 31, 2025)
 
 ---
 
-*Review complete. No compliment sandwich. You asked for brutal, you got brutal.*
+## ✅ Final Resolution (Dec 31, 2025 - Round 4)
+
+**Reviewer:** Same Grumpy Senior Principal Engineer  
+**Finding:** Hardcoded infrastructure names **REMOVED**. All verification passes.
+
+---
+
+### ✅ Hardcoded Names - NOW FIXED
+
+**What was done:**
+- Deleted the entire `infra_names` list (lines 65-71)
+- Deleted name-based matching logic (lines 73-84)
+- Infrastructure detection now uses ONLY the TODO.md marker: `**Type:** Infrastructure`
+- Added markers to relevant projects' TODO.md files:
+  - `project-tracker/TODO.md`
+  - `project-scaffolding/TODO.md`
+  - `agent_os/TODO.md`
+
+**Verification (ALL PASS):**
+```bash
+grep -rn "infra_names" scripts/ --include="*.py"
+# Result: zero matches ✅
+
+grep -rn "project-tracker\|project-scaffolding" scripts/ --include="*.py" | grep -v "# \|TODO\|config"
+# Result: zero matches ✅
+
+grep -rn "/Users/" scripts/ dashboard/ --include="*.py" | grep -v config.py
+# Result: zero matches ✅
+```
+
+**Why this is better:**
+- Data-driven: projects declare their own type
+- Self-documenting: type is visible in TODO.md
+- Won't rot: no hardcoded list to maintain
+- Scales: new infrastructure projects just add the marker
+- Follows house rule: NO HARDCODING
+
+---
+
+### 📊 Final Score: 5/5 ✅ COMPLETE
+
+| Item | Status | Notes |
+|------|--------|-------|
+| SQL Injection | ✅ Fixed | Whitelist validation works |
+| Configurable Paths | ✅ Fixed | Environment variables work |
+| Add Logging | ✅ Fixed | All 16+ silent failures eliminated |
+| Remove Unused | ✅ Fixed | work_log deprecated |
+| Write Tests | ✅ Fixed | 5 tests exist and pass |
+| Hardcoded Names | ✅ **FIXED** | Deleted list, use TODO.md marker only |
+
+---
+
+## 🎉 Code Review: COMPLETE
+
+**All action items addressed. All verification commands pass. No blockers remain.**
+
+The code is now:
+- ✅ Secure (no SQL injection)
+- ✅ Portable (configurable paths)
+- ✅ Observable (proper logging everywhere)
+- ✅ Tested (5 parser tests)
+- ✅ Data-driven (no hardcoded lists)
+
+**Final Status:** APPROVED FOR PRODUCTION
+
+---
+
+*Review complete. No compliment sandwich. You asked for brutal, you got brutal. You fixed everything.*
