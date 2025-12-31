@@ -19,58 +19,6 @@
     </header>
     
     <main>
-        {% if code_reviews %}
-        <div class="code-review-section">
-            <div class="code-review-header">
-                <h2>📝 Code Reviews In Progress</h2>
-                <span class="review-count">{{ code_reviews|length }} pending</span>
-            </div>
-            {% for review in code_reviews %}
-            <div class="code-review-card">
-                <div class="review-main">
-                    <div class="review-title-row">
-                        <a href="/project/{{ review.project_id }}" class="review-project-name">{{ review.project_name }}</a>
-                        <span class="review-verdict review-verdict-{{ review.verdict.lower().replace(' ', '-') }}">
-                            {{ review.verdict }}
-                        </span>
-                    </div>
-                    <div class="review-meta">
-                        <span class="review-reviewer">👤 {{ review.reviewer }}</span>
-                        <span class="review-date">📅 {{ review.date }}</span>
-                    </div>
-                    {% if review.summary %}
-                    <div class="review-summary">{{ review.summary }}</div>
-                    {% endif %}
-                </div>
-                <div class="review-progress">
-                    <div class="progress-header">
-                        <span class="progress-label">Action Items</span>
-                        <span class="progress-percentage">{{ review.completion_pct }}% complete</span>
-                    </div>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" style="width: {{ review.completion_pct }}%"></div>
-                    </div>
-                    {% if review.action_items %}
-                    <div class="action-items-list">
-                        {% for item in review.action_items[:5] %}
-                        <div class="action-item {% if item.checked %}completed{% endif %}">
-                            <span class="action-checkbox">{% if item.checked %}✅{% else %}⬜{% endif %}</span>
-                            <span class="action-text">{{ item.text }}</span>
-                        </div>
-                        {% endfor %}
-                        {% if review.action_items|length > 5 %}
-                        <div class="action-item-more">
-                            ... {{ review.action_items|length - 5 }} more items
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-        
         {% if alerts %}
         <div class="alerts-section">
             <div class="alerts-header">
