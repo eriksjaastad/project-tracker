@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from db.manager import DatabaseManager
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
+from discovery.code_review_parser import parse_code_review
 
 app = FastAPI(title="Project Tracker Dashboard")
 
@@ -166,10 +167,24 @@ async def dashboard(request: Request):
     # Get alerts
     alerts = get_all_alerts(enriched_projects)
     
+    # Collect code reviews separately for prominent display
+    code_reviews = []
+    for project in enriched_projects:
+        review_path = Path(project["path"]) / "CODE_REVIEW.md"
+        if review_path.exists():
+            review_data = parse_code_review(review_path)
+            if review_data and review_data.get("completion_pct", 100) < 100:
+                code_reviews.append({
+                    "project_id": project["id"],
+                    "project_name": project["name"],
+                    **review_data
+                })
+    
     return templates.TemplateResponse("index.html", {
         "request": request,
         "projects": enriched_projects,
         "alerts": alerts,
+        "code_reviews": code_reviews,
         "total_projects": len(projects)
     })
 

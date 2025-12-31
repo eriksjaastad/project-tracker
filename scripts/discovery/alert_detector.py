@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from .cron_monitor import check_cron_health
+from .code_review_parser import parse_code_review
 from scripts.db.manager import DatabaseManager
 
 
@@ -149,12 +150,51 @@ def detect_cron_failures(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return alerts
 
 
+def detect_code_reviews(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Detect projects with pending code reviews."""
+    alerts = []
+    
+    for project in projects:
+        review_path = Path(project["path"]) / "CODE_REVIEW.md"
+        if review_path.exists():
+            review_data = parse_code_review(review_path)
+            if review_data:
+                status = review_data.get("status", "pending")
+                verdict = review_data.get("verdict", "Unknown")
+                reviewer = review_data.get("reviewer", "Unknown")
+                
+                # Determine severity based on verdict
+                severity = "warning"
+                if "production" in verdict.lower() or "approved" in verdict.lower():
+                    severity = "info"
+                elif "delete" in verdict.lower() or "refactor" in verdict.lower():
+                    severity = "warning"
+                
+                # Create alert message
+                message = f"Code review: {verdict}"
+                details = f"Reviewer: {reviewer}"
+                if review_data.get("summary"):
+                    details += f" | {review_data['summary'][:80]}..."
+                
+                alerts.append({
+                    "project_id": project["id"],
+                    "project_name": project["name"],
+                    "type": "code_review",
+                    "severity": severity,
+                    "message": message,
+                    "details": details
+                })
+    
+    return alerts
+
+
 def get_all_alerts(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Get all alerts for all projects."""
     all_alerts = []
     
     # Detect different types of issues
     all_alerts.extend(detect_blocked_projects(projects))
+    all_alerts.extend(detect_code_reviews(projects))  # Add code review detection
     all_alerts.extend(detect_cron_failures(projects))
     all_alerts.extend(detect_stalled_projects(projects))
     all_alerts.extend(detect_missing_todo(projects))

@@ -75,6 +75,204 @@ main {
     padding: 2rem;
 }
 
+/* Code Review Section */
+
+.code-review-section {
+    margin-bottom: 2rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1.5rem;
+    border: 2px solid #ffa726;  /* Orange border to stand out */
+}
+
+.code-review-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #ffa726;
+}
+
+.code-review-header h2 {
+    font-size: 1.3rem;
+    color: #ffa726;
+    margin: 0;
+}
+
+.review-count {
+    color: #999;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.code-review-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    border-left: 4px solid #ffa726;
+}
+
+.code-review-card:last-child {
+    margin-bottom: 0;
+}
+
+.review-main {
+    margin-bottom: 1.5rem;
+}
+
+.review-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.review-project-name {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.review-project-name:hover {
+    color: #ffa726;
+}
+
+.review-verdict {
+    padding: 0.35rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.review-verdict-needs-major-refactor {
+    background: rgba(255, 152, 0, 0.2);
+    color: #ffa726;
+    border: 1px solid #ffa726;
+}
+
+.review-verdict-production-grade-tooling {
+    background: rgba(76, 175, 80, 0.2);
+    color: #4caf50;
+    border: 1px solid #4caf50;
+}
+
+.review-verdict-delete-\&-simplify {
+    background: rgba(244, 67, 54, 0.2);
+    color: #f44336;
+    border: 1px solid #f44336;
+}
+
+.review-verdict-premature-optimization {
+    background: rgba(255, 193, 7, 0.2);
+    color: #ffc107;
+    border: 1px solid #ffc107;
+}
+
+.review-meta {
+    display: flex;
+    gap: 1.5rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: 0.75rem;
+}
+
+.review-summary {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    font-style: italic;
+    line-height: 1.5;
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+}
+
+.review-progress {
+    border-top: 1px solid var(--border-color);
+    padding-top: 1.25rem;
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.progress-label {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+.progress-percentage {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #ffa726;
+}
+
+.progress-bar-container {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+    height: 12px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #ffa726, #ff9800);
+    transition: width 0.3s ease;
+    border-radius: 10px;
+}
+
+.action-items-list {
+    margin-top: 0.75rem;
+}
+
+.action-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    margin-bottom: 0.35rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.action-item.completed {
+    opacity: 0.6;
+}
+
+.action-item.completed .action-text {
+    text-decoration: line-through;
+    color: var(--text-secondary);
+}
+
+.action-checkbox {
+    flex-shrink: 0;
+    font-size: 1rem;
+}
+
+.action-text {
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+
+.action-item-more {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-style: italic;
+    padding: 0.5rem;
+    text-align: center;
+}
+
 /* Alerts Section - Compact Design */
 
 .alerts-section {
