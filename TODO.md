@@ -19,10 +19,13 @@
 - ✅ **Sorting:** Newest work first (chronological)
 - ✅ **Meta-tracking:** Dashboard tracks itself!
 
+### In Progress 🔄
+- **Code Review** - Submitted to GitHub (Dec 30, 2025), awaiting feedback
+
 ### What's Missing ❌
-- **Alerts/Warnings Dashboard** - No top-level warnings table yet
-- **Cron Issue Detection** - Not checking for cron job failures
-- **Code Review Integration** - No code review file format/display
+- **Alerts/Warnings Dashboard** - Needs refinement based on code review
+- **Cron Issue Detection** - Needs validation in code review
+- **Code Review Integration** - No code review file format/display yet
 - **Auto-detection:** Cron jobs still only from TODO.md (not system crontab)
 
 ### Key Decisions Made
@@ -126,6 +129,28 @@
 - Detects missed runs based on schedule
 - Shows alerts for: invalid schedules, not installed, execution errors, missed runs
 - Severity levels: Critical (errors, missed runs), Warning (not installed, invalid)
+
+#### Task 3.2b: GitHub & Code Review Submission ✅
+
+**Status:** ✅ **COMPLETE!** (Dec 30, 2025)
+
+- [x] Initialize git repository
+- [x] Verify `.gitignore` is comprehensive (no secrets, no data, no keys)
+- [x] Create GitHub repository (public)
+- [x] Push all code to GitHub
+- [x] Create CODE_REVIEW_REQUEST.md following project-scaffolding pattern
+- [x] Use "grumpy reviewer" approach (no politeness, find problems)
+- [x] Document 10+ failure modes to investigate
+- [x] Add Theater vs Tool test (what's actually useful?)
+- [x] Commit and push code review request
+
+**GitHub:** https://github.com/eriksjaastad/project-tracker
+
+**Code review emphasizes:**
+- Finding fragile/over-engineered parts
+- Identifying what will break in 3-6 months
+- Challenging if this solves the right problem
+- No "everything looks good" reviews accepted
 
 #### Task 3.3: External Services & Process Catalog
 
