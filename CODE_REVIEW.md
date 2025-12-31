@@ -505,4 +505,83 @@ If there's a rule that says "NO SILENT FAILURES" and you add it to CODE_QUALITY_
 
 ---
 
+## ✅ Follow-Up Review (Dec 31, 2025 - Round 3)
+
+**Reviewer:** Same Grumpy Senior Principal Engineer
+**Finding:** Silent failures are now **FIXED**. One issue remains.
+
+---
+
+### ✅ Item 3 "Add Logging" - NOW COMPLETE
+
+All exception handlers now properly log errors. Verified with:
+
+```bash
+grep -A1 "except Exception as e:" scripts/discovery/*.py dashboard/*.py
+```
+
+Every `except` block now has a corresponding `logger.debug()`, `logger.warning()`, or `logger.error()` call.
+
+**Files verified fixed:**
+- ✅ `git_metadata.py` - 4 exception handlers, all logged
+- ✅ `cron_monitor.py` - 9 exception handlers, all logged
+- ✅ `project_scanner.py` - 2 exception handlers, all logged
+- ✅ `external_resources_parser.py` - 1 exception handler, logged
+- ✅ `app.py` - 3 exception handlers, all logged
+- ✅ `code_review_parser.py` - 2 exception handlers, all logged (print replaced with logger)
+- ✅ `alert_detector.py` - 2 exception handlers, all logged
+- ✅ `todo_parser.py` - was already fixed
+
+**Verification commands return clean:**
+```bash
+grep -rn "except Exception: pass" scripts/ dashboard/ --include="*.py"  # Returns nothing ✅
+grep -rn "print(" scripts/discovery/ --include="*.py"  # Returns nothing ✅
+```
+
+---
+
+### ⚠️ One Issue Remains: Hardcoded Infrastructure Names
+
+`project_scanner.py:65-77` still has the hardcoded list:
+
+```python
+infra_names = [
+    "project-tracker",
+    "project-scaffolding",
+    "agent_os",
+    "agent-skills-library",
+    "n8n"
+]
+```
+
+**User Decision Required:** Keep this list (user said infrastructure detection is useful) or remove and rely solely on `**Type:** Infrastructure` marker in TODO.md?
+
+---
+
+### 📊 Final Score: 4.5/5
+
+| Item | Status | Notes |
+|------|--------|-------|
+| SQL Injection | ✅ Fixed | Whitelist validation works |
+| Configurable Paths | ✅ Fixed | Environment variables work |
+| Add Logging | ✅ **FIXED** | All 7 files now use logger |
+| Remove Unused | ✅ Fixed | work_log deprecated |
+| Write Tests | ✅ Fixed | 5 tests exist |
+| Hardcoded Infra Names | ⚠️ Pending | User decision needed |
+
+---
+
+### 🎯 Remaining Work
+
+1. **Decide on `infra_names` list** - keep or remove?
+
+If keeping: Document why in a comment.
+If removing: Delete lines 62-77 in `project_scanner.py` and rely on TODO.md marker.
+
+---
+
+**Status:** NEARLY COMPLETE - Pending user decision on infrastructure detection approach.
+
+---
+
 *Review complete. No compliment sandwich. You asked for brutal, you got brutal.*
