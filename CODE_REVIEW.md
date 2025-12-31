@@ -381,7 +381,116 @@ Then decide if you actually use it for 2 weeks. If you don't, delete the project
   - Test project name normalization
 - Run with: `pytest tests/test_parsers.py`
 
-**Code Review Status:** COMPLETE - Ready for production use!
+**Code Review Status:** ~~COMPLETE~~ **INCOMPLETE** - See follow-up review below
+
+---
+
+## 🔥 Follow-Up Review (Dec 31, 2025 - Round 2)
+
+**Reviewer:** Same Grumpy Senior Principal Engineer
+**Finding:** The "5/5 COMPLETED" claim is **false**. Silent failures are still everywhere.
+
+---
+
+### ❌ Item 3 "Add Logging" - NOT ACTUALLY DONE
+
+The logging was only added to **one file** (`todo_parser.py`). The other 6+ files with silent failures were not touched.
+
+**STILL BROKEN - Silent Failures Remain:**
+
+#### `git_metadata.py`:
+- **Line 27-28:** `except (subprocess.TimeoutExpired, FileNotFoundError, Exception): pass` - SILENT
+- **Line 49-50:** `except Exception: pass` - SILENT
+
+#### `cron_monitor.py`:
+- **Line 95-96:** `except Exception: return False` - SILENT
+- **Line 122-123:** `except Exception: return False, None` - SILENT
+- **Line 195-196:** `except Exception: continue` - SILENT
+- **Line 202-203:** `except Exception: return None, None` - SILENT
+- **Line 211-212:** `except Exception: pass` - SILENT
+- **Line 224-225:** `except Exception: continue` - SILENT
+- **Line 251-252:** `except Exception: return None` - SILENT
+
+#### `project_scanner.py`:
+- **Line 113-114:** `except Exception: pass` - SILENT
+- **Line 189-190:** `except Exception: return ""` - SILENT
+
+#### `external_resources_parser.py`:
+- **Line 27-28:** `except Exception: return {}` - SILENT (logger not even imported)
+
+#### `app.py`:
+- **Line 53-54:** `except Exception: return iso_date` - SILENT
+
+#### `code_review_parser.py` (NEW FILE):
+- **Line 106-108:** Uses `print()` instead of logger - This is NOT proper logging!
+
+**Total: 13+ silent failure points still in codebase.**
+
+---
+
+### ❌ Hardcoded Infrastructure Names Still Present
+
+Despite discussion about removing hardcoded project names, `project_scanner.py:62-68` still has:
+
+```python
+infra_names = [
+    "project-tracker",
+    "project-scaffolding",
+    "agent_os",
+    "agent-skills-library",
+    "n8n"
+]
+```
+
+The TODO.md marker detection exists (line 84) but it's **additive**, not a replacement. This list should be deleted and infrastructure detection should rely solely on the `**Type:** Infrastructure` marker in TODO.md.
+
+---
+
+### ✅ What Was Actually Fixed
+
+1. **SQL Injection** - Properly fixed with whitelists ✅
+2. **Configurable Paths** - `config.py` works correctly ✅
+3. **work_log Deprecated** - Commented out in schema ✅
+4. **Tests Written** - 5 tests exist and pass ✅
+5. **Logging Infrastructure** - `logger.py` exists, but only used in 1 file ⚠️
+
+---
+
+### 📊 Revised Score: 3.5/5
+
+| Item | Status | Notes |
+|------|--------|-------|
+| SQL Injection | ✅ Fixed | Whitelist validation works |
+| Configurable Paths | ✅ Fixed | Environment variables work |
+| Add Logging | ⚠️ **PARTIAL** | Only `todo_parser.py` uses logger |
+| Remove Unused | ✅ Fixed | work_log deprecated |
+| Write Tests | ✅ Fixed | 5 tests exist |
+
+---
+
+### 🎯 What Still Needs To Happen
+
+1. **Import and use logger in all files with try/except blocks:**
+   - `git_metadata.py`
+   - `cron_monitor.py`
+   - `project_scanner.py`
+   - `external_resources_parser.py`
+   - `app.py`
+   - `code_review_parser.py`
+
+2. **Delete hardcoded `infra_names` list** and rely on TODO.md marker
+
+3. **Replace `print()` with `logger.error()`** in `code_review_parser.py`
+
+---
+
+### 💀 The Uncomfortable Truth
+
+Someone marked this as "COMPLETE" without actually verifying the work was done across all files. This is exactly the kind of thing that makes codebases rot.
+
+If there's a rule that says "NO SILENT FAILURES" and you add it to CODE_QUALITY_STANDARDS.md, but then only fix 1 out of 7 files... the rule is theater.
+
+**Revised Status:** NEEDS ADDITIONAL WORK
 
 ---
 
