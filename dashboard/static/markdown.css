@@ -1,0 +1,239 @@
+/* Markdown rendering styles for TODO viewer */
+
+.todo-container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: var(--bg-secondary);
+    padding: 3rem;
+    border-radius: 8px;
+}
+
+.todo-container h1 {
+    color: var(--status-active);
+    font-size: 2rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+
+.todo-container h2 {
+    color: var(--status-development);
+    font-size: 1.6rem;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.3rem;
+}
+
+.todo-container h3 {
+    color: var(--status-paused);
+    font-size: 1.3rem;
+    margin-top: 1.5rem;
+    margin-bottom: 0.8rem;
+}
+
+.todo-container h4 {
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.todo-container p {
+    margin-bottom: 1rem;
+    line-height: 1.7;
+}
+
+.todo-container ul,
+.todo-container ol {
+    margin-left: 2rem;
+    margin-bottom: 1rem;
+}
+
+.todo-container li {
+    margin: 0.5rem 0;
+    line-height: 1.6;
+}
+
+.todo-container ul ul,
+.todo-container ol ol {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Checkboxes in task lists */
+.todo-container input[type="checkbox"] {
+    margin-right: 0.5rem;
+    cursor: pointer;
+}
+
+.todo-container li:has(input[type="checkbox"]) {
+    list-style: none;
+    margin-left: -1.5rem;
+}
+
+/* Code blocks */
+.todo-container code {
+    background: var(--bg-primary);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-family: 'Monaco', 'Courier New', monospace;
+    font-size: 0.9em;
+    color: #f8f8f2;
+}
+
+.todo-container pre {
+    background: var(--bg-primary);
+    padding: 1.5rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border-color);
+}
+
+.todo-container pre code {
+    background: none;
+    padding: 0;
+}
+
+/* Tables */
+.todo-container table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+    overflow: hidden;
+    border-radius: 6px;
+}
+
+.todo-container th,
+.todo-container td {
+    border: 1px solid var(--border-color);
+    padding: 0.8rem 1rem;
+    text-align: left;
+}
+
+.todo-container th {
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+}
+
+.todo-container tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.todo-container tr:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* Blockquotes */
+.todo-container blockquote {
+    border-left: 4px solid var(--status-development);
+    padding-left: 1.5rem;
+    margin: 1.5rem 0;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.todo-container blockquote p {
+    margin-bottom: 0.5rem;
+}
+
+/* Horizontal rule */
+.todo-container hr {
+    border: none;
+    border-top: 2px solid var(--border-color);
+    margin: 2rem 0;
+}
+
+/* Links */
+.todo-container a {
+    color: var(--status-development);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+}
+
+.todo-container a:hover {
+    border-bottom-color: var(--status-development);
+}
+
+/* Strong/Bold */
+.todo-container strong {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Emphasis/Italic */
+.todo-container em {
+    font-style: italic;
+    color: var(--text-secondary);
+}
+
+/* Special markers */
+.todo-container .no-todo {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 3rem;
+    font-style: italic;
+}
+
+.todo-container .error {
+    color: var(--status-stalled);
+    background: rgba(244, 67, 54, 0.1);
+    padding: 1rem;
+    border-radius: 6px;
+    border-left: 4px solid var(--status-stalled);
+}
+
+/* Priority indicators (colored emojis replacement) */
+.todo-container li:contains("🔴") {
+    color: var(--status-stalled);
+}
+
+.todo-container li:contains("🟡") {
+    color: var(--status-paused);
+}
+
+.todo-container li:contains("🔵") {
+    color: var(--status-development);
+}
+
+.todo-container li:contains("🟢") {
+    color: var(--status-active);
+}
+
+/* Completed tasks styling */
+.todo-container li:has(input[type="checkbox"]:checked) {
+    text-decoration: line-through;
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .todo-container {
+        padding: 1.5rem;
+    }
+    
+    .todo-container h1 {
+        font-size: 1.6rem;
+    }
+    
+    .todo-container h2 {
+        font-size: 1.3rem;
+    }
+    
+    .todo-container table {
+        font-size: 0.85rem;
+    }
+    
+    .todo-container th,
+    .todo-container td {
+        padding: 0.5rem;
+    }
+}
+

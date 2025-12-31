@@ -1,0 +1,6 @@
+#!/bin/bash
+# Project Tracker launcher script
+
+cd "$(dirname "$0")"
+exec venv/bin/python scripts/pt.py "$@"
+

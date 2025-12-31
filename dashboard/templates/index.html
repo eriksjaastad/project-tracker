@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Tracker Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <meta http-equiv="refresh" content="300">  <!-- Auto-refresh every 5 minutes -->
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>📊 Project Dashboard</h1>
+            <div class="header-actions">
+                <span class="project-count">{{ total_projects }} projects</span>
+                <button onclick="refreshData()" class="btn-refresh">🔄 Refresh</button>
+            </div>
+        </div>
+    </header>
+    
+    <main>
+        {% if alerts %}
+        <div class="alerts-section">
+            <div class="alerts-header">
+                <h2>⚠️ Alerts</h2>
+                <span class="alerts-count">
+                    <a href="#" onclick="toggleAlerts('critical'); return false;" class="alert-toggle" id="toggle-critical">
+                        {{ alerts|selectattr('severity', 'equalto', 'critical')|list|length }} critical</a>, 
+                    <a href="#" onclick="toggleAlerts('warning'); return false;" class="alert-toggle" id="toggle-warning">
+                        {{ alerts|selectattr('severity', 'equalto', 'warning')|list|length }} warnings</a>,
+                    <a href="#" onclick="toggleAlerts('info'); return false;" class="alert-toggle" id="toggle-info">
+                        {{ alerts|selectattr('severity', 'equalto', 'info')|list|length }} info</a>
+                </span>
+            </div>
+            <div class="alerts-grid">
+                {% for alert in alerts %}
+                <a href="/project/{{ alert.project_id }}" class="alert-item alert-{{ alert.severity }}">
+                    <span class="alert-icon-small">
+                        {% if alert.severity == 'critical' %}🔴{% elif alert.severity == 'warning' %}⚠️{% else %}ℹ️{% endif %}
+                    </span>
+                    <span class="alert-project-name">{{ alert.project_name }}</span>
+                    <span class="alert-msg">{{ alert.message }}</span>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        
+        <div class="projects-grid">
+            {% for project in projects %}
+            <div class="project-card status-{{ project.status }}">
+                <div class="project-header">
+                    <div class="project-title-row">
+                        <h2>{{ project.name }}</h2>
+                        {% if project.is_infrastructure %}
+                        <span class="infra-badge" title="Infrastructure Project">🔧</span>
+                        {% endif %}
+                    </div>
+                    <span class="status-badge">{{ project.status }}</span>
+                </div>
+                
+                {% if project.description %}
+                <div class="project-description">
+                    {{ project.description }}
+                </div>
+                {% endif %}
+                
+                <div class="project-meta">
+                    <div class="meta-row space-between">
+                        <span class="meta-label">Last work:</span>
+                        <span class="meta-value">{{ project.last_modified_human }}</span>
+                    </div>
+                    
+                    {% if project.phase %}
+                    <div class="meta-row space-between">
+                        <span class="meta-label">Phase:</span>
+                        <span class="meta-value">{{ project.phase }}</span>
+                    </div>
+                    {% endif %}
+                    
+                    {% if project.ai_agents %}
+                    <div class="meta-row">
+                        <span class="meta-label">🤖 AI:</span>
+                        <span class="meta-value">{{ project.ai_agents|join(', ') }}</span>
+                    </div>
+                    {% endif %}
+                    
+                    {% if project.services_by_category %}
+                        {% if project.services_by_category.backend %}
+                        <div class="meta-row">
+                            <span class="meta-label">⚙️ Backend:</span>
+                            <span class="meta-value">
+                                {% for service in project.services_by_category.backend %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        
+                        {% if project.services_by_category.hosting %}
+                        <div class="meta-row">
+                            <span class="meta-label">🌐 Hosting:</span>
+                            <span class="meta-value">
+                                {% for service in project.services_by_category.hosting %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        
+                        {% if project.services_by_category.ai %}
+                        <div class="meta-row">
+                            <span class="meta-label">🤖 AI:</span>
+                            <span class="meta-value">
+                                {% for service in project.services_by_category.ai %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        
+                        {% if project.services_by_category.storage %}
+                        <div class="meta-row">
+                            <span class="meta-label">💾 Storage:</span>
+                            <span class="meta-value">
+                                {% for service in project.services_by_category.storage %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        
+                        {% if project.services_by_category.database %}
+                        <div class="meta-row">
+                            <span class="meta-label">🗄️ Database:</span>
+                            <span class="meta-value">
+                                {% for service in project.services_by_category.database %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        
+                        {% if project.services_by_category.notifications %}
+                        <div class="meta-row">
+                            <span class="meta-label">🔔 Notifications:</span>
+                            <span class="meta-value">
+                                {% for service in project.services_by_category.notifications %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        
+                        {% if project.services_by_category.monitoring %}
+                        <div class="meta-row">
+                            <span class="meta-label">💓 Monitoring:</span>
+                            <span class="meta-value">
+                                {% for service in project.services_by_category.monitoring %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        
+                        {% if project.services_by_category.other %}
+                        <div class="meta-row">
+                            <span class="meta-label">🔌 Other:</span>
+                            <span class="meta-value">
+                                {% for service in project.services_by_category.other %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </span>
+                        </div>
+                        {% endif %}
+                    {% endif %}
+                    
+                    {% if project.has_cron %}
+                    <div class="meta-row">
+                        <span class="meta-label">⏰ Cron:</span>
+                        <span class="meta-value">
+                            {{ project.cron_jobs|length }} job{% if project.cron_jobs|length > 1 %}s{% endif %}
+                            {% if project.cron_jobs|length == 1 %}
+                                ({{ project.cron_jobs[0].schedule }})
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {{ project.completion_pct }}%"></div>
+                    <span class="progress-label">{{ project.completion_pct }}% complete</span>
+                </div>
+                
+                <div class="project-actions">
+                    <a href="/project/{{ project.id }}" class="btn btn-secondary">Details</a>
+                    <a href="/todo/{{ project.id }}" class="btn btn-primary">View TODO</a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        {% if not projects %}
+        <div class="empty-state">
+            <h2>No projects found</h2>
+            <p>Run <code>pt scan</code> to discover projects, or click the Refresh button above.</p>
+        </div>
+        {% endif %}
+    </main>
+    
+    <script src="/static/script.js"></script>
+</body>
+</html>
+

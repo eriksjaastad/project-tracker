@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ project.name }} - Details</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>📁 {{ project.name }}</h1>
+            <div class="header-actions">
+                <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+                <a href="/todo/{{ project.id }}" class="btn btn-primary">View TODO</a>
+            </div>
+        </div>
+    </header>
+    
+    <main>
+        <div class="detail-container">
+            <section class="detail-section">
+                <h2>Project Information</h2>
+                <dl class="detail-list">
+                    <dt>Status:</dt>
+                    <dd><span class="status-badge">{{ project.status }}</span></dd>
+                    
+                    {% if project.phase %}
+                    <dt>Phase:</dt>
+                    <dd>{{ project.phase }}</dd>
+                    {% endif %}
+                    
+                    <dt>Progress:</dt>
+                    <dd>{{ project.completion_pct }}% complete</dd>
+                    
+                    <dt>Last Modified:</dt>
+                    <dd>{{ project.last_modified_human }}</dd>
+                    
+                    <dt>Path:</dt>
+                    <dd><code>{{ project.path }}</code></dd>
+                </dl>
+                
+                {% if project.description %}
+                <div class="description">
+                    <h3>Description</h3>
+                    <p>{{ project.description }}</p>
+                </div>
+                {% endif %}
+            </section>
+            
+            {% if project.ai_agents %}
+            <section class="detail-section">
+                <h2>🤖 AI Agents</h2>
+                <ul class="agent-list">
+                    {% for agent in project.ai_agents %}
+                    <li>{{ agent }}</li>
+                    {% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+            
+            {% if project.cron_jobs %}
+            <section class="detail-section">
+                <h2>⏰ Scheduled Jobs</h2>
+                {% for job in project.cron_jobs %}
+                <div class="cron-job">
+                    <div class="cron-schedule"><code>{{ job.schedule }}</code></div>
+                    <div class="cron-command"><code>{{ job.command }}</code></div>
+                    {% if job.description %}
+                    <div class="cron-description">{{ job.description }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </section>
+            {% endif %}
+            
+            {% if project.service_details %}
+            <section class="detail-section">
+                <h2>🔌 External Services</h2>
+                <table class="services-table">
+                    <thead>
+                        <tr>
+                            <th>Service</th>
+                            <th>Purpose</th>
+                            <th>Cost/Month</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for service in project.service_details %}
+                        <tr>
+                            <td><strong>{{ service.service_name }}</strong></td>
+                            <td>{{ service.purpose or '-' }}</td>
+                            <td>{{ ('$%.2f'|format(service.cost_monthly) if service.cost_monthly else '-') }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+            {% endif %}
+            
+            {% if work_log %}
+            <section class="detail-section">
+                <h2>📊 Recent Activity</h2>
+                <ul class="work-log">
+                    {% for entry in work_log %}
+                    <li>
+                        <span class="log-time">{{ entry.timestamp.split('T')[0] }}</span>
+                        <span class="log-type">{{ entry.event_type }}</span>
+                        {% if entry.details %}
+                        <span class="log-details">{{ entry.details }}</span>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </section>
+            {% endif %}
+        </div>
+    </main>
+</body>
+</html>
+

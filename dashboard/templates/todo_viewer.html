@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ project.name }} - TODO</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/markdown.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>📋 {{ project.name }} - TODO</h1>
+            <div class="header-actions">
+                <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+            </div>
+        </div>
+    </header>
+    
+    <main>
+        <div class="todo-container">
+            {{ todo_html|safe }}
+        </div>
+    </main>
+</body>
+</html>
+
