@@ -25,6 +25,9 @@ python-dateutil==2.9.0
 # Cron job parsing
 croniter==2.0.1
 
+# YAML parsing
+pyyaml==6.0.1
+
 # Testing
 pytest==8.0.0
 
