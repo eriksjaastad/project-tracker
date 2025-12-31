@@ -464,34 +464,32 @@ Last work: 45 days ago              82% complete
 
 ## 🎯 Success Criteria
 
-### Phase 0 Complete When:
-- [ ] TODO standard template exists in project-scaffolding
-- [ ] At least 3 projects using standard TODO format
-- [ ] Erik approves format as "this is what I want"
+### Phase 0: TODO Standardization ✅ **COMPLETE** (Dec 30, 2025)
+- [x] TODO standard template exists in project-scaffolding ✅ `templates/TODO.md.template` (6K)
+- [x] TODO format documentation exists ✅ `docs/TODO_FORMAT_STANDARD.md` (14K)
+- [x] At least 3 projects using standard TODO format ✅ project-tracker, project-scaffolding, Trading Projects
+- [x] Erik approves format as "this is what I want" ✅ **APPROVED**
 
-### Dashboard MVP Complete When:
-- [ ] SQLite database exists with all tables
-- [ ] CLI can add, list, and scan projects
-- [ ] Web dashboard shows all projects sorted by last work **KEY**
-- [ ] Dashboard displays AI agents per project **KEY**
-- [ ] Dashboard shows cron jobs indicator **KEY**
-- [ ] Dashboard shows services used **KEY**
-- [ ] Click project → view rendered TODO.md **KEY**
-- [ ] Progress bars show completion % **KEY**
-- [ ] Dashboard tracks itself in projects list **META KEY**
-- [ ] Successfully tested on 5+ real projects
-- [ ] Erik uses dashboard daily for 1 week
+### Dashboard MVP ✅ **COMPLETE** (Dec 31, 2025)
+- [x] SQLite database exists with all tables ✅
+- [x] CLI can add, list, and scan projects ✅ `./pt scan`, `./pt list`, `./pt launch`
+- [x] Web dashboard shows all projects sorted by last work ✅ **33 projects tracked**
+- [x] Dashboard displays AI agents per project ✅ Extracted from TODO.md
+- [x] Dashboard shows cron jobs indicator ✅ Cron monitoring integrated
+- [x] Dashboard shows services used ✅ From EXTERNAL_RESOURCES.yaml
+- [x] Click project → view rendered TODO.md ✅ Full markdown rendering
+- [x] Progress bars show completion % ✅ Calculated from TODO.md checkboxes
+- [x] Dashboard tracks itself in projects list ✅ **Meta-tracking works!**
+- [x] Successfully tested on 5+ real projects ✅ Tested on all 33 projects
+- [ ] Erik uses dashboard daily for 1 week 🕐 **IN PROGRESS** - Starting now!
 
-### Phase 1 Complete When:
-- [ ] Daily automation refreshes data
-- [ ] Enhanced metadata extracted from project files
-- [ ] Dashboard has search/filter/grouping
+### Phase 1: Won't Do / Deferred
+- [x] ~~Daily automation refreshes data~~ **WON'T DO** - Scan on launch is sufficient
+- [x] ~~Enhanced metadata extracted~~ **DONE** - README descriptions extracted
+- [x] ~~Dashboard has search/filter/grouping~~ **DEFERRED** - Moved to "Shower Thoughts"
 
-### Phase 2 Complete When:
-- [ ] Context switching helper is daily-use tool
-- [ ] Git integration shows meaningful metrics
-- [ ] Cost tracking integrated
-- [ ] Pattern extracted to project-scaffolding
+### Phase 2: Future Ideas (See "Shower Thoughts" section)
+- Timeline views, context switching, git integration, cost tracking - All moved to ideation section
 
 ---
 
