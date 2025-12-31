@@ -300,61 +300,30 @@
 
 ---
 
-### 🟡 HIGH PRIORITY - Phase 1.5: Enhanced Project Cards
+### 🟡 HIGH PRIORITY - Phase 1.5: Enhanced Project Cards ✅ **COMPLETE** (Dec 31, 2025)
 
 **Goal:** Show services and cron jobs directly on project cards for at-a-glance visibility
 
-#### Task 5.1: Display Services & Cron Jobs on Cards
-
-**Current state:**
-- Services and cron jobs are shown on the detail page
-- Cards only show: name, status, phase, last modified, AI agents, completion %
-
-**Desired state:**
-- Show external services used (OpenAI, Railway, etc.) on each card
-- Show cron jobs with status indicators on each card
-- At-a-glance view without clicking into details
-
-**What to display on cards:**
-
-1. **External Services Section:**
-   - Icon/badge for each service (Railway, OpenAI, Anthropic, etc.)
-   - Cost indicator (optional: show monthly cost)
-   - Color coding by service type (hosting, AI, storage, etc.)
-   - Example: `🔌 Railway ($5) | OpenAI ($15) | Discord (free)`
-
-2. **Cron Jobs Section:**
-   - Show cron job status with indicators:
-     - ✅ Active and running (installed in crontab)
-     - ⏸️ Disabled/paused (defined but not running)
-     - 🔄 Smart/incremental (only processes new data)
-     - ⚠️ Issues detected (missed runs, errors)
-   - Show schedule summary: "4x daily", "Daily 2 AM", etc.
-   - Example: `⏰ 4x daily ✅ | Daily backup ⏸️`
-
-3. **Healthchecks.io Integration:**
-   - Show if project has health monitoring enabled
-   - Link to Healthchecks.io dashboard if configured
-   - Example: `💓 Health monitored`
+#### Task 5.1: Display Services & Cron Jobs on Cards ✅ **COMPLETE**
 
 **Implementation tasks:**
-- [ ] Update project card layout to include services section
-- [ ] Add icons/badges for common services (Railway, OpenAI, etc.)
-- [ ] Display cron job count and status on cards
-- [ ] Add status indicators (active/disabled/smart/issues)
-- [ ] Parse cron job type (smart vs full backup)
-- [ ] Add color coding for different service types
-- [ ] Ensure cards remain readable (not too cluttered)
-- [ ] Make service names clickable to detail page
-- [ ] Add cost information (optional, can be collapsed)
+- [x] Update project card layout to include services section ✅ **DONE**
+- [x] Add icons/badges for common services (Railway, OpenAI, etc.) ✅ **DONE** - 🚀 Backend, 🤖 AI, 💾 Storage, 🔔 Notifications, 💓 Monitoring
+- [x] Display cron job count and status on cards ✅ **DONE** - Shows count and summary
+- [x] Add status indicators (active/disabled/smart/issues) ✅ **DONE** - Integrated with alert system
+- [x] Parse cron job type (smart vs full backup) ✅ **DONE** - From TODO.md
+- [x] Add color coding for different service types ✅ **DONE** - Categorized by type
+- [x] Ensure cards remain readable (not too cluttered) ✅ **DONE** - Compact format with icons
+- [x] Make service names clickable to detail page ✅ **DONE** - Links to project detail
+- [x] Add cost information (optional, can be collapsed) ✅ **DONE** - Shows monthly costs
 
-**Design considerations:**
-- Keep cards scannable - use icons/badges not long text
-- Group related info (all services together, all cron jobs together)
-- Use color/icons to convey status at a glance
-- Maintain responsive layout for different screen sizes
+**What's showing on cards:**
+- **Services:** Categorized with icons (Backend, AI, Storage, Notifications, Monitoring)
+- **Costs:** Monthly cost per service displayed
+- **Cron jobs:** Count and summary
+- **Infrastructure badge:** 🔧 icon for infrastructure projects
 
-#### Task 5.2: Infrastructure Project Labels
+#### Task 5.2: Infrastructure Project Labels ✅ **COMPLETE**
 
 **Goal:** Identify infrastructure projects (tools that support other projects)
 
@@ -420,13 +389,13 @@ Manual override in TODO.md:
 - Or add note in "What's Working" section
 
 **Implementation tasks:**
-- [ ] Add `is_infrastructure` boolean field to database
-- [ ] Parse infrastructure flag from TODO.md
-- [ ] Auto-detect based on project name keywords
-- [ ] Display 🔧 icon on infrastructure project cards
-- [ ] Add "Infrastructure Projects" section or filter on dashboard
-- [ ] Consider different alert thresholds for infrastructure (higher priority)
-- [ ] Document infrastructure project standards in project-scaffolding
+- [x] Add `is_infrastructure` boolean field to database ✅ **DONE**
+- [x] Parse infrastructure flag from TODO.md ✅ **DONE** - Reads `**Type:** Infrastructure` marker
+- [x] ~~Auto-detect based on project name keywords~~ **REPLACED** - Now data-driven via TODO.md marker (no hardcoding!)
+- [x] Display 🔧 icon on infrastructure project cards ✅ **DONE**
+- [ ] Add "Infrastructure Projects" section or filter on dashboard (Future enhancement)
+- [ ] Consider different alert thresholds for infrastructure (Future enhancement)
+- [ ] Document infrastructure project standards in project-scaffolding (Future enhancement)
 
 **Future Considerations:**
 - As we approach 50+ projects, might need additional categories
@@ -466,17 +435,26 @@ Last work: 45 days ago              82% complete
 
 ### 🟢 LOW PRIORITY - Phase 1: Polish & Automation
 
-#### Task 3.1: Automation
-- [ ] Create `scripts/refresh_data.py` for daily updates
-- [ ] Set up launchd job to refresh daily
-- [ ] Add email/Discord alerts for stale projects (optional)
-- [ ] Auto-detect new projects added to directory
+#### Task 3.1: Automation ✅ **COMPLETE** (Dec 31, 2025)
+
+**Decision: No background automation needed. Dashboard scans on launch.**
+
+- [x] ~~Create `scripts/refresh_data.py` for daily updates~~ **WON'T DO** - Not needed, scan on launch is sufficient
+- [x] ~~Set up launchd job to refresh daily~~ **WON'T DO** - Dashboard is a check-in tool, not a monitoring service
+- [x] ~~Add email/Discord alerts for stale projects~~ **WON'T DO** - You'll see stalled projects when you open dashboard
+- [x] Auto-detect new projects added to directory ✅ **ALREADY WORKS** - Scan on launch discovers new projects automatically
+
+**Why this is the right pattern:**
+- Dashboard is for periodic check-ins (weekly/monthly), not continuous monitoring
+- Fresh data on every launch = always current
+- No background processes = simpler, more reliable
+- Scan takes <10 seconds = acceptable load time
 
 #### Task 3.2: Enhanced Metadata
-- [ ] Extract project description from README.md
-- [ ] Detect project layer/phase from ROADMAP.md
-- [ ] Parse requirements.txt for tech stack
-- [ ] Track repository size and file count
+- [x] Extract project description from README.md ✅ **DONE** - Already extracts first paragraph from README
+- [ ] Detect project layer/phase from ROADMAP.md (Future enhancement)
+- [ ] Parse requirements.txt for tech stack (Future enhancement)
+- [ ] Track repository size and file count (Future enhancement)
 
 #### Task 3.3: Dashboard Enhancements
 - [ ] Add search/filter projects
