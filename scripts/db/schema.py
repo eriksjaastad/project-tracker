@@ -1,15 +1,18 @@
 """Database schema for project tracker."""
 
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Optional
+
+# Add parent directory to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from config import DATABASE_PATH
 
 
 def get_db_path() -> Path:
     """Get the database file path."""
-    db_dir = Path(__file__).parent.parent.parent / "data"
-    db_dir.mkdir(exist_ok=True)
-    return db_dir / "tracker.db"
+    return DATABASE_PATH
 
 
 def create_database(db_path: Optional[Path] = None) -> None:
@@ -100,18 +103,6 @@ def create_database(db_path: Optional[Path] = None) -> None:
         )
     """)
     
-    # Activity log (DEPRECATED - not providing value, consider removing)
-    # cursor.execute("""
-    #     CREATE TABLE IF NOT EXISTS work_log (
-    #         id INTEGER PRIMARY KEY AUTOINCREMENT,
-    #         project_id TEXT NOT NULL,
-    #         timestamp TEXT NOT NULL,
-    #         event_type TEXT,
-    #         details TEXT,
-    #         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-    #     )
-    # """)
-    
     # Create indexes for performance
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_projects_last_modified 
@@ -137,11 +128,6 @@ def create_database(db_path: Optional[Path] = None) -> None:
         CREATE INDEX IF NOT EXISTS idx_service_deps_project 
         ON service_dependencies(project_id)
     """)
-    
-    # cursor.execute("""
-    #     CREATE INDEX IF NOT EXISTS idx_work_log_project 
-    #     ON work_log(project_id)
-    # """)
     
     conn.commit()
     conn.close()
