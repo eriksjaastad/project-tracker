@@ -110,3 +110,21 @@ Project status monitoring and reporting system for tracking lifecycle and health
 
 - **2026-01-01 18:04**: alert_detector.py: .
 
+- **2026-01-01 18:24**: config.py: .
+
+- **2026-01-01 18:24**: app.py: .
+
+- **2026-01-01 18:24**: manager.py: .
+
+- **2026-01-01 18:24**: schema.py: .
+
+- **2026-01-01 18:24**: alert_detector.py: .
+
+- **2026-01-01 18:24**: external_resources_parser.py: .
+
+- **2026-01-01 18:24**: git_metadata.py: .
+
+- **2026-01-01 18:24**: project_scanner.py: .
+
+- **2026-01-01 18:24**: pt.py: .
+
