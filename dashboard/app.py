@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
+import subprocess
 
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
@@ -166,6 +167,10 @@ def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
     # Format time
     project["last_modified_human"] = format_time_ago(project.get("last_modified", ""))
     
+    # Format index time
+    if project.get("index_updated_at"):
+        project["index_updated_human"] = format_time_ago(project["index_updated_at"])
+    
     return project
 
 
@@ -180,6 +185,10 @@ async def dashboard(request: Request):
     
     # Get alerts
     alerts = get_all_alerts(enriched_projects)
+    
+    # Calculate index compliance
+    indexed_count = len([p for p in enriched_projects if p.get("has_index") and p.get("index_is_valid")])
+    compliance_pct = int((indexed_count / len(projects)) * 100) if projects else 0
     
     # Collect code reviews separately for prominent display
     code_reviews = []
@@ -199,7 +208,9 @@ async def dashboard(request: Request):
         "projects": enriched_projects,
         "alerts": alerts,
         "code_reviews": code_reviews,
-        "total_projects": len(projects)
+        "total_projects": len(projects),
+        "indexed_count": indexed_count,
+        "compliance_pct": compliance_pct
     })
 
 
@@ -265,6 +276,51 @@ async def view_todo(request: Request, project_id: str):
     })
 
 
+@app.post("/api/create-index/{project_id}")
+async def create_index(project_id: str):
+    """Run reindex_projects.py for a specific project."""
+    try:
+        db = DatabaseManager()
+        project = db.get_project(project_id)
+        if not project:
+            return JSONResponse({"status": "error", "message": "Project not found"}, status_code=404)
+            
+        script_path = "/Users/eriksjaastad/projects/project-scaffolding/scripts/reindex_projects.py"
+        if not Path(script_path).exists():
+            return JSONResponse({"status": "error", "message": "Reindex script not found"}, status_code=500)
+            
+        # Run script
+        result = subprocess.run(
+            [sys.executable, script_path, project["path"]],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            return JSONResponse({
+                "status": "error", 
+                "message": f"Script failed: {result.stderr}"
+            }, status_code=500)
+            
+        # Rescan to update DB
+        rescan_result = subprocess.run(
+            [sys.executable, str(Path(__file__).parent.parent / "scripts" / "pt.py"), "scan"],
+            capture_output=True,
+            text=True
+        )
+        
+        return JSONResponse({
+            "status": "success",
+            "message": f"Index created for {project['name']}"
+        })
+    except Exception as e:
+        logger.error(f"Error creating index: {e}")
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500)
+
+
 @app.post("/api/refresh")
 async def refresh_data():
     """Trigger full data refresh."""
@@ -285,7 +341,10 @@ async def refresh_data():
                 phase=project.get("phase"),
                 last_modified=project["last_modified"],
                 completion_pct=project.get("completion_pct", 0),
-                is_infrastructure=project.get("is_infrastructure", False)
+                is_infrastructure=project.get("is_infrastructure", False),
+                has_index=project.get("has_index", False),
+                index_is_valid=project.get("index_is_valid", False),
+                index_updated_at=project.get("index_updated_at")
             )
             
             # Log refresh

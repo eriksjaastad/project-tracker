@@ -1,4 +1,15 @@
-# 🚀 Project Tracker - Quick Start
+---
+tags:
+  - p/project-tracker
+  - type/documentation/quickstart
+  - domain/project-management
+status: #status/active
+created: 2025-12-30
+---
+
+# 🚀 [[project-tracker]] - Quick Start
+
+**Index:** [[00_Index_project-tracker]]
 
 ## Launch the Dashboard
 

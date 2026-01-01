@@ -2,7 +2,7 @@
 
 import sys
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -59,20 +59,42 @@ def get_last_modified_fallback(project_path: Path) -> str:
         
         if files:
             most_recent = max(f.stat().st_mtime for f in files)
-            return datetime.fromtimestamp(most_recent).isoformat()
+            return datetime.fromtimestamp(most_recent, tz=timezone.utc).isoformat()
     except Exception as e:
         logger.warning(f"Failed to get file modification times for {project_path}: {e}")
     
-    return datetime.now().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def get_last_modified(project_path: Path) -> str:
-    """Get last modified timestamp (git first, fallback to files)."""
-    # Try git first
+    """Get last modified timestamp (latest of git commit or file edit)."""
+    # Get git date if available
     git_date = get_last_commit_date(project_path)
-    if git_date:
-        return git_date
     
-    # Fall back to file modification times
-    return get_last_modified_fallback(project_path)
+    # Get file system date
+    fs_date = get_last_modified_fallback(project_path)
+    
+    # If no git date, return fs date
+    if not git_date:
+        return fs_date
+        
+    # Return the later of the two
+    try:
+        # We replace Z with +00:00 for fromisoformat compatibility in Python < 3.11
+        git_iso = git_date.replace('Z', '+00:00')
+        fs_iso = fs_date.replace('Z', '+00:00')
+        
+        git_dt = datetime.fromisoformat(git_iso)
+        fs_dt = datetime.fromisoformat(fs_iso)
+        
+        # Ensure both are offset-aware for comparison
+        if git_dt.tzinfo is None:
+            git_dt = git_dt.replace(tzinfo=timezone.utc)
+        if fs_dt.tzinfo is None:
+            fs_dt = fs_dt.replace(tzinfo=timezone.utc)
+            
+        return git_date if git_dt > fs_dt else fs_date
+    except Exception as e:
+        logger.warning(f"Error comparing dates for {project_path}: {e}")
+        return git_date or fs_date
 

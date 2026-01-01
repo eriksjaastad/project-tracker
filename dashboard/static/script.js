@@ -28,6 +28,60 @@ function refreshData() {
         });
 }
 
+function createIndex(projectId) {
+    const button = document.getElementById(`btn-index-${projectId}`);
+    const originalText = button.textContent;
+    
+    // Show loading state
+    button.textContent = '...Creating';
+    button.disabled = true;
+    
+    fetch(`/api/create-index/${projectId}`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // Flash success state then reload
+                button.textContent = '✅ Created';
+                button.classList.remove('btn-warning');
+                button.classList.add('btn-success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                alert('Error creating index: ' + data.message);
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        })
+        .catch(error => {
+            console.error('Create index failed:', error);
+            alert('Failed to create index. Check console for details.');
+            button.textContent = originalText;
+            button.disabled = false;
+        });
+}
+
+function filterMissingIndexes() {
+    const cards = document.querySelectorAll('.project-card');
+    const metric = document.querySelector('.compliance-metric');
+    const isFiltered = metric.classList.contains('filtered');
+    
+    cards.forEach(card => {
+        const hasIndex = card.querySelector('.index-badge.valid') !== null;
+        if (isFiltered) {
+            card.style.display = 'block';
+        } else {
+            card.style.display = hasIndex ? 'none' : 'block';
+        }
+    });
+    
+    if (isFiltered) {
+        metric.classList.remove('filtered');
+        metric.style.background = 'rgba(0, 0, 0, 0.2)';
+    } else {
+        metric.classList.add('filtered');
+        metric.style.background = 'rgba(255, 167, 38, 0.2)';
+    }
+}
+
 // Format timestamps on page load
 document.addEventListener('DOMContentLoaded', function() {
     // Any client-side initialization can go here

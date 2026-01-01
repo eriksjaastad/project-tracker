@@ -32,15 +32,34 @@ def create_database(db_path: Optional[Path] = None) -> None:
             last_modified TEXT,
             created_at TEXT NOT NULL,
             completion_pct INTEGER DEFAULT 0,
-            is_infrastructure BOOLEAN DEFAULT 0
+            is_infrastructure BOOLEAN DEFAULT 0,
+            has_index BOOLEAN DEFAULT 0,
+            index_is_valid BOOLEAN DEFAULT 0,
+            index_updated_at TEXT
         )
     """)
     
-    # Add is_infrastructure column if it doesn't exist (migration)
+    # Migration: add is_infrastructure column if it doesn't exist
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN is_infrastructure BOOLEAN DEFAULT 0")
     except sqlite3.OperationalError:
         # Column already exists
+        pass
+    
+    # Migration: add index tracking columns
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN has_index BOOLEAN DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN index_is_valid BOOLEAN DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN index_updated_at TEXT")
+    except sqlite3.OperationalError:
         pass
     
     # Scheduled automation

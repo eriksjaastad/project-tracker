@@ -195,6 +195,33 @@ def detect_code_reviews(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return alerts
 
 
+def detect_missing_index(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Detect projects missing mandatory 00_Index_*.md file."""
+    alerts = []
+    
+    for project in projects:
+        if not project.get("has_index"):
+            alerts.append({
+                "project_id": project["id"],
+                "project_name": project["name"],
+                "type": "missing_index",
+                "severity": "warning",
+                "message": "Missing project index",
+                "details": "Required by Critical Rule #0: Every project must have an index file"
+            })
+        elif not project.get("index_is_valid"):
+            alerts.append({
+                "project_id": project["id"],
+                "project_name": project["name"],
+                "type": "invalid_index",
+                "severity": "warning",
+                "message": "Incomplete project index",
+                "details": "Index exists but is missing required sections or YAML tags"
+            })
+            
+    return alerts
+
+
 def get_all_alerts(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Get all alerts for all projects."""
     all_alerts = []
@@ -204,6 +231,7 @@ def get_all_alerts(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     all_alerts.extend(detect_code_reviews(projects))  # Add code review detection
     all_alerts.extend(detect_cron_failures(projects))
     all_alerts.extend(detect_stalled_projects(projects))
+    all_alerts.extend(detect_missing_index(projects))  # Add index monitoring
     all_alerts.extend(detect_missing_todo(projects))
     
     # Sort by severity (critical first, then warning, then info)
