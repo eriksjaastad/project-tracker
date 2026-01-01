@@ -81,47 +81,79 @@ def detect_blocked_projects(projects: List[Dict[str, Any]]) -> List[Dict[str, An
             try:
                 content = todo_path.read_text()
                 
-                # Look for blocker indicators
-                blocker_sections = [
+                # 1. Look for Critical Blockers (Immediate progress stoppers)
+                critical_sections = [
                     "### Blockers",
                     "## Blockers",
-                    "### What's Missing",
-                    "## What's Missing"
+                    "### Blockers & Dependencies",
+                    "## Blockers & Dependencies"
                 ]
                 
-                for section in blocker_sections:
+                found_critical = False
+                for section in critical_sections:
                     if section in content:
-                        # Extract content after the section
-                        section_start = content.find(section)
-                        section_end = content.find("\n##", section_start + len(section))
-                        if section_end == -1:
-                            section_content = content[section_start:]
-                        else:
-                            section_content = content[section_start:section_end]
+                        section_content = _extract_section(content, section)
+                        lines = _get_clean_lines(section_content)
                         
-                        # Count non-empty lines (ignoring headers and empty lines)
-                        lines = [line.strip() for line in section_content.split('\n') 
-                                if line.strip() and not line.strip().startswith('#')]
-                        
-                        if len(lines) > 0:
-                            # Extract first blocker as preview
-                            first_blocker = lines[0][:100]
-                            if first_blocker.startswith('- '):
-                                first_blocker = first_blocker[2:]
-                            
+                        # Only flag if there are actual blockers, not just "None"
+                        if len(lines) > 0 and not any(l.lower() == "none" for l in lines):
                             alerts.append({
                                 "project_id": project["id"],
                                 "project_name": project["name"],
                                 "type": "blocked",
                                 "severity": "critical",
-                                "message": f"Project blocked",
-                                "details": first_blocker
+                                "message": "Project blocked",
+                                "details": lines[0][:100]
                             })
-                            break  # Only report once per project
+                            found_critical = True
+                            break
+                
+                # 2. Look for Missing Features (Roadmap gaps)
+                # Only flag these if not already blocked, and at a lower severity
+                if not found_critical:
+                    roadmap_sections = ["### What's Missing", "## What's Missing"]
+                    for section in roadmap_sections:
+                        if section in content:
+                            section_content = _extract_section(content, section)
+                            lines = _get_clean_lines(section_content)
+                            
+                            # Only flag if there are actual gaps and the project isn't complete
+                            if len(lines) > 0 and not any(l.lower() == "none" for l in lines):
+                                if project.get("status") != "complete":
+                                    alerts.append({
+                                        "project_id": project["id"],
+                                        "project_name": project["name"],
+                                        "type": "gaps",
+                                        "severity": "info",
+                                        "message": "Roadmap gaps",
+                                        "details": f"{len(lines)} items in backlog"
+                                    })
+                                break
+                                
             except Exception as e:
                 logger.warning(f"Failed to detect blockers for {project.get('name', 'unknown')}: {e}")
     
     return alerts
+
+
+def _extract_section(content: str, section_title: str) -> str:
+    """Helper to extract content of a markdown section."""
+    start = content.find(section_title)
+    if start == -1:
+        return ""
+    
+    # Find next section header (## or ###)
+    next_header = content.find("\n##", start + len(section_title))
+    if next_header == -1:
+        return content[start:]
+    return content[start:next_header]
+
+
+def _get_clean_lines(section_content: str) -> List[str]:
+    """Helper to get non-empty, non-header lines from section content."""
+    return [line.strip().lstrip('- ').lstrip('* ').strip() 
+            for line in section_content.split('\n') 
+            if line.strip() and not line.strip().startswith('#')]
 
 
 def detect_cron_failures(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
