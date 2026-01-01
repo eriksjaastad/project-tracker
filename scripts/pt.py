@@ -82,7 +82,10 @@ def scan():
             phase=project.get("phase"),
             last_modified=project["last_modified"],
             completion_pct=project.get("completion_pct", 0),
-            is_infrastructure=project.get("is_infrastructure", False)
+            is_infrastructure=project.get("is_infrastructure", False),
+            has_index=project.get("has_index", False),
+            index_is_valid=project.get("index_is_valid", False),
+            index_updated_at=project.get("index_updated_at")
         )
         
         # Clear old AI agents, cron jobs, and services
@@ -150,6 +153,7 @@ def list_projects():
     table.add_column("Status", style="green")
     table.add_column("Phase")
     table.add_column("Progress", justify="right")
+    table.add_column("Index", justify="center")
     table.add_column("Last Modified")
     
     for project in projects:
@@ -158,12 +162,20 @@ def list_projects():
         if last_mod and last_mod != "unknown":
             # Just show date part
             last_mod = last_mod.split("T")[0]
+            
+        # Format index status
+        index_status = "-"
+        if project.get("has_index"):
+            index_status = "[green]✓[/green]" if project.get("index_is_valid") else "[yellow]![/yellow]"
+        else:
+            index_status = "[red]✗[/red]"
         
         table.add_row(
             project["name"],
             project["status"],
             project.get("phase") or "-",
             f"{project.get('completion_pct', 0)}%",
+            index_status,
             last_mod
         )
     

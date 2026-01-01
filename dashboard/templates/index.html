@@ -12,6 +12,14 @@
         <div class="header-content">
             <h1>📊 Project Dashboard</h1>
             <div class="header-actions">
+                <div class="compliance-metric" title="Project Index Compliance (Critical Rule #0)">
+                    <span class="metric-label">Index Compliance:</span>
+                    <span class="metric-value {% if compliance_pct > 90 %}good{% elif compliance_pct > 70 %}warning{% else %}critical{% endif %}">
+                        <a href="#" onclick="filterMissingIndexes(); return false;" class="compliance-link">
+                            {{ indexed_count }}/{{ total_projects }} ({{ compliance_pct }}%)
+                        </a>
+                    </span>
+                </div>
                 <span class="project-count">{{ total_projects }} projects</span>
                 <button onclick="refreshData()" class="btn-refresh">🔄 Refresh</button>
             </div>
@@ -23,6 +31,10 @@
         <div class="alerts-section">
             <div class="alerts-header">
                 <h2>⚠️ Alerts</h2>
+                <div class="alerts-tools">
+                    <span class="tool-label">Tools:</span>
+                    <a href="https://github.com/eriksjaastad/project-scaffolding" target="_blank" class="tool-link">Scaffolding Docs</a>
+                </div>
                 <span class="alerts-count">
                     <a href="#" onclick="toggleAlerts('critical'); return false;" class="alert-toggle" id="toggle-critical">
                         {{ alerts|selectattr('severity', 'equalto', 'critical')|list|length }} critical</a>, 
@@ -55,6 +67,17 @@
                         {% if project.is_infrastructure %}
                         <span class="infra-badge" title="Infrastructure Project">🔧</span>
                         {% endif %}
+                        <span class="index-status" title="Project Index Status">
+                            {% if project.has_index %}
+                                {% if project.index_is_valid %}
+                                    <span class="index-badge valid" title="Valid Index exists">✅</span>
+                                {% else %}
+                                    <span class="index-badge incomplete" title="Index exists but incomplete">⚠️</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="index-badge missing" title="Missing Project Index (Critical Rule #0)">❌</span>
+                            {% endif %}
+                        </span>
                     </div>
                     <span class="status-badge">{{ project.status }}</span>
                 </div>
@@ -70,6 +93,15 @@
                         <span class="meta-label">Last work:</span>
                         <span class="meta-value">{{ project.last_modified_human }}</span>
                     </div>
+                    
+                    {% if project.has_index %}
+                    <div class="meta-row space-between">
+                        <span class="meta-label">Index updated:</span>
+                        <span class="meta-value index-age-{{ project.index_updated_human.split(' ')[0] if project.index_updated_human else 'unknown' }}">
+                            {{ project.index_updated_human }}
+                        </span>
+                    </div>
+                    {% endif %}
                     
                     {% if project.phase %}
                     <div class="meta-row space-between">
@@ -208,6 +240,9 @@
                 <div class="project-actions">
                     <a href="/project/{{ project.id }}" class="btn btn-secondary">Details</a>
                     <a href="/todo/{{ project.id }}" class="btn btn-primary">View TODO</a>
+                    {% if not project.has_index or not project.index_is_valid %}
+                    <button onclick="createIndex('{{ project.id }}')" class="btn btn-warning" id="btn-index-{{ project.id }}">Create Index</button>
+                    {% endif %}
                 </div>
             </div>
             {% endfor %}

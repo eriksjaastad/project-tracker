@@ -1,10 +1,20 @@
-# Project Tracker
+---
+tags:
+  - p/project-tracker
+  - type/documentation/readme
+  - domain/project-management
+status: #status/complete
+created: 2025-12-22
+---
+
+# [[project-tracker]]
 
 > *Track active projects, cron jobs, completion status, and prevent the "spinning plates" chaos.*
 
-**Status:** ✅ MVP Complete - Ready to Use  
+**Status:** ✅ 100% Complete - Ready for daily use
 **Cost:** $0 (100% local, no external services)  
 **Quick Start:** `./pt launch`
+**Index:** [[00_Index_project-tracker]]
 
 ---
 
@@ -455,6 +465,7 @@ Erik describing the spinning plates problem while working on Tiered Sprint Plann
 ```
 project-tracker/
 ├── README.md                    ← You are here
+├── AGENTS.md                    ← Source of Truth for AI Agents
 ├── docs/
 │   └── INTEGRATION_WITH_SCAFFOLDING.md  ← How these projects relate
 ├── patterns/                    ← (Future: patterns from this project)

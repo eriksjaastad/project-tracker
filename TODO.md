@@ -1,9 +1,19 @@
-# Project Dashboard - TODO
+---
+tags:
+  - p/project-tracker
+  - type/documentation/todo
+  - domain/project-management
+status: #status/complete
+created: 2025-12-22
+---
 
-**Last Updated:** December 30, 2025  
-**Project Status:** Active Development - Planning → Implementation  
-**Current Phase:** Phase 0 - Foundation & TODO Standardization  
+# [[project-tracker]] - TODO
+
+**Last Updated:** January 1, 2026  
+**Project Status:** Complete ✅
+**Current Phase:** Final Polish & Indexing Compliance
 **Type:** Infrastructure
+**Index:** [[00_Index_project-tracker]]
 
 ---
 
@@ -11,23 +21,22 @@
 
 ### What's Working ✅
 - ✅ **MVP Complete!** Full implementation working (Dec 30, 2025)
-- ✅ **Database:** SQLite with all tables (projects, cron_jobs, services, AI agents)
+- ✅ **Database:** SQLite with all tables (projects, cron_jobs, services, AI agents, indexing)
 - ✅ **CLI Tool:** `pt` command with scan, list, launch, etc.
 - ✅ **Web Dashboard:** FastAPI serving at localhost:8000
-- ✅ **Auto-discovery:** Scans 36 projects successfully
+- ✅ **Auto-discovery:** Scans all projects successfully
 - ✅ **TODO Viewer:** Renders markdown with full formatting
 - ✅ **Progress Bars:** Calculates completion % from checkboxes
 - ✅ **Sorting:** Newest work first (chronological)
+- ✅ **Indexing System:** tracks 00_Index_*.md compliance (Critical Rule #0)
+- ✅ **Alerts:** Stalled, Blocked, Missing Index, Cron failures
 - ✅ **Meta-tracking:** Dashboard tracks itself!
 
 ### In Progress 🔄
-- **Code Review** - Submitted to GitHub (Dec 30, 2025), awaiting feedback
+- **Adoption** - Erik using dashboard daily
 
 ### What's Missing ❌
-- **Alerts/Warnings Dashboard** - Needs refinement based on code review
-- **Cron Issue Detection** - Needs validation in code review
-- **Code Review Integration** - No code review file format/display yet
-- **Auto-detection:** Cron jobs still only from TODO.md (not system crontab)
+- None - All MVP features implemented
 
 ### Key Decisions Made
 1. **Dashboard-first approach** - Build visualization before all features
@@ -39,601 +48,89 @@
    - External services (from EXTERNAL_RESOURCES.md)
 4. **Chronological sorting** - Newest work first (not creation date)
 5. **Meta-tracking** - Dashboard tracks itself
+6. **Index Enforcement** - Direct integration with Critical Rule #0
 
 ---
 
 ## ✅ Completed Tasks
 
-### Phase 0: Planning (December 22-30, 2025)
+### Phase 2: Indexing & Polish (Jan 1, 2026)
+- [x] Add `has_index` boolean field to database schema
+- [x] Scan for `00_Index_*.md` files during project discovery
+- [x] Validate index files (check YAML frontmatter, required sections)
+- [x] Add index status indicator to project cards
+- [x] Add alert for projects without indexes
+- [x] Show index file age on project cards
+- [x] Add "Create Index" quick action to project cards
+- [x] Add dashboard summary metric (Index Compliance)
+- [x] Add filter: "Missing Indexes" (click compliance metric)
+- [x] Link to project-scaffolding documentation
+- [x] Fix "Last Work" logic to include uncommitted file changes
+
+### Phase 1: Alerts & Warnings (Dec 30, 2025)
+- [x] Create alerts/warnings table at top of dashboard
+- [x] Show critical issues before project cards
+- [x] Include alert types (Stalled, Blocked, Missing TODO, Cron)
+- [x] Make alerts clickable (jump to project detail)
+- [x] Add severity levels and color-coding
+- [x] Create `cron_monitor.py` for health checking
+- [x] Implement GitHub submission and Code Review request
+
+### Phase 0: Foundation (Dec 22-30, 2025)
 - [x] Create project-tracker/ directory
 - [x] Write comprehensive README.md with vision
 - [x] Design SQLite data model
 - [x] Document integration with project-scaffolding
 - [x] Define success metrics
 - [x] Research existing TODO formats across projects
-- [x] Analyze Cortana, YouTube, actionable-ai-intel TODO patterns
-
----
-
-## 📋 Pending Tasks
-
-### 🔴 CRITICAL - Phase 0: TODO Standardization
-
-**Status:** ✅ **COMPLETE!**
-
-- [x] Analyze current TODO formats across 4 projects
-- [x] Design TODO standard template  
-- [x] Create `TODO_FORMAT_STANDARD.md` (650 lines)
-- [x] Create `TODO.md.template` (250 lines)
-- [x] Add to project-scaffolding
-- [x] Document in PROJECT_STRUCTURE_STANDARDS.md
-
----
-
-### 🟡 HIGH PRIORITY - Phase 0: Dashboard MVP
-
-**Status:** ✅ **COMPLETE!** (Dec 30, 2025)
-
-- [x] Create SQLite Database with all tables
+- [x] Design TODO standard template
 - [x] Build CLI Tool (pt.py) with Typer
-- [x] Implement project auto-discovery
 - [x] Build web dashboard with FastAPI
 - [x] Create TODO.md viewer with markdown rendering
-- [x] Add 'launch' command
-- [x] Test on 36 real projects
-- [x] Fix virtual environment location (venv/ in root)
-- [x] Fix missing jinja2 dependency
-- [x] Create comprehensive documentation (USAGE.md, COMPLETION_SUMMARY.md, QUICKSTART.md)
-
----
-
-### 🔵 MEDIUM PRIORITY - Phase 1: Alerts & Warnings
-
-**Status:** ✅ **COMPLETE!** (Dec 30, 2025)
-
-#### Task 3.1: Alerts Dashboard Table ✅
-- [x] Create alerts/warnings table at top of dashboard
-- [x] Show critical issues before project cards
-- [x] Include alert types:
-  - [x] ⚠️ Stalled projects (no work in 30+ days)
-  - [x] ⚠️ Blocked projects (from TODO.md blockers section)
-  - [x] ⚠️ Missing TODO.md (projects with no status)
-  - [x] ⚠️ Cron job failures (detects: not installed, invalid schedule, missed runs, execution errors)
-- [x] Make alerts clickable (jump to project detail)
-- [x] Add severity levels (Critical, Warning, Info)
-- [x] Color-code by severity (red, yellow, blue)
-- [x] Make alert counts clickable to show/hide categories
-
-**Currently detecting:**
-- 🔴 Critical: Blocked projects (reads "Blockers" or "What's Missing" sections)
-- ⚠️ Warning: Stalled projects (30+ days inactive)
-- ℹ️ Info: Missing TODO.md or unknown status
-
-**Found 42 alerts across 36 projects in testing!**
-
-#### Task 3.2: Cron Issue Detection ✅
-
-**Status:** ✅ **COMPLETE!** (Dec 30, 2025)
-
-- [x] Parse cron job logs (if available)
-- [x] Check for failed executions
-- [x] Detect jobs that should have run but didn't
-- [x] Show "last successful run" vs "expected schedule"
-- [x] Alert if job hasn't run in expected window
-- [x] Link to project's cron configuration
-
-**Implementation details:**
-- Created `cron_monitor.py` with health checking system
-- Validates cron schedule expressions using `croniter`
-- Checks if jobs are installed in user's crontab
-- Scans for log files and parses timestamps/errors
-- Detects missed runs based on schedule
-- Shows alerts for: invalid schedules, not installed, execution errors, missed runs
-- Severity levels: Critical (errors, missed runs), Warning (not installed, invalid)
-
-#### Task 3.2b: GitHub & Code Review Submission ✅
-
-**Status:** ✅ **COMPLETE!** (Dec 30, 2025)
-
-- [x] Initialize git repository
-- [x] Verify `.gitignore` is comprehensive (no secrets, no data, no keys)
-- [x] Create GitHub repository (public)
-- [x] Push all code to GitHub
-- [x] Create CODE_REVIEW_REQUEST.md following project-scaffolding pattern
-- [x] Use "grumpy reviewer" approach (no politeness, find problems)
-- [x] Document 10+ failure modes to investigate
-- [x] Add Theater vs Tool test (what's actually useful?)
-- [x] Commit and push code review request
-
-**GitHub:** https://github.com/eriksjaastad/project-tracker
-
-**Code review emphasizes:**
-- Finding fragile/over-engineered parts
-- Identifying what will break in 3-6 months
-- Challenging if this solves the right problem
-- No "everything looks good" reviews accepted
-
-#### Task 3.3: External Services & Process Catalog
-
-**Status:** 📋 **DOCUMENTED** (Dec 30, 2025)
-
-**Goal:** Catalog all external services, cron jobs, and monitoring across all projects
-
-**Findings from EXTERNAL_RESOURCES.md:**
-
-**Third-Party Services (Active):**
-1. **Railway.app** - Trading Projects
-   - Purpose: Hosting Python cron jobs + PostgreSQL
-   - Cost: ~$5/month
-   - Project: `appealing-embrace`, Service: `trading-copilot`
-   - Status: ✅ Active
-   
-2. **Healthchecks.io** - AI Usage Billing Tracker
-   - Purpose: Cron job monitoring and uptime checks
-   - Cost: Free tier
-   - Dashboard: https://healthchecks.io/projects/bea3ac8d-2c7d-4a11-b87c-14f409e13813/checks/
-   - Ping URL: https://hc-ping.com/97dd5e5b-c7ac-4e7b-a8b2-d75fd8f13c36
-   - Status: ✅ Active - **THIS IS OUR HEALTH MONITOR!**
-   
-3. **Cloudflare R2** - 3D Pose Factory
-   - Purpose: S3-compatible object storage
-   - Cost: $3-10/month
-   - Bucket: `pose-factory`
-   - Status: ✅ Active
-
-**Cron Jobs & Scheduled Tasks:**
-
-1. **Trading Projects (Railway)** - Multiple daily jobs ⚠️ **NEEDS HEALTHCHECKS.IO**
-   - 4x daily + weekly/monthly trading signal analysis
-   - Cron dispatcher pattern (handles Railway's 1-cron limit)
-   - Discord notifications 4x daily
-   - PostgreSQL database updates
-   - **Location:** Railway cloud (not local)
-   - **Status:** ✅ Running, ❌ NOT pinging Healthchecks.io
-   - **Action:** Added urgent task to Trading Projects TODO.md
-
-2. **image-workflow** - Daily backups (CURRENTLY DISABLED)
-   - **Status:** 💤 Disabled - not actively working in this project
-   - Backups only checking for updates or disabled entirely
-   - **Action:** Added low-priority note to add Healthchecks.io when re-enabled
-
-3. **project-tracker** - No cron needed! ✅
-   - Dashboard scans automatically when launched via `./pt launch`
-   - Manual refresh available via "🔄 Refresh" button or `./pt scan` command
-   - **No cron job required**
-
-**AI APIs (Per-Project Pattern):**
-- OpenAI: Trading, Cortana, image-workflow (~$15/mo combined)
-- Anthropic: Trading (~$2/mo)
-- Google AI (Gemini): Trading (~$1/mo)
-- xAI (Grok): Trading (pay-per-use)
-
-**Notification Services:**
-- Discord Webhooks: Trading (free)
-- Healthchecks.io: AI Usage Billing Tracker (free)
-
-**Storage & Backup:**
-- rclone: 3D Pose Factory (R2), image-workflow (Google Drive)
-- Google Drive: image-workflow backups (free personal storage)
-- PostgreSQL: Trading (Railway, included in $5/mo)
-
-#### Task 3.4: Code Review System ✅ **COMPLETE** (Dec 31, 2025)
-
-**Dashboard features (all working):**
-- [x] Parse CODE_REVIEW.md files from projects ✅ Detects review files
-- [x] Extract review status and action items ✅ Calculates completion %
-- [x] Show code review status on project cards ✅ Progress bar + full border
-- [x] CODE_REVIEW.md.template exists ✅ In project-scaffolding/templates/
-
-**What works:**
-- Dashboard detects CODE_REVIEW.md in project root
-- Shows progress bar (action items with checkboxes)
-- Adds orange border around project card when review is open
-- Progress bar disappears when 100% complete
-
-**What we don't need:**
-- ❌ Show reviewer/date info (always Erik + AI reviewer - not useful)
-- ❌ Code review count per project (always 0 or 1 - pointless)
-- ❌ Link TODO.md sections to CODE_REVIEW.md (not useful)
-- ❌ Code review indicator in TODO.md (card border is enough)
-- ❌ Separate view for all reviews (just check project cards)
-
----
-
-### 🟡 HIGH PRIORITY - Phase 1.5: Enhanced Project Cards ✅ **COMPLETE** (Dec 31, 2025)
-
-**Goal:** Show services and cron jobs directly on project cards for at-a-glance visibility
-
-#### Task 5.1: Display Services & Cron Jobs on Cards ✅ **COMPLETE**
-
-**Implementation tasks:**
-- [x] Update project card layout to include services section ✅ **DONE**
-- [x] Add icons/badges for common services (Railway, OpenAI, etc.) ✅ **DONE** - 🚀 Backend, 🤖 AI, 💾 Storage, 🔔 Notifications, 💓 Monitoring
-- [x] Display cron job count and status on cards ✅ **DONE** - Shows count and summary
-- [x] Add status indicators (active/disabled/smart/issues) ✅ **DONE** - Integrated with alert system
-- [x] Parse cron job type (smart vs full backup) ✅ **DONE** - From TODO.md
-- [x] Add color coding for different service types ✅ **DONE** - Categorized by type
-- [x] Ensure cards remain readable (not too cluttered) ✅ **DONE** - Compact format with icons
-- [x] Make service names clickable to detail page ✅ **DONE** - Links to project detail
-- [x] Add cost information (optional, can be collapsed) ✅ **DONE** - Shows monthly costs
-
-**What's showing on cards:**
-- **Services:** Categorized with icons (Backend, AI, Storage, Notifications, Monitoring)
-- **Costs:** Monthly cost per service displayed
-- **Cron jobs:** Count and summary
-- **Infrastructure badge:** 🔧 icon for infrastructure projects
-
-#### Task 5.2: Infrastructure Project Labels ✅ **COMPLETE**
-
-**Goal:** Identify infrastructure projects (tools that support other projects)
-
-**Philosophy:**
-- **Most projects DON'T get labels** - Trading Projects, image-workflow, Hypocrisy Now, etc. are just projects
-- **Only label infrastructure** - Projects that are foundational tools for other work
-- This helps understand what's a "tool" vs. what's a "project using the tools"
-- As we scale (imagine 50+ projects by next year), this distinction becomes critical
-
-**Infrastructure Projects (🔧 Infra label):**
-
-These are the **structural projects** that support other work:
-
-1. **project-tracker** (this project!) - Dashboard to track all projects
-2. **project-scaffolding** - Templates, patterns, standards for all projects
-3. **agent_os** - Operating system for AI agents
-4. **agent-skills-library** - Reusable AI skills/capabilities
-5. **n8n** - Automation platform connecting services
-
-**Why This Matters:**
-
-Infrastructure projects might have **different rules/standards:**
-- **Higher reliability requirements** - Other projects depend on them
-- **More documentation needed** - Others need to use them
-- **Stricter versioning** - Breaking changes affect multiple projects
-- **More careful updates** - Can't break dependent projects
-- **Better test coverage** - Failures cascade to other projects
-- **Clearer API contracts** - Define how other projects interact
-
-**Examples of different rules:**
-- Infrastructure projects MUST have comprehensive README.md
-- Infrastructure projects MUST document breaking changes
-- Infrastructure projects SHOULD have test coverage
-- Infrastructure projects MAY need deprecation policies
-- Regular projects can be more experimental/flexible
-
-**Visual Design:**
-
-```
-project-scaffolding      [Active] 🔧
-Last work: 5 days ago    45% complete
-🤖 AI: Claude
-🔌 Services: None ($0)
-```
-
-```
-Trading Projects         [Active]
-Last work: 2 hours ago   65% complete
-🤖 AI: Claude, GPT-4o, Gemini
-🔌 Services: Railway ($5) | OpenAI ($4)
-⏰ Cron: 4x daily ✅
-```
-
-**Note:** Simple 🔧 icon, no text needed. Clean and minimal.
-
-**Detection Strategy:**
-
-Auto-detect based on project name keywords:
-- "tracker", "scaffolding", "agent", "library", "tool", "platform", "framework", "os"
-
-Manual override in TODO.md:
-- Add `**Type:** Infrastructure` to header
-- Or add note in "What's Working" section
-
-**Implementation tasks:**
-- [x] Add `is_infrastructure` boolean field to database ✅ **DONE**
-- [x] Parse infrastructure flag from TODO.md ✅ **DONE** - Reads `**Type:** Infrastructure` marker
-- [x] ~~Auto-detect based on project name keywords~~ **REPLACED** - Now data-driven via TODO.md marker (no hardcoding!)
-- [x] Display 🔧 icon on infrastructure project cards ✅ **DONE**
-- [ ] Add "Infrastructure Projects" section or filter on dashboard (Future enhancement)
-- [ ] Consider different alert thresholds for infrastructure (Future enhancement)
-- [ ] Document infrastructure project standards in project-scaffolding (Future enhancement)
-
-**Future Considerations:**
-- As we approach 50+ projects, might need additional categories
-- But start simple: just "Infrastructure" vs. "Regular Projects"
-- Add more labels only when there's a clear organizational need
-- Examples might include: News aggregators, Client work, Production systems
-- But don't over-engineer - most projects remain unlabeled
-
-**Examples of what cards should show:**
-
-**Trading Projects card:**
-```
-Trading Projects                    [Active]
-Last work: 2 hours ago              65% complete
-
-🤖 AI: Claude, GPT-4o, Gemini
-🔌 Services: Railway ($5) | OpenAI ($4) | Discord
-⏰ Cron: 4x daily ✅ | Weekly ✅ | ⚠️ No health monitoring
-💓 Healthchecks.io: Not configured
-
-[Details] [TODO]
-```
-
-**image-workflow card:**
-```
-image-workflow                      [Paused]
-Last work: 45 days ago              82% complete
-
-🤖 AI: GPT-4o
-🔌 Services: OpenAI ($5-20) | Google Drive
-⏰ Cron: Daily backup ⏸️ (Disabled - project paused)
-
-[Details] [TODO]
-```
-
----
-
-### 🟢 LOW PRIORITY - Phase 1: Polish & Automation
-
-#### Task 3.1: Automation ✅ **COMPLETE** (Dec 31, 2025)
-
-**Decision: No background automation needed. Dashboard scans on launch.**
-
-- [x] ~~Create `scripts/refresh_data.py` for daily updates~~ **WON'T DO** - Not needed, scan on launch is sufficient
-- [x] ~~Set up launchd job to refresh daily~~ **WON'T DO** - Dashboard is a check-in tool, not a monitoring service
-- [x] ~~Add email/Discord alerts for stale projects~~ **WON'T DO** - You'll see stalled projects when you open dashboard
-- [x] Auto-detect new projects added to directory ✅ **ALREADY WORKS** - Scan on launch discovers new projects automatically
-
-**Why this is the right pattern:**
-- Dashboard is for periodic check-ins (weekly/monthly), not continuous monitoring
-- Fresh data on every launch = always current
-- No background processes = simpler, more reliable
-- Scan takes <10 seconds = acceptable load time
-
-#### Task 3.2: Enhanced Metadata
-- [x] Extract project description from README.md ✅ **DONE** - Already extracts first paragraph from README
-- [ ] Detect project layer/phase from ROADMAP.md (Future enhancement - if needed)
-- [x] ~~Parse requirements.txt for tech stack~~ **WON'T DO** - No clear benefit
-- [x] ~~Track repository size and file count~~ **WON'T DO** - Not useful for project tracking
-
-#### Task 3.3: Dashboard Enhancements
-
-**No active tasks** - MVP is complete and working great!
 
 ---
 
 ## 🎯 Success Criteria
+- [x] TODO standard template exists in project-scaffolding
+- [x] TODO format documentation exists
+- [x] At least 3 projects using standard TODO format
+- [x] Erik approves format as "this is what I want"
+- [x] SQLite database exists with all tables
+- [x] CLI can add, list, and scan projects
+- [x] Web dashboard shows all projects sorted by last work
+- [x] Dashboard displays AI agents per project
+- [x] Dashboard shows cron jobs indicator
+- [x] Dashboard shows services used
+- [x] Click project → view rendered TODO.md
+- [x] Progress bars show completion %
+- [x] Dashboard tracks itself in projects list
+- [x] Successfully tested on all 35+ projects
+- [x] Project implementation complete (Jan 1, 2026)
 
-### Phase 0: TODO Standardization ✅ **COMPLETE** (Dec 30, 2025)
-- [x] TODO standard template exists in project-scaffolding ✅ `templates/TODO.md.template` (6K)
-- [x] TODO format documentation exists ✅ `docs/TODO_FORMAT_STANDARD.md` (14K)
-- [x] At least 3 projects using standard TODO format ✅ project-tracker, project-scaffolding, Trading Projects
-- [x] Erik approves format as "this is what I want" ✅ **APPROVED**
-
-### Dashboard MVP ✅ **COMPLETE** (Dec 31, 2025)
-- [x] SQLite database exists with all tables ✅
-- [x] CLI can add, list, and scan projects ✅ `./pt scan`, `./pt list`, `./pt launch`
-- [x] Web dashboard shows all projects sorted by last work ✅ **33 projects tracked**
-- [x] Dashboard displays AI agents per project ✅ Extracted from TODO.md
-- [x] Dashboard shows cron jobs indicator ✅ Cron monitoring integrated
-- [x] Dashboard shows services used ✅ From EXTERNAL_RESOURCES.yaml
-- [x] Click project → view rendered TODO.md ✅ Full markdown rendering
-- [x] Progress bars show completion % ✅ Calculated from TODO.md checkboxes
-- [x] Dashboard tracks itself in projects list ✅ **Meta-tracking works!**
-- [x] Successfully tested on 5+ real projects ✅ Tested on all 33 projects
-- [ ] Erik uses dashboard daily for 1 week 🕐 **IN PROGRESS** - Starting now!
-
-### Phase 1: Won't Do / Deferred
-- [x] ~~Daily automation refreshes data~~ **WON'T DO** - Scan on launch is sufficient
-- [x] ~~Enhanced metadata extracted~~ **DONE** - README descriptions extracted
-- [x] ~~Dashboard has search/filter/grouping~~ **DEFERRED** - Moved to "Shower Thoughts"
-
-### Phase 2: Future Ideas (See "Shower Thoughts" section)
-- Timeline views, context switching, git integration, cost tracking - All moved to ideation section
+### Adoption Metric
+- Erik uses dashboard daily for 1 week (In progress)
 
 ---
 
-## 📊 Notes
-
-### TODO Format Analysis Summary
-
-**Common Patterns Across Projects:**
-1. **Header section:** Project name, status, phase, last updated
-2. **Current State:** What's working, what's missing, blockers
-3. **Completed section:** Chronological list with checkboxes
-4. **Pending section:** Categorized by priority (🔴 🟡 🔵)
-5. **Success Criteria:** Clear "done" definition
-6. **Notes section:** Context, costs, time estimates
-
-**What Works Well:**
-- ✅ Cortana: Very detailed, excellent layering, clear phases
-- ✅ YouTube: Stage-based breakdown, decision points
-- ✅ AI Intel: Clear blockers upfront, prerequisites section
-- ✅ Scaffolding: Minimal but actionable, sprint-based
-
-**What Varies:**
-- 📏 Length: 107 lines (scaffolding) to 660 lines (Cortana)
-- 🗂️ Structure: Some use layers, some use phases, some use sprints
-- 🎯 Detail level: High detail vs minimal actionable
-- 🤖 AI agent tracking: Inconsistent or missing
-
-**Recommendation for Standard:**
-- Required: Header, Current State, Completed, Pending, Success Criteria
-- Optional: AI Agents, Cron Jobs, Services, Cost/Time, Related Docs
-- Keep flexible (projects vary in complexity)
-- Include examples from real projects
-- Add guidance comments for AI sessions
-
-### Dashboard Metadata Requirements
-
-**Per Project:**
-- **Basic:** name, path, status, description, phase
-- **Timestamps:** created_at, last_modified (from git or files)
-- **AI Agents:** Which AI helping (Claude Code, Cursor, ChatGPT, etc.), role **NEW**
-- **Automation:** Cron jobs (schedule, command, active status)
-- **Services:** External services used (from EXTERNAL_RESOURCES.md)
-- **Progress:** TODO completion % (calculated from TODO.md) **NEW**
-- **Links:** README, CLAUDE.md, TODO.md, ROADMAP.md
-
-**Sorting Priority:**
-1. **Last modified DESC** (most recently worked on first) **PRIMARY**
-2. Status (active > dev > paused > stalled > complete)
-3. Name (alphabetical as tiebreaker)
-
-### Technical Stack
-
-**Backend:**
-- SQLite (local database, no server needed)
-- Python 3.11+ (same as other projects)
-- Typer (CLI framework, same as used in Cortana plans)
-- Rich (terminal formatting)
-
-**Web Dashboard:**
-- FastAPI (lightweight, async, fast)
-- Jinja2 templates (HTML)
-- Simple CSS (no frameworks, fast load)
-- Vanilla JS (minimal, progressive enhancement)
-
-**Dependencies:**
-- `fastapi` - Web framework
-- `uvicorn` - ASGI server
-- `typer` - CLI framework
-- `rich` - Terminal UI
-- `gitpython` - Git integration (optional)
-- `python-markdown` - TODO.md rendering **NEW**
-- `pygments` - Syntax highlighting **NEW**
-
-### Integration Points
-
-**With project-scaffolding:**
-- TODO.md template lives there
-- EXTERNAL_RESOURCES.md is read from there
-- Templates reference dashboard usage
-
-**With agent-skills-library:**
-- Dashboard detects skills library references
-- Tracks which skills are in use per project
-- Could create "Project Dashboard" skill in future
-
-**With existing projects:**
-- Reads TODO.md (if exists)
-- Reads CLAUDE.md (if exists)
-- Reads .cursorrules (if exists)
-- Parses git metadata (if .git exists)
-- Checks crontab and launchd plists
-
-### Time Estimates
-
-**Phase 0 (TODO Standardization):**
-- Format analysis: 30 minutes ✅ DONE
-- Template design: 1-2 hours
-- Scaffolding integration: 30 minutes
-- Validation: 30 minutes
-- **Total:** 2-3 hours
-
-**Dashboard MVP:**
-- Database setup: 1 hour
-- CLI tool: 3-4 hours
-- Auto-discovery: 2-3 hours
-- Web dashboard: 4-5 hours
-- TODO viewer: 2 hours **NEW**
-- Testing: 2-3 hours
-- **Total:** 14-18 hours
-
-**Phase 1:**
-- Automation: 2 hours
-- Enhanced metadata: 2-3 hours
-- Dashboard polish: 2-3 hours
-- **Total:** 6-8 hours
-
-**Phase 2:**
-- Context switcher: 2-3 hours
-- Git integration: 2-3 hours
-- Cost tracking: 2-3 hours
-- **Total:** 6-9 hours
-
-**Grand Total:** 28-38 hours over 2-3 weeks
-
-### Cost Estimates
-
-- **Development cost:** $0 (local only, no external services)
-- **Runtime cost:** $0 (SQLite + FastAPI, runs locally)
-- **Maintenance cost:** $0 (no cloud services)
-- **Total:** $0
-
-### Meta Note
-
-**This dashboard tracks itself!**
-
-When implemented, `project-tracker` will appear in its own dashboard with:
-- Status: Active Development
-- Last modified: (updated as work happens)
-- AI agent: Claude Sonnet 4.5 (Project Manager + Implementation)
-- Cron jobs: Auto-scan (daily at 2 AM)
-- Services: None (local only)
-- TODO progress: X% complete
-
-This is intentional and useful for dogfooding!
-
-### Automation
-
-**Note:** No cron job needed! The dashboard scans projects automatically when launched via `./pt launch`.
-
-To manually refresh data while dashboard is running:
-- Click the "🔄 Refresh" button in the web UI, OR
-- Run `./pt scan` from command line
-
-
 ## 💭 Future Ideas / Shower Thoughts
-
-**Note:** These are not tasks to complete - just ideas to consider if they become useful.
-
-### Dashboard Polish
-- **Timeline view** - Visual graph showing project activity over time with milestones (could be cool!)
-- **Search/filter** - Filter projects by status, service, AI agent (might be handy with 50+ projects)
-- **Project grouping** - Group by status, service type, etc. (organizational tool)
-- **Export to JSON/CSV** - For external analysis (probably never needed)
-
-### Advanced Features
-- **Context switching helper** - `pt switch <project>` command to show summary and quick links
-- **Git integration** - Track commits over time, show current branch, detect uncommitted changes
-- **Cost tracking** - Monthly spend per project, cost history charts (EXTERNAL_RESOURCES.yaml has this data)
-- **Cursor integration** - Detect active project in Cursor, auto-update last_modified
-
-### Why These Are "Shower Thoughts"
-- Dashboard already does what we need (track projects, show status, find stalled work)
-- Adding features now = complexity without clear benefit
-- Better to use the tool for a while and see what's actually missing
-- If we hit 50+ projects and think "I wish I could filter these", *then* we build it
-
-**Philosophy:** Ship the MVP, use it, iterate based on real needs. Don't build features we *might* want.
+- **Timeline view** - Visual graph showing project activity over time
+- **Search/filter** - Search projects by name or technology
+- **Git integration** - Show current branch and uncommitted change count
+- **Cost tracking** - Monthly spend history charts
+- **Roadmap parsing** - Detect project layer/phase from ROADMAP.md
 
 ---
 
 ### Related Documentation
-
 **This project:**
 - `README.md` - Full vision and architecture
 - `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
 
 **Related projects:**
 - `/Users/eriksjaastad/projects/project-scaffolding/` - Templates and patterns
-- `/Users/eriksjaastad/projects/agent-skills-library/` - AI skills (dashboard could become skill)
+- `/Users/eriksjaastad/projects/agent-skills-library/` - AI skills
 - `/Users/eriksjaastad/projects/EXTERNAL_RESOURCES.md` - Service dependency data source
 
-**Example TODOs analyzed:**
-- `/Users/eriksjaastad/projects/Cortana personal AI/TODO.md` (660 lines) - Excellent structure
-- `/Users/eriksjaastad/projects/analyze-youtube-videos/TODO.md` (400 lines) - Good staging
-- `/Users/eriksjaastad/projects/actionable-ai-intel/TODO.md` (350 lines) - Clear blockers
-- `/Users/eriksjaastad/projects/project-scaffolding/TODO.md` (107 lines) - Minimal clarity
-
 ---
 
-**Current Focus:** Complete TODO standardization (Phase 0) before building dashboard MVP.
-
-**Next Session:** Create TODO.md template, add to project-scaffolding, validate format.
-
----
-
-*This TODO uses the format we're standardizing - let's see if it works! 🎯*
-
+*Project status: 100% Technical Completion. Entering adoption phase.* 🎯

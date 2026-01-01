@@ -1,6 +1,16 @@
-# Project Tracker - Usage Guide
+---
+tags:
+  - p/project-tracker
+  - type/documentation/guide
+  - domain/project-management
+status: #status/active
+created: 2025-12-30
+---
+
+# [[project-tracker]] - Usage Guide
 
 > **Quick Start:** `./pt launch` to open the dashboard
+**Index:** [[00_Index_project-tracker]]
 
 ---
 

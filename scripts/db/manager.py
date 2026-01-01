@@ -33,7 +33,10 @@ class DatabaseManager:
         phase: Optional[str] = None,
         last_modified: Optional[str] = None,
         completion_pct: int = 0,
-        is_infrastructure: bool = False
+        is_infrastructure: bool = False,
+        has_index: bool = False,
+        index_is_valid: bool = False,
+        index_updated_at: Optional[str] = None
     ) -> None:
         """Add or update a project."""
         conn = self._get_conn()
@@ -43,9 +46,9 @@ class DatabaseManager:
         
         cursor.execute("""
             INSERT OR REPLACE INTO projects 
-            (id, name, path, status, description, phase, last_modified, created_at, completion_pct, is_infrastructure)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (project_id, name, path, status, description, phase, last_modified, created_at, completion_pct, is_infrastructure))
+            (id, name, path, status, description, phase, last_modified, created_at, completion_pct, is_infrastructure, has_index, index_is_valid, index_updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (project_id, name, path, status, description, phase, last_modified, created_at, completion_pct, is_infrastructure, has_index, index_is_valid, index_updated_at))
         
         conn.commit()
         conn.close()
@@ -92,7 +95,8 @@ class DatabaseManager:
         # Whitelist allowed fields to prevent SQL injection
         allowed_fields = {
             "name", "path", "status", "phase", "description",
-            "completion_pct", "last_modified", "is_infrastructure"
+            "completion_pct", "last_modified", "is_infrastructure",
+            "has_index", "index_is_valid", "index_updated_at"
         }
         
         # Validate all field names

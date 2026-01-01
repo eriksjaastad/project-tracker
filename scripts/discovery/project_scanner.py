@@ -67,6 +67,32 @@ def is_infrastructure_project(project_name: str, todo_content: str = "") -> bool
     return "**Type:** Infrastructure" in todo_content or "**Type:** Infra" in todo_content
 
 
+def validate_index_file(index_path: Path) -> bool:
+    """Basic validation of index file according to Critical Rule #0."""
+    try:
+        content = index_path.read_text()
+        
+        # Check for YAML frontmatter
+        if not content.strip().startswith('---'):
+            return False
+            
+        # Check for required tags
+        required_tags = ["map/project", "p/", "type/", "domain/", "status/", "tech/"]
+        tags_section = content.split('---')[1]
+        if not all(tag in tags_section for tag in required_tags):
+            return False
+            
+        # Check for required sections
+        required_sections = ["## Key Components", "## Status"]
+        if not all(section in content for section in required_sections):
+            return False
+            
+        return True
+    except Exception as e:
+        logger.warning(f"Error validating index file {index_path}: {e}")
+        return False
+
+
 def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
     """Extract all metadata from a project."""
     metadata = {
@@ -81,8 +107,22 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
         "ai_agents": [],
         "cron_jobs": [],
         "services": [],
-        "is_infrastructure": False
+        "is_infrastructure": False,
+        "has_index": False,
+        "index_is_valid": False,
+        "index_updated_at": None
     }
+    
+    # Check for index file (00_Index_*.md)
+    index_files = list(project_path.glob("00_Index_*.md"))
+    if index_files:
+        index_file = index_files[0]
+        metadata["has_index"] = True
+        metadata["index_is_valid"] = validate_index_file(index_file)
+        try:
+            metadata["index_updated_at"] = datetime.fromtimestamp(index_file.stat().st_mtime).isoformat()
+        except Exception as e:
+            logger.warning(f"Failed to get stat for index file {index_file}: {e}")
     
     # Parse TODO.md if exists
     todo_path = project_path / "TODO.md"

@@ -1,0 +1,104 @@
+# Cursor Rules - project-tracker
+
+## 📝 Markdown & Documentation Standards
+
+### YAML Frontmatter (CRITICAL)
+- **ALWAYS preserve YAML frontmatter** when editing `.md` files
+- Every markdown file should have frontmatter with:
+  ```yaml
+  ---
+  tags:
+    - p/project-tracker
+    - type/dashboard
+    - domain/project-management
+    - tech/python
+    - tech/typer
+  status: #status/active
+  created: YYYY-MM-DD
+  ---
+  ```
+
+### Tag Taxonomy
+- Use **nested tags** for hierarchy: `#type/dashboard`, `#tech/python`
+- Tag structure:
+  - `#p/project-tracker` - Project namespace
+  - `#type/dashboard` - Dashboard tool
+  - `#domain/project-management` - Project tracking
+  - `#tech/python/typer` - Technology stack
+
+### Obsidian Wikilinks
+- Use `[[project-tracker]]` to link to this project
+- Link to `[[00_Index_project-tracker]]` when referencing documentation
+
+---
+
+## 🚫 Context Window Management
+
+**NEVER waste context on:**
+- `node_modules/`, `__pycache__/`, `.git/`
+- `venv/` - Virtual environment
+- `project_tracker.db` - SQLite database
+- `logs/` - Log files
+
+**When reading files:**
+- Query database instead of reading `.db` file
+- Use targeted reads for large project lists
+
+---
+
+## 📋 Project Overview
+
+**Purpose:** Track all projects in `/Users/eriksjaastad/projects` workspace and surface status, health, and resource usage.
+
+**Architecture:**
+- **Scanner:** Discovers projects, READMEs, TODOs
+- **Database:** SQLite storage for project metadata
+- **CLI:** Typer-based command interface
+- **Dashboard:** Web UI (Flask) for visualization
+
+**Key Features:**
+- Auto-discovery of projects from filesystem
+- External resource tracking (from project-scaffolding/EXTERNAL_RESOURCES.md)
+- TODO status monitoring
+- Last activity tracking
+
+---
+
+## 🔧 CLI Commands
+
+```bash
+# Initialize database
+pt init
+
+# Scan all projects
+pt scan
+
+# Show dashboard
+pt serve
+
+# List projects
+pt list
+```
+
+---
+
+## 🔗 Integration Points
+
+**Reads from:**
+- `/Users/eriksjaastad/projects/` - All projects
+- `/Users/eriksjaastad/projects/project-scaffolding/EXTERNAL_RESOURCES.md` - Resource tracking
+- Individual project `README.md`, `TODO.md`, `00_Index_*.md` files
+
+**Project Index Validation:**
+- Uses `project-scaffolding/scripts/validate_project.py`
+- Checks for `00_Index_[ProjectName].md` in each project
+- Surface indexing status on dashboard (TODO)
+
+---
+
+## Related Documentation
+
+- **Project Philosophy:** `/Users/eriksjaastad/projects/Trading Projects/PROJECT_PHILOSOPHY.md`
+- **Project Scaffolding:** `/Users/eriksjaastad/projects/project-scaffolding/`
+- **TODO:** `TODO.md` - Current work items
+
