@@ -20,14 +20,17 @@ logger = get_logger(__name__)
 def detect_stalled_projects(projects: List[Dict[str, Any]], days_threshold: int = 60) -> List[Dict[str, Any]]:
     """Detect projects with no work in X days (default 60 for less noise)."""
     alerts = []
-    cutoff_date = datetime.now() - timedelta(days=days_threshold)
     
     for project in projects:
         if project.get("last_modified"):
             try:
                 last_mod = datetime.fromisoformat(project["last_modified"].replace('Z', '+00:00'))
+                # Use timezone-aware now if last_mod has timezone info
+                now = datetime.now(last_mod.tzinfo) if last_mod.tzinfo else datetime.now()
+                cutoff_date = now - timedelta(days=days_threshold)
+                
                 if last_mod < cutoff_date:
-                    days_ago = (datetime.now() - last_mod).days
+                    days_ago = (now - last_mod).days
                     alerts.append({
                         "project_id": project["id"],
                         "project_name": project["name"],

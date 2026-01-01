@@ -111,9 +111,6 @@ def scan():
                 description=job.get("description")
             )
         
-        # Log scan event
-        db.log_event(project["id"], "scan", "Auto-discovery scan")
-        
         console.print(f"  ✓ {project['name']}")
     
     # Parse and add services from EXTERNAL_RESOURCES.md

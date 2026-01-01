@@ -24,6 +24,9 @@ from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
 
+# Import config
+from config import REINDEX_SCRIPT_PATH
+
 logger = get_logger(__name__)
 
 app = FastAPI(title="Project Tracker Dashboard")
@@ -226,13 +229,9 @@ async def project_detail(request: Request, project_id: str):
     # Enrich with related data
     project = enrich_project_data(project, db)
     
-    # Get work log
-    work_log = db.get_work_log(project_id, limit=20)
-    
     return templates.TemplateResponse("project_detail.html", {
         "request": request,
-        "project": project,
-        "work_log": work_log
+        "project": project
     })
 
 
@@ -285,13 +284,12 @@ async def create_index(project_id: str):
         if not project:
             return JSONResponse({"status": "error", "message": "Project not found"}, status_code=404)
             
-        script_path = "/Users/eriksjaastad/projects/project-scaffolding/scripts/reindex_projects.py"
-        if not Path(script_path).exists():
+        if not REINDEX_SCRIPT_PATH.exists():
             return JSONResponse({"status": "error", "message": "Reindex script not found"}, status_code=500)
             
         # Run script
         result = subprocess.run(
-            [sys.executable, script_path, project["path"]],
+            [sys.executable, str(REINDEX_SCRIPT_PATH), project["path"]],
             capture_output=True,
             text=True
         )
@@ -346,9 +344,6 @@ async def refresh_data():
                 index_is_valid=project.get("index_is_valid", False),
                 index_updated_at=project.get("index_updated_at")
             )
-            
-            # Log refresh
-            db.log_event(project["id"], "refresh", "Manual refresh via dashboard")
         
         return JSONResponse({
             "status": "success",

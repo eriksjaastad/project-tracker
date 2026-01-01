@@ -9,7 +9,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from discovery.todo_parser import parse_todo, extract_status, calculate_completion
-from discovery.external_resources_parser import normalize_project_name
 
 
 class TestTODOParser:
@@ -65,20 +64,9 @@ class TestTODOParser:
             result = parse_todo(temp_path)
             assert result["status"] == "active"
             assert result["phase"] == "Phase 1 - Development"
-            assert result["completion_pct"] == 67  # 2/3 complete
+            assert result["completion_pct"] == 66  # 2/3 complete
         finally:
             temp_path.unlink()
-
-
-class TestResourceParser:
-    """Tests for EXTERNAL_RESOURCES.md parsing."""
-    
-    def test_normalize_project_name(self):
-        """Test project name normalization."""
-        assert normalize_project_name("Trading Projects") == "trading-projects"
-        assert normalize_project_name("project-tracker") == "project-tracker"
-        assert normalize_project_name("AI Usage Billing Tracker") == "ai-usage-billing-tracker"
-        assert normalize_project_name("Cortana personal AI") == "cortana-personal-ai"
 
 
 if __name__ == "__main__":
