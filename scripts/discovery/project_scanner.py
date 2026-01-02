@@ -105,10 +105,14 @@ def validate_index_file(index_path: Path) -> bool:
         if not all(tag in tags_section for tag in required_tags):
             return False
             
-        # Check for required sections
-        required_sections = ["## Key Components", "## Status"]
-        if not all(section in content for section in required_sections):
-            return False
+        # Check for required sections (case-insensitive and partial match)
+        required_sections = ["Key Components", "Status"]
+        content_upper = content.upper()
+        for section in required_sections:
+            if f"## {section.upper()}" not in content_upper and f"### {section.upper()}" not in content_upper:
+                # Also check for variants with icons like "## 🎯 Status"
+                if not any(f"{section.upper()}" in line.upper() for line in content.split('\n') if line.startswith('##')):
+                    return False
             
         return True
     except Exception as e:

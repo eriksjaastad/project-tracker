@@ -46,9 +46,10 @@ class AuditProvider(MetadataProvider):
         
     def get_health(self, project_path: str) -> Optional[Dict[str, Any]]:
         """Calls `audit health [project] --json`."""
+        abs_path = str(Path(project_path).absolute())
         try:
             result = subprocess.run(
-                [self.bin_path, "health", project_path, "--json"],
+                [self.bin_path, "health", abs_path, "--json"],
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -78,7 +79,8 @@ class AuditProvider(MetadataProvider):
         try:
             cmd = [self.bin_path, "tasks"]
             if project_path:
-                cmd.extend(["--root", project_path])
+                abs_path = str(Path(project_path).absolute())
+                cmd.extend(["--root", abs_path])
             
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode != 0:
@@ -96,9 +98,10 @@ class AuditProvider(MetadataProvider):
     
     def check_file(self, file_path: str) -> Dict[str, Any]:
         """Calls `audit check [file]` and parses NDJSON."""
+        abs_path = str(Path(file_path).absolute())
         try:
             result = subprocess.run(
-                [self.bin_path, "check", file_path],
+                [self.bin_path, "check", abs_path],
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -114,9 +117,10 @@ class AuditProvider(MetadataProvider):
     
     def fix_file(self, file_path: str) -> bool:
         """Calls `audit fix [file]`."""
+        abs_path = str(Path(file_path).absolute())
         try:
             result = subprocess.run(
-                [self.bin_path, "fix", file_path],
+                [self.bin_path, "fix", abs_path],
                 capture_output=True,
                 text=True,
                 timeout=30

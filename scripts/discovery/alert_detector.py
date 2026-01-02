@@ -293,7 +293,7 @@ def detect_invalid_frontmatter(projects: List[Dict[str, Any]]) -> List[Dict[str,
                         "type": "invalid_frontmatter",
                         "severity": "warning",
                         "message": "Invalid frontmatter",
-                        "details": issues[0] if issues else "Invalid YAML frontmatter structure"
+                        "details": "; ".join(issues) if issues else "Invalid YAML frontmatter structure"
                     })
             except Exception as e:
                 logger.error(f"Frontmatter check failed: {e}")
