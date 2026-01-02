@@ -34,9 +34,11 @@ created: 2025-12-22
 
 ### In Progress 🔄
 - **Adoption** - Erik using dashboard daily
+- **Audit Agent Integration** - Porting scanners to Go CLI (v1.0.0)
 
 ### What's Missing ❌
-- None - All MVP features implemented
+- [ ] Real-time health scores from `audit-agent`
+- [ ] Cross-project task aggregation via `audit tasks`
 
 ### Key Decisions Made
 1. **Dashboard-first approach** - Build visualization before all features
@@ -53,6 +55,15 @@ created: 2025-12-22
 ---
 
 ## ✅ Completed Tasks
+
+### Phase 3: Audit Agent Integration (Jan 2, 2026) [in_progress]
+- [ ] **Environment Check:** Add `AUDIT_BIN_PATH` to `config.py` and verify binary presence
+- [ ] **Health Scoring:** Integrate `audit health [project] --json` into the project scanner
+- [ ] **Dashboard Metrics:** Add Score (0-100) and Grade (A-F) to project cards
+- [ ] **Fast Tasks:** Replace Python `todo_parser.py` with `audit tasks` NDJSON feed
+- [ ] **Validation Alerts:** Use `audit check` to trigger "Invalid Frontmatter" alerts in the dashboard
+- [ ] **Auto-Fix Integration:** Add "Fix Frontmatter" button to detail view (calls `audit fix`)
+- [ ] **Vault Logging:** Port internal logging to use `audit log` for shared activity tracking
 
 ### Phase 2: Indexing & Polish (Jan 1, 2026)
 - [x] Add `has_index` boolean field to database schema
@@ -127,6 +138,7 @@ created: 2025-12-22
 - `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
 
 **Related projects:**
+- `/Users/eriksjaastad/projects/audit-agent/` - Go CLI for health, tasks, and validation
 - `/Users/eriksjaastad/projects/project-scaffolding/` - Templates and patterns
 - `/Users/eriksjaastad/projects/agent-skills-library/` - AI skills
 - `/Users/eriksjaastad/projects/EXTERNAL_RESOURCES.md` - Service dependency data source

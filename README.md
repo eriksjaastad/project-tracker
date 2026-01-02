@@ -70,6 +70,15 @@ The dashboard will:
 
 ---
 
+## 🛠 Requirements
+
+- **Python 3.11+**
+- **[[audit-agent]] (v1.0.0+)**: This Go CLI is a required dependency for project health scoring, task aggregation, and validation.
+  - Install by building in `../audit-agent/`
+  - Ensure the `audit` binary is in your `$PATH` or configured in `config.py`.
+
+---
+
 ## ✨ Key Features
 
 ### 1. Chronological Sorting (Newest First)
