@@ -20,6 +20,7 @@ class DatabaseManager:
     def _get_conn(self):
         """Get database connection context manager."""
         conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
         conn.row_factory = sqlite3.Row  # Enable dict-like access
         try:
             yield conn
@@ -46,7 +47,11 @@ class DatabaseManager:
         """Add or update a project."""
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            created_at = datetime.now().isoformat()
+            
+            # 🛡️ Preserve created_at on update
+            cursor.execute("SELECT created_at FROM projects WHERE id = ?", (project_id,))
+            existing = cursor.fetchone()
+            created_at = existing["created_at"] if existing else datetime.now().isoformat()
             
             cursor.execute("""
                 INSERT OR REPLACE INTO projects 
@@ -114,6 +119,12 @@ class DatabaseManager:
     
     def update_health(self, project_id: str, score: int, grade: str) -> None:
         """Update health_score and health_grade for a project."""
+        # 🛡️ Input validation
+        if not isinstance(score, int) or not (0 <= score <= 100):
+            raise ValueError(f"score must be int 0-100, got: {score}")
+        if grade not in {"A", "B", "C", "D", "F"}:
+            raise ValueError(f"grade must be A-F, got: {grade}")
+            
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -241,3 +252,9 @@ class DatabaseManager:
             cursor.execute("DELETE FROM service_dependencies WHERE project_id = ?", (project_id,))
             conn.commit()
     
+    # ==================== ACTIVITY FEED ====================
+    
+    def get_activity(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get recent activity from the audit log (Interface placeholder)."""
+        # TODO: Implement reading from WARDEN_LOG.yaml
+        return []
