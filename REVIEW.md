@@ -1,8 +1,8 @@
-# Code Review: Phase 3 Prerequisites
+# Code Review: Phase 3 Core Integration
 
-**Review Date:** 2026-01-02 22:15:23 UTC
+**Review Date:** 2026-01-02 22:28:44 UTC
 **Reviewer:** Senior Principal Engineer
-**Scope:** `providers.py`, `schema.py`, `manager.py` (Phase 3 Prerequisites)
+**Scope:** Core Integration implementation (providers, scanner, alerts, dashboard)
 
 ---
 
@@ -10,7 +10,7 @@
 
 **[Needs Major Refactor]**
 
-This is a skeleton wearing a suit pretending to be production code. The provider pattern is structurally correct but the implementations are lying to callers. Every method returns "success" when it has done nothing. This will cause silent data corruption the moment anyone trusts the return values.
+The happy path works. The sad path will ruin your morning. You've got subprocess calls scattered across alert detection with no parallelization, a progress bar that lies to users, and import patterns that will break the moment someone runs this from a different directory.
 
 ---
 
@@ -18,33 +18,56 @@ This is a skeleton wearing a suit pretending to be production code. The provider
 
 ### False Confidence
 
-The code is **actively lying** in multiple places:
+**The Progress Bar is Theatre:**
+```python
+# pt.py:62-65
+with Progress() as progress:
+    task = progress.add_task("[cyan]Auditing project health...", total=len(projects))
+    health_results = scan_health_parallel(projects)  # <-- blocks for N seconds
+    progress.update(task, advance=len(projects))     # <-- updates ALL AT ONCE
+```
+This shows a progress bar, freezes while parallel work happens, then jumps to 100%. Users think it's stuck. Either hook into `as_completed()` to update incrementally, or don't pretend.
 
-- `LegacyProvider.check_file()` at `providers.py:78-80` returns `{"valid": True, "issues": []}` without checking anything. This isn't a stub—it's a landmine. Any caller will think the file is valid.
-- `AuditProvider.check_file()` at `providers.py:56-59` does the same. Two providers, same lie.
-- `update_health()` in `manager.py:115-124` accepts any integer and any string. Pass `score=9999, grade="ZZZZ"` and it happily corrupts your database.
+**Silent Timeout Bomb in Alert Detection:**
+```python
+# alert_detector.py:270
+check_result = provider.check_file(str(index_files[0]))
+```
+This runs **synchronously** for every project during `get_all_alerts()`. With 35 projects and AuditProvider (30s timeout each), worst case is **17.5 minutes** of blocking. Health checks got ThreadPoolExecutor; alert detection didn't.
 
 ### The Bus Factor
 
-**3 months from now: Cryptic Liability.**
+**Import Pattern Roulette:**
+```python
+# alert_detector.py:11
+from scripts.db.manager import DatabaseManager
 
-- No docstrings explaining *why* stubs return specific values
-- `sys.path.insert(0, ...)` appears in every file—copy-paste pattern that will rot
-- Zero indication to callers that these are stub implementations vs real ones
-- The `# TODO: Implement actual binary call` comments will be ignored and forgotten
+# vs every other file:
+from db.manager import DatabaseManager
+```
+This absolute import will fail if `sys.path` isn't set up identically. One file uses `scripts.db.manager`, others use `db.manager`. Pick one and stick with it.
 
 ### 10 Failure Modes
 
-1. **Phantom Validation:** `check_file()` returns valid for malformed files → frontmatter corruption propagates silently
-2. **Health Score Overflow:** `update_health(project_id, 99999, "Z")` succeeds → dashboard displays garbage
-3. **Grade Injection:** `health_grade` accepts any string including SQL-looking garbage → potential display XSS in dashboard
-4. **Binary Path Confusion:** `AUDIT_BIN_PATH="audit"` (non-absolute) passes the `is_absolute()` check at line 92, falls through to `shutil.which("audit")`, finds wrong binary
-5. **Provider Singleton Missing:** `get_provider()` called 35+ times during scan → 35+ INFO log messages, 35+ binary existence checks
-6. **Foreign Key Theater:** Schema declares `ON DELETE CASCADE` but SQLite foreign keys are OFF by default—deleting a project orphans cron_jobs, ai_agents, services
-7. **created_at Clobbering:** `add_project()` uses `INSERT OR REPLACE` → every scan overwrites original creation timestamp
-8. **Connection Leak on Exception:** `schema.py:23` opens connection, `schema.py:144` closes it, but no try/finally—exception before commit = leaked connection
-9. **Race Condition:** Two concurrent `pt scan` processes can interleave `DELETE` and `INSERT` operations on same project
-10. **Logging Black Hole:** `providers.py` uses `logging.getLogger(__name__)` but project uses custom `logger.py` module → provider logs go nowhere unless root logger configured
+1. **Timeout Cascade:** `detect_invalid_frontmatter()` calls `check_file()` 35 times synchronously. One slow binary response = frozen dashboard.
+
+2. **Double Path Import:** `providers.py:8,12` imports `Path` twice (`from pathlib import Path` AND `from pathlib import Path as PathLib`). Confusing, error-prone.
+
+3. **Provider Instantiation Storm:** `get_provider()` called fresh in `scan_health_parallel()` AND `detect_invalid_frontmatter()`. Each call does filesystem/PATH lookups. Should cache.
+
+4. **Unvalidated Binary Output:** `providers.py:60-61` trusts `data["score"]` and `data["grade"]` blindly. Malformed binary output passes through until `update_health()` throws ValueError—far from the source.
+
+5. **Task Shape Mismatch:** `LegacyProvider.get_tasks()` returns `[{"project": path, "status": ..., "completion_pct": ...}]`. `AuditProvider.get_tasks()` returns whatever the binary emits. Consumers must handle both shapes.
+
+6. **Progress Bar Lie:** Users see frozen progress during parallel scan. No incremental updates.
+
+7. **Alert Detector Import Hell:** Uses `from scripts.db.manager` instead of relative import. Will break in different execution contexts.
+
+8. **No Fast Tasks Integration:** The "Fast Tasks" deliverable (replace 35+ `todo_parser.py` calls with single `audit tasks`) isn't wired into the scan pipeline. `get_tasks()` is implemented but never called during `pt scan`.
+
+9. **Race Condition Setup:** `scan_health_parallel()` shares single `provider` instance across threads. Currently stateless, but any future state = thread-safety bugs.
+
+10. **check_file() Inconsistency:** Remediation said `LegacyProvider.check_file()` should raise `NotImplementedError`. Core Integration prompt said delegate to `validate_index_file`. It delegates. Which spec is canonical?
 
 ---
 
@@ -52,83 +75,70 @@ The code is **actively lying** in multiple places:
 
 ### Architectural Anti-Patterns
 
-**The Lying Interface:**
+**Double Import Pollution:**
 ```python
-# providers.py:78-80
-def check_file(self, file_path: str) -> Dict[str, Any]:
-    """Uses existing validation logic (Interface only)."""
-    return {"valid": True, "issues": []}
-```
-This is not a "stub"—a stub would raise `NotImplementedError` or return `None`. This actively claims success. The moment any code path checks `if provider.check_file(path)["valid"]`, you've shipped a bug.
-
-**sys.path Surgery:**
-```python
-# providers.py:12-15
-import sys
+# providers.py:8
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from config import AUDIT_BIN_PATH
+
+# providers.py:12
+from pathlib import Path as PathLib
 ```
-Three files, three identical path hacks. This is what `__init__.py` and proper package structure solve. Every new file will copy-paste this incantation.
+Why import the same class twice under different names? Now you have `Path` AND `PathLib` in the same file. This is how typos become bugs.
+
+**Synchronous Alerts in Async World:**
+Health checks: parallelized with ThreadPoolExecutor ✓
+Frontmatter validation: sequential for-loop with subprocess calls ✗
+
+```python
+# alert_detector.py:266-281
+for project in projects:
+    # ...
+    check_result = provider.check_file(str(index_files[0]))  # 30s timeout each
+```
 
 ### State & Data Integrity
 
-**No Input Validation on Health Data:**
+**Binary Output Trusted Blindly:**
 ```python
-# manager.py:115-124
-def update_health(self, project_id: str, score: int, grade: str) -> None:
-    """Update health_score and health_grade for a project."""
-    # No validation. score could be -1 or 1000000. grade could be "DROP TABLE".
-    cursor.execute("""
-        UPDATE projects
-        SET health_score = ?, health_grade = ?
-        WHERE id = ?
-    """, (score, grade, project_id))
+# providers.py:60-61
+data = json.loads(result.stdout)
+return {"score": data["score"], "grade": data["grade"]}
 ```
-The method signature lies. It says `score: int` but Python doesn't enforce this at runtime. Pass a string, get a string in the database.
+If `audit health` returns `{"score": "oops", "grade": 123}`, this passes it through. The `update_health()` validation catches it, but:
+1. Error message points to database layer, not binary
+2. User has no idea which project's binary output was malformed
 
-**Silent Update to Nonexistent Project:**
+Add validation at parse time:
 ```python
-# manager.py:119-123
-cursor.execute("""UPDATE projects SET health_score = ?, health_grade = ? WHERE id = ?""", ...)
-conn.commit()
+score = data["score"]
+grade = data["grade"]
+if not isinstance(score, int) or not (0 <= score <= 100):
+    raise ValueError(f"Invalid score from binary: {score}")
+if grade not in {"A", "B", "C", "D", "F"}:
+    raise ValueError(f"Invalid grade from binary: {grade}")
 ```
-If `project_id` doesn't exist, this silently succeeds with 0 rows affected. Caller has no idea the update did nothing.
 
 ### Silent Killers
 
-**Foreign Keys Are Decorative:**
+**Fast Tasks: Implemented, Never Used:**
 ```python
-# schema.py:89
-FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+# providers.py:66-85 - get_tasks() implemented
+# project_scanner.py - still uses parse_todo() directly
+# pt.py - never calls get_tasks()
 ```
-SQLite foreign keys are **disabled by default**. Without `PRAGMA foreign_keys = ON` at connection time, this constraint is ignored. Delete a project, orphan records remain forever.
-
-**Logger Mismatch:**
-```python
-# providers.py:8-9
-import logging
-logger = logging.getLogger(__name__)
-
-# vs every other file in the project:
-from logger import get_logger
-logger = get_logger(__name__)
-```
-Provider logs will go to the void unless someone configures the root logger. The rest of the app uses a custom logger module that this file ignores.
+The "Fast Tasks" deliverable exists in providers but isn't wired into the scan pipeline. You're still making 35+ individual `todo_parser.py` calls.
 
 ### Complexity Tax
 
-**Redundant Path Resolution:**
+**Provider Instantiation Per-Call:**
 ```python
-# providers.py:92-103
-if AUDIT_BIN_PATH and Path(AUDIT_BIN_PATH).is_absolute():
-    if Path(AUDIT_BIN_PATH).exists():
-        return AuditProvider(str(AUDIT_BIN_PATH))
+# project_scanner.py:66
+provider = get_provider()  # filesystem lookup
 
-bin_name = AUDIT_BIN_PATH if AUDIT_BIN_PATH else "audit"
-which_path = shutil.which(bin_name)
+# alert_detector.py:264
+provider = get_provider()  # another filesystem lookup
 ```
-If `AUDIT_BIN_PATH` is set but not absolute, it falls through to `shutil.which(AUDIT_BIN_PATH)`. But if it's set and absolute but doesn't exist... it also falls through to `shutil.which(AUDIT_BIN_PATH)`. This tries to `which` an absolute path. Confusing logic that will break on edge cases.
+`get_provider()` checks if binary exists every time. Cache it module-level or pass it through.
 
 ---
 
@@ -136,16 +146,12 @@ If `AUDIT_BIN_PATH` is set but not absolute, it falls through to `shutil.which(A
 
 | File | Line | Issue |
 |------|------|-------|
-| `providers.py` | 8-9 | Uses `logging` instead of project's `logger.py` module |
-| `providers.py` | 12-15 | `sys.path.insert` hack instead of proper package imports |
-| `providers.py` | 59, 80 | Returns `{"valid": True}` without validation—active lie |
-| `providers.py` | 92 | `is_absolute()` check but fallback also uses same path value |
-| `manager.py` | 49 | `created_at` set on every INSERT OR REPLACE—clobbers original |
-| `manager.py` | 115-124 | No validation on score range (0-100) or grade values (A-F) |
-| `manager.py` | 119-123 | No check if update affected any rows |
-| `schema.py` | 23-144 | No try/finally around connection—leak on exception |
-| `schema.py` | 46-77 | Migrations swallow `OperationalError` but don't verify success |
-| `schema.py` | 89, 102, 113 | Foreign keys declared but never enforced (missing PRAGMA) |
+| `providers.py` | 8, 12 | Double import of `Path` / `PathLib` |
+| `providers.py` | 60-61 | No validation of binary output before return |
+| `pt.py` | 62-65 | Progress bar doesn't show incremental progress |
+| `alert_detector.py` | 11 | Absolute import `scripts.db.manager` breaks portability |
+| `alert_detector.py` | 266-281 | Sequential subprocess calls (should parallel like health) |
+| `project_scanner.py` | 159 | Still uses `parse_todo()` directly, not `provider.get_tasks()` |
 
 ---
 
@@ -153,13 +159,13 @@ If `AUDIT_BIN_PATH` is set but not absolute, it falls through to `shutil.which(A
 
 ### The "Signal"
 
-The **provider abstraction pattern** is correct. `MetadataProvider` → `AuditProvider`/`LegacyProvider` with `get_provider()` factory is the right architecture. The interface design is sound.
+The **ThreadPoolExecutor pattern in `scan_health_parallel()`** is correct. 8 workers, proper future handling, exception isolation per project. This is the template for all provider calls.
 
 ### The "Noise" (Delete or Fix Immediately)
 
-1. **All stub return values that claim success** (`{"valid": True}`, etc.) → Replace with `raise NotImplementedError("Stub: not yet implemented")`
-2. **The `sys.path.insert` pattern** → Fix package structure once, delete from all files
-3. **`INSERT OR REPLACE` in add_project** → Use proper `INSERT ... ON CONFLICT UPDATE` that preserves `created_at`
+1. **The double Path import** — delete `from pathlib import Path as PathLib`, use `Path` consistently
+2. **The theatrical progress bar** — either show real progress or use a spinner
+3. **The synchronous `detect_invalid_frontmatter()`** — parallelize or defer to scan time
 
 ---
 
@@ -167,14 +173,14 @@ The **provider abstraction pattern** is correct. `MetadataProvider` → `AuditPr
 
 | # | Task | Done? |
 |---|------|-------|
-| 1 | All stub methods raise `NotImplementedError` instead of returning fake success | ☐ |
-| 2 | `update_health()` validates `score` in range 0-100 and `grade` in {A,B,C,D,F}, raises `ValueError` otherwise | ☐ |
-| 3 | `providers.py` uses `from logger import get_logger` instead of `logging.getLogger` | ☐ |
-| 4 | `DatabaseManager._get_conn()` executes `PRAGMA foreign_keys = ON` after connection | ☐ |
-| 5 | `add_project()` preserves original `created_at` on update (use `INSERT ... ON CONFLICT` or check existence first) | ☐ |
+| 1 | Remove duplicate `PathLib` import, use `Path` everywhere in `providers.py` | ☐ |
+| 2 | Add score/grade validation in `AuditProvider.get_health()` before returning | ☐ |
+| 3 | Parallelize `detect_invalid_frontmatter()` using ThreadPoolExecutor | ☐ |
+| 4 | Fix `alert_detector.py` import to use relative `from db.manager import DatabaseManager` | ☐ |
+| 5 | Wire `provider.get_tasks()` into scan pipeline OR document "Fast Tasks" as deferred | ☐ |
 
-**Ship when all 5 boxes are checked. Not before.**
+**Ship when all 5 boxes are checked. The progress bar issue is annoying but not blocking.**
 
 ---
 
-*"It works on my machine" is not a deployment strategy.*
+*"Working" and "production-ready" are not synonyms.*
