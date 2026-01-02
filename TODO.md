@@ -3,15 +3,15 @@ tags:
   - p/project-tracker
   - type/documentation/todo
   - domain/project-management
-status: #status/complete
+status: #status/in-progress
 created: 2025-12-22
 ---
 
 # [[project-tracker]] - TODO
 
-**Last Updated:** January 1, 2026  
-**Project Status:** Complete ✅
-**Current Phase:** Final Polish & Indexing Compliance
+**Last Updated:** January 2, 2026
+**Project Status:** In Progress 🔄
+**Current Phase:** Phase 3: Audit Agent Integration
 **Type:** Infrastructure
 **Index:** [[00_Index_project-tracker]]
 
@@ -37,8 +37,7 @@ created: 2025-12-22
 - **Audit Agent Integration** - Porting scanners to Go CLI (v1.0.0)
 
 ### What's Missing ❌
-- [ ] Real-time health scores from `audit-agent`
-- [ ] Cross-project task aggregation via `audit tasks`
+→ See **Phase 3** tasks below
 
 ### Key Decisions Made
 1. **Dashboard-first approach** - Build visualization before all features
@@ -54,7 +53,7 @@ created: 2025-12-22
 
 ---
 
-## ✅ Completed Tasks
+## 📋 Current Tasks
 
 ### Phase 3: Audit Agent Integration (Jan 2, 2026) [in_progress]
 
@@ -87,6 +86,8 @@ created: 2025-12-22
 | **Activity log path** | `~/projects/_obsidian/WARDEN_LOG.yaml` |
 
 ---
+
+## ✅ Completed Tasks
 
 ### Phase 2: Indexing & Polish (Jan 1, 2026)
 - [x] Add `has_index` boolean field to database schema
@@ -168,4 +169,4 @@ created: 2025-12-22
 
 ---
 
-*Project status: 100% Technical Completion. Entering adoption phase.* 🎯
+*Project status: Phase 3 in progress. Integrating audit-agent.* 🔧
