@@ -113,8 +113,21 @@ class AuditProvider(MetadataProvider):
             return {"valid": False, "issues": [str(e)]}
     
     def fix_file(self, file_path: str) -> bool:
-        """Calls `audit fix [file]` (Interface only)."""
-        raise NotImplementedError("AuditProvider.fix_file not yet implemented")
+        """Calls `audit fix [file]`."""
+        try:
+            result = subprocess.run(
+                [self.bin_path, "fix", file_path],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode != 0:
+                logger.warning(f"audit fix failed for {file_path}: {result.stderr}")
+                return False
+            return True
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"audit fix timeout for {file_path}: {e}")
+            return False
 
 class LegacyProvider(MetadataProvider):
     """Concrete provider that uses existing Python logic."""
