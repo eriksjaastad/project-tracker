@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import PROJECTS_BASE_DIR
 from db.schema import init_db
 from db.manager import DatabaseManager
-from discovery.project_scanner import discover_projects
+from discovery.project_scanner import discover_projects, scan_health_parallel
 from discovery.external_resources_parser import parse_external_resources
 
 app = typer.Typer(
@@ -57,6 +57,12 @@ def scan():
         progress.update(task, completed=True)
     
     console.print(f"\n[green]Found {len(projects)} projects[/green]\n")
+    
+    # Run health checks in parallel
+    with Progress() as progress:
+        task = progress.add_task("[cyan]Auditing project health...", total=len(projects))
+        health_results = scan_health_parallel(projects)
+        progress.update(task, advance=len(projects))
     
     # Get current project IDs in database
     existing_projects = db.get_all_projects()
@@ -112,6 +118,15 @@ def scan():
             )
         
         console.print(f"  ✓ {project['name']}")
+        
+        # Update health if available
+        health = health_results.get(project["id"])
+        if health:
+            db.update_health(
+                project_id=project["id"],
+                score=health["score"],
+                grade=health["grade"]
+            )
     
     # Parse and add services from EXTERNAL_RESOURCES.md
     console.print(f"\n[bold blue]Loading services from EXTERNAL_RESOURCES.md...[/bold blue]")

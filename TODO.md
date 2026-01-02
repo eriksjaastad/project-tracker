@@ -63,10 +63,10 @@ created: 2025-12-22
 - [x] **Database Schema:** Add `health_score` (INTEGER 0-100) and `health_grade` (TEXT A-F) columns to `projects` table
 
 #### Core Integration
-- [ ] **Health Scoring:** Integrate `audit health [project] --json` via `AuditProvider` with `ThreadPoolExecutor` parallelization
-- [ ] **Fast Tasks:** Replace 35+ individual `todo_parser.py` calls with single `audit tasks` NDJSON feed (global scan)
-- [ ] **Validation Alerts:** Use `audit check` to trigger "Invalid Frontmatter" alerts in the dashboard
-- [ ] **Dashboard Metrics:** Add Score and Grade display to project cards
+- [x] **Health Scoring:** Integrate `audit health [project] --json` via `AuditProvider` with `ThreadPoolExecutor` parallelization
+- [x] **Fast Tasks:** Replace 35+ individual `todo_parser.py` calls with single `audit tasks` NDJSON feed (global scan)
+- [x] **Validation Alerts:** Use `audit check` to trigger "Invalid Frontmatter" alerts in the dashboard
+- [x] **Dashboard Metrics:** Add Score and Grade display to project cards
 
 #### UI/UX
 - [ ] **Missing Binary Warning:** Show header/footer alert: "audit-agent not found. Health scores disabled."

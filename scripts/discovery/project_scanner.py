@@ -4,9 +4,11 @@ import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .git_metadata import get_last_modified
 from .todo_parser import parse_todo
+from .providers import get_provider
 
 # Add parent directory to path for config and logger imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -57,6 +59,27 @@ def discover_projects(base_path: Optional[Union[str, Path]] = None) -> List[Dict
                 projects.append(project)
     
     return projects
+
+
+def scan_health_parallel(projects: List[Dict], max_workers: int = 8) -> Dict[str, Dict]:
+    """Run health checks in parallel, return {project_id: {"score": N, "grade": "X"}}."""
+    provider = get_provider()
+    results = {}
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(provider.get_health, p["path"]): p["id"]
+            for p in projects
+        }
+        for future in as_completed(futures):
+            project_id = futures[future]
+            try:
+                results[project_id] = future.result()
+            except Exception as e:
+                logger.error(f"Health check failed for {project_id}: {e}")
+                results[project_id] = None
+    
+    return results
 
 
 def is_infrastructure_project(project_name: str, todo_content: str = "") -> bool:
