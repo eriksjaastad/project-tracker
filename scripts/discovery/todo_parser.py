@@ -85,7 +85,7 @@ def extract_status(line: str) -> str:
     # Common patterns
     if "active" in line_lower:
         return "active"
-    elif "development" in line_lower or "dev" in line_lower:
+    elif "development" in line_lower or "dev" in line_lower or "in progress" in line_lower:
         return "development"
     elif "paused" in line_lower:
         return "paused"
