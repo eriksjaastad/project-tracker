@@ -42,22 +42,31 @@ class DatabaseManager:
         is_infrastructure: bool = False,
         has_index: bool = False,
         index_is_valid: bool = False,
-        index_updated_at: Optional[str] = None
+        index_updated_at: Optional[str] = None,
+        health_score: Optional[int] = None,
+        health_grade: Optional[str] = None
     ) -> None:
         """Add or update a project."""
         with self._get_conn() as conn:
             cursor = conn.cursor()
             
-            # 🛡️ Preserve created_at on update
-            cursor.execute("SELECT created_at FROM projects WHERE id = ?", (project_id,))
+            # 🛡️ Preserve created_at, health_score, and health_grade on update
+            cursor.execute("SELECT created_at, health_score, health_grade FROM projects WHERE id = ?", (project_id,))
             existing = cursor.fetchone()
+            
             created_at = existing["created_at"] if existing else datetime.now().isoformat()
+            
+            # Use provided health data or preserve existing
+            final_health_score = health_score if health_score is not None else (existing["health_score"] if existing else None)
+            final_health_grade = health_grade if health_grade is not None else (existing["health_grade"] if existing else None)
             
             cursor.execute("""
                 INSERT OR REPLACE INTO projects 
-                (id, name, path, status, description, phase, last_modified, created_at, completion_pct, is_infrastructure, has_index, index_is_valid, index_updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (project_id, name, path, status, description, phase, last_modified, created_at, completion_pct, is_infrastructure, has_index, index_is_valid, index_updated_at))
+                (id, name, path, status, description, phase, last_modified, created_at, completion_pct, 
+                 is_infrastructure, has_index, index_is_valid, index_updated_at, health_score, health_grade)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (project_id, name, path, status, description, phase, last_modified, created_at, completion_pct, 
+                  is_infrastructure, has_index, index_is_valid, index_updated_at, final_health_score, final_health_grade))
             
             conn.commit()
     
