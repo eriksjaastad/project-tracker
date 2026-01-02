@@ -77,19 +77,21 @@ def parse_todo(todo_path: Path) -> Dict[str, Any]:
 
 def extract_status(line: str) -> str:
     """Extract status from a line."""
-    # Remove markdown formatting
+    # Remove markdown formatting and emojis
     line = line.replace("**", "").replace("*", "")
+    line = re.sub(r'[^\w\s&]', '', line) # Remove emojis and symbols
+    line_lower = line.lower()
     
     # Common patterns
-    if "Active" in line:
+    if "active" in line_lower:
         return "active"
-    elif "Development" in line or "Dev" in line:
+    elif "development" in line_lower or "dev" in line_lower:
         return "development"
-    elif "Paused" in line:
+    elif "paused" in line_lower:
         return "paused"
-    elif "Stalled" in line:
+    elif "stalled" in line_lower:
         return "stalled"
-    elif "Complete" in line or "Done" in line:
+    elif "complete" in line_lower or "done" in line_lower or "shipped" in line_lower or "production ready" in line_lower:
         return "complete"
     
     return "unknown"
