@@ -4,13 +4,15 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .cron_monitor import check_cron_health
 from .code_review_parser import parse_code_review
 from .providers import get_provider
-from scripts.db.manager import DatabaseManager
+from db.manager import DatabaseManager
 
 # Add parent directory to path for logger import
+sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from logger import get_logger
 
@@ -263,22 +265,38 @@ def detect_invalid_frontmatter(projects: List[Dict[str, Any]]) -> List[Dict[str,
     alerts = []
     provider = get_provider()
     
+    # Build list of (project, index_file) tuples to check
+    to_check = []
     for project in projects:
-        # Check index file if it exists
         index_files = list(Path(project["path"]).glob("00_Index_*.md"))
         if index_files:
-            check_result = provider.check_file(str(index_files[0]))
-            if not check_result.get("valid", False):
-                issues = check_result.get("issues", [])
-                details = issues[0] if issues else "Invalid YAML frontmatter structure"
-                alerts.append({
-                    "project_id": project["id"],
-                    "project_name": project["name"],
-                    "type": "invalid_frontmatter",
-                    "severity": "warning",
-                    "message": "Invalid frontmatter",
-                    "details": details
-                })
+            to_check.append((project, index_files[0]))
+    
+    if not to_check:
+        return alerts
+    
+    def check_one(item):
+        project, index_file = item
+        result = provider.check_file(str(index_file))
+        return (project, result)
+    
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(check_one, item): item for item in to_check}
+        for future in as_completed(futures):
+            try:
+                project, check_result = future.result()
+                if not check_result.get("valid", False):
+                    issues = check_result.get("issues", [])
+                    alerts.append({
+                        "project_id": project["id"],
+                        "project_name": project["name"],
+                        "type": "invalid_frontmatter",
+                        "severity": "warning",
+                        "message": "Invalid frontmatter",
+                        "details": issues[0] if issues else "Invalid YAML frontmatter structure"
+                    })
+            except Exception as e:
+                logger.error(f"Frontmatter check failed: {e}")
     
     return alerts
 
@@ -301,4 +319,3 @@ def get_all_alerts(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     all_alerts.sort(key=lambda x: (severity_order.get(x["severity"], 3), x["project_name"]))
     
     return all_alerts
-

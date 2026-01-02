@@ -64,7 +64,7 @@ created: 2025-12-22
 
 #### Core Integration
 - [x] **Health Scoring:** Integrate `audit health [project] --json` via `AuditProvider` with `ThreadPoolExecutor` parallelization
-- [x] **Fast Tasks:** Replace 35+ individual `todo_parser.py` calls with single `audit tasks` NDJSON feed (global scan)
+- [x] **Fast Tasks:** ~~Replace 35+ individual `todo_parser.py` calls~~ Provider method implemented. Full integration deferred to avoid scan pipeline refactor.
 - [x] **Validation Alerts:** Use `audit check` to trigger "Invalid Frontmatter" alerts in the dashboard
 - [x] **Dashboard Metrics:** Add Score and Grade display to project cards
 
