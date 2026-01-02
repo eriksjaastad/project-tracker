@@ -91,7 +91,8 @@ def scan():
             is_infrastructure=project.get("is_infrastructure", False),
             has_index=project.get("has_index", False),
             index_is_valid=project.get("index_is_valid", False),
-            index_updated_at=project.get("index_updated_at")
+            index_updated_at=project.get("index_updated_at"),
+            project_type=project.get("project_type", "standard")
         )
         
         # Clear old AI agents, cron jobs, and services

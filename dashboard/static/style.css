@@ -936,3 +936,26 @@ main {
 }
 
 /* Activity Feed - DELETED */
+
+/* Project Type Badges */
+.type-badge {
+    font-size: 1.1rem;
+    line-height: 1;
+    opacity: 0.8;
+    cursor: help;
+    padding: 2px 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.type-infrastructure { border: 1px solid #9c27b0; }
+.type-ai-agent { border: 1px solid #2196f3; }
+.type-dashboard { border: 1px solid #4caf50; }
+.type-journal { border: 1px solid #ffeb3b; }
+.type-evergreen { border: 1px solid #8bc34a; }
+.type-research { border: 1px solid #ff9800; }
+.type-book { border: 1px solid #795548; }
+.type-image-gen { border: 1px solid #e91e63; }
+
+.type-knowledge-base { border: 1px solid #00bcd4; }
+.type-meta-project { border: 1px solid #673ab7; }

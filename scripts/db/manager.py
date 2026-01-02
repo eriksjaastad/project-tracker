@@ -44,7 +44,8 @@ class DatabaseManager:
         index_is_valid: bool = False,
         index_updated_at: Optional[str] = None,
         health_score: Optional[int] = None,
-        health_grade: Optional[str] = None
+        health_grade: Optional[str] = None,
+        project_type: str = 'standard'
     ) -> None:
         """Add or update a project."""
         with self._get_conn() as conn:
@@ -63,10 +64,10 @@ class DatabaseManager:
             cursor.execute("""
                 INSERT OR REPLACE INTO projects 
                 (id, name, path, status, description, phase, last_modified, created_at, completion_pct, 
-                 is_infrastructure, has_index, index_is_valid, index_updated_at, health_score, health_grade)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 is_infrastructure, has_index, index_is_valid, index_updated_at, health_score, health_grade, project_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (project_id, name, path, status, description, phase, last_modified, created_at, completion_pct, 
-                  is_infrastructure, has_index, index_is_valid, index_updated_at, final_health_score, final_health_grade))
+                  is_infrastructure, has_index, index_is_valid, index_updated_at, final_health_score, final_health_grade, project_type))
             
             conn.commit()
     
@@ -108,7 +109,7 @@ class DatabaseManager:
             "name", "path", "status", "phase", "description",
             "completion_pct", "last_modified", "is_infrastructure",
             "has_index", "index_is_valid", "index_updated_at",
-            "health_score", "health_grade"
+            "health_score", "health_grade", "project_type"
         }
         
         # Validate all field names
