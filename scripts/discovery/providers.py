@@ -1,18 +1,17 @@
 """Metadata providers for project discovery."""
 
 import shutil
-import logging
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
 
-# Configure logging
-logger = logging.getLogger(__name__)
-
-# Import config for binary path
+# Configure logging using project-specific logger
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from logger import get_logger
 from config import AUDIT_BIN_PATH
+
+logger = get_logger(__name__)
 
 class MetadataProvider(ABC):
     """Abstract base class for project metadata providers."""
@@ -45,23 +44,19 @@ class AuditProvider(MetadataProvider):
         
     def get_health(self, project_path: str) -> Optional[Dict[str, Any]]:
         """Calls `audit health [project] --json` (Interface only)."""
-        # TODO: Implement actual binary call
-        return None
+        raise NotImplementedError("AuditProvider.get_health not yet implemented")
     
     def get_tasks(self, project_path: Optional[str] = None) -> List[Dict[str, Any]]:
         """Calls `audit tasks` (Interface only)."""
-        # TODO: Implement actual binary call
-        return []
+        raise NotImplementedError("AuditProvider.get_tasks not yet implemented")
     
     def check_file(self, file_path: str) -> Dict[str, Any]:
         """Calls `audit check [file] --json` (Interface only)."""
-        # TODO: Implement actual binary call
-        return {"valid": True, "issues": []}
+        raise NotImplementedError("AuditProvider.check_file not yet implemented")
     
     def fix_file(self, file_path: str) -> bool:
         """Calls `audit fix [file]` (Interface only)."""
-        # TODO: Implement actual binary call
-        return False
+        raise NotImplementedError("AuditProvider.fix_file not yet implemented")
 
 class LegacyProvider(MetadataProvider):
     """Concrete provider that uses existing Python logic."""
@@ -72,12 +67,11 @@ class LegacyProvider(MetadataProvider):
     
     def get_tasks(self, project_path: Optional[str] = None) -> List[Dict[str, Any]]:
         """Uses existing todo_parser.py logic (Interface only)."""
-        # TODO: Integrate with todo_parser.py
-        return []
+        raise NotImplementedError("LegacyProvider.get_tasks not yet implemented")
     
     def check_file(self, file_path: str) -> Dict[str, Any]:
         """Uses existing validation logic (Interface only)."""
-        return {"valid": True, "issues": []}
+        raise NotImplementedError("LegacyProvider.check_file not yet implemented")
     
     def fix_file(self, file_path: str) -> bool:
         """Legacy logic doesn't support auto-fixing."""
@@ -105,4 +99,3 @@ def get_provider() -> MetadataProvider:
     # 3. Fallback to Legacy
     logger.info("audit binary not found. Falling back to LegacyProvider.")
     return LegacyProvider()
-
