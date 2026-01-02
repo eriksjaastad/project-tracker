@@ -57,13 +57,36 @@ created: 2025-12-22
 ## ✅ Completed Tasks
 
 ### Phase 3: Audit Agent Integration (Jan 2, 2026) [in_progress]
-- [ ] **Environment Check:** Add `AUDIT_BIN_PATH` to `config.py` and verify binary presence
-- [ ] **Health Scoring:** Integrate `audit health [project] --json` into the project scanner
-- [ ] **Dashboard Metrics:** Add Score (0-100) and Grade (A-F) to project cards
-- [ ] **Fast Tasks:** Replace Python `todo_parser.py` with `audit tasks` NDJSON feed
+
+#### Prerequisites
+- [ ] **Provider Pattern Architecture:** Create `AuditProvider` (Go) and `LegacyProvider` (Python) base classes in `scripts/discovery/`
+- [ ] **Binary Detection:** Check for `audit` binary on startup and select provider accordingly
+- [ ] **Database Schema:** Add `health_score` (INTEGER 0-100) and `health_grade` (TEXT A-F) columns to `projects` table
+
+#### Core Integration
+- [ ] **Health Scoring:** Integrate `audit health [project] --json` via `AuditProvider` with `ThreadPoolExecutor` parallelization
+- [ ] **Fast Tasks:** Replace 35+ individual `todo_parser.py` calls with single `audit tasks` NDJSON feed (global scan)
 - [ ] **Validation Alerts:** Use `audit check` to trigger "Invalid Frontmatter" alerts in the dashboard
-- [ ] **Auto-Fix Integration:** Add "Fix Frontmatter" button to detail view (calls `audit fix`)
-- [ ] **Vault Logging:** Port internal logging to use `audit log` for shared activity tracking
+- [ ] **Dashboard Metrics:** Add Score and Grade display to project cards
+
+#### UI/UX
+- [ ] **Missing Binary Warning:** Show header/footer alert: "audit-agent not found. Health scores disabled."
+- [ ] **Auto-Fix Button:** Add "Fix Frontmatter" button to detail view (calls `audit fix`)
+- [ ] **Activity Feed:** Read activity from `~/projects/_obsidian/WARDEN_LOG.yaml` and display on dashboard
+
+---
+
+## 🏗 Key Architecture Decisions
+
+| Decision | Choice |
+| :--- | :--- |
+| **Fallback** | Provider pattern (`AuditProvider` → `LegacyProvider`) |
+| **Tasks scan** | Single global `audit tasks` call, not per-project |
+| **Health parallelization** | `ThreadPoolExecutor` during `pt scan` |
+| **Dashboard reads** | SQLite only (never calls binary on page load) |
+| **Activity log path** | `~/projects/_obsidian/WARDEN_LOG.yaml` |
+
+---
 
 ### Phase 2: Indexing & Polish (Jan 1, 2026)
 - [x] Add `has_index` boolean field to database schema
