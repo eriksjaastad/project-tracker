@@ -66,20 +66,6 @@
         </div>
         {% endif %}
         
-        {% if recent_activity %}
-        <div class="activity-section">
-            <h2>📋 Recent Activity</h2>
-            <div class="activity-feed">
-                {% for entry in recent_activity %}
-                <div class="activity-item">
-                    <span class="activity-time">{{ entry.timestamp }}</span>
-                    <span class="activity-message">{{ entry.message }}</span>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-        
         <div class="projects-grid">
             {% for project in projects %}
             <div class="project-card status-{{ project.status }} {% if project.code_review %}has-code-review{% endif %}">
