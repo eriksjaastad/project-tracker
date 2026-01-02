@@ -9,8 +9,7 @@ from pathlib import Path
 
 # Configure logging using project-specific logger
 import sys
-from pathlib import Path as PathLib
-sys.path.insert(0, str(PathLib(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from logger import get_logger
 from config import AUDIT_BIN_PATH
 
@@ -58,7 +57,18 @@ class AuditProvider(MetadataProvider):
                 logger.warning(f"audit health failed for {project_path}: {result.stderr}")
                 return None
             data = json.loads(result.stdout)
-            return {"score": data["score"], "grade": data["grade"]}
+            
+            # 🛡️ Validate binary output
+            score = data.get("score")
+            grade = data.get("grade")
+            if not isinstance(score, int) or not (0 <= score <= 100):
+                logger.error(f"Invalid score from audit binary for {project_path}: {score}")
+                return None
+            if grade not in {"A", "B", "C", "D", "F"}:
+                logger.error(f"Invalid grade from audit binary for {project_path}: {grade}")
+                return None
+                
+            return {"score": score, "grade": grade}
         except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError) as e:
             logger.error(f"audit health error for {project_path}: {e}")
             return None
@@ -114,23 +124,12 @@ class LegacyProvider(MetadataProvider):
         return None
     
     def get_tasks(self, project_path: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Uses existing todo_parser.py logic."""
-        from discovery.todo_parser import parse_todo
-        # Return empty if no path - legacy doesn't support global scan
-        if not project_path:
-            return []
-        todo_path = PathLib(project_path) / "TODO.md"
-        if not todo_path.exists():
-            return []
-        data = parse_todo(todo_path)
-        # Convert to task format matching audit output
-        return [{"project": project_path, "status": data.get("status"), "completion_pct": data.get("completion_pct", 0)}]
+        """Uses existing todo_parser.py logic (Interface only)."""
+        raise NotImplementedError("LegacyProvider.get_tasks not yet implemented")
     
     def check_file(self, file_path: str) -> Dict[str, Any]:
-        """Uses existing validation logic."""
-        from discovery.project_scanner import validate_index_file
-        is_valid = validate_index_file(PathLib(file_path))
-        return {"valid": is_valid, "issues": [] if is_valid else ["Failed validation"]}
+        """Uses existing validation logic (Interface only)."""
+        raise NotImplementedError("LegacyProvider.check_file not yet implemented")
     
     def fix_file(self, file_path: str) -> bool:
         """Legacy logic doesn't support auto-fixing."""
@@ -142,8 +141,8 @@ def get_provider() -> MetadataProvider:
     Checks config.AUDIT_BIN_PATH first, then falls back to PATH lookup.
     """
     # 1. Check config path
-    if AUDIT_BIN_PATH and PathLib(AUDIT_BIN_PATH).is_absolute():
-        if PathLib(AUDIT_BIN_PATH).exists():
+    if AUDIT_BIN_PATH and Path(AUDIT_BIN_PATH).is_absolute():
+        if Path(AUDIT_BIN_PATH).exists():
             logger.info(f"Using AuditProvider with binary at: {AUDIT_BIN_PATH}")
             return AuditProvider(str(AUDIT_BIN_PATH))
     
