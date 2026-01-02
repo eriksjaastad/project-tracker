@@ -1,6 +1,7 @@
 """Project scanner for auto-discovery."""
 
 import sys
+import yaml
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
@@ -137,7 +138,8 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
         "is_infrastructure": False,
         "has_index": False,
         "index_is_valid": False,
-        "index_updated_at": None
+        "index_updated_at": None,
+        "project_type": "standard"
     }
     
     # Check for index file (00_Index_*.md)
@@ -148,8 +150,21 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
         metadata["index_is_valid"] = validate_index_file(index_file)
         try:
             metadata["index_updated_at"] = datetime.fromtimestamp(index_file.stat().st_mtime).isoformat()
+            
+            # Extract project_type from YAML tags
+            content = index_file.read_text()
+            if content.strip().startswith('---'):
+                try:
+                    frontmatter = yaml.safe_load(content.split('---')[1])
+                    if frontmatter and "tags" in frontmatter:
+                        for tag in frontmatter["tags"]:
+                            if tag.startswith("type/"):
+                                metadata["project_type"] = tag.replace("type/", "")
+                                break
+                except Exception as e:
+                    logger.debug(f"Failed to parse YAML for {index_file}: {e}")
         except Exception as e:
-            logger.warning(f"Failed to get stat for index file {index_file}: {e}")
+            logger.warning(f"Failed to get metadata from index file {index_file}: {e}")
     
     # Parse TODO.md if exists
     todo_path = project_path / "TODO.md"

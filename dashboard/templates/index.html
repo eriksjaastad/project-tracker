@@ -72,9 +72,19 @@
                 <div class="project-header">
                     <div class="project-title-row">
                         <h2>{{ project.name }}</h2>
-                        {% if project.is_infrastructure %}
-                        <span class="infra-badge" title="Infrastructure Project">🔧</span>
-                        {% endif %}
+                        <span class="type-badge type-{{ project.project_type|lower }}" title="Project Type: {{ project.project_type }}">
+                            {% if project.project_type == 'infrastructure' %}🔧
+                            {% elif project.project_type == 'ai-agent' %}🤖
+                            {% elif project.project_type == 'dashboard' %}📊
+                            {% elif project.project_type == 'journal' %}📔
+                            {% elif project.project_type == 'evergreen' %}🌿
+                            {% elif project.project_type == 'research' %}🔍
+                            {% elif project.project_type == 'book' %}📚
+                            {% elif project.project_type == 'image-gen' %}🎨
+                            {% elif project.project_type == 'knowledge-base' %}🧠
+                            {% elif project.project_type == 'meta-project' %}🧬
+                            {% else %}📁{% endif %}
+                        </span>
                         <span class="index-status" title="Project Index Status">
                             {% if project.has_index %}
                                 {% if project.index_is_valid %}
@@ -97,6 +107,11 @@
                 {% endif %}
                 
                 <div class="project-meta">
+                    <div class="meta-row space-between">
+                        <span class="meta-label">Type:</span>
+                        <span class="meta-value">{{ project.project_type|capitalize }}</span>
+                    </div>
+                    
                     {% if project.health_score is not none %}
                     <div class="meta-row space-between">
                         <span class="meta-label">Health:</span>
@@ -237,10 +252,12 @@
                     {% endif %}
                 </div>
                 
+                {% if project.project_type not in ['evergreen', 'journal', 'knowledge-base', 'meta-project'] %}
                 <div class="progress-bar">
                     <div class="progress-fill" style="width: {{ project.completion_pct }}%"></div>
                     <span class="progress-label">{{ project.completion_pct }}% complete</span>
                 </div>
+                {% endif %}
                 
                 {% if project.code_review %}
                 <div class="code-review-status-bar">

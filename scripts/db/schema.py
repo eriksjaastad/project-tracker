@@ -38,9 +38,16 @@ def create_database(db_path: Optional[Path] = None) -> None:
             is_infrastructure BOOLEAN DEFAULT 0,
             has_index BOOLEAN DEFAULT 0,
             index_is_valid BOOLEAN DEFAULT 0,
-            index_updated_at TEXT
+            index_updated_at TEXT,
+            project_type TEXT DEFAULT 'standard'
         )
     """)
+    
+    # Migration: add project_type column
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN project_type TEXT DEFAULT 'standard'")
+    except sqlite3.OperationalError:
+        pass
     
     # Migration: add is_infrastructure column if it doesn't exist
     try:
