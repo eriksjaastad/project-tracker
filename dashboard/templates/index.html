@@ -26,6 +26,14 @@
         </div>
     </header>
     
+    {% if not audit_available %}
+    <div class="system-warning">
+        <span class="warning-icon">⚠️</span>
+        <span class="warning-text">audit-agent not found. Health scores and advanced validation disabled.</span>
+        <a href="https://github.com/eriksjaastad/audit-agent" target="_blank" class="warning-link">Install →</a>
+    </div>
+    {% endif %}
+    
     <main>
         {% if alerts %}
         <div class="alerts-section">
@@ -53,6 +61,20 @@
                     <span class="alert-project-name">{{ alert.project_name }}</span>
                     <span class="alert-msg">{{ alert.message }}</span>
                 </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if recent_activity %}
+        <div class="activity-section">
+            <h2>📋 Recent Activity</h2>
+            <div class="activity-feed">
+                {% for entry in recent_activity %}
+                <div class="activity-item">
+                    <span class="activity-time">{{ entry.timestamp }}</span>
+                    <span class="activity-message">{{ entry.message }}</span>
+                </div>
                 {% endfor %}
             </div>
         </div>

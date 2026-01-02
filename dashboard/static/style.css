@@ -915,3 +915,52 @@ main {
 .grade-c { background: #eab308; color: black; }
 .grade-d { background: #f97316; color: white; }
 .grade-f { background: #ef4444; color: white; }
+
+/* System Warning */
+.system-warning {
+    background: #78350f;
+    color: #fef3c7;
+    padding: 0.5rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+.system-warning .warning-link {
+    margin-left: auto;
+    color: #fcd34d;
+    text-decoration: none;
+}
+.system-warning .warning-link:hover {
+    text-decoration: underline;
+}
+
+/* Activity Feed */
+.activity-section {
+    margin: 1rem 2rem;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+.activity-section h2 {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+}
+.activity-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.activity-item {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.875rem;
+}
+.activity-time {
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.activity-message {
+    color: var(--text-primary);
+}

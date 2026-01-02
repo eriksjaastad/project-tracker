@@ -13,6 +13,11 @@
             <div class="header-actions">
                 <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
                 <a href="/todo/{{ project.id }}" class="btn btn-primary">View TODO</a>
+                {% if not project.index_is_valid and project.has_index %}
+                <button onclick="fixFrontmatter('{{ project.id }}')" class="btn btn-warning" id="btn-fix-{{ project.id }}">
+                    🔧 Fix Frontmatter
+                </button>
+                {% endif %}
             </div>
         </div>
     </header>

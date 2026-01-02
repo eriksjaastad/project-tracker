@@ -69,9 +69,9 @@ created: 2025-12-22
 - [x] **Dashboard Metrics:** Add Score and Grade display to project cards
 
 #### UI/UX
-- [ ] **Missing Binary Warning:** Show header/footer alert: "audit-agent not found. Health scores disabled."
-- [ ] **Auto-Fix Button:** Add "Fix Frontmatter" button to detail view (calls `audit fix`)
-- [ ] **Activity Feed:** Read activity from `~/projects/_obsidian/WARDEN_LOG.yaml` and display on dashboard
+- [x] **Missing Binary Warning:** Show header/footer alert: "audit-agent not found. Health scores disabled."
+- [x] **Auto-Fix Button:** Add "Fix Frontmatter" button to detail view (calls `audit fix`)
+- [x] **Activity Feed:** Read activity from `~/projects/_obsidian/WARDEN_LOG.yaml` and display on dashboard
 
 ---
 

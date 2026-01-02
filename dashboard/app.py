@@ -2,9 +2,10 @@
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
 from datetime import datetime
 import subprocess
+import yaml
 
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
@@ -23,6 +24,7 @@ from db.manager import DatabaseManager
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
+from discovery.providers import get_provider, LegacyProvider
 
 # Import config
 from config import REINDEX_SCRIPT_PATH
@@ -143,6 +145,24 @@ def categorize_services(services):
     return {k: v for k, v in categories.items() if v}
 
 
+def get_recent_activity(limit: int = 10) -> List[Dict]:
+    """Read recent activity from WARDEN_LOG.yaml."""
+    log_path = Path.home() / "projects" / "_obsidian" / "WARDEN_LOG.yaml"
+    if not log_path.exists():
+        return []
+    
+    try:
+        content = log_path.read_text()
+        entries = yaml.safe_load(content)
+        if not entries or not isinstance(entries, list):
+            return []
+        # Return most recent N entries
+        return entries[-limit:][::-1]  # Reverse for newest first
+    except Exception as e:
+        logger.warning(f"Failed to read activity log: {e}")
+        return []
+
+
 def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
     """Add related data to project."""
     # Get AI agents
@@ -193,6 +213,10 @@ async def dashboard(request: Request):
     indexed_count = len([p for p in enriched_projects if p.get("has_index") and p.get("index_is_valid")])
     compliance_pct = int((indexed_count / len(projects)) * 100) if projects else 0
     
+    # Check if audit binary is available
+    provider = get_provider()
+    audit_available = not isinstance(provider, LegacyProvider)
+    
     # Collect code reviews separately for prominent display
     code_reviews = []
     for project in enriched_projects:
@@ -213,7 +237,9 @@ async def dashboard(request: Request):
         "code_reviews": code_reviews,
         "total_projects": len(projects),
         "indexed_count": indexed_count,
-        "compliance_pct": compliance_pct
+        "compliance_pct": compliance_pct,
+        "audit_available": audit_available,
+        "recent_activity": get_recent_activity(10)
     })
 
 
@@ -317,6 +343,30 @@ async def create_index(project_id: str):
             "status": "error",
             "message": str(e)
         }, status_code=500)
+
+
+@app.post("/api/fix-frontmatter/{project_id}")
+async def fix_frontmatter(project_id: str):
+    """Call audit fix for a specific project's index file."""
+    db = DatabaseManager()
+    project = db.get_project(project_id)
+    if not project:
+        return JSONResponse({"success": False, "error": "Project not found"}, status_code=404)
+    
+    # Find index file
+    index_files = list(Path(project["path"]).glob("00_Index_*.md"))
+    if not index_files:
+        return JSONResponse({"success": False, "error": "No index file found"}, status_code=404)
+    
+    provider = get_provider()
+    try:
+        success = provider.fix_file(str(index_files[0]))
+        return {"success": success, "error": None if success else "Fix failed"}
+    except NotImplementedError:
+        return JSONResponse({"success": False, "error": "audit-agent not installed"}, status_code=501)
+    except Exception as e:
+        logger.error(f"Error fixing frontmatter: {e}")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
 @app.post("/api/refresh")

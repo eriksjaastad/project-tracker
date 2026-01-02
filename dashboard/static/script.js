@@ -82,6 +82,38 @@ function filterMissingIndexes() {
     }
 }
 
+async function fixFrontmatter(projectId) {
+    const btn = document.getElementById(`btn-fix-${projectId}`);
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Fixing...';
+    
+    try {
+        const response = await fetch(`/api/fix-frontmatter/${projectId}`, { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            btn.textContent = '✓ Fixed';
+            btn.classList.remove('btn-warning');
+            btn.classList.add('btn-success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            btn.textContent = `Failed: ${data.error}`;
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }, 3000);
+        }
+    } catch (e) {
+        console.error('Fix frontmatter failed:', e);
+        btn.textContent = 'Error';
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }, 3000);
+    }
+}
+
 // Format timestamps on page load
 document.addEventListener('DOMContentLoaded', function() {
     // Any client-side initialization can go here
