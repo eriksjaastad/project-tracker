@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime
 import subprocess
-import yaml
 
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
@@ -145,24 +144,6 @@ def categorize_services(services):
     return {k: v for k, v in categories.items() if v}
 
 
-def get_recent_activity(limit: int = 10) -> List[Dict]:
-    """Read recent activity from WARDEN_LOG.yaml."""
-    log_path = Path.home() / "projects" / "_obsidian" / "WARDEN_LOG.yaml"
-    if not log_path.exists():
-        return []
-    
-    try:
-        content = log_path.read_text()
-        entries = yaml.safe_load(content)
-        if not entries or not isinstance(entries, list):
-            return []
-        # Return most recent N entries
-        return entries[-limit:][::-1]  # Reverse for newest first
-    except Exception as e:
-        logger.warning(f"Failed to read activity log: {e}")
-        return []
-
-
 def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
     """Add related data to project."""
     # Get AI agents
@@ -238,8 +219,7 @@ async def dashboard(request: Request):
         "total_projects": len(projects),
         "indexed_count": indexed_count,
         "compliance_pct": compliance_pct,
-        "audit_available": audit_available,
-        "recent_activity": get_recent_activity(10)
+        "audit_available": audit_available
     })
 
 

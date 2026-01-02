@@ -935,32 +935,4 @@ main {
     text-decoration: underline;
 }
 
-/* Activity Feed */
-.activity-section {
-    margin: 1rem 2rem;
-    padding: 1rem;
-    background: var(--bg-secondary);
-    border-radius: 8px;
-}
-.activity-section h2 {
-    font-size: 1rem;
-    margin-bottom: 0.5rem;
-    color: var(--text-secondary);
-}
-.activity-feed {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-.activity-item {
-    display: flex;
-    gap: 1rem;
-    font-size: 0.875rem;
-}
-.activity-time {
-    color: var(--text-secondary);
-    white-space: nowrap;
-}
-.activity-message {
-    color: var(--text-primary);
-}
+/* Activity Feed - DELETED */
