@@ -154,19 +154,32 @@ def get_provider() -> MetadataProvider:
     Checks config.AUDIT_BIN_PATH first, then falls back to PATH lookup.
     """
     # 1. Check config path
-    if AUDIT_BIN_PATH and Path(AUDIT_BIN_PATH).is_absolute():
-        if Path(AUDIT_BIN_PATH).exists():
-            logger.info(f"Using AuditProvider with binary at: {AUDIT_BIN_PATH}")
-            return AuditProvider(str(AUDIT_BIN_PATH))
+    if AUDIT_BIN_PATH:
+        bin_path = Path(AUDIT_BIN_PATH)
+        if bin_path.is_absolute() and bin_path.exists():
+            # Verify it's actually our binary and not /usr/sbin/audit
+            try:
+                result = subprocess.run([str(bin_path), "--help"], capture_output=True, text=True, timeout=2)
+                if "Go-based CLI tool" in result.stdout:
+                    logger.info(f"Using AuditProvider with verified binary at: {AUDIT_BIN_PATH}")
+                    return AuditProvider(str(AUDIT_BIN_PATH))
+            except Exception:
+                pass
     
     # 2. Check shutil.which
     bin_name = AUDIT_BIN_PATH if AUDIT_BIN_PATH else "audit"
     which_path = shutil.which(bin_name)
     
     if which_path:
-        logger.info(f"Using AuditProvider with binary found in PATH: {which_path}")
-        return AuditProvider(which_path)
+        # Verify it's actually our binary
+        try:
+            result = subprocess.run([which_path, "--help"], capture_output=True, text=True, timeout=2)
+            if "Go-based CLI tool" in result.stdout:
+                logger.info(f"Using AuditProvider with verified binary found in PATH: {which_path}")
+                return AuditProvider(which_path)
+        except Exception:
+            pass
     
     # 3. Fallback to Legacy
-    logger.info("audit binary not found. Falling back to LegacyProvider.")
+    logger.info("audit-agent binary not found or invalid. Falling back to LegacyProvider.")
     return LegacyProvider()

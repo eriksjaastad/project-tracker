@@ -271,8 +271,10 @@
                 <div class="project-actions">
                     <a href="/project/{{ project.id }}" class="btn btn-secondary">Details</a>
                     <a href="/todo/{{ project.id }}" class="btn btn-primary">View TODO</a>
-                    {% if not project.has_index or not project.index_is_valid %}
+                    {% if not project.has_index %}
                     <button onclick="createIndex('{{ project.id }}')" class="btn btn-warning" id="btn-index-{{ project.id }}">Create Index</button>
+                    {% elif not project.index_is_valid %}
+                    <button onclick="fixFrontmatter('{{ project.id }}')" class="btn btn-warning" id="btn-fix-{{ project.id }}">Fix Frontmatter</button>
                     {% endif %}
                 </div>
             </div>
