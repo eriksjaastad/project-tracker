@@ -89,6 +89,15 @@
                 {% endif %}
                 
                 <div class="project-meta">
+                    {% if project.health_score is not none %}
+                    <div class="meta-row space-between">
+                        <span class="meta-label">Health:</span>
+                        <span class="health-badge grade-{{ project.health_grade|lower }}">
+                            {{ project.health_grade }} ({{ project.health_score }})
+                        </span>
+                    </div>
+                    {% endif %}
+                    
                     <div class="meta-row space-between">
                         <span class="meta-label">Last work:</span>
                         <span class="meta-value">{{ project.last_modified_human }}</span>

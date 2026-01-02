@@ -7,6 +7,7 @@ from typing import List, Dict, Any
 
 from .cron_monitor import check_cron_health
 from .code_review_parser import parse_code_review
+from .providers import get_provider
 from scripts.db.manager import DatabaseManager
 
 # Add parent directory to path for logger import
@@ -257,6 +258,31 @@ def detect_missing_index(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return alerts
 
 
+def detect_invalid_frontmatter(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Detect projects with invalid frontmatter using audit check."""
+    alerts = []
+    provider = get_provider()
+    
+    for project in projects:
+        # Check index file if it exists
+        index_files = list(Path(project["path"]).glob("00_Index_*.md"))
+        if index_files:
+            check_result = provider.check_file(str(index_files[0]))
+            if not check_result.get("valid", False):
+                issues = check_result.get("issues", [])
+                details = issues[0] if issues else "Invalid YAML frontmatter structure"
+                alerts.append({
+                    "project_id": project["id"],
+                    "project_name": project["name"],
+                    "type": "invalid_frontmatter",
+                    "severity": "warning",
+                    "message": "Invalid frontmatter",
+                    "details": details
+                })
+    
+    return alerts
+
+
 def get_all_alerts(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Get all alerts for all projects."""
     all_alerts = []
@@ -267,6 +293,7 @@ def get_all_alerts(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     all_alerts.extend(detect_cron_failures(projects))
     all_alerts.extend(detect_stalled_projects(projects))
     all_alerts.extend(detect_missing_index(projects))  # Add index monitoring
+    all_alerts.extend(detect_invalid_frontmatter(projects))
     all_alerts.extend(detect_missing_todo(projects))
     
     # Sort by severity (critical first, then warning, then info)

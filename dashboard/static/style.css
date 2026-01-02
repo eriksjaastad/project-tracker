@@ -902,3 +902,16 @@ main {
     }
 }
 
+
+/* Health Badges */
+.health-badge { 
+    padding: 2px 8px; 
+    border-radius: 4px; 
+    font-weight: bold; 
+    font-size: 0.85rem;
+}
+.grade-a { background: #22c55e; color: white; }
+.grade-b { background: #84cc16; color: white; }
+.grade-c { background: #eab308; color: black; }
+.grade-d { background: #f97316; color: white; }
+.grade-f { background: #ef4444; color: white; }
