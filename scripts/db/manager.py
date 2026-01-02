@@ -93,7 +93,8 @@ class DatabaseManager:
         allowed_fields = {
             "name", "path", "status", "phase", "description",
             "completion_pct", "last_modified", "is_infrastructure",
-            "has_index", "index_is_valid", "index_updated_at"
+            "has_index", "index_is_valid", "index_updated_at",
+            "health_score", "health_grade"
         }
         
         # Validate all field names
@@ -109,6 +110,17 @@ class DatabaseManager:
             values = list(kwargs.values()) + [project_id]
             
             cursor.execute(f"UPDATE projects SET {fields} WHERE id = ?", values)
+            conn.commit()
+    
+    def update_health(self, project_id: str, score: int, grade: str) -> None:
+        """Update health_score and health_grade for a project."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE projects 
+                SET health_score = ?, health_grade = ?
+                WHERE id = ?
+            """, (score, grade, project_id))
             conn.commit()
     
     def delete_project(self, project_id: str) -> None:

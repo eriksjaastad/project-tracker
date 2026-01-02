@@ -58,9 +58,9 @@ created: 2025-12-22
 ### Phase 3: Audit Agent Integration (Jan 2, 2026) [in_progress]
 
 #### Prerequisites
-- [ ] **Provider Pattern Architecture:** Create `AuditProvider` (Go) and `LegacyProvider` (Python) base classes in `scripts/discovery/`
-- [ ] **Binary Detection:** Check for `audit` binary on startup and select provider accordingly
-- [ ] **Database Schema:** Add `health_score` (INTEGER 0-100) and `health_grade` (TEXT A-F) columns to `projects` table
+- [x] **Provider Pattern Architecture:** Create `AuditProvider` (Go) and `LegacyProvider` (Python) base classes in `scripts/discovery/`
+- [x] **Binary Detection:** Check for `audit` binary on startup and select provider accordingly
+- [x] **Database Schema:** Add `health_score` (INTEGER 0-100) and `health_grade` (TEXT A-F) columns to `projects` table
 
 #### Core Integration
 - [ ] **Health Scoring:** Integrate `audit health [project] --json` via `AuditProvider` with `ThreadPoolExecutor` parallelization
