@@ -65,6 +65,17 @@ def create_database(db_path: Optional[Path] = None) -> None:
     except sqlite3.OperationalError:
         pass
     
+    # Migration: add health columns
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN health_score INTEGER")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN health_grade TEXT")
+    except sqlite3.OperationalError:
+        pass
+    
     # Scheduled automation
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cron_jobs (
