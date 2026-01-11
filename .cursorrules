@@ -43,6 +43,7 @@
 **When reading files:**
 - Query database instead of reading `.db` file
 - Use targeted reads for large project lists
+- Prefer `codebase_search` for finding patterns
 
 ---
 
@@ -61,6 +62,12 @@
 - External resource tracking (from project-scaffolding/EXTERNAL_RESOURCES.md)
 - TODO status monitoring
 - Last activity tracking
+
+---
+
+## 📋 Definition of Done (Project-Specific)
+
+- [ ] **Index updated** (if new patterns, components, or major structure changes)
 
 ---
 
@@ -94,6 +101,21 @@
 
 ---
 
+## 🧠 Skills & Continuous Learning
+
+### Project-Specific Skills
+- Floor Manager protocol for Ollama MCP delegation
+- Staged prompt engineering (see agent-skills-library/playbooks/staged-prompt-engineering/)
+
+### Shared Skills Library
+Reference: $PROJECTS_ROOT/agent-skills-library/
+
+Relevant skills for this project:
+- Staged Prompt Engineering: agent-skills-library/playbooks/staged-prompt-engineering/
+- AI Router Delegation: agent-skills-library/playbooks/ai-router-delegation/
+
+---
+
 ## 🔗 Integration Points
 
 **Reads from:**
@@ -119,3 +141,13 @@
 - **Project Philosophy:** `/Users/eriksjaastad/projects/Trading Projects/PROJECT_PHILOSOPHY.md`
 - **Project Scaffolding:** `/Users/eriksjaastad/projects/project-scaffolding/`
 - **TODO:** `TODO.md` - Current work items
+
+---
+
+## 📚 Source Context
+
+| Source Project | Pattern Borrowed |
+|----------------|------------------|
+| audit-agent | AuditProvider integration pattern |
+| project-scaffolding | Staged prompt engineering |
+| project-scaffolding | Learning loop pattern |

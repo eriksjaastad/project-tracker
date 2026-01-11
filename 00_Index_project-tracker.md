@@ -50,13 +50,16 @@ Project status monitoring and reporting system for tracking lifecycle and health
 
 **Tags:** #map/project #p/project-tracker  
 **Status:** #status/active  
-**Last Major Update:** 2026 (100% complete)  
+**Last Major Update:** Jan 2026 (Phase 4 in progress)  
 **Purpose:** Centralized project health monitoring
 **Index:** [[00_Index_project-tracker]]
 
 
 
 ## Recent Activity
+
+- **2026-01-11**: Scaffolding alignment (archive consolidation, .cursorignore, status sync)
+- **2026-01-11**: Skills library integration
 
 - **2026-01-01 16:21**: schema.py: .
 
