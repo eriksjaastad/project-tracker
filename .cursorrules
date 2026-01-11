@@ -14,7 +14,7 @@
     - tech/python
     - tech/typer
   status: #status/active
-  created: YYYY-MM-DD
+  created: 2025-12-31
   ---
   ```
 
