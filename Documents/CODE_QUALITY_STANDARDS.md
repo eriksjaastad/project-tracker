@@ -86,8 +86,23 @@ for file in library.glob("*.md"):
 ### The Rule
 **ALL user-provided strings used in file paths (titles, slugs, categories) MUST be sanitized using a `safe_slug()` function to prevent Path Traversal and shell injection.**
 
+### Prompt Reference Safety
+When crafting prompts or reference code snippets for models, **absolute paths must never be included** in examples or instructions. Local models will literally copy absolute paths from prompts into generated code, which violates portability.
+
+**Prohibited Practice:**
+```python
+# ❌ NEVER do this in a prompt
+TELEMETRY_PATH = "/Users/eriksjaastad/projects/..."
+```
+
+**Recommended Practice:**
+```python
+# ✅ ALWAYS do this in a prompt
+TELEMETRY_PATH = Path(os.getenv("TELEMETRY_PATH", "default/path"))
+```
+
 ### Why This Exists (The "Clobber" Scar)
-In the `bridge.py` review of Jan 2026, it was discovered that an attacker (or a malicious transcript) could provide a skill name like `../../Documents/Secrets` which would cause the script to write files outside the project root.
+In the `bridge.py` review of Jan 2026, it was discovered that an attacker could provide a skill name like `../../Documents/Secrets` which would cause the script to write files outside the project root. Additionally, session logs showed models copying the Floor Manager's absolute paths literally into new code files.
 
 ### What to Do
 #### ❌ BAD: Direct Slug Construction
@@ -170,6 +185,6 @@ See: [Documents/reports/trustworthy_ai_report.md](reports/trustworthy_ai_report.
 
 ---
 
-**Version:** 1.2.2
+**Version:** 1.2.3
 **Established:** January 7, 2026
-**Trigger:** Scaffolding v2 review found pervasive portability and safety violations.
+**Trigger:** Scaffolding v2 review found pervasive portability and safety violations. Refined Jan 11 to include Prompt Reference Safety.
