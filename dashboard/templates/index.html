@@ -139,6 +139,39 @@
                     <pre id="output-content"></pre>
                 </div>
             </div>
+
+            <!-- Backup Status Card -->
+            <div class="stats-card backup-audit" style="border-top: 4px solid {{ backup_status.status_color }};">
+                <h3>💾 Backup Status</h3>
+                <div class="stats-content">
+                    <p class="status-text {{ backup_status.status }}">
+                        {{ backup_status.message }}
+                    </p>
+                    {% if backup_status.remotes %}
+                    <div class="remote-list-compact">
+                        <small class="text-muted">Remotes:</small>
+                        <div class="model-list-compact">
+                            {% for remote in backup_status.remotes %}
+                            <div class="model-item">{{ remote }}</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if backup_status.critical_unbacked %}
+                    <div class="unbacked-warning mt-2">
+                        <small class="text-danger">⚠️ Unbacked paths:</small>
+                        <ul class="unbacked-list">
+                        {% for path in backup_status.critical_unbacked[:2] %}
+                            <li><small>{{ path }}</small></li>
+                        {% endfor %}
+                        {% if backup_status.critical_unbacked|length > 2 %}
+                            <li><small>... and {{ backup_status.critical_unbacked|length - 2 }} more</small></li>
+                        {% endif %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
         </div>
         
         <div class="projects-grid">

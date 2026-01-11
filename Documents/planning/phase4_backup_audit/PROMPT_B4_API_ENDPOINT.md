@@ -28,11 +28,11 @@ Add to `dashboard/app.py`:
 
 ## [ACCEPTANCE CRITERIA] (MANDATORY CHECKLIST)
 
-- [ ] **Import Added:** `from scripts.discovery.backup_reader import get_backup_status`
-- [ ] **Endpoint Exists:** `/api/backup` returns JSON response
-- [ ] **Returns Status:** Response includes status, remotes, message fields
-- [ ] **No Breaking Changes:** Existing endpoints still work
-- [ ] **Matches Pattern:** Follows same structure as /api/telemetry
+- [x] **Import Added:** `from scripts.discovery.backup_reader import get_backup_status`
+- [x] **Endpoint Exists:** `/api/backup` returns JSON response
+- [x] **Returns Status:** Response includes status, remotes, message fields
+- [x] **No Breaking Changes:** Existing endpoints still work
+- [x] **Matches Pattern:** Follows same structure as /api/telemetry
 
 ---
 
@@ -102,7 +102,7 @@ pkill -f "uvicorn" || true
 
 ## Result
 
-- [ ] PASS: API endpoint returns valid JSON
+- [x] PASS: API endpoint returns valid JSON.
 - [ ] FAIL: Describe error
 
 **Hand back to Floor Manager when complete.**

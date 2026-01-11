@@ -29,11 +29,11 @@ Add to the dashboard template:
 
 ## [ACCEPTANCE CRITERIA] (MANDATORY CHECKLIST)
 
-- [ ] **Card Visible:** Backup status card appears on dashboard
-- [ ] **Status Color:** Card uses appropriate color (green/yellow/red)
-- [ ] **Remote List:** Shows configured backup remotes
-- [ ] **Message Shown:** Displays status message
-- [ ] **No Breaking Changes:** Other dashboard elements still work
+- [x] **Card Visible:** Backup status card appears on dashboard
+- [x] **Status Color:** Card uses appropriate color (green/yellow/red)
+- [x] **Remote List:** Shows configured backup remotes
+- [x] **Message Shown:** Displays status message
+- [x] **No Breaking Changes:** Other dashboard elements still work
 
 ---
 
@@ -134,7 +134,7 @@ Open http://localhost:8000 in browser and check:
 
 ## Result
 
-- [ ] PASS: Dashboard card visible and working
+- [x] PASS: Dashboard card visible and working.
 - [ ] FAIL: Describe error
 
 **Hand back to Floor Manager when complete.**
