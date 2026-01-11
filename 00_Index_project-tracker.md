@@ -49,7 +49,7 @@ Project status monitoring and reporting system for tracking lifecycle and health
 ## Status
 
 **Tags:** #map/project #p/project-tracker  
-**Status:** #status/complete  
+**Status:** #status/active  
 **Last Major Update:** 2026 (100% complete)  
 **Purpose:** Centralized project health monitoring
 **Index:** [[00_Index_project-tracker]]
