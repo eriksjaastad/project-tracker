@@ -161,7 +161,9 @@ def get_critical_errors(hours: int = 24) -> list[dict]:
     Get critical errors from last N hours.
     Returns list of error entries for alerting.
     """
-    entries = _read_telemetry_entries(days=1)  # Get last day
+    # Use enough days to cover the hours requested
+    days_to_read = (hours // 24) + 1
+    entries = _read_telemetry_entries(days=days_to_read) 
 
     cutoff = datetime.utcnow() - timedelta(hours=hours)
     errors = []
