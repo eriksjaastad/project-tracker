@@ -75,7 +75,7 @@ created: 2025-12-22
 - [ ] **Health & Resilience Monitoring:**
     - [x] **Critical Error Surfacing (Zero Tolerance):** Any operational error (MCP failures, Cron failures, Backup failures) MUST be surfaced immediately with [CRITICAL] flags.
     - [x] **Cron Health Sentinel:** Refine the cron monitor to provide a visual "Heartbeat" based on log file analysis (e.g., Trading arena logs).
-    - [ ] **Backup Audit (rclone):** Refine the dashboard to audit and surface "un-backed-up" data.
+    - [x] **Backup Audit (rclone):** Refined the dashboard to audit and surface "un-backed-up" data via `backup_reader.py` and new UI card.
 - [ ] **UX & Visualization:**
     - [ ] **Flow:** Projects should move out of the "Jira" view once they hit 100% or "Done."
     - [ ] **Eco-System Org Chart:** Build a visual "map" or org chart to show how projects like `image-workflow`, `Holoscape`, and `Skills Library` are connected.

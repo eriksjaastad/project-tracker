@@ -25,6 +25,7 @@ from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
 from discovery.providers import get_provider, LegacyProvider
 from discovery.telemetry_reader import get_telemetry_stats
+from discovery.backup_reader import get_backup_status
 from discovery.agent_registry import (
     get_available_agents,
     run_agent_command,
@@ -219,6 +220,9 @@ async def dashboard(request: Request):
         for a in agents
     ]
     
+    # Get backup status
+    backup_status = get_backup_status()
+    
     # Collect code reviews separately for prominent display
     code_reviews = []
     for project in enriched_projects:
@@ -241,7 +245,8 @@ async def dashboard(request: Request):
         "indexed_count": indexed_count,
         "compliance_pct": compliance_pct,
         "audit_available": audit_available,
-        "agents": agents_data
+        "agents": agents_data,
+        "backup_status": backup_status
     })
 
 
@@ -419,6 +424,17 @@ async def api_telemetry(days: int = 7):
     except Exception as e:
         logger.error(f"Error getting telemetry: {e}")
         return {"error": str(e), "total_requests": 0}
+
+
+@app.get("/api/backup")
+async def api_backup():
+    """Get backup audit status."""
+    try:
+        status = get_backup_status()
+        return status
+    except Exception as e:
+        logger.error(f"Error getting backup status: {e}")
+        return {"error": str(e), "status": "error"}
 
 
 @app.get("/api/projects")

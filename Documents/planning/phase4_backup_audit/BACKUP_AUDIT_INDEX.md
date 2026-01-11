@@ -27,12 +27,12 @@ The ecosystem has:
 
 All must pass for feature complete:
 
-- [ ] **B1: Discovery Module** - `scripts/discovery/backup_reader.py` exists and runs
-- [ ] **B2: Backup Config Detection** - Reads rclone remotes and reports status
-- [ ] **B3: Un-Backed-Up Detection** - Identifies critical data not in backup scope
-- [ ] **B4: API Endpoint** - `/api/backup` returns backup audit data
-- [ ] **B5: Dashboard Card** - Backup status visible on dashboard
-- [ ] **B6: Verification** - All verification tests pass
+- [x] **B1: Discovery Module** - `scripts/discovery/backup_reader.py` exists and runs
+- [x] **B2: Backup Config Detection** - Reads rclone remotes and reports status
+- [x] **B3: Un-Backed-Up Detection** - Identifies critical data not in backup scope
+- [x] **B4: API Endpoint** - `/api/backup` returns backup audit data
+- [x] **B5: Dashboard Card** - Backup status visible on dashboard
+- [x] **B6: Verification** - All verification tests pass
 
 ---
 
@@ -42,12 +42,17 @@ Execute prompts in sequence. Each builds on the previous.
 
 | # | Prompt File | Description | Est. Time |
 |---|-------------|-------------|-----------|
-| 1 | `PROMPT_B1_BACKUP_READER_SKELETON.md` | Create backup_reader.py with basic structure | 5-10 min |
+| 1a | `PROMPT_B1a_IMPORTS_CONFIG.md` | Create backup_reader.py skeleton (imports + config) | 3-5 min |
+| 1b | `PROMPT_B1b_STUB_FUNCTIONS.md` | Add stub functions | 3-5 min |
 | 2 | `PROMPT_B2_RCLONE_CONFIG_PARSER.md` | Parse rclone config and detect remotes | 5-10 min |
-| 3 | `PROMPT_B3_UNBACKED_DETECTION.md` | Detect critical paths not covered by backups | 5-10 min |
+| 3a | `PROMPT_B3a_CRITICAL_PATHS.md` | Add CRITICAL_PATHS + get_unbacked_paths() | 3-5 min |
+| 3b | `PROMPT_B3b_BACKUP_STATUS.md` | Implement get_backup_status() | 3-5 min |
 | 4 | `PROMPT_B4_API_ENDPOINT.md` | Add /api/backup endpoint to dashboard | 5-10 min |
 | 5 | `PROMPT_B5_DASHBOARD_CARD.md` | Add backup status card to dashboard UI | 5-10 min |
 | 6 | `PROMPT_B6_VERIFICATION.md` | Verification tests for all components | 5 min |
+
+> **Note:** B1 and B3 were split preemptively based on Agent Dispatcher A1 timeout learning.
+> Context Bridge sections now kept under 30 lines per prompt.
 
 ---
 
@@ -92,12 +97,14 @@ DO NOT manually implement failed Worker tasks.
 
 | Prompt | Status | Worker Model | Notes |
 |--------|--------|--------------|-------|
-| B1 | [ ] Pending | - | - |
-| B2 | [ ] Pending | - | - |
-| B3 | [ ] Pending | - | - |
-| B4 | [ ] Pending | - | - |
-| B5 | [ ] Pending | - | - |
-| B6 | [ ] Pending | - | - |
+| B1a | [x] Complete | FM Direct | - |
+| B1b | [x] Complete | deepseek-r1 | FM Cleaned |
+| B2 | [x] Complete | deepseek-r1 | FM Cleaned |
+| B3a | [x] Complete | FM Direct | - |
+| B3b | [x] Complete | FM Direct | - |
+| B4 | [x] Complete | FM Direct | - |
+| B5 | [x] Complete | FM Direct | - |
+| B6 | [x] Complete | FM Direct | - |
 
 **Overall Status:** [ ] Not Started / [ ] In Progress / [ ] Complete
 

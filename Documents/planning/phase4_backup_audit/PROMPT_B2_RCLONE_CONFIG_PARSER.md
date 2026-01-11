@@ -28,11 +28,11 @@ Implement `_parse_rclone_config()` in `scripts/discovery/backup_reader.py`:
 
 ## [ACCEPTANCE CRITERIA] (MANDATORY CHECKLIST)
 
-- [ ] **Reads Config:** Successfully reads `~/.config/rclone/rclone.conf`
-- [ ] **Parses Remotes:** Returns dict with remote names as keys
-- [ ] **Handles Missing:** Returns empty dict and logs warning if file missing
-- [ ] **No Crash:** Handles malformed config gracefully
-- [ ] **Returns Real Data:** Returns actual remotes (gbackup, r2_pose_factory, etc.)
+- [x] **Reads Config:** Successfully reads `~/.config/rclone/rclone.conf`
+- [x] **Parses Remotes:** Returns dict with remote names as keys
+- [x] **Handles Missing:** Returns empty dict and logs warning if file missing
+- [x] **No Crash:** Handles malformed config gracefully
+- [x] **Returns Real Data:** Returns actual remotes (gbackup, r2_pose_factory, etc.)
 
 ---
 
@@ -112,7 +112,7 @@ print('OK - Config parser working')
 
 ## Result
 
-- [ ] PASS: Remotes parsed successfully
+- [x] PASS: FM Cleaned - model included thinking text.
 - [ ] FAIL: Describe error
 
 **Hand back to Floor Manager when complete.**
