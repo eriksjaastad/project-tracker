@@ -106,7 +106,7 @@ DO NOT manually implement failed Worker tasks.
 | B5 | [x] Complete | FM Direct | - |
 | B6 | [x] Complete | FM Direct | - |
 
-**Overall Status:** [ ] Not Started / [ ] In Progress / [ ] Complete
+**Overall Status:** [ ] Not Started / [ ] In Progress / [x] Complete
 
 ---
 

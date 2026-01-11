@@ -72,10 +72,10 @@ grep -r "[Kk]iro" . --include="*.md" | grep -v archive | grep -v trash | wc -l
 
 ## Acceptance Criteria
 
-- [ ] **Removed:** `.kiro` directory no longer exists in project root
-- [ ] **Clean:** No active file references to Kiro (archives exempt)
-- [ ] **Safe:** Used send2trash, files are recoverable if needed
-- [ ] **Verified:** grep search returns 0 results
+- [x] **Removed:** `.kiro` directory no longer exists in project root
+- [x] **Clean:** No active file references to Kiro (archives exempt)
+- [x] **Safe:** Used send2trash, files are recoverable if needed
+- [x] **Verified:** grep search returns 0 results
 
 ---
 
