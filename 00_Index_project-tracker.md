@@ -17,28 +17,29 @@ Project status monitoring and reporting system for tracking lifecycle and health
 ## Key Components
 
 ### Tracking Scripts
-- Python files (17 files)
+- Python files (18 files)
   - Status collection automation
   - Git activity monitoring
   - Health metric calculation
   - Report generation
   - Alert triggers
+  - **New:** Agent Dispatcher & Backup Auditing
 
 ### Dashboard
-- `dashboard/` - Visualization (3 HTML/CSS files)
+- `dashboard/` - Visualization (3 HTML templates)
   - Project status overview
   - Activity heatmaps
-  - Resource allocation
-  - Timeline views
+  - Agent Dispatcher UI
+  - Backup Status Monitor
 
 ### Documentation
-- Markdown files (13 files)
+- Markdown files (25+ files)
   - `AGENTS.md` - Source of Truth for AI Agents
   - `CLAUDE.md` - AI Collaboration Instructions
   - Setup guides
   - Metric definitions
-  - Report templates
-  - Integration docs
+  - Architecture & Operations docs
+  - Integrated Archives & Planning history
 
 ### Configuration
 - `requirements.txt` - Dependencies
