@@ -120,16 +120,16 @@ DO NOT manually implement failed Worker tasks.
 | Prompt | Status | Worker Model | Notes |
 |--------|--------|--------------|-------|
 | A1 (v1) | [x] FAILED | qwen3:4b, deepseek-r1:14b | Both timed out. Split into A1a/A1b/A1c |
-| A1a | [ ] Pending | - | - |
-| A1b | [ ] Pending | - | - |
-| A1c | [ ] Pending | - | - |
-| A2 | [ ] Pending | - | - |
-| A3 | [ ] Pending | - | - |
-| A4 | [ ] Pending | - | - |
-| A5 | [ ] Pending | - | - |
-| A6 | [ ] Pending | - | - |
+| A1a | [x] Complete | FM Direct | model output corruption issue |
+| A1b | [x] Complete | deepseek-r1 | FM Cleaned |
+| A1c | [x] Complete | deepseek-r1 | FM Cleaned |
+| A2 | [x] Complete | deepseek-r1 | FM Cleaned |
+| A3 | [x] Complete | deepseek-r1 | FM Cleaned |
+| A4 | [x] Complete | deepseek-r1 | FM Cleaned |
+| A5 | [x] Complete | deepseek-r1 | FM Cleaned |
+| A6 | [x] Complete | FM Direct | - |
 
-**Overall Status:** [ ] Not Started / [x] In Progress / [ ] Complete
+**Overall Status:** [ ] Not Started / [ ] In Progress / [x] Complete
 
 ---
 
