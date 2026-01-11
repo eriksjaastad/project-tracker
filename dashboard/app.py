@@ -25,6 +25,14 @@ from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
 from discovery.providers import get_provider, LegacyProvider
 from discovery.telemetry_reader import get_telemetry_stats
+from discovery.agent_registry import (
+    get_available_agents,
+    run_agent_command,
+    Agent,
+    AgentCommand,
+    CommandResult
+)
+from pydantic import BaseModel
 
 # Import config
 from config import REINDEX_SCRIPT_PATH
@@ -199,6 +207,18 @@ async def dashboard(request: Request):
     provider = get_provider()
     audit_available = not isinstance(provider, LegacyProvider)
     
+    # Get available agents for dispatcher
+    agents = get_available_agents()
+    agents_data = [
+        {
+            "name": a.name,
+            "description": a.description,
+            "available": a.available,
+            "commands": [{"name": c.name, "description": c.description} for c in a.commands]
+        }
+        for a in agents
+    ]
+    
     # Collect code reviews separately for prominent display
     code_reviews = []
     for project in enriched_projects:
@@ -220,7 +240,8 @@ async def dashboard(request: Request):
         "total_projects": len(projects),
         "indexed_count": indexed_count,
         "compliance_pct": compliance_pct,
-        "audit_available": audit_available
+        "audit_available": audit_available,
+        "agents": agents_data
     })
 
 
@@ -465,3 +486,56 @@ async def api_stats():
         "alerts": alert_counts
     }
 
+
+
+# Pydantic model for run request
+class AgentRunRequest(BaseModel):
+    agent_name: str
+    command_name: str
+    args: Optional[str] = ""
+
+
+# GET /api/agents - List all agents
+@app.get("/api/agents")
+async def list_agents():
+    """Return list of available agents and their commands."""
+    agents = get_available_agents()
+    return {
+        "agents": [
+            {
+                "name": a.name,
+                "description": a.description,
+                "available": a.available,
+                "commands": [
+                    {
+                        "name": c.name,
+                        "description": c.description,
+                        "args_template": c.args_template,
+                        "dangerous": c.dangerous
+                    }
+                    for c in a.commands
+                ]
+            }
+            for a in agents
+        ]
+    }
+
+
+# POST /api/agents/run - Execute agent command
+@app.post("/api/agents/run")
+async def run_agent(request: AgentRunRequest):
+    """Execute an agent command and return result."""
+    result = run_agent_command(
+        request.agent_name,
+        request.command_name,
+        request.args or ""
+    )
+
+    return {
+        "success": result.success,
+        "output": result.output,
+        "error": result.error,
+        "return_code": result.return_code,
+        "duration_ms": result.duration_ms,
+        "command": result.command
+    }

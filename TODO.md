@@ -65,8 +65,8 @@ created: 2025-12-22
     - [x] Updated `.cursorrules` metadata and synced index status.
 - [x] **Kiro Removal:** Removed abandoned `.kiro` directory and all file references.
 - [x] **Protocol Governance:** Documented protocol deviation and reinforced "Messenger" role via local worker report.
-- [ ] **Mission Control Hub:** Transform the dashboard from a passive monitor into an active command center.
-    - [ ] **Agent Dispatcher UI:** Build a UI interface to manually trigger specialized agents (e.g., `audit-agent` for security, Scaffolding Sync agent) directly from the dashboard.
+- [x] **Mission Control Hub:** Transform the dashboard from a passive monitor into an active command center.
+    - [x] **Agent Dispatcher UI:** Built a UI interface to manually trigger specialized agents (audit-agent, pt) directly from the dashboard.
     - [x] **Controlled Execution (Passive-First):** Codify the "Passive Monitoring" principle—the dashboard only scans on load or manual refresh.
 - [x] **Telemetry & Data Integration:** 
     - [x] **Data Source Integration:** Add `ai_router` telemetry directory as a scanned resource.
