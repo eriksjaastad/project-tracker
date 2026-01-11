@@ -3,15 +3,15 @@ tags:
   - p/project-tracker
   - type/documentation/todo
   - domain/project-management
-status: #status/in-progress
+status: #status/complete
 created: 2025-12-22
 ---
 
 # [[project-tracker]] - TODO
 
-**Last Updated:** January 2, 2026
-**Project Status:** In Progress 🔄
-**Current Phase:** Phase 3: Audit Agent Integration
+**Last Updated:** January 11, 2026
+**Project Status:** Active 🔄
+**Current Phase:** Phase 4: Mission Control & Observability
 **Type:** Infrastructure
 **Index:** [[00_Index_project-tracker]]
 
@@ -35,6 +35,7 @@ created: 2025-12-22
 ### In Progress 🔄
 - **Adoption** - Erik using dashboard daily
 - **Audit Agent Integration** - Porting scanners to Go CLI (v1.0.0)
+- **AI Router Telemetry** - Surface model usage & escalation stats in Dashboard
 
 ### What's Missing ❌
 → See **Phase 3** tasks below
@@ -55,7 +56,27 @@ created: 2025-12-22
 
 ## 📋 Current Tasks
 
-### Phase 3: Audit Agent Integration (Jan 2, 2026) [in_progress]
+### Phase 4: Mission Control & Observability (Jan 6, 2026) [in_progress]
+- [x] **Optimization:** Removed mandatory `--reload` from `pt launch` to prevent redundant scanning.
+- [x] **Optimization:** Added `--no-scan` flag to `pt launch` for instant dashboard access.
+- [x] **Scaffolding Alignment:** Brought project up to scaffolding spec with standard core documents and template alignment.
+- [x] **Protocol Governance:** Documented protocol deviation and reinforced "Messenger" role via local worker report.
+- [ ] **Mission Control Hub:** Transform the dashboard from a passive monitor into an active command center.
+    - [ ] **Agent Dispatcher UI:** Build a UI interface to manually trigger specialized agents (e.g., `audit-agent` for security, Scaffolding Sync agent) directly from the dashboard.
+    - [x] **Controlled Execution (Passive-First):** Codify the "Passive Monitoring" principle—the dashboard only scans on load or manual refresh.
+- [x] **Telemetry & Data Integration:** 
+    - [x] **Data Source Integration:** Add `ai_router` telemetry directory as a scanned resource.
+    - [x] **AI Router "Blinking Lights":** Surface real-time routing decisions, escalation rates, and model breakdowns on the dashboard.
+    - [x] **Cost Savings:** Calculate and display "Estimated Savings" (Local vs. Cloud calls).
+- [ ] **Health & Resilience Monitoring:**
+    - [x] **Critical Error Surfacing (Zero Tolerance):** Any operational error (MCP failures, Cron failures, Backup failures) MUST be surfaced immediately with [CRITICAL] flags.
+    - [x] **Cron Health Sentinel:** Refine the cron monitor to provide a visual "Heartbeat" based on log file analysis (e.g., Trading arena logs).
+    - [ ] **Backup Audit (rclone):** Refine the dashboard to audit and surface "un-backed-up" data.
+- [ ] **UX & Visualization:**
+    - [ ] **Flow:** Projects should move out of the "Jira" view once they hit 100% or "Done."
+    - [ ] **Eco-System Org Chart:** Build a visual "map" or org chart to show how projects like `image-workflow`, `Holoscape`, and `Skills Library` are connected.
+
+### Phase 3: Audit Agent Integration (Jan 2, 2026) [complete]
 
 #### Prerequisites
 - [x] **Provider Pattern Architecture:** Create `AuditProvider` (Go) and `LegacyProvider` (Python) base classes in `scripts/discovery/`
@@ -149,6 +170,7 @@ created: 2025-12-22
 
 ## 💭 Future Ideas / Shower Thoughts
 - **Timeline view** - Visual graph showing project activity over time
+- **AI Router Integration** - Show which projects are using local vs cloud (via telemetry.jsonl)
 - **Search/filter** - Search projects by name or technology
 - **Git integration** - Show current branch and uncommitted change count
 - **Cost tracking** - Monthly spend history charts
@@ -169,4 +191,4 @@ created: 2025-12-22
 
 ---
 
-*Project status: Phase 3 in progress. Integrating audit-agent.* 🔧
+*Project status: Phase 3 Complete. Integrating audit-agent.* 🔧

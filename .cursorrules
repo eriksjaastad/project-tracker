@@ -54,7 +54,7 @@
 - **Scanner:** Discovers projects, READMEs, TODOs
 - **Database:** SQLite storage for project metadata
 - **CLI:** Typer-based command interface
-- **Dashboard:** Web UI (Flask) for visualization
+- **Dashboard:** Web UI (FastAPI) for visualization
 
 **Key Features:**
 - Auto-discovery of projects from filesystem
@@ -68,17 +68,29 @@
 
 ```bash
 # Initialize database
-pt init
+./pt init
 
 # Scan all projects
-pt scan
+./pt scan
 
 # Show dashboard
-pt serve
+./pt launch
 
 # List projects
-pt list
+./pt list
 ```
+
+---
+
+## 🛡️ Safety Rules
+
+### File Operations
+- **Trash, Don't Delete:** NEVER use `rm`, `os.remove`, `os.unlink`, or `shutil.rmtree` for permanent deletion.
+- ALWAYS use `send2trash` (Python) to move files to the system Trash.
+
+### Error Handling
+- **No Silent Failures:** NEVER swallow exceptions without logging.
+- ALWAYS log errors with context (file path, operation attempted, error message).
 
 ---
 
@@ -92,13 +104,18 @@ pt list
 **Project Index Validation:**
 - Uses `project-scaffolding/scripts/validate_project.py`
 - Checks for `00_Index_[ProjectName].md` in each project
-- Surface indexing status on dashboard (TODO)
+- Surface indexing status on dashboard
 
 ---
 
-## Related Documentation
+## 📖 Reference Documentation
 
+- **Source of Truth:** [[AGENTS.md]]
+- **Working Instructions:** [[CLAUDE.md]]
+- **Learning Loop:** [[Documents/reference/LEARNINGS.md]]
+- **Model Learnings:** [[Documents/reference/MODEL_LEARNINGS.md]]
+- **Operations:** [[Documents/OPERATIONS.md]]
+- **Architecture:** [[Documents/ARCHITECTURE.md]]
 - **Project Philosophy:** `/Users/eriksjaastad/projects/Trading Projects/PROJECT_PHILOSOPHY.md`
 - **Project Scaffolding:** `/Users/eriksjaastad/projects/project-scaffolding/`
 - **TODO:** `TODO.md` - Current work items
-

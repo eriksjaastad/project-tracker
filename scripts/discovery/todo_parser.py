@@ -17,7 +17,7 @@ def parse_todo(todo_path: Path) -> Dict[str, Any]:
     if not todo_path.exists():
         logger.debug(f"TODO.md not found: {todo_path}")
         return {
-            "status": "unknown",
+            "status": "no TODO.md",
             "phase": None,
             "ai_agents": [],
             "cron_jobs": [],
@@ -30,7 +30,7 @@ def parse_todo(todo_path: Path) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to read TODO.md at {todo_path}: {e}", exc_info=True)
         return {
-            "status": "unknown",
+            "status": "error reading TODO.md",
             "phase": None,
             "ai_agents": [],
             "cron_jobs": [],
@@ -50,10 +50,20 @@ def parse_todo(todo_path: Path) -> Dict[str, Any]:
     # Extract header metadata (first 30 lines)
     lines = content.split('\n')
     for i, line in enumerate(lines[:30]):
-        # Project Status
-        if "Project Status:" in line or "**Project Status:**" in line:
+        # Status (Project Status: or Status:)
+        if "Project Status:" in line or "**Project Status:**" in line or "Status:" in line or "**Status:**" in line:
             data["status"] = extract_status(line)
         
+        # Check for section header "## Status"
+        elif line.strip().upper() == "## STATUS" and i + 1 < len(lines):
+            # Look at the next non-empty line
+            next_line = lines[i+1].strip()
+            if not next_line and i + 2 < len(lines):
+                next_line = lines[i+2].strip()
+            
+            if next_line and not next_line.startswith("#"):
+                data["status"] = extract_status(next_line)
+
         # Current Phase
         elif "Current Phase:" in line or "**Current Phase:**" in line:
             data["phase"] = extract_phase(line)
@@ -83,7 +93,7 @@ def extract_status(line: str) -> str:
     line_lower = line.lower()
     
     # Common patterns
-    if "active" in line_lower:
+    if "active" in line_lower or "working" in line_lower:
         return "active"
     elif "development" in line_lower or "dev" in line_lower or "in progress" in line_lower:
         return "development"
@@ -91,7 +101,7 @@ def extract_status(line: str) -> str:
         return "paused"
     elif "stalled" in line_lower:
         return "stalled"
-    elif "complete" in line_lower or "done" in line_lower or "shipped" in line_lower or "production ready" in line_lower:
+    elif "complete" in line_lower or "done" in line_lower or "shipped" in line_lower or "production ready" in line_lower or "built out" in line_lower:
         return "complete"
     
     return "unknown"

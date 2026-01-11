@@ -1,5 +1,10 @@
 # AGENTS.md - Source of Truth for AI Agents
 
+> **Universal Constitution:** See `project-scaffolding/AGENTS.md` for hierarchy, workflow, and universal safety rules.
+> This file contains project-specific tech stack and constraints.
+
+---
+
 ## 🎯 Project Overview
 Centralized project status monitoring and reporting system for tracking lifecycle and health across all projects in the `/Users/eriksjaastad/projects` workspace. The system auto-discovers projects, parses `TODO.md` and `README.md` files, monitors cron job health, and enforces project indexing standards (Critical Rule #0).
 
@@ -30,6 +35,10 @@ Centralized project status monitoring and reporting system for tracking lifecycl
 
 ## 📖 Reference Links
 - [[00_Index_project-tracker]]
+- [[CLAUDE.md]] - AI Working Instructions
+- [[.cursorrules]] - Cursor IDE Rules
+- [[Documents/reference/LEARNINGS.md]] - Learning Loop & Debt Tracker
+- [[Documents/reference/MODEL_LEARNINGS.md]] - AI Model Behavior
 - [[Project Philosophy]]
 - [[project-scaffolding]]
 

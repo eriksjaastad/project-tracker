@@ -6,7 +6,7 @@ tags:
   - domain/project-management
   - tech/python/typer
   - tech/python/fastapi
-status: #status/complete
+status: #status/active
 created: 2025-12-31
 ---
 
