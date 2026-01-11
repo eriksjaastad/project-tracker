@@ -58,6 +58,8 @@ Project status monitoring and reporting system for tracking lifecycle and health
 
 ## Recent Activity
 
+- **2026-01-11**: Backup Audit (rclone) integration
+- **2026-01-11**: Agent Dispatcher UI implementation
 - **2026-01-11**: Scaffolding alignment (archive consolidation, .cursorignore, status sync)
 - **2026-01-11**: Skills library integration
 
