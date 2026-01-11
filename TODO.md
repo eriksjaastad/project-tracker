@@ -3,7 +3,7 @@ tags:
   - p/project-tracker
   - type/documentation/todo
   - domain/project-management
-status: #status/complete
+status: #status/active
 created: 2025-12-22
 ---
 
@@ -59,7 +59,11 @@ created: 2025-12-22
 ### Phase 4: Mission Control & Observability (Jan 6, 2026) [in_progress]
 - [x] **Optimization:** Removed mandatory `--reload` from `pt launch` to prevent redundant scanning.
 - [x] **Optimization:** Added `--no-scan` flag to `pt launch` for instant dashboard access.
-- [x] **Scaffolding Alignment:** Brought project up to scaffolding spec with standard core documents and template alignment.
+- [x] **Scaffolding Alignment:** Brought project up to scaffolding spec.
+    - [x] Created `.cursorignore` for context optimization.
+    - [x] Consolidated root `archive/` into `Documents/archives/` (planning, reviews, sessions).
+    - [x] Updated `.cursorrules` metadata and synced index status.
+- [x] **Kiro Removal:** Removed abandoned `.kiro` directory and all file references.
 - [x] **Protocol Governance:** Documented protocol deviation and reinforced "Messenger" role via local worker report.
 - [ ] **Mission Control Hub:** Transform the dashboard from a passive monitor into an active command center.
     - [ ] **Agent Dispatcher UI:** Build a UI interface to manually trigger specialized agents (e.g., `audit-agent` for security, Scaffolding Sync agent) directly from the dashboard.
@@ -191,4 +195,4 @@ created: 2025-12-22
 
 ---
 
-*Project status: Phase 3 Complete. Integrating audit-agent.* 🔧
+*Project status: Phase 4 in progress. Mission Control & Observability.* 🚀
