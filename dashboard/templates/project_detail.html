@@ -95,7 +95,15 @@
                         <tr>
                             <td><strong>{{ service.service_name }}</strong></td>
                             <td>{{ service.purpose or '-' }}</td>
-                            <td>{{ ('$%.2f'|format(service.cost_monthly) if service.cost_monthly else '-') }}</td>
+                            <td>
+                                {% if service.cost_monthly is number %}
+                                    {{ '$%.2f'|format(service.cost_monthly) }}
+                                {% elif service.cost_monthly %}
+                                    {{ service.cost_monthly }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>

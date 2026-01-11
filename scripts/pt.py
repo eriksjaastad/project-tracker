@@ -22,6 +22,7 @@ from db.schema import init_db
 from db.manager import DatabaseManager
 from discovery.project_scanner import discover_projects, scan_health_parallel
 from discovery.external_resources_parser import parse_external_resources
+from discovery.hygiene_detector import fix_hygiene_issues, detect_hygiene_issues
 
 app = typer.Typer(
     name="pt",
@@ -77,7 +78,18 @@ def scan():
         console.print(f"  [red]✗ Removed {project_name}[/red]")
     
     # Update database
+    hygiene_fixes = 0
     for project in projects:
+        # Run hygiene check/fix
+        todo_path = Path(project["path"]) / "TODO.md"
+        if todo_path.exists():
+            fixes = fix_hygiene_issues(todo_path)
+            if fixes > 0:
+                hygiene_fixes += fixes
+                # Re-parse metadata if we fixed something
+                from discovery.project_scanner import extract_project_metadata
+                project.update(extract_project_metadata(Path(project["path"])))
+
         # Add/update project
         db.add_project(
             project_id=project["id"],
@@ -146,6 +158,9 @@ def scan():
     
     if services_added > 0:
         console.print(f"  [green]✓ Added {services_added} services across {len(services_by_project)} projects[/green]")
+    
+    if hygiene_fixes > 0:
+        console.print(f"\n[bold yellow]✨ Hygiene: Applied {hygiene_fixes} auto-fixes to TODO.md files[/bold yellow]")
     
     console.print(f"\n[bold green]✅ Scan complete! {len(projects)} projects updated[/bold green]")
 
@@ -259,18 +274,60 @@ def refresh():
 
 
 @app.command()
-def launch():
+def hygiene(fix: bool = typer.Option(False, "--fix", help="Apply fixes automatically")):
+    """Check all projects for TODO.md hygiene issues."""
+    console.print("[bold blue]Checking project hygiene...[/bold blue]")
+    projects = discover_projects(PROJECTS_BASE_DIR)
+    
+    total_issues = 0
+    total_fixes = 0
+    
+    for p in projects:
+        todo_path = Path(p["path"]) / "TODO.md"
+        if not todo_path.exists():
+            continue
+            
+        issues = detect_hygiene_issues(todo_path)
+        if issues:
+            console.print(f"\n[bold cyan]{p['name']}[/bold cyan]")
+            for issue in issues:
+                console.print(f"  [yellow]⚠ {issue['message']}[/yellow]")
+                total_issues += 1
+            
+            if fix:
+                fixes = fix_hygiene_issues(todo_path)
+                total_fixes += fixes
+                if fixes > 0:
+                    console.print(f"  [green]✓ Applied {fixes} fixes[/green]")
+                    
+    if total_issues == 0:
+        console.print("\n[bold green]✅ All projects are clean![/bold green]")
+    else:
+        if fix:
+            console.print(f"\n[bold green]✅ Applied {total_fixes} total fixes across {total_issues} issues.[/bold green]")
+        else:
+            console.print(f"\n[bold yellow]⚠ Found {total_issues} total issues. Run 'pt hygiene --fix' to resolve.[/bold yellow]")
+
+
+@app.command()
+def launch(
+    port: int = 8000,
+    no_scan: bool = typer.Option(False, "--no-scan", help="Skip the initial project scan on launch"),
+    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload for development")
+):
     """Launch the web dashboard."""
-    port = 8000
     no_browser = False
     console.print("[bold green]🚀 Launching Project Tracker Dashboard...[/bold green]\n")
     
     # Ensure database exists
     init_db()
     
-    # Run scan to ensure data is fresh
-    console.print("[dim]Running quick scan...[/dim]")
-    scan()
+    # Run scan to ensure data is fresh (unless skipped)
+    if not no_scan:
+        console.print("[dim]Running quick scan...[/dim]")
+        scan()
+    else:
+        console.print("[yellow]Skipping initial scan. Using existing data.[/yellow]")
     
     # Start web server
     dashboard_path = Path(__file__).parent.parent / "dashboard" / "app.py"
@@ -295,14 +352,18 @@ def launch():
     # Start uvicorn
     venv_python = Path(__file__).parent.parent / "venv" / "bin" / "python"
     
+    cmd = [
+        str(venv_python), "-m", "uvicorn",
+        "dashboard.app:app",
+        "--host", "0.0.0.0",
+        "--port", str(port)
+    ]
+    
+    if reload:
+        cmd.append("--reload")
+        
     try:
-        subprocess.run([
-            str(venv_python), "-m", "uvicorn",
-            "dashboard.app:app",
-            "--host", "0.0.0.0",
-            "--port", str(port),
-            "--reload"
-        ], cwd=Path(__file__).parent.parent)
+        subprocess.run(cmd, cwd=Path(__file__).parent.parent)
     except KeyboardInterrupt:
         console.print("\n\n[yellow]Dashboard stopped[/yellow]")
 

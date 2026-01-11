@@ -926,6 +926,111 @@ main {
     gap: 0.5rem;
     font-size: 0.875rem;
 }
+
+/* Stats Summary */
+.stats-summary {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+}
+
+.stats-card {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1.25rem;
+    min-width: 250px;
+    border: 1px solid var(--border-color);
+}
+
+.stats-card h3 {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stats-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.95rem;
+}
+
+.stat-item.highlight {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+    font-weight: 700;
+}
+
+.stat-label {
+    color: var(--text-secondary);
+}
+
+.savings-value {
+    color: #4caf50;
+}
+
+.alert-savings {
+    background: rgba(76, 175, 80, 0.1);
+    border: 1px solid rgba(76, 175, 80, 0.3);
+    color: #4caf50;
+    padding: 0.5rem;
+    border-radius: 4px;
+    margin-top: 0.5rem;
+    text-align: center;
+}
+
+.model-list-compact {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.model-item {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.25em 0.4em;
+    font-size: 75%;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 0.25rem;
+}
+
+.bg-success { background-color: var(--status-active); color: #fff; }
+.bg-warning { background-color: var(--status-paused); color: #000; }
+.bg-danger { background-color: var(--status-stalled); color: #fff; }
+
+.indicator-dot {
+    margin-left: 0.25rem;
+    font-size: 1.2rem;
+    line-height: 1;
+}
+
+.indicator-dot.good { color: var(--status-active); }
+.indicator-dot.warning { color: var(--status-paused); }
+.indicator-dot.critical { color: var(--status-stalled); }
+
+.error-text {
+    color: var(--status-stalled);
+    font-size: 0.85rem;
+}
+
 .system-warning .warning-link {
     margin-left: auto;
     color: #fcd34d;

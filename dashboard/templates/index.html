@@ -66,6 +66,47 @@
         </div>
         {% endif %}
         
+        <div class="stats-summary">
+            <!-- AI Router Telemetry Card -->
+            <div class="stats-card" id="telemetry-card">
+                <h3>🤖 AI Router (7d)</h3>
+                <div id="telemetry-stats" class="stats-content">
+                    <div class="row mb-2">
+                        <div class="col-6">
+                            <small class="text-muted">Requests</small><br>
+                            <strong id="telemetry-total">--</strong>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Local</small><br>
+                            <strong id="telemetry-local-pct">--</strong>%
+                            <span id="telemetry-local-indicator"></span>
+                        </div>
+                    </div>
+                    <div class="row mb-2">
+                        <div class="col-6">
+                            <small class="text-muted">Est. Cloud</small><br>
+                            <span class="text-muted">$<span id="telemetry-cloud-cost">--</span></span>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Actual</small><br>
+                            <span class="text-success">$<span id="telemetry-actual-cost">--</span></span>
+                        </div>
+                    </div>
+                    <div class="alert-savings" id="telemetry-savings-box">
+                        <small><strong>Saved: $<span id="telemetry-savings">--</span></strong> 
+                        (<span id="telemetry-savings-pct">--</span>%)</small>
+                    </div>
+                    <div id="telemetry-models" class="mt-2">
+                        <small class="text-muted">Top Models:</small>
+                        <div id="model-list" class="model-list-compact"></div>
+                    </div>
+                    <div id="telemetry-error-warning" class="error-text mt-1" style="display:none;">
+                        <small>⚠️ Error rate: <span id="telemetry-error-rate">--</span>%</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <div class="projects-grid">
             {% for project in projects %}
             <div class="project-card status-{{ project.status }} {% if project.code_review %}has-code-review{% endif %}">
@@ -155,7 +196,7 @@
                             <span class="meta-label">⚙️ Backend:</span>
                             <span class="meta-value">
                                 {% for service in project.services_by_category.backend %}
-                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${% if service.cost_monthly is number %}{{ service.cost_monthly|round(0)|int }}{% else %}{{ service.cost_monthly }}{% endif %}){% endif %}{% if not loop.last %}, {% endif %}
                                 {% endfor %}
                             </span>
                         </div>
@@ -166,7 +207,7 @@
                             <span class="meta-label">🌐 Hosting:</span>
                             <span class="meta-value">
                                 {% for service in project.services_by_category.hosting %}
-                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${% if service.cost_monthly is number %}{{ service.cost_monthly|round(0)|int }}{% else %}{{ service.cost_monthly }}{% endif %}){% endif %}{% if not loop.last %}, {% endif %}
                                 {% endfor %}
                             </span>
                         </div>
@@ -177,7 +218,7 @@
                             <span class="meta-label">🤖 AI:</span>
                             <span class="meta-value">
                                 {% for service in project.services_by_category.ai %}
-                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${% if service.cost_monthly is number %}{{ service.cost_monthly|round(0)|int }}{% else %}{{ service.cost_monthly }}{% endif %}){% endif %}{% if not loop.last %}, {% endif %}
                                 {% endfor %}
                             </span>
                         </div>
@@ -188,7 +229,7 @@
                             <span class="meta-label">💾 Storage:</span>
                             <span class="meta-value">
                                 {% for service in project.services_by_category.storage %}
-                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${% if service.cost_monthly is number %}{{ service.cost_monthly|round(0)|int }}{% else %}{{ service.cost_monthly }}{% endif %}){% endif %}{% if not loop.last %}, {% endif %}
                                 {% endfor %}
                             </span>
                         </div>
@@ -199,7 +240,7 @@
                             <span class="meta-label">🗄️ Database:</span>
                             <span class="meta-value">
                                 {% for service in project.services_by_category.database %}
-                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${% if service.cost_monthly is number %}{{ service.cost_monthly|round(0)|int }}{% else %}{{ service.cost_monthly }}{% endif %}){% endif %}{% if not loop.last %}, {% endif %}
                                 {% endfor %}
                             </span>
                         </div>
@@ -210,7 +251,7 @@
                             <span class="meta-label">🔔 Notifications:</span>
                             <span class="meta-value">
                                 {% for service in project.services_by_category.notifications %}
-                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${% if service.cost_monthly is number %}{{ service.cost_monthly|round(0)|int }}{% else %}{{ service.cost_monthly }}{% endif %}){% endif %}{% if not loop.last %}, {% endif %}
                                 {% endfor %}
                             </span>
                         </div>
@@ -221,7 +262,7 @@
                             <span class="meta-label">💓 Monitoring:</span>
                             <span class="meta-value">
                                 {% for service in project.services_by_category.monitoring %}
-                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${% if service.cost_monthly is number %}{{ service.cost_monthly|round(0)|int }}{% else %}{{ service.cost_monthly }}{% endif %}){% endif %}{% if not loop.last %}, {% endif %}
                                 {% endfor %}
                             </span>
                         </div>
@@ -232,7 +273,7 @@
                             <span class="meta-label">🔌 Other:</span>
                             <span class="meta-value">
                                 {% for service in project.services_by_category.other %}
-                                    {{ service.service_name }}{% if service.cost_monthly %} (${{ service.cost_monthly|round(0)|int }}){% endif %}{% if not loop.last %}, {% endif %}
+                                    {{ service.service_name }}{% if service.cost_monthly %} (${% if service.cost_monthly is number %}{{ service.cost_monthly|round(0)|int }}{% else %}{{ service.cost_monthly }}{% endif %}){% endif %}{% if not loop.last %}, {% endif %}
                                 {% endfor %}
                             </span>
                         </div>
@@ -293,6 +334,50 @@
     </main>
     
     <script src="/static/script.js"></script>
+    <script>
+        // Load AI Router telemetry
+        fetch('/api/telemetry')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('telemetry-total').textContent = data.total_requests || 0;
+                document.getElementById('telemetry-local-pct').textContent = data.local_pct || 0;
+                document.getElementById('telemetry-cloud-cost').textContent = data.estimated_cloud_cost || '0.00';
+                document.getElementById('telemetry-actual-cost').textContent = data.actual_cost || '0.00';
+                document.getElementById('telemetry-savings').textContent = data.savings || '0.00';
+                document.getElementById('telemetry-savings-pct').textContent = data.savings_pct || 0;
+                document.getElementById('telemetry-avg-local').textContent = data.avg_duration_local_ms || 0;
+
+                // Color indicator for local percentage
+                const indicator = document.getElementById('telemetry-local-indicator');
+                if (data.local_pct >= 80) {
+                    indicator.innerHTML = '<span class="badge bg-success">Good</span>';
+                } else if (data.local_pct >= 50) {
+                    indicator.innerHTML = '<span class="badge bg-warning">OK</span>';
+                } else {
+                    indicator.innerHTML = '<span class="badge bg-danger">Low</span>';
+                }
+
+                // Model list (top 3)
+                if (data.models) {
+                    const sorted = Object.entries(data.models)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 3);
+                    const modelHtml = sorted.map(([model, count]) => 
+                        `<div class="model-item">${model}: ${count}</div>`
+                    ).join('');
+                    document.getElementById('model-list').innerHTML = modelHtml || '<em>No data</em>';
+                }
+
+                // Error rate warning
+                if (data.error_rate > 5) {
+                    document.getElementById('telemetry-error-warning').style.display = 'block';
+                    document.getElementById('telemetry-error-rate').textContent = data.error_rate;
+                }
+            })
+            .catch(err => {
+                console.error('Failed to load telemetry:', err);
+                document.getElementById('telemetry-stats').innerHTML = '<em>Telemetry unavailable</em>';
+            });
+    </script>
 </body>
 </html>
-

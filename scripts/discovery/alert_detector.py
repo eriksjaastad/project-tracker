@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .cron_monitor import check_cron_health
 from .code_review_parser import parse_code_review
 from .providers import get_provider
+from .telemetry_reader import get_telemetry_stats, get_critical_errors
+from .cron_health import get_stale_crons
 from db.manager import DatabaseManager
 
 # Add parent directory to path for logger import
@@ -195,6 +197,25 @@ def detect_cron_failures(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return alerts
 
 
+def detect_stale_cron_heartbeats() -> List[Dict[str, Any]]:
+    """Detect known cron jobs that haven't produced a log heartbeat recently."""
+    alerts = []
+    try:
+        stale_names = get_stale_crons(threshold_hours=48)
+        for name in stale_names:
+            alerts.append({
+                "project_id": "system", # Global/System alert
+                "project_name": "CRON",
+                "type": "stale_heartbeat",
+                "severity": "critical",
+                "message": f"Heartbeat lost: {name}",
+                "details": f"No log updates detected in over 48 hours for {name}"
+            })
+    except Exception as e:
+        logger.error(f"Failed to detect stale crons: {e}")
+    return alerts
+
+
 def detect_code_reviews(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Detect projects with pending code reviews."""
     alerts = []
@@ -301,11 +322,33 @@ def detect_invalid_frontmatter(projects: List[Dict[str, Any]]) -> List[Dict[str,
     return alerts
 
 
+def detect_telemetry_errors() -> List[Dict[str, Any]]:
+    """Detect high error rates or critical failures in AI Router."""
+    alerts = []
+    try:
+        stats = get_telemetry_stats(days=1)
+        # Flag if error rate > 10% OR if there are more than 5 specific error entries in last 24h
+        if stats.get("error_rate", 0) > 10 or len(get_critical_errors(hours=24)) > 5:
+            alerts.append({
+                "project_id": "project-tracker", # Global alert
+                "project_name": "SYSTEM",
+                "type": "telemetry_error",
+                "severity": "critical",
+                "message": f"AI Router error rate: {stats.get('error_rate')}%",
+                "details": f"High failure rate detected in last 24h. Total requests: {stats.get('total_requests')}"
+            })
+    except Exception as e:
+        logger.error(f"Failed to detect telemetry errors: {e}")
+    return alerts
+
+
 def get_all_alerts(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Get all alerts for all projects."""
     all_alerts = []
     
     # Detect different types of issues
+    all_alerts.extend(detect_telemetry_errors())
+    all_alerts.extend(detect_stale_cron_heartbeats())
     all_alerts.extend(detect_blocked_projects(projects))
     all_alerts.extend(detect_code_reviews(projects))  # Add code review detection
     all_alerts.extend(detect_cron_failures(projects))

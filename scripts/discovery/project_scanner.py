@@ -169,20 +169,39 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
     # Parse TODO.md if exists
     todo_path = project_path / "TODO.md"
     todo_content = ""
+    todo_data = parse_todo(todo_path)
+    
+    # If TODO status is unknown or missing, try to use index status
+    current_status = todo_data.get("status", "unknown")
+    if current_status in ["unknown", "no TODO.md"] and metadata.get("has_index"):
+        # We already have index_file from line 146
+        try:
+            content = index_files[0].read_text()
+            if '---' in content:
+                frontmatter_text = content.split('---')[1]
+                # Look for status/ tag
+                for line in frontmatter_text.split('\n'):
+                    if 'status/' in line:
+                        status_tag = line.split('status/')[1].split()[0].strip(' -[]')
+                        if status_tag:
+                            current_status = status_tag
+                            break
+        except Exception:
+            pass
+
+    metadata.update({
+        "status": current_status,
+        "phase": todo_data.get("phase"),
+        "completion_pct": todo_data.get("completion_pct", 0),
+        "ai_agents": todo_data.get("ai_agents", []),
+        "cron_jobs": todo_data.get("cron_jobs", [])
+    })
+
     if todo_path.exists():
         try:
             todo_content = todo_path.read_text()
         except Exception as e:
             logger.warning(f"Failed to read TODO.md for {project_path.name}: {e}")
-        
-        todo_data = parse_todo(todo_path)
-        metadata.update({
-            "status": todo_data.get("status", "unknown"),
-            "phase": todo_data.get("phase"),
-            "completion_pct": todo_data.get("completion_pct", 0),
-            "ai_agents": todo_data.get("ai_agents", []),
-            "cron_jobs": todo_data.get("cron_jobs", [])
-        })
         
         # Use TODO description if available
         if todo_data.get("description"):

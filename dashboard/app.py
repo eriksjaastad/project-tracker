@@ -24,6 +24,7 @@ from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
 from discovery.providers import get_provider, LegacyProvider
+from discovery.telemetry_reader import get_telemetry_stats
 
 # Import config
 from config import REINDEX_SCRIPT_PATH
@@ -372,7 +373,8 @@ async def refresh_data():
                 is_infrastructure=project.get("is_infrastructure", False),
                 has_index=project.get("has_index", False),
                 index_is_valid=project.get("index_is_valid", False),
-                index_updated_at=project.get("index_updated_at")
+                index_updated_at=project.get("index_updated_at"),
+                project_type=project.get("project_type", "standard")
             )
         
         return JSONResponse({
@@ -385,6 +387,17 @@ async def refresh_data():
             "status": "error",
             "message": str(e)
         }, status_code=500)
+
+
+@app.get("/api/telemetry")
+async def api_telemetry(days: int = 7):
+    """Get AI Router telemetry stats."""
+    try:
+        stats = get_telemetry_stats(days=days)
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting telemetry: {e}")
+        return {"error": str(e), "total_requests": 0}
 
 
 @app.get("/api/projects")
