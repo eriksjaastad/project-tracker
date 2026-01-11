@@ -28,7 +28,7 @@ ls -la scripts/discovery/telemetry_reader.py
 
 **Expected:** File exists with reasonable size (>1KB)
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
@@ -46,7 +46,7 @@ print(f'Models used: {list(stats[\"models\"].keys())}')
 
 **Expected:** Numbers > 0, list of model names
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
@@ -64,7 +64,7 @@ print('✓ Telemetry reader has real data')
 
 **Expected:** No assertion errors, success message
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 

@@ -33,7 +33,7 @@ print('✓ get_critical_errors() works')
 
 **Expected:** Function runs without error, returns list
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
@@ -62,7 +62,7 @@ else:
 
 **Expected:** Either no errors (healthy) or properly structured error dicts
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
@@ -86,7 +86,7 @@ print('✓ Error surfacing working')
 
 **Expected:** List of errors or "(none)" if healthy
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 

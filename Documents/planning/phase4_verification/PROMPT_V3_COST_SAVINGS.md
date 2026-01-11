@@ -39,7 +39,7 @@ print('✓ All savings fields present')
 
 **Expected:** All 4 fields present with numeric values
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
@@ -69,7 +69,7 @@ print('✓ Savings calculation correct')
 
 **Expected:** savings = estimated_cloud_cost - actual_cost
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
@@ -95,7 +95,7 @@ pkill -f "uvicorn" || true
 
 **Expected:** Savings data in API response
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 

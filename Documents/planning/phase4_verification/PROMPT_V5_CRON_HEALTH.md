@@ -28,7 +28,7 @@ ls -la scripts/discovery/cron_health.py
 
 **Expected:** File exists with reasonable size
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
@@ -49,7 +49,7 @@ print('✓ get_cron_health() works')
 
 **Expected:** List of cron job health entries
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
@@ -71,7 +71,7 @@ print('✓ All required fields present')
 
 **Expected:** All entries have name, status, status_color
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
@@ -105,7 +105,7 @@ print('✓ Status values are valid')
 
 **Expected:** Each cron job shows status with age info
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
@@ -123,7 +123,7 @@ print('✓ Stale detection function works')
 
 **Expected:** List of stale cron names (may be empty if all healthy)
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 

@@ -146,10 +146,10 @@ curl http://localhost:8000/api/telemetry
 
 ## Success Criteria for Today
 
-- [ ] Telemetry reader module exists at `scripts/discovery/telemetry_reader.py`
-- [ ] Dashboard shows AI Router stats (model usage, local vs cloud)
-- [ ] Cost savings estimate displayed
-- [ ] No errors when loading dashboard
+- [x] Telemetry reader module exists at `scripts/discovery/telemetry_reader.py`
+- [x] Dashboard shows AI Router stats (model usage, local vs cloud)
+- [x] Cost savings estimate displayed
+- [x] No errors when loading dashboard
 
 ---
 

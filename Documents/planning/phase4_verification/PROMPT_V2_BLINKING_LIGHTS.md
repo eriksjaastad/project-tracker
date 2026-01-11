@@ -47,7 +47,7 @@ print(f'Cloud: {data.get(\"cloud_requests\", 0)}')
 
 **Expected:** JSON with models, local_requests, cloud_requests fields
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
@@ -68,7 +68,7 @@ print('✓ Model breakdown working')
 
 **Expected:** List of models with request counts
 
-- [ ] PASS / [ ] FAIL
+- [x] PASS / [ ] FAIL
 
 ---
 
