@@ -67,6 +67,7 @@
 
 ## 📋 Definition of Done (Project-Specific)
 
+- [ ] Code validated (no hardcoded paths, no secrets exposed)
 - [ ] **Index updated** (if new patterns, components, or major structure changes)
 
 ---
@@ -74,6 +75,12 @@
 ## 🔧 CLI Commands
 
 ```bash
+# Environment
+source venv/bin/activate
+
+# Validate project (before commits)
+python "./scripts/validate_project.py" project-tracker
+
 # Initialize database
 ./pt init
 
@@ -127,6 +134,15 @@ Relevant skills for this project:
 - Uses `project-scaffolding/scripts/validate_project.py`
 - Checks for `00_Index_[ProjectName].md` in each project
 - Surface indexing status on dashboard
+
+---
+
+## 🔗 Related Files
+- **Ecosystem Constitution:** `AGENTS.md`
+- **Review Protocol:** `./Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md`
+- **Code Review Pattern:** `./Documents/patterns/code-review-standard.md`
+- **Project Index:** `[[00_Index_project-tracker]]`
+- **Scaffolding Transfer Guide:** `Documents/SCAFFOLDING_TRANSFER_GUIDE.md`
 
 ---
 

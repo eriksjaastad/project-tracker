@@ -19,6 +19,8 @@ Centralized project status monitoring and reporting system for tracking lifecycl
 - [x] `00_Index_project-tracker.md` is updated with all status changes.
 - [x] All SQLite queries use parameterized placeholders (prevent SQLi).
 - [x] Dashboard successfully scans 35+ projects without crashing.
+- [ ] Code validated (no hardcoded paths, no secrets exposed).
+- [ ] Code review completed (if significant architectural changes).
 
 ## 🚀 Execution Commands
 - Environment: `source venv/bin/activate`
@@ -45,6 +47,8 @@ Centralized project status monitoring and reporting system for tracking lifecycl
 - [ ] **Floor Manager Protocol**: I am the Messenger, delegation to Worker required.
 - [ ] **Portable Paths**: No absolute paths in reference snippets or code.
 - [ ] **Rule #1**: Logging for all exceptions.
+
+**Code Review Standards:** See `./Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md` for full review process.
 
 ## 📖 Reference Links
 - [[00_Index_project-tracker]]
