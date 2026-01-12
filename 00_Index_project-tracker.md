@@ -6,6 +6,8 @@ tags:
   - domain/project-management
   - tech/python/typer
   - tech/python/fastapi
+scaffolding_version: 1.0.0
+transferred_date: 2026-01-12
 status: #status/complete
 created: 2025-12-31
 ---

@@ -35,5 +35,66 @@ Complete (MVP + Phase 4 enhancements).
 - **Run Tests:** `pytest tests/`
 
 ---
-*This file follows the [[project-scaffolding]] collaboration pattern.*
 
+## Code Review and Validation
+
+### When to Request a Code Review
+
+Request architectural review, security audit, or performance analysis when:
+- Making significant architectural decisions
+- Implementing security-critical code paths
+- Before merging major features
+- When unsure about design approach
+
+### How to Request a Review
+
+**Step 1: Create review request**
+```bash
+# Use the template
+cp "./Documents/templates/CODE_REVIEW.md.template" ./CODE_REVIEW_REQUEST.md
+
+# Edit CODE_REVIEW_REQUEST.md:
+# - Fill out "Definition of Done" section
+# - Describe what you want reviewed
+# - Specify review focus (architecture/security/performance)
+```
+
+**Step 2: Run multi-AI review**
+```bash
+# cd "."
+source venv/bin/activate
+# ...
+```
+
+**Step 3: Review results**
+- Reviews saved to: `./review_outputs/round_1/CODE_REVIEW_*.md`
+- Copy relevant reviews to: `Documents/archives/reviews/`
+
+### How to Validate Your Work
+
+Run validation to check for common issues:
+
+```bash
+# Quick safety check (< 1 second)
+python "./scripts/warden_audit.py" --root . --fast
+
+# Full project validation
+python "./scripts/validate_project.py" project-tracker
+```
+
+**What validation catches:**
+- ✅ Hardcoded absolute paths (`/Users/...`, `/home/...`)
+- ✅ Exposed secrets (API keys like `sk-...`, `AIza...`)
+- ✅ Missing required files (00_Index_*.md, AGENTS.md, etc.)
+- ✅ Invalid project structure
+
+**Best practice:** Validate before major commits or before requesting code reviews.
+
+### Learn More
+
+- **Full Protocol:** `./Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md`
+- **Pattern Docs:** `./Documents/patterns/code-review-standard.md`
+- **Review Prompts:** `./prompts/active/document_review/`
+
+---
+*This file follows the [[project-scaffolding]] collaboration pattern.*

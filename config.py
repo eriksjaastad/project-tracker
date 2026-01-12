@@ -3,8 +3,8 @@
 import os
 from pathlib import Path
 
-# Base directory for projects (can be overridden by PT_PROJECTS_DIR env var)
-PROJECTS_BASE_DIR = Path(os.getenv("PT_PROJECTS_DIR", "/Users/eriksjaastad/projects"))
+# Base directory for projects (can be overridden by PT_PROJECTS_DIR or PROJECTS_ROOT env vars)
+PROJECTS_BASE_DIR = Path(os.getenv("PT_PROJECTS_DIR", os.getenv("PROJECTS_ROOT", Path.home() / "projects")))
 
 # Database location (can be overridden by PT_DB_PATH env var)
 DATABASE_PATH = Path(os.getenv("PT_DB_PATH", Path(__file__).parent / "data" / "tracker.db"))
