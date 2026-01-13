@@ -73,7 +73,7 @@ def _read_telemetry_entries(days: int = 7) -> list[dict]:
 ## Verification
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "
 from scripts.discovery.telemetry_reader import _read_telemetry_entries
 entries = _read_telemetry_entries(days=30)

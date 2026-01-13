@@ -153,7 +153,7 @@ def function_name():
 TELEMETRY_PATH = Path(os.getenv("TELEMETRY_PATH", "default/path"))
 
 # BAD - Never use in prompts
-TELEMETRY_PATH = Path("/Users/eriksjaastad/...")
+TELEMETRY_PATH = Path("$HOME/...")
 ```
 
 2. **Include CODE_QUALITY_STANDARDS rules in prompts:**

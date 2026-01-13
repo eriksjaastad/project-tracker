@@ -29,6 +29,7 @@ Complete (MVP + Phase 4 enhancements).
 - **Logging:** Use the `logger.py` module for all logging.
 
 ## 🚀 Key Commands
+- **Install Hooks:** `ln -sf ../../scripts/git-pre-commit.sh .git/hooks/pre-commit`
 - **Launch Dashboard:** `./pt launch`
 - **Full Project Scan:** `./pt scan`
 - **List Projects:** `./pt list`
@@ -83,7 +84,7 @@ python "./scripts/validate_project.py" project-tracker
 ```
 
 **What validation catches:**
-- ✅ Hardcoded absolute paths (`/Users/...`, `/home/...`)
+- ✅ Hardcoded absolute paths (`[USER_HOME]/...`, `/home/...`)
 - ✅ Exposed secrets (API keys like `sk-...`, `AIza...`)
 - ✅ Missing required files (00_Index_*.md, AGENTS.md, etc.)
 - ✅ Invalid project structure

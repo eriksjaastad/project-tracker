@@ -24,7 +24,7 @@ All must pass:
 ### Step 1: Registry File Exists
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 ls -la scripts/discovery/agent_registry.py
 ```
 

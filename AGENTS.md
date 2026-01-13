@@ -6,7 +6,7 @@
 ---
 
 ## 🎯 Project Overview
-Centralized project status monitoring and reporting system for tracking lifecycle and health across all projects in the `/Users/eriksjaastad/projects` workspace. The system auto-discovers projects, parses `TODO.md` and `README.md` files, monitors cron job health, and enforces project indexing standards (Critical Rule #0).
+Centralized project status monitoring and reporting system for tracking lifecycle and health across all projects in the `$PROJECTS_ROOT` workspace. The system auto-discovers projects, parses `TODO.md` and `README.md` files, monitors cron job health, and enforces project indexing standards (Critical Rule #0).
 
 ## 🛠 Tech Stack
 - Language: Python 3.11+
@@ -51,6 +51,7 @@ Centralized project status monitoring and reporting system for tracking lifecycl
 **Code Review Standards:** See `./Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md` for full review process.
 
 ## 📖 Reference Links
+- [[Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL]] - Path standards and review process
 - [[00_Index_project-tracker]]
 - [[CLAUDE.md]] - AI Working Instructions
 - [[.cursorrules]] - Cursor IDE Rules

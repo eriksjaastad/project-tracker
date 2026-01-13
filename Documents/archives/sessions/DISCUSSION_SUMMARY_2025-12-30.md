@@ -8,7 +8,7 @@
 ## What We Just Accomplished ✅
 
 ### 1. Created Comprehensive Dashboard TODO
-**File:** `/Users/eriksjaastad/projects/project-tracker/TODO.md`
+**File:** `$PROJECTS_ROOT/project-tracker/TODO.md`
 
 **Content (430+ lines):**
 - Complete project status and current state
@@ -26,7 +26,7 @@
 - Integration points with other projects
 
 ### 2. Created TODO Standard Template
-**File:** `/Users/eriksjaastad/projects/project-scaffolding/templates/TODO.md.template`
+**File:** `$PROJECTS_ROOT/project-scaffolding/templates/TODO.md.template`
 
 **Features:**
 - Required sections: Header, Current State, Completed, Pending, Success Criteria, Notes
@@ -40,7 +40,7 @@
 - Examples and placeholders throughout
 
 ### 3. Documented Format Standard
-**File:** `/Users/eriksjaastad/projects/project-scaffolding/docs/TODO_FORMAT_STANDARD.md`
+**File:** `$PROJECTS_ROOT/project-scaffolding/docs/TODO_FORMAT_STANDARD.md`
 
 **Content (650+ lines):**
 - Analysis of 4 real projects' TODO formats
@@ -337,9 +337,9 @@ Before proceeding with dashboard implementation:
 
 ## Files Created
 
-1. `/Users/eriksjaastad/projects/project-tracker/TODO.md` (430+ lines)
-2. `/Users/eriksjaastad/projects/project-scaffolding/templates/TODO.md.template` (250+ lines)
-3. `/Users/eriksjaastad/projects/project-scaffolding/docs/TODO_FORMAT_STANDARD.md` (650+ lines)
+1. `$PROJECTS_ROOT/project-tracker/TODO.md` (430+ lines)
+2. `$PROJECTS_ROOT/project-scaffolding/templates/TODO.md.template` (250+ lines)
+3. `$PROJECTS_ROOT/project-scaffolding/docs/TODO_FORMAT_STANDARD.md` (650+ lines)
 
 **Total:** 1,330+ lines of documentation and templates
 

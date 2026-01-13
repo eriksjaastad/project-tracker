@@ -7,7 +7,7 @@
 
 ## System Overview
 
-Project Tracker is a centralized monitoring and reporting system designed to track the lifecycle, health, and resource usage of all projects within the `/Users/eriksjaastad/projects` workspace. It provides both a command-line interface and a web dashboard to visualize project status, compliance with documentation standards, and various health metrics.
+Project Tracker is a centralized monitoring and reporting system designed to track the lifecycle, health, and resource usage of all projects within the `$PROJECTS_ROOT` workspace. It provides both a command-line interface and a web dashboard to visualize project status, compliance with documentation standards, and various health metrics.
 
 ---
 

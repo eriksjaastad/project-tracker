@@ -40,7 +40,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # AI Router telemetry location
-TELEMETRY_PATH = Path("/Users/eriksjaastad/projects/_tools/ai_router/logs/telemetry.jsonl")
+TELEMETRY_PATH = Path("$PROJECTS_ROOT/_tools/ai_router/logs/telemetry.jsonl")
 
 
 def get_telemetry_stats(days: int = 7) -> dict[str, Any]:
@@ -68,7 +68,7 @@ if __name__ == "__main__":
 ## Verification
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "from scripts.discovery.telemetry_reader import get_telemetry_stats; print(get_telemetry_stats())"
 # Expected: {}
 ```

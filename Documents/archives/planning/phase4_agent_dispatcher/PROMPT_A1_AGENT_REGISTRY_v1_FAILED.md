@@ -190,7 +190,7 @@ if __name__ == "__main__":
 After creating the file, run:
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "
 from scripts.discovery.agent_registry import get_available_agents, get_agent
 

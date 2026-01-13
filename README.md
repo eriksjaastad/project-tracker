@@ -56,7 +56,7 @@ A **local web dashboard** that tracks all your projects in one place.
 ## 🚀 Quick Start
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 ./pt launch
 ```
 
@@ -421,7 +421,7 @@ Erik describing the spinning plates problem while working on Tiered Sprint Plann
 - [ ] Show "what's scheduled" view
 
 **Phase 2: Auto-Discovery (Week 3)**
-- [ ] Scan `/Users/eriksjaastad/projects/` for git repos
+- [ ] Scan `$PROJECTS_ROOT/` for git repos
 - [ ] Extract metadata (last commit, README, .cursorrules)
 - [ ] Suggest projects to add to tracker
 - [ ] Detect stale projects (no commits in 30+ days)

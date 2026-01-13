@@ -163,7 +163,7 @@ def run_agent_command(
 After implementing, run:
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "
 from scripts.discovery.agent_registry import run_agent_command
 

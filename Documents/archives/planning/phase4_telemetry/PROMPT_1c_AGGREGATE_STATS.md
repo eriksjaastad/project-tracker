@@ -94,7 +94,7 @@ def get_telemetry_stats(days: int = 7) -> dict[str, Any]:
 ## Verification
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "
 from scripts.discovery.telemetry_reader import get_telemetry_stats
 stats = get_telemetry_stats(days=30)

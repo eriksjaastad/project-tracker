@@ -22,7 +22,7 @@ All must pass:
 ### Step 1: Start Dashboard
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 ./pt launch --no-scan &
 sleep 3
 echo "Dashboard started on http://localhost:8000"

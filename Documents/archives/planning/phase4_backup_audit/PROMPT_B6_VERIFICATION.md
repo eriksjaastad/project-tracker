@@ -23,7 +23,7 @@ All must pass:
 ### Step 1: File Exists
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 ls -la scripts/discovery/backup_reader.py
 ```
 

@@ -78,7 +78,7 @@ These are larger architectural tasks:
 
 1. **Verify AI Router telemetry exists first:**
    ```bash
-   head -3 /Users/eriksjaastad/projects/_tools/ai_router/logs/telemetry.jsonl
+   head -3 $PROJECTS_ROOT/_tools/ai_router/logs/telemetry.jsonl
    ```
 
 2. **Use micro-tasks sequentially:** 1a → 1b → 1c → 1d → 2a → 2b → 2c
@@ -96,7 +96,7 @@ These are larger architectural tasks:
 - `dashboard/app.py` — Main FastAPI application
 - `scripts/discovery/` — Where discovery modules live
 - `dashboard/templates/index.html` — Dashboard template
-- `/Users/eriksjaastad/projects/_tools/ai_router/logs/telemetry.jsonl` — Data source
+- `$PROJECTS_ROOT/_tools/ai_router/logs/telemetry.jsonl` — Data source
 
 ---
 
@@ -129,7 +129,7 @@ Key fields for "Blinking Lights":
 
 ```bash
 # 1. Test telemetry reader works
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "from scripts.discovery.telemetry_reader import get_telemetry_stats; print(get_telemetry_stats())"
 # Expected: Dict with model counts, durations, etc.
 

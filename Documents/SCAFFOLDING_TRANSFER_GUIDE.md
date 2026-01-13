@@ -109,7 +109,7 @@ Project-scaffolding has evolved into an ecosystem constitution with **13+ patter
 - [ ] Audit all Python files for `except: pass` (Rule #1)
 - [ ] Audit all `subprocess.run()` calls (Rule #2)
 - [ ] Check pt scan for memory guards with large project counts (Rule #3)
-- [ ] Remove hardcoded `/Users/eriksjaastad/` paths (Rule #4)
+- [ ] Remove hardcoded `$HOME/` paths (Rule #4)
 
 ---
 
@@ -250,7 +250,7 @@ Project-scaffolding has evolved into an ecosystem constitution with **13+ patter
    - Need somewhere to capture learnings
 
 2. **[MEDIUM]** Audit for hardcoded paths
-   - .cursorrules has `/Users/eriksjaastad/projects`
+   - .cursorrules has `$PROJECTS_ROOT`
    - Should use environment variable or relative paths
 
 3. **[LOW]** Complete Documents/ structure

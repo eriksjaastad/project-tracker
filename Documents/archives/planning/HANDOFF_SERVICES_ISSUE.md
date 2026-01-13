@@ -130,7 +130,7 @@ sqlite3 data/tracker.db "SELECT project_id, COUNT(*) FROM service_dependencies G
 
 ### 2. Test Python data flow:
 ```python
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python3 -c "
 import sys
 sys.path.insert(0, 'scripts')
@@ -194,7 +194,7 @@ for p in enriched_projects:
 1. **Stop and restart dashboard cleanly:**
    ```bash
    pkill -9 -f "pt launch"
-   cd /Users/eriksjaastad/projects/project-tracker
+   cd $PROJECTS_ROOT/project-tracker
    ./pt launch
    ```
 

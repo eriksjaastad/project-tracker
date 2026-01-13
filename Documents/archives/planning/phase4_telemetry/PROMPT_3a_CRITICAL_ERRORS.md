@@ -87,7 +87,7 @@ fetch('/api/telemetry?days=1')
 ## Verification
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "
 from scripts.discovery.telemetry_reader import get_critical_errors
 errors = get_critical_errors(hours=24)

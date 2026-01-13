@@ -69,7 +69,7 @@ Update `get_telemetry_stats()` to add cost calculations at the end:
 ## Verification
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "
 from scripts.discovery.telemetry_reader import get_telemetry_stats
 stats = get_telemetry_stats(days=30)

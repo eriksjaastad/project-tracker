@@ -92,7 +92,7 @@ def _parse_rclone_config() -> dict[str, dict]:
 After implementing, run:
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "
 from scripts.discovery.backup_reader import _parse_rclone_config
 remotes = _parse_rclone_config()
