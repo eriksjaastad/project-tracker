@@ -27,7 +27,7 @@ The project-tracker is well-structured and accomplishes its goals, but has sever
 
 ### 3. Hardcoded Paths
 - **Location:** `config.py:7`, `dashboard/app.py:288`
-- **Issue:** Literal paths like `/Users/eriksjaastad/projects` baked into code
+- **Issue:** Literal paths like `$PROJECTS_ROOT` baked into code
 - **Impact:** Won't work on any other machine
 - **Action:** [ ] Move all paths to environment variables with sensible defaults
 

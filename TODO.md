@@ -9,13 +9,24 @@ created: 2025-12-22
 
 # [[project-tracker]] - TODO
 
-**Last Updated:** January 11, 2026
+**Last Updated:** January 12, 2026
 **Project Status:** Complete ✅
 **Current Phase:** Phase 4: Mission Control & Observability
 **Type:** Infrastructure
 **Index:** [[00_Index_project-tracker]]
 
 ---
+
+### 🚨 Governance & Portability (Code Review v1) [complete]
+- [x] **Flat Root Transition:** Move contents of `Documents/core/` to `Documents/` root and delete the core directory.
+- [x] **Ship Blockers (Portability):**
+    - [x] Replace absolute path in `AGENTS.md:9` with `$PROJECTS_ROOT` or relative reference.
+    - [x] Clean absolute paths from `.cursorrules` (lines 52, 129, 130, 134, 157, 158).
+    - [x] Address `Documents/core/` requirement (removed from `validate_project.py`).
+    - [x] **DNA Defect Removal:** Systematic cleanup of absolute paths across 48+ markdown files.
+- [x] **Recommended Enhancements:**
+    - [x] Implement pre-commit hook to prevent new hardcoded paths.
+    - [x] Document standard for `$PROJECTS_ROOT` vs relative paths.
 
 ## 📍 Current State
 
@@ -63,7 +74,6 @@ created: 2025-12-22
     - [x] Created `.cursorignore` for context optimization.
     - [x] Consolidated root `archive/` into `Documents/archives/` (planning, reviews, sessions).
     - [x] Updated `.cursorrules` metadata and synced index status.
-- [x] **Kiro Removal:** Removed abandoned `.kiro` directory and all file references.
 - [x] **Protocol Governance:** Documented protocol deviation and reinforced "Messenger" role via local worker report.
 - [x] **Mission Control Hub:** Transform the dashboard from a passive monitor into an active command center.
     - [x] **Agent Dispatcher UI:** Built a UI interface to manually trigger specialized agents (audit-agent, pt) directly from the dashboard.
@@ -185,10 +195,10 @@ created: 2025-12-22
 - `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
 
 **Related projects:**
-- `/Users/eriksjaastad/projects/audit-agent/` - Go CLI for health, tasks, and validation
-- `/Users/eriksjaastad/projects/project-scaffolding/` - Templates and patterns
-- `/Users/eriksjaastad/projects/agent-skills-library/` - AI skills
-- `/Users/eriksjaastad/projects/EXTERNAL_RESOURCES.md` - Service dependency data source
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
 
 ---
 

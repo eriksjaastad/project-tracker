@@ -188,7 +188,7 @@ pt status <name>               # Show project details
 pt update <name>               # Refresh single project metadata
 
 # Bulk operations
-pt scan                        # Auto-discover projects in /Users/eriksjaastad/projects/
+pt scan                        # Auto-discover projects in $PROJECTS_ROOT/
 pt refresh                     # Update all project metadata
 
 # Cron jobs
@@ -215,7 +215,7 @@ pt service list [project]                     # List services
 **Create:** `scripts/discovery/` directory
 
 **Files:**
-- `project_scanner.py` - Scan /Users/eriksjaastad/projects/ for directories
+- `project_scanner.py` - Scan $PROJECTS_ROOT/ for directories
 - `git_metadata.py` - Extract git last commit date, check for .git/
 - `todo_parser.py` - Parse TODO.md for AI agents, status, phase, completion %
 - `cron_detector.py` - Read crontab, parse launchd plists
@@ -224,7 +224,7 @@ pt service list [project]                     # List services
 **Key logic:**
 
 ```python
-def discover_projects(base_path="/Users/eriksjaastad/projects"):
+def discover_projects(base_path="$PROJECTS_ROOT"):
     """Scan directory for projects."""
     projects = []
     
@@ -376,7 +376,7 @@ def detect_cron_jobs():
 ```python
 def parse_external_resources():
     """Parse EXTERNAL_RESOURCES.md for service dependencies."""
-    resources_path = Path('/Users/eriksjaastad/projects/project-scaffolding/EXTERNAL_RESOURCES.md')
+    resources_path = Path('$PROJECTS_ROOT/project-scaffolding/EXTERNAL_RESOURCES.md')
     
     if not resources_path.exists():
         return {}
@@ -839,7 +839,7 @@ pip install markdown pygments
 ```python
 def test_scan_projects():
     """Test project discovery."""
-    projects = discover_projects('/Users/eriksjaastad/projects')
+    projects = discover_projects('$PROJECTS_ROOT')
     
     assert len(projects) > 0, "Should find projects"
     
@@ -945,8 +945,8 @@ def test_dashboard_loads():
 3. `../project-scaffolding/docs/TODO_FORMAT_STANDARD.md` - How to parse TODO files
 
 ### Data Sources:
-- **Projects:** `/Users/eriksjaastad/projects/`
-- **Services:** `/Users/eriksjaastad/projects/project-scaffolding/EXTERNAL_RESOURCES.md`
+- **Projects:** `$PROJECTS_ROOT/`
+- **Services:** `$PROJECTS_ROOT/project-scaffolding/EXTERNAL_RESOURCES.md`
 - **Cron jobs:** `crontab -l` + `~/Library/LaunchAgents/*.plist`
 - **Git metadata:** `.git/` in each project
 
@@ -962,7 +962,7 @@ def test_dashboard_loads():
 
 ### Virtual Environment Setup
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -m venv venv
 source venv/bin/activate
 pip install fastapi uvicorn typer rich markdown pygments gitpython

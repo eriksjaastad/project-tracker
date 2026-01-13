@@ -42,7 +42,7 @@ See `CODE_REVIEW.md` for full review and implementation details.
 
 ## 🎯 Project Overview
 
-**Project Tracker** is a local-first dashboard that auto-discovers and tracks all projects in `/Users/eriksjaastad/projects/`.
+**Project Tracker** is a local-first dashboard that auto-discovers and tracks all projects in `$PROJECTS_ROOT/`.
 
 **The pitch:**
 - 📊 Dashboard showing 33+ projects sorted by last modified
@@ -62,7 +62,7 @@ See `CODE_REVIEW.md` for full review and implementation details.
 
 **What I claim this solves:**
 
-I have 33+ projects across `/Users/eriksjaastad/projects/`. Each has:
+I have 33+ projects across `$PROJECTS_ROOT/`. Each has:
 - A `TODO.md` file tracking status, phase, completion %
 - AI agents working on them (documented in TODO.md)
 - External services (OpenAI, Railway, etc.) costing money

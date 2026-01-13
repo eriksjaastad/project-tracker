@@ -49,7 +49,7 @@
 
 ## 📋 Project Overview
 
-**Purpose:** Track all projects in `/Users/eriksjaastad/projects` workspace and surface status, health, and resource usage.
+**Purpose:** Track all projects in `$PROJECTS_ROOT` workspace and surface status, health, and resource usage.
 
 **Architecture:**
 - **Scanner:** Discovers projects, READMEs, TODOs
@@ -98,6 +98,10 @@ python "./scripts/validate_project.py" project-tracker
 
 ## 🛡️ Safety Rules
 
+### Pre-commit Hooks
+- **DNA Integrity:** This project uses a pre-commit hook to prevent hardcoded absolute paths.
+- To install: `ln -s ../../scripts/git-pre-commit.sh .git/hooks/pre-commit`
+
 ### File Operations
 - **Trash, Don't Delete:** NEVER use `rm`, `os.remove`, `os.unlink`, or `shutil.rmtree` for permanent deletion.
 - ALWAYS use `send2trash` (Python) to move files to the system Trash.
@@ -126,8 +130,8 @@ Relevant skills for this project:
 ## 🔗 Integration Points
 
 **Reads from:**
-- `/Users/eriksjaastad/projects/` - All projects
-- `/Users/eriksjaastad/projects/project-scaffolding/EXTERNAL_RESOURCES.md` - Resource tracking
+- `$PROJECTS_ROOT/` - All projects
+- `$PROJECTS_ROOT/project-scaffolding/EXTERNAL_RESOURCES.md` - Resource tracking
 - Individual project `README.md`, `TODO.md`, `00_Index_*.md` files
 
 **Project Index Validation:**
@@ -154,8 +158,8 @@ Relevant skills for this project:
 - **Model Learnings:** [[Documents/reference/MODEL_LEARNINGS.md]]
 - **Operations:** [[Documents/OPERATIONS.md]]
 - **Architecture:** [[Documents/ARCHITECTURE.md]]
-- **Project Philosophy:** `/Users/eriksjaastad/projects/Trading Projects/PROJECT_PHILOSOPHY.md`
-- **Project Scaffolding:** `/Users/eriksjaastad/projects/project-scaffolding/`
+- **Project Philosophy:** `$PROJECTS_ROOT/Trading Projects/PROJECT_PHILOSOPHY.md`
+- **Project Scaffolding:** `$PROJECTS_ROOT/project-scaffolding/`
 - **TODO:** `TODO.md` - Current work items
 
 ---

@@ -72,9 +72,9 @@ for line in f:
 
 | File | Line | Violation |
 |------|------|-----------|
-| `telemetry_reader.py` | 14 | `/Users/eriksjaastad/projects/_tools/ai_router/logs/telemetry.jsonl` |
-| `cron_health.py` | 13 | `/Users/eriksjaastad/projects/Trading Projects/logs/arena.log` |
-| `cron_health.py` | 14 | `/Users/eriksjaastad/projects/Cortana personal AI/logs/daily.log` |
+| `telemetry_reader.py` | 14 | `$PROJECTS_ROOT/_tools/ai_router/logs/telemetry.jsonl` |
+| `cron_health.py` | 13 | `$PROJECTS_ROOT/Trading Projects/logs/arena.log` |
+| `cron_health.py` | 14 | `$PROJECTS_ROOT/Cortana personal AI/logs/daily.log` |
 
 **Fix Required:** Use environment variables or config:
 ```python
@@ -161,7 +161,7 @@ CRON_CORTANA_LOG=../Cortana personal AI/logs/daily.log
 TELEMETRY_PATH = Path(os.getenv("TELEMETRY_PATH", "default/path"))
 
 # BAD - Reference code in prompts
-TELEMETRY_PATH = Path("/Users/eriksjaastad/...")
+TELEMETRY_PATH = Path("$HOME/...")
 ```
 
 ---

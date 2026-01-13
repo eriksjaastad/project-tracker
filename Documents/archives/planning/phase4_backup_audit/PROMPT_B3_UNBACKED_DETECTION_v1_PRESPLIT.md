@@ -115,7 +115,7 @@ def get_backup_status() -> dict[str, Any]:
 After implementing, run:
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "
 from scripts.discovery.backup_reader import get_backup_status, get_unbacked_paths
 

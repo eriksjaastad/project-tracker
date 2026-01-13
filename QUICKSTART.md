@@ -14,7 +14,7 @@ created: 2025-12-30
 ## Launch the Dashboard
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 ./pt launch
 ```
 
@@ -29,7 +29,7 @@ That's it! The dashboard will open at http://localhost:8000
 If you want to run Python commands directly or install new packages:
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 source venv/bin/activate
 
 # Now you can run commands directly:
@@ -70,7 +70,7 @@ Click **"View TODO"** on any project to see the rendered TODO.md
 To launch the project tracker:
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker && ./pt launch
+cd $PROJECTS_ROOT/project-tracker && ./pt launch
 ```
 
 The dashboard will auto-scan projects and open in the browser.

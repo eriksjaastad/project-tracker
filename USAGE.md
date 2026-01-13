@@ -22,7 +22,7 @@ created: 2025-12-30
 
 2. **Launch the dashboard:**
    ```bash
-   cd /Users/eriksjaastad/projects/project-tracker
+   cd $PROJECTS_ROOT/project-tracker
    ./pt launch
    ```
 
@@ -124,7 +124,7 @@ Click **"Details"** to see:
 
 ### Auto-Discovery
 
-The scanner looks for projects in `/Users/eriksjaastad/projects/` and checks for:
+The scanner looks for projects in `$PROJECTS_ROOT/` and checks for:
 
 1. **Git repositories** (`.git` directory exists)
 2. **README.md** files

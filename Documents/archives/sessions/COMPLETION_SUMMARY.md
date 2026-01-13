@@ -160,7 +160,7 @@ Tested on your actual projects directory:
 ### First Time
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 ./pt launch
 ```
 
@@ -191,7 +191,7 @@ The dashboard auto-refreshes every 5 minutes, or click 🔄 Refresh button for i
 **For any AI assistant helping you:**
 
 You: "Launch project tracker"  
-AI: *runs* `cd /Users/eriksjaastad/projects/project-tracker && ./pt launch`  
+AI: *runs* `cd $PROJECTS_ROOT/project-tracker && ./pt launch`  
 Result: Dashboard opens automatically
 
 ---
@@ -473,7 +473,7 @@ All data stays on your machine:
 **Try it out!**
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 ./pt launch
 ```
 

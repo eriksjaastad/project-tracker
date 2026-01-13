@@ -39,7 +39,7 @@ grep -rn "work_log\|log_event\|get_work_log" scripts/ dashboard/ --include="*.py
 
 **Problem:** `dashboard/app.py:288` still has a hardcoded path:
 ```python
-script_path = "/Users/eriksjaastad/projects/project-scaffolding/scripts/reindex_projects.py"
+script_path = "$PROJECTS_ROOT/project-scaffolding/scripts/reindex_projects.py"
 ```
 
 **Fix:** Move this to `config.py` as an environment variable with a sensible default, or remove the feature if the script doesn't exist.

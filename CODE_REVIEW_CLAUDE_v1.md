@@ -27,15 +27,15 @@ Project Validation: ❌ FAILED
 ### Root Configs (Referenced by Projects)
 - [ ] `AGENTS.md` - ❌ **FAIL** - Hardcoded path on line 9:
   ```
-  /Users/eriksjaastad/projects
+  $PROJECTS_ROOT
   ```
 - [ ] `.cursorrules` - ❌ **FAIL** - Multiple hardcoded paths:
-  - Line 52: `/Users/eriksjaastad/projects`
-  - Line 129: `/Users/eriksjaastad/projects/`
-  - Line 130: `/Users/eriksjaastad/projects/project-scaffolding/EXTERNAL_RESOURCES.md`
+  - Line 52: `$PROJECTS_ROOT`
+  - Line 129: `$PROJECTS_ROOT/`
+  - Line 130: `$PROJECTS_ROOT/project-scaffolding/EXTERNAL_RESOURCES.md`
   - Line 134: `project-scaffolding/scripts/validate_project.py`
-  - Line 157: `/Users/eriksjaastad/projects/Trading Projects/PROJECT_PHILOSOPHY.md`
-  - Line 158: `/Users/eriksjaastad/projects/project-scaffolding/`
+  - Line 157: `$PROJECTS_ROOT/Trading Projects/PROJECT_PHILOSOPHY.md`
+  - Line 158: `$PROJECTS_ROOT/project-scaffolding/`
 
 ### Data Files (Used by Scripts)
 - [x] No EXTERNAL_RESOURCES.yaml in this project (reads from scaffolding)
@@ -136,7 +136,7 @@ Project Validation: ❌ FAILED
 **Overall Grade:** C
 
 **Ship Blockers (Must Fix):**
-1. **AGENTS.md:9** - Replace `/Users/eriksjaastad/projects` with `$PROJECTS_ROOT` or relative reference
+1. **AGENTS.md:9** - Replace `$PROJECTS_ROOT` with `$PROJECTS_ROOT` or relative reference
 2. **.cursorrules:52,129,130,134,157,158** - Remove all absolute paths
 3. **Documents/core/** - Either create directory or update validate_project.py expectation
 4. **48 markdown files** - Systematic cleanup of absolute paths in documentation
@@ -162,7 +162,7 @@ The **execution layer is solid** - scripts are clean, no silent failures, proper
 **Root Cause:** This project predates the "No Hardcoded Paths" standard. The documentation was written with absolute paths that were fine for single-machine use but violate portability requirements.
 
 **Recommended Action:**
-1. Create a `scripts/fix_hardcoded_paths.py` utility to systematically replace `/Users/eriksjaastad/projects` with `$PROJECTS_ROOT`
+1. Create a `scripts/fix_hardcoded_paths.py` utility to systematically replace `$PROJECTS_ROOT` with `$PROJECTS_ROOT`
 2. Run across all affected files
 3. Re-run `./scripts/pre_review_scan.sh` to verify
 4. Then this project is ready to be a proper scaffolding child

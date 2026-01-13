@@ -23,7 +23,7 @@ All must pass:
 ### Step 1: Savings Fields Exist
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "
 from scripts.discovery.telemetry_reader import get_telemetry_stats
 stats = get_telemetry_stats(days=30)

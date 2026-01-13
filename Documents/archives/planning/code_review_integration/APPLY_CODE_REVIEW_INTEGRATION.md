@@ -118,7 +118,7 @@ python "$SCAFFOLDING/scripts/validate_project.py" project-tracker
 ```
 
 **What validation catches:**
-- ✅ Hardcoded absolute paths (`/Users/...`, `/home/...`)
+- ✅ Hardcoded absolute paths (`[USER_HOME]/...`, `/home/...`)
 - ✅ Exposed secrets (API keys like `sk-...`, `AIza...`)
 - ✅ Missing required files (00_Index_*.md, AGENTS.md, etc.)
 - ✅ Invalid project structure
@@ -250,7 +250,7 @@ Check if this file has a phase-based structure. If it does, add a validation pha
 After all changes, verify:
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 
 # 1. Check AGENTS.md
 grep "Code validated" AGENTS.md

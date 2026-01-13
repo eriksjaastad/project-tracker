@@ -119,7 +119,7 @@ function escapeHtml(text) {
 After implementing, run:
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 
 # Start dashboard
 ./pt launch --no-scan &

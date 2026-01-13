@@ -124,7 +124,7 @@ fetch('/api/telemetry')
 ## Verification
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 ./pt launch --no-scan
 
 # Open browser to http://localhost:8000

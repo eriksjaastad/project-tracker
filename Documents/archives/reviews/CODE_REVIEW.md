@@ -34,17 +34,17 @@ Field names from kwargs go straight into SQL. Not exploitable right now, but a l
 
 **`project_scanner.py:11`:**
 ```python
-def discover_projects(base_path: str = "/Users/eriksjaastad/projects") -> List[Dict[str, Any]]:
+def discover_projects(base_path: str = "$PROJECTS_ROOT") -> List[Dict[str, Any]]:
 ```
 
 **`external_resources_parser.py:15`:**
 ```python
-resources_path = Path("/Users/eriksjaastad/projects/project-scaffolding/EXTERNAL_RESOURCES.md")
+resources_path = Path("$PROJECTS_ROOT/project-scaffolding/EXTERNAL_RESOURCES.md")
 ```
 
 **`pt.py:45`:**
 ```python
-path = "/Users/eriksjaastad/projects"
+path = "$PROJECTS_ROOT"
 ```
 
 This code is **useless on any other machine**. It's not even configurable. The moment you share this or move directories, everything breaks.
@@ -298,7 +298,7 @@ The "stalled projects" alert. Knowing which projects haven't been touched in 60+
 When you come back to this in 3 months, you will:
 
 1. Try to run it
-2. Get confused why it's looking for `/Users/eriksjaastad/projects`
+2. Get confused why it's looking for `$PROJECTS_ROOT`
 3. Grep for the path, change it in 3 different files
 4. Run it, see wrong data, have no idea why (silent failures)
 5. Give up and just `ls -lt ~/projects | head -20`
@@ -355,7 +355,7 @@ Then decide if you actually use it for 2 weeks. If you don't, delete the project
 
 **2. Paths Made Configurable:**
 - Created `config.py` with environment variable support:
-  - `PT_PROJECTS_DIR` - Base directory for projects (default: `/Users/eriksjaastad/projects`)
+  - `PT_PROJECTS_DIR` - Base directory for projects (default: `$PROJECTS_ROOT`)
   - `PT_DB_PATH` - Database location (default: `data/tracker.db`)
   - `PT_RESOURCES_FILE` - External resources file location
 - Updated all hardcoded paths in `pt.py`, `project_scanner.py`, `external_resources_parser.py`

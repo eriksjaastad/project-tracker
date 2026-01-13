@@ -26,8 +26,8 @@
 
 ```python
 CRON_LOG_PATHS = {
-    "Trading Arena": Path("/Users/eriksjaastad/projects/Trading Projects/logs/arena.log"),
-    "Cortana Daily": Path("/Users/eriksjaastad/projects/Cortana personal AI/logs/daily.log"),
+    "Trading Arena": Path("$PROJECTS_ROOT/Trading Projects/logs/arena.log"),
+    "Cortana Daily": Path("$PROJECTS_ROOT/Cortana personal AI/logs/daily.log"),
     # Add others as discovered
 }
 ```
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 # Known cron job log files
 CRON_LOG_PATHS = {
-    "Trading Arena": Path("/Users/eriksjaastad/projects/Trading Projects/logs/arena.log"),
+    "Trading Arena": Path("$PROJECTS_ROOT/Trading Projects/logs/arena.log"),
     # Add more as needed
 }
 
@@ -113,7 +113,7 @@ def get_stale_crons(threshold_hours: int = 48) -> list[str]:
 ## Verification
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 python -c "
 from scripts.discovery.cron_health import get_cron_health, get_stale_crons
 health = get_cron_health()

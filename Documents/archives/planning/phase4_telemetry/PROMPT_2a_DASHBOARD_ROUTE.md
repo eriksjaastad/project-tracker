@@ -50,7 +50,7 @@ async def api_telemetry(days: int = 7):
 ## Verification
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 
 # Start dashboard
 ./pt launch --no-scan &

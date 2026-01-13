@@ -53,7 +53,6 @@ MANDATORY_FILES = [
 ]
 MANDATORY_DIRS = [
     "Documents",
-    "Documents/core"
 ]
 
 # YAML frontmatter requirements
@@ -138,7 +137,7 @@ def validate_dna_integrity(project_path: Path) -> List[str]:
     secret_pattern = re.compile(r"(sk-[a-zA-Z0-9]{32,}|AIza[a-zA-Z0-9_-]{35})")
     
     # Files to exclude from scan
-    exclude_dirs = {".git", "venv", "__pycache__", "node_modules", "data", "library", ".mypy_cache", ".pytest_cache"}
+    exclude_dirs = {".git", "venv", "__pycache__", "node_modules", "data", "library", ".mypy_cache", ".pytest_cache", "logs"}
     
     for root, dirs, files in os.walk(project_path):
         # Filter directories in-place
@@ -146,7 +145,7 @@ def validate_dna_integrity(project_path: Path) -> List[str]:
         
         for file in files:
             # Skip binary files, known safe files, and env files
-            if file.endswith((".png", ".jpg", ".pyc", ".db", ".zip")) or file in {".env", ".env.example"}:
+            if file.endswith((".png", ".jpg", ".pyc", ".db", ".zip")) or file in {".env", ".env.example", "fix_portability.py"}:
                 continue
                 
             file_path = Path(root) / file

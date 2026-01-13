@@ -9,6 +9,29 @@
 ## 🏛️ Part 1: The Core Architecture (Checklist-First)
 *Intelligence belongs in the checklist, not the prompt.*
 
+## 📍 Path Standards (Portability)
+
+To ensure this project remains standalone and portable across machines, follow these path standards:
+
+### 1. Variables Over Absolute Paths
+- **NEVER** use `/Users/eriksjaastad/projects` or any absolute path starting with `/Users/`.
+- **ALWAYS** use `$PROJECTS_ROOT` for referencing the workspace.
+- **ALWAYS** use `$HOME` for user-level paths outside projects.
+
+### 2. Relative Paths in Documentation
+- In Markdown files, prefer relative paths (e.g., `./scripts/pt.py`) when referencing files within the same project.
+- Use Obsidian Wikilinks `[[00_Index_project-tracker]]` for internal documentation links.
+
+### 3. Python Code
+- Use `Path(__file__).parent` to establish base directories.
+- Load environment variables using `os.getenv("PROJECTS_ROOT")`.
+
+### 4. Enforcement
+- The `scripts/validate_project.py` script automatically scans for "DNA Defects" (absolute paths).
+- A pre-commit hook is provided in `scripts/git-pre-commit.sh` to block non-compliant commits.
+
+---
+
 ### 1. The Fundamental Pivot
 Prompts are subjective and mood-dependent; checklists are versioned, auditable specifications of what "reviewed" means.
 *   **Evidence-First Rule:** Every check requires an evidence field (e.g., a `grep` output). Empty evidence = Incomplete Review.

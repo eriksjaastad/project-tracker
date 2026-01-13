@@ -72,7 +72,7 @@ async def get_backup():
 After implementing, run:
 
 ```bash
-cd /Users/eriksjaastad/projects/project-tracker
+cd $PROJECTS_ROOT/project-tracker
 
 # Start dashboard in background
 ./pt launch --no-scan &

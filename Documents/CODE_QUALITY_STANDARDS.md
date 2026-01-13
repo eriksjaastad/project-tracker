@@ -92,7 +92,7 @@ When crafting prompts or reference code snippets for models, **absolute paths mu
 **Prohibited Practice:**
 ```python
 # ❌ NEVER do this in a prompt
-TELEMETRY_PATH = "/Users/eriksjaastad/projects/..."
+TELEMETRY_PATH = "$PROJECTS_ROOT/..."
 ```
 
 **Recommended Practice:**
