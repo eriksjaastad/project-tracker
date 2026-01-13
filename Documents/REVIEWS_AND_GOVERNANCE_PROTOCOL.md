@@ -14,7 +14,7 @@
 To ensure this project remains standalone and portable across machines, follow these path standards:
 
 ### 1. Variables Over Absolute Paths
-- **NEVER** use `/Users/eriksjaastad/projects` or any absolute path starting with `/Users/`.
+- **NEVER** use `[USER_HOME]/projects` or any absolute path starting with `[USER_HOME]`.
 - **ALWAYS** use `$PROJECTS_ROOT` for referencing the workspace.
 - **ALWAYS** use `$HOME` for user-level paths outside projects.
 
@@ -111,7 +111,7 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 
 | ID | Category | Check Item | Evidence Requirement |
 |----|----------|------------|----------------------|
-| **M1** | **Robot** | No hardcoded `/Users/` or `/home/` paths | Paste `grep` output (all files) |
+| **M1** | **Robot** | No hardcoded `[USER_HOME]` or `/home/` paths | Paste `grep` output (all files) |
 | **M2** | **Robot** | No silent `except: pass` patterns | Paste `grep` output (Python files) |
 | **M3** | **Robot** | No API keys (`sk-...`) in code/templates | Paste `grep` output |
 | **P1** | **DNA** | Templates contain no machine-specific data | List files checked in `templates/` |

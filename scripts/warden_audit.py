@@ -70,6 +70,7 @@ def check_dangerous_functions(project_root: pathlib.Path) -> list:
     dangerous_patterns = [
         'os.remove', 'os.unlink', 'shutil.rmtree',  # Dangerous functions
         '/Us' + 'ers/', '/ho' + 'me/',  # macOS/Linux absolute paths
+        'Path.home() / "projects"', 'Path.home() / '\''projects'\''', # Non-portable path patterns
         'C:\\' + '\\', 'C:/'       # Windows absolute paths
     ]
     found_issues = []
@@ -91,7 +92,7 @@ def check_dangerous_functions(project_root: pathlib.Path) -> list:
                 content = f.read()
                 for pattern in dangerous_patterns:
                     if pattern in content:
-                        is_hardcoded_path = pattern in ['/Us' + 'ers/', '/ho' + 'me/', 'C:\\' + '\\', 'C:/']
+                        is_hardcoded_path = any(p in pattern for p in ['/Us' + 'ers/', '/ho' + 'me/', 'C:\\' + '\\', 'C:/', 'Path.home()'])
                         if is_hardcoded_path:
                             severity = Severity.P1
                         elif pattern in ['os.remove', 'os.unlink', 'shutil.rmtree']:
@@ -121,6 +122,7 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
     dangerous_patterns = [
         'os.remove', 'os.unlink', 'shutil.rmtree',
         '/Us' + 'ers/', '/ho' + 'me/',
+        'Path.home() / "projects"', 'Path.home() / '\''projects'\''',
         'C:\\' + '\\', 'C:/'
     ]
     found_issues = []
@@ -144,7 +146,7 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
                             continue
                         
                         is_test_file = 'test' in path_obj.parts or path_obj.name.startswith('test_')
-                        is_hardcoded_path = pattern in ['/Us' + 'ers/', '/ho' + 'me/', 'C:\\' + '\\', 'C:/']
+                        is_hardcoded_path = any(p in pattern for p in ['/Us' + 'ers/', '/ho' + 'me/', 'C:\\' + '\\', 'C:/', 'Path.home()'])
                         
                         if is_hardcoded_path:
                             severity = Severity.P1
