@@ -70,7 +70,7 @@ def check_dangerous_functions(project_root: pathlib.Path) -> list:
     dangerous_patterns = [
         'os.remove', 'os.unlink', 'shutil.rmtree',  # Dangerous functions
         '/Us' + 'ers/', '/ho' + 'me/',  # macOS/Linux absolute paths
-        'Path.home() / "projects"', 'Path.home() / '\''projects'\''', # Non-portable path patterns
+        'Path.home() / "projects"',  # Non-portable projects path (should use PROJECTS_ROOT)
         'C:\\' + '\\', 'C:/'       # Windows absolute paths
     ]
     found_issues = []
@@ -81,7 +81,8 @@ def check_dangerous_functions(project_root: pathlib.Path) -> list:
         if any(part in file_path.parts for part in ['venv', 'node_modules', '.git', '__pycache__']):
             continue
             
-        if file_path.name == 'warden_audit.py': # Exclude self
+        # Exclude self and fix_portability.py (contains search patterns intentionally)
+        if file_path.name in ('warden_audit.py', 'fix_portability.py'):
             continue
 
         # Determine if test file
@@ -122,7 +123,7 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
     dangerous_patterns = [
         'os.remove', 'os.unlink', 'shutil.rmtree',
         '/Us' + 'ers/', '/ho' + 'me/',
-        'Path.home() / "projects"', 'Path.home() / '\''projects'\''',
+        'Path.home() / "projects"',  # Non-portable projects path
         'C:\\' + '\\', 'C:/'
     ]
     found_issues = []
@@ -142,7 +143,8 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
                 for file_path in result.stdout.strip().split('\n'):
                     if file_path:  # Skip empty lines
                         path_obj = pathlib.Path(file_path)
-                        if path_obj.name == 'warden_audit.py':
+                        # Exclude self and fix_portability.py (contains search patterns intentionally)
+                        if path_obj.name in ('warden_audit.py', 'fix_portability.py'):
                             continue
                         
                         is_test_file = 'test' in path_obj.parts or path_obj.name.startswith('test_')

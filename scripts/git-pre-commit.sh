@@ -1,19 +1,26 @@
 #!/bin/bash
 # Pre-commit hook to prevent hardcoded absolute paths
 
-# Check if PROJECTS_ROOT is set
+# Get the project root
+# When run as a hook, $0 is .git/hooks/pre-commit, so we go up 2 levels
+# When run directly, $0 is scripts/git-pre-commit.sh, so we go up 1 level
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ "$SCRIPT_DIR" == *".git/hooks"* ]]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+else
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
+
+# Check if PROJECTS_ROOT is set, otherwise set it to parent of project
 if [ -z "$PROJECTS_ROOT" ]; then
-    # Heuristic: find the projects root by going up from current directory
-    # until we find a directory containing 'project-scaffolding' or similar
-    # For now, we'll try to guess or use the current parent
-    export PROJECTS_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+    # For standalone projects, PROJECTS_ROOT is the parent directory
+    export PROJECTS_ROOT="$(dirname "$PROJECT_ROOT")"
 fi
 
 echo "🛡️ Running DNA Integrity Scan..."
 
-# Run the validation script on the current project
-# Redirect output to see it in the terminal
-python3 "./scripts/validate_project.py" project-tracker
+# Run warden audit instead of validate_project.py for standalone operation
+python3 "$PROJECT_ROOT/scripts/warden_audit.py" --root "$PROJECT_ROOT" --fast
 
 RESULT=$?
 
