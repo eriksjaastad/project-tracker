@@ -1,9 +1,14 @@
 """Agent Registry for the Agent Dispatcher UI."""
+import os
 import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Any
+
+
+# Configuration
+PROJECTS_ROOT = os.getenv("PROJECTS_ROOT", str(Path.home() / "projects"))
 
 
 @dataclass
@@ -34,7 +39,7 @@ def _init_agents():
     global AGENTS
 
     # audit-agent
-    audit_path = str(Path.home() / "projects" / "audit-agent" / "audit")
+    audit_path = str(Path(PROJECTS_ROOT) / "audit-agent" / "audit")
     AGENTS["audit-agent"] = Agent(
         name="audit-agent",
         description="Project health and frontmatter validation",
@@ -159,7 +164,7 @@ def run_agent_command(
             capture_output=True,
             text=True,
             timeout=60,
-            cwd=str(Path.home() / "projects")
+            cwd=PROJECTS_ROOT
         )
         duration_ms = int((time.time() - start_time) * 1000)
 

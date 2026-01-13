@@ -321,11 +321,18 @@ async def create_index(project_id: str):
             return JSONResponse({"status": "error", "message": "Reindex script not found"}, status_code=500)
             
         # Run script
-        result = subprocess.run(
-            [sys.executable, str(REINDEX_SCRIPT_PATH), project["path"]],
-            capture_output=True,
-            text=True
-        )
+        try:
+            result = subprocess.run(
+                [sys.executable, str(REINDEX_SCRIPT_PATH), project["path"]],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+        except subprocess.TimeoutExpired:
+            return JSONResponse({
+                "status": "error", 
+                "message": "Reindex script timed out after 30 seconds"
+            }, status_code=504)
         
         if result.returncode != 0:
             return JSONResponse({
@@ -334,11 +341,16 @@ async def create_index(project_id: str):
             }, status_code=500)
             
         # Rescan to update DB
-        rescan_result = subprocess.run(
-            [sys.executable, str(Path(__file__).parent.parent / "scripts" / "pt.py"), "scan"],
-            capture_output=True,
-            text=True
-        )
+        try:
+            rescan_result = subprocess.run(
+                [sys.executable, str(Path(__file__).parent.parent / "scripts" / "pt.py"), "scan"],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning("Project rescan timed out after index creation, but index may have been created.")
+            # We don't return error here because the index was already created
         
         return JSONResponse({
             "status": "success",

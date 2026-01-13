@@ -17,16 +17,14 @@ created: 2025-12-22
 
 ---
 
-### 🚨 Governance & Portability (Code Review v1) [complete]
-- [x] **Flat Root Transition:** Move contents of `Documents/core/` to `Documents/` root and delete the core directory.
-- [x] **Ship Blockers (Portability):**
-    - [x] Replace absolute path in `AGENTS.md:9` with `$PROJECTS_ROOT` or relative reference.
-    - [x] Clean absolute paths from `.cursorrules` (lines 52, 129, 130, 134, 157, 158).
-    - [x] Address `Documents/core/` requirement (removed from `validate_project.py`).
-    - [x] **DNA Defect Removal:** Systematic cleanup of absolute paths across 48+ markdown files.
-- [x] **Recommended Enhancements:**
-    - [x] Implement pre-commit hook to prevent new hardcoded paths.
-    - [x] Document standard for `$PROJECTS_ROOT` vs relative paths.
+### 🚨 Governance & Portability (Code Review v2) [complete]
+- [x] **Ship Blockers:**
+    - [x] Fix hardcoded paths in `agent_registry.py`.
+    - [x] Install pre-commit hook (`scripts/git-pre-commit.sh` linked to `.git/hooks/pre-commit`).
+- [x] **Recommended Fixes:**
+    - [x] Add timeouts to `subprocess.run` calls in `dashboard/app.py`.
+    - [x] Update `warden_audit.py` to detect `Path.home()` patterns.
+    - [x] Expand test coverage (added `tests/test_discovery.py` and `tests/MISSING_TESTS.md`).
 
 ## 📍 Current State
 
