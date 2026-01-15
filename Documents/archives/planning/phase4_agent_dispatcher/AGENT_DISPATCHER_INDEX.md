@@ -134,3 +134,10 @@ DO NOT manually implement failed Worker tasks.
 ---
 
 **Hand to Floor Manager to begin execution.**
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

@@ -88,3 +88,9 @@ grep -A2 "No Silent Failures" .cursorrules
 ---
 
 **Hand back to Floor Manager when complete.**
+
+
+## Related Documentation
+
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

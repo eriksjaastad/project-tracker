@@ -72,3 +72,9 @@ cd $PROJECTS_ROOT/project-tracker
 python -c "from scripts.discovery.telemetry_reader import get_telemetry_stats; print(get_telemetry_stats())"
 # Expected: {}
 ```
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

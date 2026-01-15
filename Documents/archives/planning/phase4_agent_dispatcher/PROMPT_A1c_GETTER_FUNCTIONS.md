@@ -92,3 +92,9 @@ print('OK - All getters work')
 - [x] PASS / [ ] FAIL
 
 **After PASS, A1 is complete. Proceed to A2.**
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

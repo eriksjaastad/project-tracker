@@ -54,7 +54,7 @@ def scan():
     # Discover projects
     with Progress() as progress:
         task = progress.add_task("[cyan]Discovering projects...", total=None)
-        projects = discover_projects(PROJECTS_BASE_DIR)
+        projects = discover_projects(PROJECTS_BASE_DIR, sync_indexes=True)
         progress.update(task, completed=True)
     
     console.print(f"\n[green]Found {len(projects)} projects[/green]\n")
@@ -146,7 +146,13 @@ def scan():
     services_by_project = parse_external_resources()
     
     services_added = 0
+    services_skipped = 0
+    known_project_ids = {p["id"] for p in db.get_all_projects()}
     for project_id, services in services_by_project.items():
+        if project_id not in known_project_ids:
+            services_skipped += 1
+            console.print(f"  [yellow]! Skipping services for unknown project: {project_id}[/yellow]")
+            continue
         for service in services:
             db.add_service(
                 project_id=project_id,
@@ -158,6 +164,8 @@ def scan():
     
     if services_added > 0:
         console.print(f"  [green]✓ Added {services_added} services across {len(services_by_project)} projects[/green]")
+    if services_skipped > 0:
+        console.print(f"  [yellow]! Skipped services for {services_skipped} unknown projects[/yellow]")
     
     if hygiene_fixes > 0:
         console.print(f"\n[bold yellow]✨ Hygiene: Applied {hygiene_fixes} auto-fixes to TODO.md files[/bold yellow]")

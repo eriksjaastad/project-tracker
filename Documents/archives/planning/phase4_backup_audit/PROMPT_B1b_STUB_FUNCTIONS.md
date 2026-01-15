@@ -79,3 +79,9 @@ print('OK - All stubs work')
 - [ ] FAIL: Describe error
 
 **After PASS, proceed to B2.**
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

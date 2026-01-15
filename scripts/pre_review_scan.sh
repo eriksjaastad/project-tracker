@@ -19,7 +19,7 @@ if [ -z "$PROJECTS_ROOT" ]; then
 fi
 
 echo "1. Running Warden Security Audit (fast mode)..."
-python3 ./scripts/warden_audit.py --root . --fast
+python3 ./scripts/warden_audit.py --root "$(pwd)" --fast
 WARDEN_EXIT=$?
 
 echo ""

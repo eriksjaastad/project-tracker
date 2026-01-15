@@ -64,3 +64,9 @@ curl http://localhost:8000/api/telemetry
 # Kill dashboard
 pkill -f "uvicorn"
 ```
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

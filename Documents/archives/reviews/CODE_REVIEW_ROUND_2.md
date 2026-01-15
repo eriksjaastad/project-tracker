@@ -129,3 +129,10 @@ The project-tracker is well-structured and accomplishes its goals, but has sever
 ---
 
 *Review conducted by analyzing all source files in the repository.*
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+

@@ -108,3 +108,9 @@ print('OK')
 - [x] PASS / [ ] FAIL
 
 **After PASS, proceed to A1c.**
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

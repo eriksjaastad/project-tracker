@@ -951,7 +951,7 @@ def test_dashboard_loads():
 - **Git metadata:** `.git/` in each project
 
 ### Example TODOs to Test Against:
-- `../Cortana personal AI/TODO.md` (660 lines, excellent structure)
+- `../cortana-personal-ai/TODO.md` (660 lines, excellent structure)
 - `../analyze-youtube-videos/TODO.md` (400 lines, stage-based)
 - `../actionable-ai-intel/TODO.md` (350 lines, clear blockers)
 - `./TODO.md` (this project - test meta-tracking!)
@@ -1153,4 +1153,10 @@ If still stuck, document the question in TODO.md and continue with what you can 
 ---
 
 **Ready to build? Start with TODO.md Phase 1! 🚀**
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

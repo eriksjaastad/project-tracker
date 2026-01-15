@@ -43,3 +43,28 @@ created: 2026-01-11
 | Pattern                  | Why it works      |
 |--------------------------|-------------------|
 | Micro-task decomposition | Prevents timeouts |
+
+
+## Related Documentation
+
+- [[prompt_engineering_guide]] - prompt engineering
+- [[queue_processing_guide]] - queue/workflow
+
+- [[security_patterns]] - security
+
+
+- [[prompt_engineering_guide]] - prompt engineering
+- [[queue_processing_guide]] - queue/workflow
+
+- [[project-tracker/README]] - Project Tracker
+
+
+- [[prompt_engineering_guide]] - prompt engineering
+- [[queue_processing_guide]] - queue/workflow
+
+- [[security_patterns]] - security
+
+
+- [[prompt_engineering_guide]] - prompt engineering
+- [[queue_processing_guide]] - queue/workflow
+

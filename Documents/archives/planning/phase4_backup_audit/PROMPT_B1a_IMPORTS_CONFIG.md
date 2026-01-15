@@ -74,3 +74,10 @@ print('OK')
 - [ ] FAIL: Describe error
 
 **After PASS, proceed to B1b.**
+
+
+## Related Documentation
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

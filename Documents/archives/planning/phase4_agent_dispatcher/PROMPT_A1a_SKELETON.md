@@ -94,3 +94,9 @@ print('OK')
 - [ ] FAIL: Describe error
 
 **After PASS, proceed to A1b.**
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

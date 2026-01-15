@@ -291,3 +291,13 @@ grep "code-review-standard.md" .cursorrules
 - [ ] FAIL: Describe which change failed and why
 
 **When complete:** project-tracker will have full code review infrastructure documentation and know how to use the validation/review system from project-scaffolding.
+
+
+## Related Documentation
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

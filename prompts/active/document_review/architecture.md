@@ -128,3 +128,27 @@ Structure your review exactly like this:
 
 Architecture decisions are hard to change later. Get them right now. Be thorough, be specific, be critical.
 
+
+## Related Documentation
+
+- [[architecture_patterns]] - architecture
+
+- [[ai_model_comparison]] - AI models
+- [[performance_optimization]] - performance
+- [[testing_strategy]] - testing/QA
+
+
+- [[architecture_patterns]] - architecture
+
+- [[solutions-architect/README]] - Solutions Architect
+
+
+- [[architecture_patterns]] - architecture
+
+- [[ai_model_comparison]] - AI models
+- [[performance_optimization]] - performance
+- [[testing_strategy]] - testing/QA
+
+
+- [[architecture_patterns]] - architecture
+

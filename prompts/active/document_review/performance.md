@@ -123,3 +123,19 @@ Structure your review exactly like this:
 
 Performance problems found early are easy to fix. Performance problems found in production are expensive nightmares. Be thorough, be specific, be critical.
 
+
+## Related Documentation
+
+- [[api_design_patterns]] - API design
+- [[architecture_patterns]] - architecture
+- [[database_setup]] - database
+
+- [[ai_model_comparison]] - AI models
+- [[case_studies]] - examples
+- [[performance_optimization]] - performance
+
+
+- [[api_design_patterns]] - API design
+- [[architecture_patterns]] - architecture
+- [[database_setup]] - database
+

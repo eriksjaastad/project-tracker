@@ -121,7 +121,7 @@ PROJECT LIFECYCLE
 ### Flow 4: Extracting Patterns
 
 ```
-1. Build something in a project (e.g., run tracking in agent_os)
+1. Build something in a project (e.g., run tracking in agent-os)
    ↓
 2. Works well across 2-3 projects
    ↓
@@ -214,7 +214,8 @@ resources = parse_external_resources_md()
 
 def get_service_dependencies(project_name: str) -> list[str]:
     """Read EXTERNAL_RESOURCES.md from scaffolding."""
-    path = Path("../project-scaffolding/EXTERNAL_RESOURCES.md")
+    projects_root = Path(os.getenv("PROJECTS_ROOT", Path.home() / "projects"))
+    path = projects_root / "project-scaffolding" / "EXTERNAL_RESOURCES.md"
     resources = parse_resources(path.read_text())
     return resources.get(project_name, [])
 ```
@@ -302,7 +303,7 @@ Documents/ Structure:
 
 **With these tools:**
 1. Open project-tracker dashboard
-2. See: "3D Pose Factory - Cloudflare R2 ($0/mo)"
+2. See: "3d-pose-factory - Cloudflare R2 ($0/mo)"
 3. Done.
 
 **Which tool answers it?** Tracker (reading scaffolding's EXTERNAL_RESOURCES.md)
@@ -485,4 +486,92 @@ And it's working.
 **First thoughts on first AI-initiated project**
 
 *Let's see where this goes.* 🚀
+
+
+## Related Documentation
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[automation_patterns]] - automation
+- [[billing_workflows]] - billing/payments
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[discord_integration]] - Discord
+- [[error_handling_patterns]] - error handling
+- [[image_processing_guide]] - image processing
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[adult_business_compliance]] - adult industry
+- [[ai_model_comparison]] - AI models
+- [[cortana_architecture]] - Cortana AI
+- [[portfolio_content]] - portfolio/career
+- [[security_patterns]] - security
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[automation_patterns]] - automation
+- [[billing_workflows]] - billing/payments
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[discord_integration]] - Discord
+- [[error_handling_patterns]] - error handling
+- [[image_processing_guide]] - image processing
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[3d-pose-factory/README]] - 3D Pose Factory
+- [[cortana-personal-ai/README]] - Cortana AI
+- [[image-workflow/README]] - Image Workflow
+- [[project-scaffolding/README]] - Project Scaffolding
+- [[project-tracker/README]] - Project Tracker
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[automation_patterns]] - automation
+- [[billing_workflows]] - billing/payments
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[discord_integration]] - Discord
+- [[error_handling_patterns]] - error handling
+- [[image_processing_guide]] - image processing
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[adult_business_compliance]] - adult industry
+- [[ai_model_comparison]] - AI models
+- [[cortana_architecture]] - Cortana AI
+- [[portfolio_content]] - portfolio/career
+- [[security_patterns]] - security
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[automation_patterns]] - automation
+- [[billing_workflows]] - billing/payments
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[discord_integration]] - Discord
+- [[error_handling_patterns]] - error handling
+- [[image_processing_guide]] - image processing
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

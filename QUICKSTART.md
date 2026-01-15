@@ -7,7 +7,7 @@ status: #status/active
 created: 2025-12-30
 ---
 
-# 🚀 [[project-tracker]] - Quick Start
+# 🚀 project-tracker - Quick Start
 
 **Index:** [[00_Index_project-tracker]]
 
@@ -78,4 +78,16 @@ The dashboard will auto-scan projects and open in the browser.
 ---
 
 **Full documentation:** See `USAGE.md` or `COMPLETION_SUMMARY.md`
+
+
+## Related Documentation
+
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+
+- [[project-tracker/README]] - Project Tracker
+
+
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
 

@@ -116,3 +116,9 @@ print('OK - Config parser working')
 - [ ] FAIL: Describe error
 
 **Hand back to Floor Manager when complete.**
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

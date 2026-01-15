@@ -7,7 +7,7 @@ status: #status/complete
 created: 2025-12-22
 ---
 
-# [[project-tracker]]
+# project-tracker
 
 > *Track active projects, cron jobs, completion status, and prevent the "spinning plates" chaos.*
 
@@ -73,7 +73,7 @@ The dashboard will:
 ## 🛠 Requirements
 
 - **Python 3.11+**
-- **[[audit-agent]] (v1.0.0+)**: This Go CLI is a required dependency for project health scoring, task aggregation, and validation.
+- **[[00_Index_audit-agent]] (v1.0.0+)**: This Go CLI is a required dependency for project health scoring, task aggregation, and validation.
   - Install by building in `../audit-agent/`
   - Ensure the `audit` binary is in your `$PATH` or configured in `config.py`.
 
@@ -109,8 +109,8 @@ Shows which services each project uses and monthly costs.
 Currently tracking **36 projects** including:
 
 - **project-tracker** (Active, 6% complete) - Modified today
-- **Trading Projects** (63% complete) - Modified Dec 24
-- **Cortana personal AI** (Complete, on hold) - Modified Dec 18
+- **trading-copilot** (63% complete) - Modified Dec 24
+- **cortana-personal-ai** (Complete, on hold) - Modified Dec 18
 - **image-workflow** (49% complete) - Modified Dec 6
 - ... and 32 more
 
@@ -194,7 +194,7 @@ PROJECT STATUS DASHBOARD
 │ └─ Last work: 3 days ago                        │
 │ └─ Phase: Phase 3 (Week 11-12) complete         │
 │                                                  │
-│ agent_os               [PAUSED]                 │
+│ agent-os               [PAUSED]                 │
 │ └─ Last work: 1 week ago                        │
 │ └─ Status: Vision vs reality mismatch           │
 └─────────────────────────────────────────────────┘
@@ -238,7 +238,7 @@ Simple database (SQLite) with:
 ### 3. Service Dependencies
 Integration with `EXTERNAL_RESOURCES.md`:
 - Which services does each project use?
-- Quick reference: "Which project uses Cloudflare?" → 3D Pose Factory
+- Quick reference: "Which project uses Cloudflare?" → 3d-pose-factory
 
 ### 4. Status Dashboard
 - Web UI (Flask/FastAPI)
@@ -493,4 +493,130 @@ project-tracker/
 **Meta note:** This project is being created IN REAL TIME as the first project where the AI (not Erik) created the directory and initial docs. That's a milestone. We're building the tools to build the tools to build the things.
 
 **The two-level game continues.**
+
+
+
+<!-- project-scaffolding template appended -->
+
+# [PROJECT_NAME]
+
+[Brief 2-3 sentence description of the project.]
+
+## Quick Start
+
+### Installation
+```bash
+# [Add installation steps here]
+```
+
+### Usage
+```bash
+# [Add usage steps here]
+```
+
+## Documentation
+See the `Documents/` directory for detailed documentation:
+- [Architecture Overview](Documents/ARCHITECTURE_OVERVIEW.md)
+- [Operations Guide](Documents/OPERATIONS_GUIDE.md)
+
+## Status
+- **Current Phase:** [Phase Name]
+- **Status:** #status/active
+
+
+## Related Documentation
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[billing_workflows]] - billing/payments
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_schema]] - database design
+- [[database_setup]] - database
+- [[discord_integration]] - Discord
+- [[error_handling_patterns]] - error handling
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[ai_model_comparison]] - AI models
+- [[case_studies]] - examples
+- [[cortana_architecture]] - Cortana AI
+- [[project_planning]] - planning/roadmap
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[billing_workflows]] - billing/payments
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_schema]] - database design
+- [[database_setup]] - database
+- [[discord_integration]] - Discord
+- [[error_handling_patterns]] - error handling
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[3d-pose-factory/README]] - 3D Pose Factory
+- [[ai-usage-billing-tracker/README]] - AI Billing Tracker
+- [[audit-agent/README]] - Audit Agent
+- [[cortana-personal-ai/README]] - Cortana AI
+- [[image-workflow/README]] - Image Workflow
+- [[project-scaffolding/README]] - Project Scaffolding
+- [[project-tracker/README]] - Project Tracker
+- [[trading-copilot/README]] - Trading Copilot
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[billing_workflows]] - billing/payments
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_schema]] - database design
+- [[database_setup]] - database
+- [[discord_integration]] - Discord
+- [[error_handling_patterns]] - error handling
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[ai_model_comparison]] - AI models
+- [[case_studies]] - examples
+- [[cortana_architecture]] - Cortana AI
+- [[project_planning]] - planning/roadmap
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[billing_workflows]] - billing/payments
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_schema]] - database design
+- [[database_setup]] - database
+- [[discord_integration]] - Discord
+- [[error_handling_patterns]] - error handling
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 
