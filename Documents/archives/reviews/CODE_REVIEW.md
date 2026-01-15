@@ -447,7 +447,7 @@ Despite discussion about removing hardcoded project names, `project_scanner.py:6
 infra_names = [
     "project-tracker",
     "project-scaffolding",
-    "agent_os",
+    "agent-os",
     "agent-skills-library",
     "n8n"
 ]
@@ -548,7 +548,7 @@ grep -rn "print(" scripts/discovery/ --include="*.py"  # Returns nothing ✅
 infra_names = [
     "project-tracker",
     "project-scaffolding",
-    "agent_os",
+    "agent-os",
     "agent-skills-library",
     "n8n"
 ]
@@ -730,7 +730,7 @@ grep -rn "infra_names" scripts/
 - Added markers to relevant projects' TODO.md files:
   - `project-tracker/TODO.md`
   - `project-scaffolding/TODO.md`
-  - `agent_os/TODO.md`
+  - `agent-os/TODO.md`
 
 **Verification (ALL PASS):**
 ```bash
@@ -782,3 +782,11 @@ The code is now:
 ---
 
 *Review complete. No compliment sandwich. You asked for brutal, you got brutal. You fixed everything.*
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

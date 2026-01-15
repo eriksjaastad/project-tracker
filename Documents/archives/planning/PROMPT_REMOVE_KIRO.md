@@ -95,3 +95,9 @@ None of this is needed anymore. Our AI collaboration now uses:
 ---
 
 **Hand back to Floor Manager when complete.**
+
+
+## Related Documentation
+
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

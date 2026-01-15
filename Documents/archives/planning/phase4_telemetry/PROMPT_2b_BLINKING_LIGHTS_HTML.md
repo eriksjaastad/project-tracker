@@ -94,3 +94,9 @@ cd $PROJECTS_ROOT/project-tracker
 # Open browser to http://localhost:8000
 # Expected: See "AI Router (7 days)" card with stats
 ```
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

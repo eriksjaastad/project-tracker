@@ -7,7 +7,7 @@ status: #status/active
 created: 2025-12-30
 ---
 
-# [[project-tracker]] - Usage Guide
+# project-tracker - Usage Guide
 
 > **Quick Start:** `./pt launch` to open the dashboard
 **Index:** [[00_Index_project-tracker]]
@@ -93,7 +93,7 @@ Click **"Details"** to see:
 
 # Examples:
 ./pt add-agent "image-workflow" "Claude Opus 4" "Architecture review"
-./pt add-agent "Trading Projects" "Cursor" "Code refactoring"
+./pt add-agent "trading-copilot" "Cursor" "Code refactoring"
 ```
 
 ### Managing Cron Jobs
@@ -104,7 +104,7 @@ Click **"Details"** to see:
 
 # Examples:
 ./pt add-cron "image-workflow" "10 2 * * *" "python scripts/backup/daily_backup.py" "Daily backup"
-./pt add-cron "Trading Projects" "0 6,12,18 * * *" "python scripts/fetch_signals.py" "Fetch trading signals"
+./pt add-cron "trading-copilot" "0 6,12,18 * * *" "python scripts/fetch_signals.py" "Fetch trading signals"
 ```
 
 ### Managing Services
@@ -114,7 +114,7 @@ Click **"Details"** to see:
 ./pt add-service "project-name" "Service Name" 5.00 "Purpose description"
 
 # Examples:
-./pt add-service "Trading Projects" "Railway" 5.00 "Hosting + Postgres"
+./pt add-service "trading-copilot" "Railway" 5.00 "Hosting + Postgres"
 ./pt add-service "image-workflow" "OpenAI" 15.00 "AI processing"
 ```
 
@@ -280,7 +280,7 @@ Within the same "last modified" timeframe, projects are ordered:
 ```
 1. project-tracker    (modified today, active)
 2. image-workflow     (modified today, development)
-3. Trading Projects   (modified yesterday, active)
+3. trading-copilot   (modified yesterday, active)
 4. Cortana           (modified 2 weeks ago, complete)
 ```
 
@@ -435,4 +435,86 @@ If something isn't working:
 ---
 
 *Built with ❤️ for Erik's "spinning plates" problem*
+
+
+## Related Documentation
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[ai_model_comparison]] - AI models
+- [[case_studies]] - examples
+- [[cortana_architecture]] - Cortana AI
+- [[security_patterns]] - security
+- [[session_documentation]] - session notes
+- [[testing_strategy]] - testing/QA
+
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[cortana-personal-ai/README]] - Cortana AI
+- [[image-workflow/README]] - Image Workflow
+- [[project-scaffolding/README]] - Project Scaffolding
+- [[project-tracker/README]] - Project Tracker
+- [[trading-copilot/README]] - Trading Copilot
+
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[ai_model_comparison]] - AI models
+- [[case_studies]] - examples
+- [[cortana_architecture]] - Cortana AI
+- [[security_patterns]] - security
+- [[session_documentation]] - session notes
+- [[testing_strategy]] - testing/QA
+
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

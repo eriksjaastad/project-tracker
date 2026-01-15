@@ -64,3 +64,9 @@ grep "Rule #7" Documents/CODE_QUALITY_STANDARDS.md
 ---
 
 **Hand back to Floor Manager when complete.**
+
+
+## Related Documentation
+
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

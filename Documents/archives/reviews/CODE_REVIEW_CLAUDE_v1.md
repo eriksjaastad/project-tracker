@@ -34,7 +34,7 @@ Project Validation: ❌ FAILED
   - Line 129: `$PROJECTS_ROOT/`
   - Line 130: `$PROJECTS_ROOT/project-scaffolding/EXTERNAL_RESOURCES.md`
   - Line 134: `project-scaffolding/scripts/validate_project.py`
-  - Line 157: `$PROJECTS_ROOT/Trading Projects/PROJECT_PHILOSOPHY.md`
+  - Line 157: `$PROJECTS_ROOT/trading-copilot/PROJECT_PHILOSOPHY.md`
   - Line 158: `$PROJECTS_ROOT/project-scaffolding/`
 
 ### Data Files (Used by Scripts)
@@ -171,3 +171,11 @@ The **execution layer is solid** - scripts are clean, no silent failures, proper
 
 *This review follows the v1.1 Ecosystem Governance & Review Protocol.*
 *Reviewed using: `Documents/templates/CODE_REVIEW.md.template`*
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

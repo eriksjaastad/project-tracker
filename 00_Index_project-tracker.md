@@ -12,7 +12,7 @@ status: #status/complete
 created: 2025-12-31
 ---
 
-# [[project-tracker]]
+# project-tracker
 
 Project status monitoring and reporting system for tracking lifecycle and health across all projects. This active development system includes 17 Python scripts for project status tracking, 11 markdown documentation files, and HTML/CSS dashboards for visualizing project health, progress, and resource allocation. The tracker provides centralized visibility into which projects are active, stalled, or need attention.
 
@@ -61,171 +61,77 @@ Project status monitoring and reporting system for tracking lifecycle and health
 
 ## Recent Activity
 
-- **2026-01-11**: Backup Audit (rclone) integration
-- **2026-01-11**: Agent Dispatcher UI implementation
-- **2026-01-11**: Telemetry integration (AI Router stats, cost savings)
-- **2026-01-11**: Scaffolding alignment (archive consolidation, .cursorignore, status sync)
-- **2026-01-11**: Skills library integration
+- 2026-01-13: Merge pull request #3 from eriksjaastad/claude/code-review-session-72x3V
+- 2026-01-13: fix: resolve warden_audit.py syntax error and update review to final
+- 2026-01-13: fix: address v2 code review blockers and enhance portability
+- 2026-01-13: Merge pull request #2 from eriksjaastad/claude/code-review-session-72x3V
+- 2026-01-13: docs: add code review v2, archive v1
+- 2026-01-13: chore: harden project portability and governance
+- 2026-01-12: Merge pull request #1 from eriksjaastad/claude/code-review-z5udV
+- 2026-01-12: docs: add code review for project-tracker
+- 2026-01-12: chore: apply project-scaffolding to make project standalone
+- 2026-01-11: docs: final update to 00_Index counts and components
 
-- **2026-01-01 16:21**: schema.py: .
 
-- **2026-01-01 16:21**: manager.py: .
+## Related Documentation
 
-- **2026-01-01 16:21**: project_scanner.py: .
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 
-- **2026-01-01 16:21**: project_scanner.py: .
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
 
-- **2026-01-01 16:21**: schema.py: .
 
-- **2026-01-01 16:21**: manager.py: .
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 
-- **2026-01-01 16:21**: project_scanner.py: .
+- [[ai_model_comparison]] - AI models
+- [[orchestration_patterns]] - orchestration
 
-- **2026-01-01 16:21**: pt.py: .
 
-- **2026-01-01 16:22**: alert_detector.py: .
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 
-- **2026-01-01 16:22**: app.py: .
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
 
-- **2026-01-01 16:22**: pt.py: .
 
-- **2026-01-01 16:23**: app.py: .
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 
-- **2026-01-01 16:23**: app.py: .
+- [[project-scaffolding/README]] - Project Scaffolding
+- [[project-tracker/README]] - Project Tracker
 
-- **2026-01-01 16:24**: manager.py: .
 
-- **2026-01-01 16:24**: schema.py: .
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 
-- **2026-01-01 16:24**: pt.py: .
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
 
-- **2026-01-01 16:24**: alert_detector.py: .
 
-- **2026-01-01 16:24**: app.py: .
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 
-- **2026-01-01 16:24**: project_scanner.py: .
+- [[ai_model_comparison]] - AI models
+- [[orchestration_patterns]] - orchestration
 
-- **2026-01-01 17:52**: git_metadata.py: .
 
-- **2026-01-01 17:52**: git_metadata.py: .
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 
-- **2026-01-01 17:52**: git_metadata.py: .
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
 
-- **2026-01-01 17:53**: git_metadata.py: .
 
-- **2026-01-01 17:53**: git_metadata.py: .
-
-- **2026-01-01 18:03**: alert_detector.py: .
-
-- **2026-01-01 18:04**: alert_detector.py: .
-
-- **2026-01-01 18:24**: config.py: .
-
-- **2026-01-01 18:24**: app.py: .
-
-- **2026-01-01 18:24**: manager.py: .
-
-- **2026-01-01 18:24**: schema.py: .
-
-- **2026-01-01 18:24**: alert_detector.py: .
-
-- **2026-01-01 18:24**: external_resources_parser.py: .
-
-- **2026-01-01 18:24**: git_metadata.py: .
-
-- **2026-01-01 18:24**: project_scanner.py: .
-
-- **2026-01-01 18:24**: pt.py: .
-
-- **2026-01-01 18:25**: config.py: .
-
-- **2026-01-01 18:25**: app.py: .
-
-- **2026-01-01 18:25**: manager.py: .
-
-- **2026-01-01 18:25**: schema.py: .
-
-- **2026-01-01 18:25**: alert_detector.py: .
-
-- **2026-01-01 18:25**: external_resources_parser.py: .
-
-- **2026-01-01 18:25**: git_metadata.py: .
-
-- **2026-01-01 18:25**: project_scanner.py: .
-
-- **2026-01-01 18:25**: pt.py: .
-
-- **2026-01-01 18:33**: config.py: .
-
-- **2026-01-01 18:33**: app.py: .
-
-- **2026-01-01 18:33**: manager.py: .
-
-- **2026-01-01 18:33**: schema.py: .
-
-- **2026-01-01 18:33**: alert_detector.py: .
-
-- **2026-01-01 18:33**: external_resources_parser.py: .
-
-- **2026-01-01 18:33**: git_metadata.py: .
-
-- **2026-01-01 18:33**: project_scanner.py: .
-
-- **2026-01-01 18:33**: pt.py: .
-
-- **2026-01-01 18:33**: config.py: .
-
-- **2026-01-01 18:33**: app.py: .
-
-- **2026-01-01 18:33**: manager.py: .
-
-- **2026-01-01 18:33**: schema.py: .
-
-- **2026-01-01 18:33**: alert_detector.py: .
-
-- **2026-01-01 18:33**: external_resources_parser.py: .
-
-- **2026-01-01 18:33**: git_metadata.py: .
-
-- **2026-01-01 18:33**: project_scanner.py: .
-
-- **2026-01-01 18:33**: pt.py: .
-
-- **2026-01-01 18:34**: pt.py: .
-
-- **2026-01-01 18:34**: manager.py: .
-
-- **2026-01-01 18:34**: schema.py: .
-
-- **2026-01-01 18:35**: app.py: .
-
-- **2026-01-01 18:35**: app.py: .
-
-- **2026-01-01 18:35**: config.py: .
-
-- **2026-01-01 18:35**: schema.py: .
-
-- **2026-01-01 18:35**: app.py: .
-
-- **2026-01-01 18:36**: manager.py: .
-
-- **2026-01-01 18:36**: alert_detector.py: .
-
-- **2026-01-01 18:37**: test_parsers.py: .
-
-- **2026-01-01 18:37**: test_parsers.py: .
-
-- **2026-01-01 18:38**: pt.py: .
-
-- **2026-01-01 18:38**: manager.py: .
-
-- **2026-01-01 18:38**: schema.py: .
-
-- **2026-01-01 18:38**: app.py: .
-
-- **2026-01-01 18:38**: config.py: .
-
-- **2026-01-01 18:38**: alert_detector.py: .
-
-- **2026-01-01 18:38**: test_parsers.py: .
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

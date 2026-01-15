@@ -2,13 +2,13 @@
 
 **Date:** December 31, 2025  
 **Status:** STUCK - Need fresh eyes  
-**Issue:** Services (Backend, AI, Monitoring) not showing on Trading Projects card despite being in database
+**Issue:** Services (Backend, AI, Monitoring) not showing on trading-copilot card despite being in database
 
 ---
 
 ## 🚨 The Problem
 
-**User expects to see on Trading Projects card:**
+**User expects to see on trading-copilot card:**
 - ⚙️ Backend: Railway ($5)
 - 🤖 AI: OpenAI, Anthropic, Google AI, xAI
 - 🔔 Notifications: Discord Webhooks
@@ -182,7 +182,7 @@ for p in enriched_projects:
    - **Try:** Stop completely, run fresh `./pt launch`
 
 5. **Wrong project being checked?**
-   - User sees "Trading Projects" card
+   - User sees "trading-copilot" card
    - Code looks for "trading-projects" ID
    - IDs match in database... but maybe template uses different key?
    - **Try:** Check template loops through projects by what field?
@@ -280,4 +280,9 @@ for p in enriched_projects:
 ---
 
 **Good luck! The answer is probably something simple I kept missing.**
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
 

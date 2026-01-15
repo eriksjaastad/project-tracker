@@ -127,3 +127,9 @@ Read these files to understand the architecture:
 ---
 
 **Hand back to Floor Manager when complete.**
+
+
+## Related Documentation
+
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

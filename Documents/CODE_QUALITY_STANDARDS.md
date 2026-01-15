@@ -140,7 +140,7 @@ Every project MUST include a `.env.example` file. This file must be the "Documen
 If a project is cloned from GitHub without a `.env.example`, the developer has to guess which environment variables are needed. If the project uses absolute paths for things like `SKILLS_LIBRARY_PATH`, the project is "locked" to a specific machine.
 
 ### What to Do
-1. Create a `.env.example` with relative path defaults (e.g., `SKILLS_LIBRARY_PATH=../agent-skills-library`).
+1. Create a `.env.example` with relative path defaults (e.g., `SKILLS_LIBRARY_PATH=$PROJECTS_ROOT/agent-skills-library`).
 2. Include a `check_environment()` function in your `config.py` that verifies the presence of required variables and provides a "Human-Actionable" error message if they are missing.
 
 ---
@@ -179,7 +179,7 @@ These standards align with production AI safety patterns used by Google DeepMind
 - Tool execution safety
 - Observability and tracing
 
-See: [Documents/reports/trustworthy_ai_report.md](reports/trustworthy_ai_report.md)
+See: [trustworthy_ai_report.md](../../project-scaffolding/Documents/reports/trustworthy_ai_report.md)
 
 **Key takeaway:** Our "scar tissue" approach (building protections after learning what breaks) is a lightweight version of industry red teaming and incident response patterns.
 
@@ -188,3 +188,94 @@ See: [Documents/reports/trustworthy_ai_report.md](reports/trustworthy_ai_report.
 **Version:** 1.2.3
 **Established:** January 7, 2026
 **Trigger:** Scaffolding v2 review found pervasive portability and safety violations. Refined Jan 11 to include Prompt Reference Safety.
+
+
+## Related Documentation
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[trustworthy_ai_report]] - AI safety
+
+- [[architecture_patterns]] - architecture
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[trustworthy_ai_report]] - AI safety
+
+- [[case_studies]] - examples
+- [[security_patterns]] - security
+- [[video_analysis_tools]] - video analysis
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[trustworthy_ai_report]] - AI safety
+
+- [[architecture_patterns]] - architecture
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[trustworthy_ai_report]] - AI safety
+
+- [[agent-skills-library/README]] - Agent Skills
+- [[analyze-youtube-videos/README]] - YouTube Analyzer
+- [[project-scaffolding/README]] - Project Scaffolding
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[trustworthy_ai_report]] - AI safety
+
+- [[architecture_patterns]] - architecture
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[trustworthy_ai_report]] - AI safety
+
+- [[case_studies]] - examples
+- [[security_patterns]] - security
+- [[video_analysis_tools]] - video analysis
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[trustworthy_ai_report]] - AI safety
+
+- [[architecture_patterns]] - architecture
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[trustworthy_ai_report]] - AI safety
+

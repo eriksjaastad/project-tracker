@@ -29,3 +29,80 @@ Based on the v2 code review and current architecture, the following test coverag
 ## Priority Recommendations:
 1. **Integration Tests for `pt scan`**: This is the most critical path that populates the database.
 2. **API Tests for `agent_dispatcher`**: Ensure that running agents from the dashboard works and handles timeouts correctly.
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[security_patterns]] - security
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[project-tracker/README]] - Project Tracker
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[security_patterns]] - security
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

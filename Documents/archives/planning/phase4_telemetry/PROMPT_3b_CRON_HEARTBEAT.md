@@ -26,8 +26,8 @@
 
 ```python
 CRON_LOG_PATHS = {
-    "Trading Arena": Path("$PROJECTS_ROOT/Trading Projects/logs/arena.log"),
-    "Cortana Daily": Path("$PROJECTS_ROOT/Cortana personal AI/logs/daily.log"),
+    "Trading Arena": Path("$PROJECTS_ROOT/trading-copilot/logs/arena.log"),
+    "Cortana Daily": Path("$PROJECTS_ROOT/cortana-personal-ai/logs/daily.log"),
     # Add others as discovered
 }
 ```
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 # Known cron job log files
 CRON_LOG_PATHS = {
-    "Trading Arena": Path("$PROJECTS_ROOT/Trading Projects/logs/arena.log"),
+    "Trading Arena": Path("$PROJECTS_ROOT/trading-copilot/logs/arena.log"),
     # Add more as needed
 }
 
@@ -123,3 +123,9 @@ stale = get_stale_crons()
 print(f'Stale crons: {stale}')
 "
 ```
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

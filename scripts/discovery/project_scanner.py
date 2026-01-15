@@ -2,6 +2,9 @@
 
 import sys
 import yaml
+import subprocess
+import tempfile
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
@@ -19,7 +22,10 @@ from logger import get_logger
 logger = get_logger(__name__)
 
 
-def discover_projects(base_path: Optional[Union[str, Path]] = None) -> List[Dict[str, Any]]:
+def discover_projects(
+    base_path: Optional[Union[str, Path]] = None,
+    sync_indexes: bool = False
+) -> List[Dict[str, Any]]:
     """Scan directory for projects."""
     if base_path is None:
         base_path = PROJECTS_BASE_DIR
@@ -57,6 +63,8 @@ def discover_projects(base_path: Optional[Union[str, Path]] = None) -> List[Dict
         if has_git or has_readme or has_todo or has_python or has_js:
             project = extract_project_metadata(item)
             if project:
+                if sync_indexes:
+                    _sync_project_index(project, item)
                 projects.append(project)
     
     return projects
@@ -217,6 +225,124 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
             metadata["description"] = extract_readme_description(readme_path)
     
     return metadata
+
+
+def _get_git_recent_activity(project_path: Path, max_entries: int = 10) -> Optional[Dict[str, Any]]:
+    """Return recent git activity and latest commit timestamp, if available."""
+    try:
+        result = subprocess.run(
+            ["git", "log", f"-{max_entries}", "--pretty=format:%cs|%s"],
+            cwd=project_path,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        logger.debug(f"Git log unavailable for {project_path}: {e}")
+        return None
+
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    entries = []
+    latest_date = None
+    for line in lines:
+        if "|" not in line:
+            continue
+        date_str, message = line.split("|", 1)
+        entries.append(f"- {date_str}: {message.strip()}")
+        if not latest_date:
+            latest_date = date_str
+
+    if not entries:
+        return None
+
+    return {
+        "entries": entries,
+        "latest_date": latest_date
+    }
+
+
+def _replace_recent_activity_section(content: str, new_entries: List[str]) -> Optional[str]:
+    """Replace or append the Recent Activity section. Return updated content if changed."""
+    header_lines = [line for line in content.splitlines() if line.startswith("##")]
+    recent_header = None
+    for line in header_lines:
+        if "recent activity" in line.lower():
+            recent_header = line
+            break
+
+    new_section = "\n".join([recent_header or "## Recent Activity", ""] + new_entries + [""])
+
+    if recent_header:
+        lines = content.splitlines()
+        start_idx = next(i for i, line in enumerate(lines) if line == recent_header)
+        end_idx = None
+        for i in range(start_idx + 1, len(lines)):
+            if lines[i].startswith("## "):
+                end_idx = i
+                break
+        before = lines[:start_idx]
+        after = lines[end_idx:] if end_idx is not None else []
+        updated = "\n".join(before + new_section.splitlines() + after).strip() + "\n"
+    else:
+        updated = content.strip() + "\n\n" + new_section + "\n"
+
+    if updated.strip() == content.strip():
+        return None
+    return updated
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    """Write content to file atomically using temp file + rename."""
+    with tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent)) as tmp:
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+    os.replace(tmp_path, path)
+
+
+def _sync_project_index(project: Dict[str, Any], project_path: Path) -> None:
+    """Update Recent Activity in index file based on git history."""
+    if not project.get("has_index"):
+        return
+
+    index_files = list(project_path.glob("00_Index_*.md"))
+    if not index_files:
+        return
+
+    index_path = index_files[0]
+    activity = _get_git_recent_activity(project_path, max_entries=10)
+    if not activity:
+        return
+
+    try:
+        index_mtime = datetime.fromtimestamp(index_path.stat().st_mtime)
+    except Exception as e:
+        logger.debug(f"Unable to read mtime for {index_path}: {e}")
+        index_mtime = None
+
+    try:
+        latest_git_date = datetime.fromisoformat(activity["latest_date"])
+    except Exception:
+        latest_git_date = None
+
+    if index_mtime and latest_git_date and latest_git_date <= index_mtime:
+        return
+
+    try:
+        content = index_path.read_text()
+    except Exception as e:
+        logger.warning(f"Failed to read index file {index_path}: {e}")
+        return
+
+    updated_content = _replace_recent_activity_section(content, activity["entries"])
+    if not updated_content:
+        return
+
+    _atomic_write(index_path, updated_content)
+    logger.info(f"Updated Recent Activity in {index_path.name} ({project_path.name})")
 
 
 def extract_readme_description(readme_path: Path) -> str:

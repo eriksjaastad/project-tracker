@@ -83,3 +83,9 @@ if entries:
 "
 # Expected: Found X entries, First entry model: llama3.2:3b
 ```
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

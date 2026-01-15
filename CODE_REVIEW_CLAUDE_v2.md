@@ -216,3 +216,69 @@ INFO: P2 (Warning): 0
 
 *This review follows the v1.2 Ecosystem Governance & Review Protocol.*
 *Reviewed using: `Documents/templates/CODE_REVIEW.md.template`*
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[ai_model_comparison]] - AI models
+- [[case_studies]] - examples
+- [[orchestration_patterns]] - orchestration
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[project-scaffolding/README]] - Project Scaffolding
+- [[project-tracker/README]] - Project Tracker
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[ai_model_comparison]] - AI models
+- [[case_studies]] - examples
+- [[orchestration_patterns]] - orchestration
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

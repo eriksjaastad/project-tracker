@@ -17,7 +17,7 @@ class TestTODOParser:
     def test_parse_nonexistent_file(self):
         """Test parsing a file that doesn't exist returns safe defaults."""
         result = parse_todo(Path("/nonexistent/TODO.md"))
-        assert result["status"] == "unknown"
+        assert result["status"] == "no TODO.md"
         assert result["completion_pct"] == 0
         assert result["ai_agents"] == []
     

@@ -7,11 +7,11 @@ status: #status/complete
 created: 2025-12-22
 ---
 
-# [[project-tracker]] - TODO
+# project-tracker - TODO
 
-**Last Updated:** January 12, 2026
-**Project Status:** Complete ✅
-**Current Phase:** Phase 4: Mission Control & Observability
+**Last Updated:** January 13, 2026
+**Project Status:** Active (Phase 5 pending)
+**Current Phase:** Phase 5: Index Auto-Sync
 **Type:** Infrastructure
 **Index:** [[00_Index_project-tracker]]
 
@@ -47,7 +47,7 @@ created: 2025-12-22
 - **AI Router Telemetry** - Surface model usage & escalation stats in Dashboard
 
 ### What's Missing ❌
-→ See **Phase 3** tasks below
+- **Index Auto-Sync** - See Phase 5 below (CRITICAL)
 
 ### Key Decisions Made
 1. **Dashboard-first approach** - Build visualization before all features
@@ -64,6 +64,30 @@ created: 2025-12-22
 ---
 
 ## 📋 Current Tasks
+
+### Phase 5: Index Auto-Sync (PENDING)
+
+**Problem:** The `00_Index_*.md` files are the Source of Truth for the dashboard, but they require manual updates. Floor Managers forget to update them when they get busy doing actual work. This causes "Dashboard Drift" where projects appear stale even when active.
+
+**Solution:** Project-tracker should WRITE to index files, not just READ them.
+
+**Requirements:**
+- [ ] **Trigger on launch** - NOT a cron job. Runs when `pt launch` or `pt scan` is called.
+- [ ] **Auto-update "Recent Activity"** - Pull from git log and write to index file.
+- [ ] **Detect drift** - Compare git activity timestamp vs index file mtime.
+- [ ] **Preserve manual content** - Don't clobber description, components, or other human-written sections.
+- [ ] **Atomic writes** - Use temp-file-and-rename pattern for safety.
+
+**Implementation Notes:**
+- Add `sync_index()` function to `project_scanner.py`
+- Call during scan phase, after reading project metadata
+- Only update "Recent Activity" section (regex/marker-based replacement)
+- Log what was updated for visibility
+
+**Why this matters:**
+Currently project-tracker can tell you "this index is stale" but can't fix it. That's like a smoke detector that can't call the fire department. The Floor Manager shouldn't be responsible for remembering routine administrative updates - that's exactly what automation is for.
+
+---
 
 ### Phase 4: Mission Control & Observability (Jan 6, 2026) [complete]
 - [x] **Optimization:** Removed mandatory `--reload` from `pt launch` to prevent redundant scanning.
@@ -201,3 +225,4057 @@ created: 2025-12-22
 ---
 
 *Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_schema]] - database design
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+- [[adult_business_compliance]] - adult industry
+- [[deployment_patterns]] - deployment
+- [[orchestration_patterns]] - orchestration
+- [[performance_optimization]] - performance
+- [[project_planning]] - planning/roadmap
+- [[research_methodology]] - research
+- [[agent-skills-library/README]] - Agent Skills
+- [[audit-agent/README]] - Audit Agent
+- [[project-scaffolding/README]] - Project Scaffolding
+- [[project-tracker/README]] - Project Tracker
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_schema]] - database design
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_schema]] - database design
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+- [[adult_business_compliance]] - adult industry
+- [[deployment_patterns]] - deployment
+- [[orchestration_patterns]] - orchestration
+- [[performance_optimization]] - performance
+- [[project_planning]] - planning/roadmap
+- [[research_methodology]] - research
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_schema]] - database design
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+
+
+**This project:**
+- `README.md` - Full vision and architecture
+- `docs/INTEGRATION_WITH_SCAFFOLDING.md` - How projects relate
+
+**Related projects:**
+- `$PROJECTS_ROOT/audit-agent/` - Go CLI for health, tasks, and validation
+- `$PROJECTS_ROOT/project-scaffolding/` - Templates and patterns
+- `$PROJECTS_ROOT/agent-skills-library/` - AI skills
+- `$PROJECTS_ROOT/EXTERNAL_RESOURCES.md` - Service dependency data source
+
+---
+
+*Project status: Phase 4 Complete. Mission Control & Observability.* ✅
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+

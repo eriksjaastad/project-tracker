@@ -154,3 +154,9 @@ curl http://localhost:8000/api/telemetry
 ---
 
 **Ready to hand off to Workers**
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

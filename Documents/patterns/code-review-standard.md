@@ -57,3 +57,28 @@ find . -name "CODE_REVIEW_ARCHITECTURE_REVIEWER.md"
 * **The "Generic Review" Scar:** Early reviews without a DoD resulted in AI models giving vague advice like "Add more comments" instead of catching architectural flaws.
 * **The "Lost Review" Scar:** Inconsistent naming made it impossible to see which projects had been reviewed and which hadn't. Standardizing on `CODE_REVIEW_` fixed this.
 
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+
+- [[architecture_patterns]] - architecture
+- [[dashboard_architecture]] - dashboard/UI
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+
+- [[case_studies]] - examples
+- [[security_patterns]] - security
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+
+- [[architecture_patterns]] - architecture
+- [[dashboard_architecture]] - dashboard/UI
+- [[queue_processing_guide]] - queue/workflow
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+

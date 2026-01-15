@@ -94,3 +94,9 @@ errors = get_critical_errors(hours=24)
 print(f'Critical errors in last 24h: {len(errors)}')
 "
 ```
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

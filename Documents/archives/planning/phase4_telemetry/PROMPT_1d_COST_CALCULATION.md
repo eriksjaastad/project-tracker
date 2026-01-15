@@ -79,3 +79,9 @@ print(f'Savings: \${stats[\"savings\"]} ({stats[\"savings_pct\"]}%)')
 "
 # Expected: Savings showing local model value
 ```
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

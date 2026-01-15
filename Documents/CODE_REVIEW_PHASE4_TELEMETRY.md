@@ -73,8 +73,8 @@ for line in f:
 | File | Line | Violation |
 |------|------|-----------|
 | `telemetry_reader.py` | 14 | `$PROJECTS_ROOT/_tools/ai_router/logs/telemetry.jsonl` |
-| `cron_health.py` | 13 | `$PROJECTS_ROOT/Trading Projects/logs/arena.log` |
-| `cron_health.py` | 14 | `$PROJECTS_ROOT/Cortana personal AI/logs/daily.log` |
+| `cron_health.py` | 13 | `$PROJECTS_ROOT/trading-copilot/logs/arena.log` |
+| `cron_health.py` | 14 | `$PROJECTS_ROOT/cortana-personal-ai/logs/daily.log` |
 
 **Fix Required:** Use environment variables or config:
 ```python
@@ -92,11 +92,11 @@ TELEMETRY_PATH = PROJECTS_ROOT / "_tools/ai_router/logs/telemetry.jsonl"
 **Fix Required:** Add to `.env.example`:
 ```
 # Telemetry Configuration
-TELEMETRY_PATH=../_tools/ai_router/logs/telemetry.jsonl
+TELEMETRY_PATH=$PROJECTS_ROOT/_tools/ai_router/logs/telemetry.jsonl
 
 # Cron Health Monitoring
-CRON_TRADING_LOG=../Trading Projects/logs/arena.log
-CRON_CORTANA_LOG=../Cortana personal AI/logs/daily.log
+CRON_TRADING_LOG=$PROJECTS_ROOT/trading-copilot/logs/arena_cron.log
+CRON_CORTANA_LOG=$PROJECTS_ROOT/cortana-personal-ai/logs/daily.log
 ```
 
 ### Rule #6: Use Python logging Module
@@ -175,3 +175,86 @@ TELEMETRY_PATH = Path("$HOME/...")
 ---
 
 *Review conducted using project-scaffolding CODE_QUALITY_STANDARDS v1.2.2*
+
+
+## Related Documentation
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[ai_model_comparison]] - AI models
+- [[case_studies]] - examples
+- [[cortana_architecture]] - Cortana AI
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[cortana-personal-ai/README]] - Cortana AI
+- [[project-scaffolding/README]] - Project Scaffolding
+- [[trading-copilot/README]] - Trading Copilot
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[ai_model_comparison]] - AI models
+- [[case_studies]] - examples
+- [[cortana_architecture]] - Cortana AI
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

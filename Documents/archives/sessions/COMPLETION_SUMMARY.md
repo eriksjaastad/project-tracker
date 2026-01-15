@@ -73,7 +73,7 @@ Click "View TODO" on any project → Full markdown rendering with:
 
 ### 7. **Progress Bars** ✨ KEY
 Calculated from TODO.md checkboxes:
-- Trading Projects: 63% complete
+- trading-copilot: 63% complete
 - duplicate-detection: 64% complete
 - project-tracker: 6% complete
 
@@ -150,7 +150,7 @@ Tested on your actual projects directory:
 - Unknown: 23 (no TODO.md or status not specified)
 
 **Completion rates:**
-- Highest: Trading Projects (63%)
+- Highest: trading-copilot (63%)
 - Lowest: Many at 0% (just started)
 
 ---
@@ -480,7 +480,7 @@ cd $PROJECTS_ROOT/project-tracker
 Then explore:
 - Main dashboard
 - Click "View TODO" on project-tracker (this project)
-- Check out Trading Projects (63% complete!)
+- Check out trading-copilot (63% complete!)
 - View Cortana (complete status, on hold)
 
 **Feedback welcome!**
@@ -509,4 +509,10 @@ See how it feels after a week of use. Then we can:
 
 *Built with Claude Sonnet 4.5 for Erik's project management needs*  
 *December 30, 2025*
+
+
+## Related Documentation
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

@@ -36,15 +36,15 @@ Project Tracker is a centralized monitoring and reporting system designed to tra
 ## Key Components
 
 ### CLI (`pt.py`)
-A Typer-based command-line interface that allows users to initialize the database, scan projects, list project details, and launch the web dashboard. It uses the `rich` library for beautiful terminal output.
+A Typer-based command-line interface that allows users to initialize the database, scan projects, list project details, and launch the web dashboard. See [[OPERATIONS]] for command details.
 
 ### Dashboard (`dashboard/`)
 A FastAPI web application that provides a visual overview of all projects. It includes a main dashboard with project cards, detailed project views, and a viewer for rendered `TODO.md` files.
 
 ### Discovery Engine (`scripts/discovery/`)
 The core intelligence of the system. It consists of multiple specialized scanners:
-- `project_scanner.py`: Discovers project directories and basic metadata.
-- `todo_parser.py`: Extracts task status from `TODO.md` files.
+- `project_scanner.py`: Discovers project directories and basic metadata. See [[PROJECT_STRUCTURE_STANDARDS]].
+- `todo_parser.py`: Extracts task status from `TODO.md` files. See [[TODO_FORMAT_STANDARD]].
 - `git_metadata.py`: Collects recent git activity and branch information.
 - `telemetry_reader.py`: (In progress) Reads AI Router telemetry for usage statistics.
 - `hygiene_detector.py`: Checks for project standard compliance (e.g., `00_Index_*.md` files).
@@ -79,4 +79,45 @@ Uses SQLite for persistent storage of project metadata, cron job information, AI
 
 ---
 
-*Part of project-scaffolding documentation standard.*
+*See also: [[SCAFFOLDING_TRANSFER_GUIDE]], [[PROJECT_STRUCTURE_STANDARDS]], and [[DOPPLER_SECRETS_MANAGEMENT]].*
+
+
+## Related Documentation
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+
+- [[adult_business_compliance]] - adult industry
+
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+
+- [[project-tracker/README]] - Project Tracker
+
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+
+- [[adult_business_compliance]] - adult industry
+
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+

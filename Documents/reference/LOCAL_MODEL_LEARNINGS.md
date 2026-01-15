@@ -222,3 +222,65 @@ Local models are a black box. When they fail or succeed, the knowledge evaporate
 ---
 
 *This is a living document. Update it when you learn something new about local models.*
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[cost_management]] - cost management
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[case_studies]] - examples
+- [[orchestration_patterns]] - orchestration
+- [[performance_optimization]] - performance
+
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[cost_management]] - cost management
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[project-scaffolding/README]] - Project Scaffolding
+- [[project-tracker/README]] - Project Tracker
+
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[cost_management]] - cost management
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[case_studies]] - examples
+- [[orchestration_patterns]] - orchestration
+- [[performance_optimization]] - performance
+
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[cost_management]] - cost management
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

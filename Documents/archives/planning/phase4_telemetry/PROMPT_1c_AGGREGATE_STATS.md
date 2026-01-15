@@ -104,3 +104,9 @@ print(f'Models: {stats[\"models\"]}')
 "
 # Expected: Stats with actual counts
 ```
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

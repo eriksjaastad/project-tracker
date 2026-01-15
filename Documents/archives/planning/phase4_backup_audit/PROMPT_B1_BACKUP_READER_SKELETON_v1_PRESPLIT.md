@@ -135,3 +135,10 @@ print('OK - Skeleton created successfully')
 - [ ] FAIL: Describe error
 
 **Hand back to Floor Manager when complete.**
+
+
+## Related Documentation
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

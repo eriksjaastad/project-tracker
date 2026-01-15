@@ -326,7 +326,7 @@ service_types = {
 infra_names = [
     "project-tracker",
     "project-scaffolding",
-    "agent_os",
+    "agent-os",
     "agent-skills-library",
     "n8n"
 ]
@@ -552,4 +552,12 @@ This is a **meta-test** of the project tracker itself! Once you submit the revie
 **Challenge me. Prove I'm wrong. Find the landmines before I step on them.**
 
 *This code review follows the pattern from project-scaffolding/docs/CODE_REVIEW_PROMPT.md*
+
+
+## Related Documentation
+
+- [[CODE_QUALITY_STANDARDS]] - code standards
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

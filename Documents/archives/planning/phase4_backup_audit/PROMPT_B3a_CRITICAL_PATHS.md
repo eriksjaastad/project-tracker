@@ -80,3 +80,9 @@ print('OK')
 - [ ] FAIL: Describe error
 
 **After PASS, proceed to B3b.**
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

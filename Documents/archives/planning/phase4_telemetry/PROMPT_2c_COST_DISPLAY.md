@@ -134,3 +134,9 @@ cd $PROJECTS_ROOT/project-tracker
 # - Shows top 3 models used
 # - Error warning appears if rate >5%
 ```
+
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

@@ -381,3 +381,8 @@ Before proceeding with dashboard implementation:
 
 **Ready for discussion! What do you think? 🎯**
 
+
+## Related Documentation
+
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

@@ -1,7 +1,7 @@
 # Project Tracker - Documents Index
 
 > **Purpose:** Central index for all project documentation, planning, and archives.
-> **Last Updated:** January 11, 2026
+> **Last Updated:** January 15, 2026
 
 ---
 
@@ -10,32 +10,39 @@
 | Document | Purpose |
 |----------|---------|
 | **[SCAFFOLDING_TRANSFER_GUIDE.md](SCAFFOLDING_TRANSFER_GUIDE.md)** | Gold Standard checklist - what's done vs. what's needed |
-| **[planning/phase4_telemetry/PHASE4_PROMPTS_INDEX.md](planning/phase4_telemetry/PHASE4_PROMPTS_INDEX.md)** | Floor Manager handoff for today's work |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | System design and high-level architecture overview |
+| **[OPERATIONS.md](OPERATIONS.md)** | Operational procedures and maintenance guides |
+| **[INTEGRATION_WITH_SCAFFOLDING.md](INTEGRATION_WITH_SCAFFOLDING.md)** | Roadmap for aligning with universal scaffolding standards |
 
 ---
 
-## 📋 Active Planning
-
-### Phase 4: Mission Control & Observability (Jan 11, 2026)
-
-**Location:** `planning/phase4_telemetry/`
-
-| Document | Purpose |
-|----------|---------|
-| **PHASE4_PROMPTS_INDEX.md** | Floor Manager handoff - start here |
-| PROMPT_1a through 1d | Telemetry reader module (Group 1) |
-| PROMPT_2a through 2c | Dashboard integration (Group 2) |
-| PROMPT_3a through 3b | Health monitoring (Group 3 - stretch) |
-
-**Goal:** Add AI Router telemetry "Blinking Lights" to dashboard
+## 🏛️ Governance & Standards
+- [REVIEWS_AND_GOVERNANCE_PROTOCOL.md](REVIEWS_AND_GOVERNANCE_PROTOCOL.md) - Master protocol for project governance.
+- [code-review-standard.md](patterns/code-review-standard.md) - Evidence-first code review standards.
+- [learning-loop-pattern.md](patterns/learning-loop-pattern.md) - Patterns for autonomous learning and improvement.
+- [CODE_QUALITY_STANDARDS.md](CODE_QUALITY_STANDARDS.md) - The four critical rules for code quality.
 
 ---
 
-## 📚 Reference
+## 📊 Reports & Insights
+- [2026-01-11_protocol_deviation_report.md](reports/2026-01-11_protocol_deviation_report.md) - Audit report on protocol adherence.
+- [reference/LOCAL_MODEL_LEARNINGS.md](reference/LOCAL_MODEL_LEARNINGS.md) - Institutional memory for local AI models.
 
-| Document | Purpose |
-|----------|---------|
-| **[reference/LOCAL_MODEL_LEARNINGS.md](reference/LOCAL_MODEL_LEARNINGS.md)** | Institutional memory for local AI models |
+---
+
+## 🗄️ Archives
+
+### Planning Phases
+- **[Phase 4: Mission Control & Observability](archives/planning/phase4_telemetry/PHASE4_PROMPTS_INDEX.md)** - Telemetry and dashboard integration.
+- **[Phase 4: Backup & Audit](archives/planning/phase4_backup_audit/BACKUP_AUDIT_INDEX.md)** - Rclone backup automation and auditing.
+- **[Phase 4: Agent Dispatcher](archives/planning/phase4_agent_dispatcher/AGENT_DISPATCHER_INDEX.md)** - Registry and execution framework for AI agents.
+- **[Phase 4: Verification](archives/planning/phase4_verification/VERIFICATION_PROMPTS_INDEX.md)** - Health monitoring and error detection.
+- **[Scaffolding Alignment](archives/planning/scaffolding_alignment/SCAFFOLDING_PROMPTS_INDEX.md)** - Migration planning for scaffolding standards.
+
+### Session Summaries & Reviews
+- [COMPLETION_SUMMARY.md](archives/sessions/COMPLETION_SUMMARY.md) - Summary of project milestones and completions.
+- [DISCUSSION_SUMMARY_2025-12-30.md](archives/sessions/DISCUSSION_SUMMARY_2025-12-30.md) - Key decisions from the Dec 30 discussion.
+- See [archives/reviews/](archives/reviews/) for historical code review reports.
 
 ---
 
@@ -44,13 +51,16 @@
 ```
 Documents/
 ├── README.md                    ← You are here (main index)
+├── ARCHITECTURE.md              ← System design
+├── OPERATIONS.md                ← Operational guides
 ├── SCAFFOLDING_TRANSFER_GUIDE.md ← Gold Standard checklist
-├── planning/                    ← Active work planning
-│   └── phase4_telemetry/        ← Current sprint prompts
+├── patterns/                    ← Reusable logic patterns
 ├── reference/                   ← Knowledge base
-│   └── LOCAL_MODEL_LEARNINGS.md ← AI model learnings
-├── guides/                      ← How-to documents (future)
-└── archives/                    ← Completed work (future)
+├── reports/                     ← Audit and deviation reports
+└── archives/                    ← Historical planning and sessions
+    ├── planning/                ← Archived prompt sequences
+    ├── reviews/                 ← Historical code reviews
+    └── sessions/                ← Session summaries
 ```
 
 ---
@@ -62,13 +72,80 @@ Documents/
 - **[README.md](../README.md)** — Project overview
 - **[CLAUDE.md](../CLAUDE.md)** — AI collaboration instructions
 - **[AGENTS.md](../AGENTS.md)** — AI agent configuration
-- **[00_Index_project-tracker.md](../00_Index_project-tracker.md)** — Project index
 
 **Universal (from project-scaffolding):**
-- **[AGENTS.md](../../project-scaffolding/AGENTS.md)** — Ecosystem Constitution (hierarchy, workflow, safety)
-- **[patterns/](../../project-scaffolding/patterns/)** — Proven patterns library
-- **[CODE_QUALITY_STANDARDS.md](../../project-scaffolding/Documents/CODE_QUALITY_STANDARDS.md)** — 4 critical rules
+- **[[AGENTS.md]]** — Ecosystem Constitution
+- **[[CODE_QUALITY_STANDARDS]]** — Global quality rules
 
 ---
+*This follows the project-scaffolding Flat Root documentation pattern.*
 
-*This follows the [project-scaffolding](../../project-scaffolding/) Flat Root documentation pattern.*
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[ai_model_comparison]] - AI models
+- [[orchestration_patterns]] - orchestration
+- [[project_planning]] - planning/roadmap
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[project-scaffolding/README]] - Project Scaffolding
+- [[project-tracker/README]] - Project Tracker
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[ai_model_comparison]] - AI models
+- [[orchestration_patterns]] - orchestration
+- [[project_planning]] - planning/roadmap
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[dashboard_architecture]] - dashboard/UI
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

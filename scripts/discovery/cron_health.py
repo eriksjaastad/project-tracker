@@ -16,11 +16,11 @@ PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", str(Path.home() / "projects")))
 CRON_LOG_PATHS = {
     "Trading Arena": Path(os.getenv(
         "CRON_TRADING_LOG",
-        str(PROJECTS_ROOT / "Trading Projects" / "logs" / "arena.log")
+        str(PROJECTS_ROOT / "trading-copilot" / "logs" / "arena.log")
     )),
     "Cortana Daily": Path(os.getenv(
         "CRON_CORTANA_LOG",
-        str(PROJECTS_ROOT / "Cortana personal AI" / "logs" / "daily.log")
+        str(PROJECTS_ROOT / "cortana-personal-ai" / "logs" / "daily.log")
     )),
 }
 

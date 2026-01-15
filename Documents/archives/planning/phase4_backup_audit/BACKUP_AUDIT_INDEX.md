@@ -111,3 +111,10 @@ DO NOT manually implement failed Worker tasks.
 ---
 
 **Hand to Floor Manager to begin execution.**
+
+
+## Related Documentation
+
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+

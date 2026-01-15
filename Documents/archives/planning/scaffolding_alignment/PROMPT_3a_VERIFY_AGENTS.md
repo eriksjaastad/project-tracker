@@ -78,3 +78,9 @@ grep -E "(Tech Stack|Execution|Constraints|Definition of Done)" AGENTS.md
 ---
 
 **Hand back to Floor Manager when complete.**
+
+
+## Related Documentation
+
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+

@@ -153,3 +153,11 @@ pytest tests/ -v
 2. Run the dashboard: `./pt launch`
 3. Verify it starts without errors
 4. Commit with message: `[Project Tracker] Remove dead code and fix remaining review issues`
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+
