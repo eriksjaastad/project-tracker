@@ -5,7 +5,7 @@ import sys
 import webbrowser
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Annotated
 import subprocess
 
 import typer
@@ -23,6 +23,8 @@ from db.manager import DatabaseManager
 from discovery.project_scanner import discover_projects, scan_health_parallel
 from discovery.external_resources_parser import parse_external_resources
 from discovery.hygiene_detector import fix_hygiene_issues, detect_hygiene_issues
+from discovery.graph_builder import GraphBuilder
+from discovery.journal_specialist import JournalSpecialist
 
 app = typer.Typer(
     name="pt",
@@ -42,8 +44,42 @@ def init():
     console.print(f"✅ Database created at: {db_path}")
 
 
+def rebuild_knowledge_graph():
+    """Run the knowledge graph builder."""
+    console.print("[bold blue]Rebuilding knowledge graph & analysis...[/bold blue]")
+    try:
+        root_path = Path(PROJECTS_BASE_DIR)
+        output_path = Path(__file__).parent.parent / "data" / "graph.json"
+        analysis_path = Path(__file__).parent.parent / "data" / "graph_analysis.md"
+        ecosystem_todo = root_path / "TODO.md"
+        
+        builder = GraphBuilder(root_path)
+        builder.scan()
+        builder.save(output_path)
+        
+        # Save analysis
+        analysis_text = builder.generate_analysis()
+        analysis_path.write_text(analysis_text)
+        
+        # Update ecosystem TODO if it exists
+        if ecosystem_todo.exists():
+            builder.update_todo(ecosystem_todo)
+            
+        console.print(f"  ✓ Knowledge graph & analysis updated")
+
+        # Run Journal Specialist
+        console.print("[bold cyan]  → Running Journal Specialist (Enriching links)...[/bold cyan]")
+        specialist = JournalSpecialist()
+        specialist.scan()
+        
+    except Exception as e:
+        console.print(f"  [red]✗ Error rebuilding knowledge graph: {e}[/red]")
+
+
 @app.command()
-def scan():
+def scan(
+    no_graph: bool = typer.Option(False, "--no-graph", help="Skip rebuilding the knowledge graph")
+):
     """Scan projects directory and update database."""
     console.print(f"[bold blue]Scanning projects in {PROJECTS_BASE_DIR}...[/bold blue]")
     
@@ -169,6 +205,11 @@ def scan():
     
     if hygiene_fixes > 0:
         console.print(f"\n[bold yellow]✨ Hygiene: Applied {hygiene_fixes} auto-fixes to TODO.md files[/bold yellow]")
+    
+    # Rebuild knowledge graph
+    if not no_graph:
+        console.print("")
+        rebuild_knowledge_graph()
     
     console.print(f"\n[bold green]✅ Scan complete! {len(projects)} projects updated[/bold green]")
 
