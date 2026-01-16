@@ -515,6 +515,73 @@ async def api_stats():
     }
 
 
+@app.get("/graph", response_class=HTMLResponse)
+async def graph_view(request: Request):
+    """Render the graph visualization page."""
+    return templates.TemplateResponse("graph.html", {"request": request})
+
+
+@app.get("/api/graph")
+async def get_graph_data(
+    project: Optional[str] = None,      # Filter to single project
+    file_types: Optional[str] = None,   # Comma-separated: "py,ts,md"
+    include_orphans: bool = True,       # Show orphaned nodes
+    min_connections: int = 0            # Filter by connection count
+):
+    """Return graph JSON for D3.js visualization."""
+    import json
+    graph_path = Path(__file__).parent.parent / "data" / "graph.json"
+    if not graph_path.exists():
+        return JSONResponse({
+            "error": "Graph not built. Run: python scripts/discovery/graph_builder.py"
+        }, status_code=404)
+
+    try:
+        graph = json.loads(graph_path.read_text())
+    except Exception as e:
+        logger.error(f"Error reading graph.json: {e}")
+        return JSONResponse({"error": f"Error reading graph data: {e}"}, status_code=500)
+
+    # Apply filters
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+
+    # Filter by project
+    if project:
+        nodes = [n for n in nodes if n.get("project") == project]
+        node_ids = {n["id"] for n in nodes}
+        edges = [e for e in edges if e["source"] in node_ids and e["target"] in node_ids]
+
+    # Filter by file types
+    if file_types:
+        allowed_types = [t.strip().lower() for t in file_types.split(',')]
+        nodes = [n for n in nodes if n.get("type") in allowed_types]
+        node_ids = {n["id"] for n in nodes}
+        edges = [e for e in edges if e["source"] in node_ids and e["target"] in node_ids]
+
+    # Filter orphans
+    if not include_orphans:
+        nodes = [n for n in nodes if not n.get("is_orphan")]
+        node_ids = {n["id"] for n in nodes}
+        edges = [e for e in edges if e["source"] in node_ids and e["target"] in node_ids]
+
+    # Filter by min connections
+    if min_connections > 0:
+        nodes = [n for n in nodes if n.get("size", 0) >= min_connections]
+        node_ids = {n["id"] for n in nodes}
+        edges = [e for e in edges if e["source"] in node_ids and e["target"] in node_ids]
+
+    return {
+        "generated_at": graph.get("generated_at"),
+        "stats": {
+            "total_nodes": len(nodes),
+            "total_edges": len(edges),
+            "orphan_count": len([n for n in nodes if n.get("is_orphan")])
+        },
+        "nodes": nodes,
+        "edges": edges
+    }
+
 
 # Pydantic model for run request
 class AgentRunRequest(BaseModel):
