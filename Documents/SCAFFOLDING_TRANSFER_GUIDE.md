@@ -164,52 +164,13 @@ Project-scaffolding has evolved into an ecosystem constitution with **13+ patter
 *This guide will be updated as we progress through the canary test.*
 *See also: [[PROJECT_STRUCTURE_STANDARDS]] and [[CODE_QUALITY_STANDARDS]].*
 
-
 ## Related Documentation
 
 - [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-
 - [[database_setup]] - database
 - [[prompt_engineering_guide]] - prompt engineering
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-
 - [[adult_business_compliance]] - adult industry
 - [[ai_model_comparison]] - AI models
 - [[security_patterns]] - security
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-
-- [[database_setup]] - database
-- [[prompt_engineering_guide]] - prompt engineering
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-
 - [[project-scaffolding/README]] - Project Scaffolding
 - [[project-tracker/README]] - Project Tracker
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-
-- [[database_setup]] - database
-- [[prompt_engineering_guide]] - prompt engineering
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-
-- [[adult_business_compliance]] - adult industry
-- [[ai_model_comparison]] - AI models
-- [[security_patterns]] - security
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-
-- [[database_setup]] - database
-- [[prompt_engineering_guide]] - prompt engineering
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-

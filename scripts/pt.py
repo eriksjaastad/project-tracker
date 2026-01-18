@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
-"""Project Tracker CLI - Track all your projects in one place."""
+"""
+Project Tracker CLI - Track all your projects in one place.
+
+🚀 How to Use:
+--------------
+1. Activate Virtual Environment (Erik, do this first!):
+   source venv/bin/activate
+
+2. Run with Launcher (easiest):
+   ./pt [command]
+
+3. Run with Python directly:
+   python scripts/pt.py [command]
+
+Common Commands:
+- ./pt scan      # Scan for new projects and rebuild graph
+- ./pt launch    # Start the web dashboard
+- ./pt list      # List all projects in terminal
+"""
 
 import sys
 import webbrowser

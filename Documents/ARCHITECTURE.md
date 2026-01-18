@@ -81,7 +81,6 @@ Uses SQLite for persistent storage of project metadata, cron job information, AI
 
 *See also: [[SCAFFOLDING_TRANSFER_GUIDE]], [[PROJECT_STRUCTURE_STANDARDS]], and [[DOPPLER_SECRETS_MANAGEMENT]].*
 
-
 ## Related Documentation
 
 - [[architecture_patterns]] - architecture
@@ -90,34 +89,5 @@ Uses SQLite for persistent storage of project metadata, cron job information, AI
 - [[dashboard_architecture]] - dashboard/UI
 - [[database_setup]] - database
 - [[error_handling_patterns]] - error handling
-
 - [[adult_business_compliance]] - adult industry
-
-
-- [[architecture_patterns]] - architecture
-- [[automation_patterns]] - automation
-- [[cost_management]] - cost management
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[error_handling_patterns]] - error handling
-
 - [[project-tracker/README]] - Project Tracker
-
-
-- [[architecture_patterns]] - architecture
-- [[automation_patterns]] - automation
-- [[cost_management]] - cost management
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[error_handling_patterns]] - error handling
-
-- [[adult_business_compliance]] - adult industry
-
-
-- [[architecture_patterns]] - architecture
-- [[automation_patterns]] - automation
-- [[cost_management]] - cost management
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[error_handling_patterns]] - error handling
-

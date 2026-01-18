@@ -37,28 +37,10 @@ The Floor Manager (AI Assistant) failed to delegate tasks to the local Worker vi
 - Reinforcement of the 'Messenger' protocol.
 - All future 'Brain and Hands' work must be delegated to local Ollama models to ensure compliance with the project's governance model.
 
-
 ## Related Documentation
 
 - [[LOCAL_MODEL_LEARNINGS]] - local AI
 - [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-
 - [[adult_business_compliance]] - adult industry
-
-
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-
 - [[project-scaffolding/README]] - Project Scaffolding
 - [[project-tracker/README]] - Project Tracker
-
-
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-
-- [[adult_business_compliance]] - adult industry
-
-
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-

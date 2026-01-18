@@ -29,7 +29,7 @@ Execute these changes in order:
 ```markdown
 ## 📋 Definition of Done (DoD)
 - [ ] Code is documented with type hints.
-- [ ] Technical changes are logged to `_obsidian/WARDEN_LOG.yaml`.
+- [ ] Technical changes are logged to `project-tracker/data/WARDEN_LOG.yaml` (formerly `_obsidian/WARDEN_LOG.yaml`).
 - [ ] `00_Index_*.md` is updated with recent activity.
 ```
 
@@ -37,7 +37,7 @@ Execute these changes in order:
 ```markdown
 ## 📋 Definition of Done (DoD)
 - [ ] Code is documented with type hints.
-- [ ] Technical changes are logged to `_obsidian/WARDEN_LOG.yaml`.
+- [ ] Technical changes are logged to `project-tracker/data/WARDEN_LOG.yaml` (formerly `_obsidian/WARDEN_LOG.yaml`).
 - [ ] `00_Index_*.md` is updated with recent activity.
 - [ ] Code validated (no hardcoded paths, no secrets exposed).
 - [ ] Code review completed (if significant architectural changes).

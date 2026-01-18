@@ -79,15 +79,8 @@ The dashboard will auto-scan projects and open in the browser.
 
 **Full documentation:** See `USAGE.md` or `COMPLETION_SUMMARY.md`
 
-
 ## Related Documentation
 
 - [[automation_patterns]] - automation
 - [[dashboard_architecture]] - dashboard/UI
-
 - [[project-tracker/README]] - Project Tracker
-
-
-- [[automation_patterns]] - automation
-- [[dashboard_architecture]] - dashboard/UI
-

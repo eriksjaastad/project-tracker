@@ -8,7 +8,7 @@ from typing import Optional, Any
 
 
 # Configuration
-PROJECTS_ROOT = os.getenv("PROJECTS_ROOT", str(Path.home() / "projects"))
+PROJECTS_ROOT = os.getenv("PROJECTS_ROOT", str(Path(__file__).resolve().parents[3]))
 
 
 @dataclass

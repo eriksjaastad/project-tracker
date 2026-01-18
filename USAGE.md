@@ -223,298 +223,56 @@ Supported statuses:
 
 ### 3. Document AI Agents
 
-When an AI starts helping with a project, add it to TODO.md:
+Which AI is helping with what? Add them to TODO.md.
 
-```markdown
-### AI Agents in Use
-- **AI Name:** Role description
-```
+### 4. Track External Services
 
-This helps track which projects have AI assistance and what they're doing.
-
-### 4. Track Cron Jobs in TODO
-
-If your project has scheduled automation, document it:
-
-```markdown
-### Cron Jobs / Automation
-- **Schedule:** Cron expression or human-readable
-- **Command:** What runs
-- **Purpose:** Why it exists
-```
-
-### 5. Refresh Data Regularly
-
-The dashboard doesn't monitor file changes in real-time. After updating TODO.md files:
-
-- Click **🔄 Refresh** in the web dashboard, OR
-- Run `./pt refresh` from command line
-
-The dashboard auto-refreshes every 5 minutes, but manual refresh is instant.
+List services in EXTERNAL_RESOURCES.md to track costs.
 
 ---
 
-## 🔍 Sorting & Organization
+## The Problem This Solves
 
-### Primary Sort: Last Modified (DESC)
+**From Erik (Dec 22, 2025, 3:30 AM):**
+> "I'm switching between Cursor windows on multiple projects. It's like keeping plates spinning. Eventually I'm gonna be in a window and my brain hasn't switched to whatever project I'm in, and I'll talk for 20 minutes in the wrong window and everything will spin out of control."
 
-Projects are sorted by **when you last worked on them** (newest first).
-
-This is determined by:
-1. Last git commit date (if git repo exists)
-2. Most recent file modification time (fallback)
-
-This means the projects you're actively working on appear at the top automatically!
-
-### Secondary Sort: Status
-
-Within the same "last modified" timeframe, projects are ordered:
-1. Active
-2. Development
-3. Paused
-4. Stalled
-5. Complete
-
-### Example Order
-
-```
-1. project-tracker    (modified today, active)
-2. image-workflow     (modified today, development)
-3. trading-copilot   (modified yesterday, active)
-4. Cortana           (modified 2 weeks ago, complete)
-```
+**The spinning plates problem:**
+- 10+ active projects
+- Multiple Cursor windows open simultaneously
+- Cognitive load switching contexts
+- Forgetting which project does what
+- Losing track of what's running where
 
 ---
 
-## 🛠️ Troubleshooting
+## 🛠 Requirements
 
-### Dashboard won't start
-
-```bash
-# Check if port 8000 is already in use
-lsof -i :8000
-
-# Kill existing process if needed
-kill -9 <PID>
-
-# Try launching again
-./pt launch
-```
-
-### Projects not showing up
-
-```bash
-# Re-scan projects directory
-./pt scan
-
-# Check database
-./pt list
-```
-
-### TODO.md not parsing correctly
-
-Make sure your TODO.md has:
-- `**Project Status:**` line with status keyword
-- `**Current Phase:**` line with phase description
-- Proper checkbox format: `- [ ]` or `- [x]`
-
-### Completion % is wrong
-
-The completion % is calculated from:
-- Total checkboxes: `- [ ]` + `- [x]`
-- Completed: `- [x]`
-- Formula: `(completed / total) * 100`
-
-If it seems wrong, check:
-- Are all your tasks marked with `- [ ]` or `- [x]`?
-- Remove any example/template checkboxes that aren't real tasks
+- **Python 3.11+**
+- **[[00_Index_audit-agent]] (v1.0.0+)**: This Go CLI is a required dependency for project health scoring, task aggregation, and validation.
+  - Install by building in `../audit-agent/`
+  - Ensure the `audit` binary is in your `$PATH` or configured in `config.py`.
 
 ---
 
-## 🔐 Security & Privacy
+## ✨ Key Features
 
-### All Local, No Cloud
+### 1. Chronological Sorting (Newest First)
+Your most recently worked-on projects appear at the top automatically.
 
-- **Database:** SQLite file in `data/tracker.db`
-- **Web Server:** FastAPI running on localhost only
-- **No external requests:** All data stays on your machine
-- **No API keys needed:** Zero external services
-- **Cost:** $0
+### 2. AI Agents Tracking
+See which AI is helping with which project and what they're doing.
 
-### Data Stored
+### 3. TODO.md Viewer
+Click any project to view rendered TODO.md with full markdown formatting.
 
-The database contains:
-- Project names and paths
-- Last modified timestamps
-- Status, phase, description
-- AI agents, cron jobs, services (as documented in TODO.md)
-- Work log (scan events)
+### 4. Progress Bars
+Based on checkbox completion in TODO.md files.
 
-All data is read from your local files and stored locally.
+### 5. Cron Jobs Display
+See which projects have scheduled automation (⏰ indicator).
 
----
+### 6. External Services
+Shows which services each project uses and monthly costs.
 
-## 📈 Advanced Usage
-
-### Integration with Scripts
-
-The CLI can be used in scripts:
-
-```bash
-#!/bin/bash
-# Example: Daily project status report
-
-./pt scan > /dev/null 2>&1
-./pt list > /tmp/projects.txt
-mail -s "Daily Project Status" you@example.com < /tmp/projects.txt
-```
-
-### Custom Queries
-
-Access the database directly for custom queries:
-
-```bash
-sqlite3 data/tracker.db "SELECT name, status, completion_pct FROM projects WHERE status='active' ORDER BY last_modified DESC;"
-```
-
-### Export Data
-
-```bash
-# Export all projects as JSON
-curl http://localhost:8000/api/projects > projects.json
-
-# Export stats
-curl http://localhost:8000/api/stats > stats.json
-```
-
----
-
-## 🤝 Meta-Tracking
-
-**The dashboard tracks itself!**
-
-When you run `./pt scan`, it will discover `project-tracker` and include it in the dashboard.
-
-This means:
-- You can see this project's TODO progress
-- It shows AI agents working on the dashboard
-- It demonstrates dogfooding in action
-
-This is intentional and useful for testing/validation!
-
----
-
-## 📞 Support
-
-If something isn't working:
-
-1. Check this guide first
-2. Look at TODO.md in this project (we track our own issues there)
-3. Check the implementation handoff doc: `IMPLEMENTATION_HANDOFF.md`
-4. Review the main README: `README.md`
-
----
-
-## 🎉 Quick Reference
-
-```bash
-# Most common commands
-./pt launch          # Start dashboard (recommended)
-./pt scan            # Scan for projects
-./pt list            # List all projects
-./pt refresh         # Update all data
-./pt status "name"   # Project details
-```
-
-**Dashboard URL:** http://localhost:8000
-
-**Database location:** `data/tracker.db`
-
-**Configuration:** None needed (convention over configuration)
-
----
-
-*Built with ❤️ for Erik's "spinning plates" problem*
-
-
-## Related Documentation
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-
-- [[architecture_patterns]] - architecture
-- [[automation_patterns]] - automation
-- [[cost_management]] - cost management
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[queue_processing_guide]] - queue/workflow
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-
-- [[ai_model_comparison]] - AI models
-- [[case_studies]] - examples
-- [[cortana_architecture]] - Cortana AI
-- [[security_patterns]] - security
-- [[session_documentation]] - session notes
-- [[testing_strategy]] - testing/QA
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-
-- [[architecture_patterns]] - architecture
-- [[automation_patterns]] - automation
-- [[cost_management]] - cost management
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[queue_processing_guide]] - queue/workflow
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-
-- [[cortana-personal-ai/README]] - Cortana AI
-- [[image-workflow/README]] - Image Workflow
-- [[project-scaffolding/README]] - Project Scaffolding
-- [[project-tracker/README]] - Project Tracker
-- [[trading-copilot/README]] - Trading Copilot
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-
-- [[architecture_patterns]] - architecture
-- [[automation_patterns]] - automation
-- [[cost_management]] - cost management
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[queue_processing_guide]] - queue/workflow
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-
-- [[ai_model_comparison]] - AI models
-- [[case_studies]] - examples
-- [[cortana_architecture]] - Cortana AI
-- [[security_patterns]] - security
-- [[session_documentation]] - session notes
-- [[testing_strategy]] - testing/QA
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-
-- [[architecture_patterns]] - architecture
-- [[automation_patterns]] - automation
-- [[cost_management]] - cost management
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[queue_processing_guide]] - queue/workflow
-
-
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-
+### 7. Meta-Tracking
+**The dashboard tracks itself!** It shows up in the projects list with its own status and progress.

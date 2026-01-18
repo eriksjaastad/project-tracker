@@ -10,7 +10,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Projects root (configurable via environment variable)
-PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", str(Path.home() / "projects")))
+PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", Path(__file__).resolve().parents[3]))
 
 # Known cron job log files (configurable via environment variables)
 CRON_LOG_PATHS = {
