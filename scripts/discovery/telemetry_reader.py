@@ -12,7 +12,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # AI Router telemetry location (configurable via environment variable)
-_default_telemetry = Path.home() / "projects" / "_tools" / "ai_router" / "logs" / "telemetry.jsonl"
+_default_telemetry = Path(__file__).resolve().parents[3] / "_tools" / "ai_router" / "logs" / "telemetry.jsonl"
 TELEMETRY_PATH = Path(os.getenv("TELEMETRY_PATH", str(_default_telemetry)))
 
 # Rough cost estimates per request (USD)

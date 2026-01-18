@@ -39,7 +39,7 @@ if not PROJECTS_ROOT_ENV:
 PROJECTS_ROOT = Path(PROJECTS_ROOT_ENV).resolve()
 
 REQUIRED_INDEX_PATTERN = r"00_Index_.+\.md"
-SKIP_DIRS = {"__Knowledge", "_collaboration", "_inbox", "_obsidian", "_tools"}
+SKIP_DIRS = {"__Knowledge", "_collaboration", "_inbox", "_trash", "_tools"}
 
 # Mandatory files and directories
 MANDATORY_FILES = [

@@ -104,55 +104,12 @@ pip freeze > requirements.txt
 
 *See also: [[ARCHITECTURE]], [[SCAFFOLDING_TRANSFER_GUIDE]], and [[DOPPLER_SECRETS_MANAGEMENT]].*
 
-
 ## Related Documentation
 
 - [[PROJECT_KICKOFF_GUIDE]] - project setup
-
 - [[architecture_patterns]] - architecture
 - [[dashboard_architecture]] - dashboard/UI
 - [[database_schema]] - database design
 - [[database_setup]] - database
-
-
-- [[PROJECT_KICKOFF_GUIDE]] - project setup
-
 - [[testing_strategy]] - testing/QA
-
-
-- [[PROJECT_KICKOFF_GUIDE]] - project setup
-
-- [[architecture_patterns]] - architecture
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_schema]] - database design
-- [[database_setup]] - database
-
-
-- [[PROJECT_KICKOFF_GUIDE]] - project setup
-
 - [[project-tracker/README]] - Project Tracker
-
-
-- [[PROJECT_KICKOFF_GUIDE]] - project setup
-
-- [[architecture_patterns]] - architecture
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_schema]] - database design
-- [[database_setup]] - database
-
-
-- [[PROJECT_KICKOFF_GUIDE]] - project setup
-
-- [[testing_strategy]] - testing/QA
-
-
-- [[PROJECT_KICKOFF_GUIDE]] - project setup
-
-- [[architecture_patterns]] - architecture
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_schema]] - database design
-- [[database_setup]] - database
-
-
-- [[PROJECT_KICKOFF_GUIDE]] - project setup
-

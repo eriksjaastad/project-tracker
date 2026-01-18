@@ -123,19 +123,11 @@ Structure your review exactly like this:
 
 Security issues found early save massive problems later. Be thorough, be specific, be critical.
 
-
 ## Related Documentation
 
 - [[architecture_patterns]] - architecture
 - [[database_setup]] - database
 - [[error_handling_patterns]] - error handling
-
 - [[ai_model_comparison]] - AI models
 - [[case_studies]] - examples
 - [[security_patterns]] - security
-
-
-- [[architecture_patterns]] - architecture
-- [[database_setup]] - database
-- [[error_handling_patterns]] - error handling
-

@@ -12,7 +12,7 @@ RCLONE_CONFIG_PATH = Path(os.getenv("RCLONE_CONFIG_PATH", str(_default_config)))
 
 # Critical paths that should be backed up
 CRITICAL_PATHS = [
-    Path.home() / "projects",
+    Path(__file__).resolve().parents[3],
     Path.home() / ".config",
     Path.home() / "Documents",
     Path.home() / ".ssh",
