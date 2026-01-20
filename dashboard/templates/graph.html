@@ -21,7 +21,6 @@
 
     <main class="graph-container">
         <div id="graph-viewport">
-            <svg id="graph-svg"></svg>
             <div id="graph-controls">
                 <div class="control-group">
                     <label for="project-filter">Project:</label>
@@ -42,7 +41,7 @@
                 </div>
                 <div class="control-group">
                     <label>
-                        <input type="checkbox" id="names-toggle"> Show All Names
+                        <input type="checkbox" id="names-toggle"> Show Hub Names
                     </label>
                 </div>
                 <div class="control-group">
@@ -59,8 +58,10 @@
                 </div>
                 <button id="reset-view" class="btn-small">Reset View</button>
             </div>
+
+            <svg id="graph-svg"></svg>
             
-            <div id="node-details" class="details-panel">
+            <div id="node-details" class="details-panel hidden">
                 <button class="close-btn" onclick="closeDetails()">&times;</button>
                 <h3 id="details-name">Select a node</h3>
                 <div class="details-content">

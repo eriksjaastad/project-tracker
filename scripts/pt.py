@@ -42,6 +42,7 @@ from discovery.project_scanner import discover_projects, scan_health_parallel
 from discovery.external_resources_parser import parse_external_resources
 from discovery.hygiene_detector import fix_hygiene_issues, detect_hygiene_issues
 from discovery.graph_builder import GraphBuilder
+from discovery.librarian import update_directory_index
 from discovery.journal_specialist import JournalSpecialist
 
 app = typer.Typer(
@@ -71,6 +72,13 @@ def rebuild_knowledge_graph():
         analysis_path = Path(__file__).parent.parent / "data" / "graph_analysis.md"
         ecosystem_todo = root_path / "TODO.md"
         
+        # 1. Run Librarian to network all projects
+        console.print("[bold cyan]  → Running Librarian (Networking projects)...[/bold cyan]")
+        for item in root_path.iterdir():
+            if item.is_dir() and not item.name.startswith(".") and item.name not in ["node_modules", "venv", ".venv", "_trash", "_inbox", "trash"]:
+                update_directory_index(item, recursive=True)
+        
+        # 2. Run Graph Builder
         builder = GraphBuilder(root_path)
         builder.scan()
         builder.save(output_path)

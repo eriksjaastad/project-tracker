@@ -17,13 +17,12 @@ const COLORS = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    width = window.innerWidth;
-    height = window.innerHeight - 80;
+    const svgElement = document.getElementById('graph-svg');
+    width = svgElement.clientWidth || window.innerWidth - 560; // Approximate if not yet rendered
+    height = svgElement.clientHeight || window.innerHeight - 80;
     console.log("Viewport dimensions:", { width, height });
 
-    svg = d3.select('#graph-svg')
-        .attr('width', width)
-        .attr('height', height);
+    svg = d3.select('#graph-svg');
     
     console.log("SVG initialized:", svg.node());
 
@@ -31,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Setup zoom
     const zoom = d3.zoom()
-        .scaleExtent([0.01, 20]) // 10x more zoom out allowed
+        .scaleExtent([0.01, 20])
         .on('zoom', (event) => {
             container.attr('transform', event.transform);
         });
@@ -41,12 +40,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial load
     loadGraph();
 
+    // Resize listener
+    window.addEventListener('resize', () => {
+        width = svgElement.clientWidth;
+        height = svgElement.clientHeight;
+        if (simulation) {
+            simulation.force('center', d3.forceCenter(width / 2, height / 2));
+            simulation.force('x', d3.forceX(width / 2).strength(0.2));
+            simulation.force('y', d3.forceY(height / 2).strength(0.2));
+            simulation.alpha(0.3).restart();
+        }
+    });
+
     // Event listeners
     document.getElementById('project-filter').addEventListener('change', applyFilters);
     document.getElementById('orphan-toggle').addEventListener('change', applyFilters);
     document.getElementById('names-toggle').addEventListener('change', () => {
-        const showNames = document.getElementById('names-toggle').checked;
-        container.selectAll('.node text').style('display', d => showNames || d.size > 10 ? 'block' : 'none');
+        const showHubNames = document.getElementById('names-toggle').checked;
+        container.selectAll('.node text').style('display', d => (showHubNames && d.size > 20) ? 'block' : 'none');
     });
     document.getElementById('min-connections').addEventListener('input', (e) => {
         document.getElementById('min-connections-val').textContent = e.target.value;
@@ -175,7 +186,11 @@ function updateStats() {
 
 function renderGraph() {
     try {
-        console.log("Starting renderGraph with", filteredNodes.length, "nodes and", filteredEdges.length, "edges");
+        const svgElement = document.getElementById('graph-svg');
+        width = svgElement.clientWidth;
+        height = svgElement.clientHeight;
+        
+        console.log("Starting renderGraph with", filteredNodes.length, "nodes and", filteredEdges.length, "edges. Viewport:", width, "x", height);
         // Clear previous
         container.selectAll('*').remove();
 
@@ -242,7 +257,11 @@ function renderGraph() {
             .attr('dx', d => getRadius(d) + 2)
             .attr('dy', '.35em')
             .text(d => d.name)
-            .style('display', d => document.getElementById('names-toggle').checked || d.size > 10 ? 'block' : 'none');
+            .style('display', d => {
+                const showHubNames = document.getElementById('names-toggle').checked;
+                // Only show if toggle is on and node is a major hub (size > 20)
+                return (showHubNames && d.size > 20) ? 'block' : 'none';
+            });
 
         simulation.on('tick', () => {
             link.attr('d', d => {
@@ -340,18 +359,20 @@ function closeDetails() {
 }
 
 function highlightNode(d, active) {
-    const node = container.selectAll('.node');
-    const link = container.selectAll('.link');
+    const nodeSelection = container.selectAll('.node');
+    const linkSelection = container.selectAll('.link');
 
     if (active) {
-        node.style('opacity', n => (n === d || isConnected(d, n)) ? 1 : 0.1);
-        link.style('opacity', l => (l.source === d || l.target === d || l.source.id === d.id || l.target.id === d.id) ? 1 : 0.05);
-        node.select('text').style('display', 'block'); // Always show name on hover
+        nodeSelection.style('opacity', n => (n === d || isConnected(d, n)) ? 1 : 0.1);
+        linkSelection.style('opacity', l => (l.source === d || l.target === d || l.source.id === d.id || l.target.id === d.id) ? 1 : 0.05);
+        // Only show names for the highlighted cluster
+        nodeSelection.select('text').style('display', n => (n === d || isConnected(d, n)) ? 'block' : 'none');
     } else {
-        const showNames = document.getElementById('names-toggle').checked;
-        node.style('opacity', 1);
-        link.style('opacity', 0.8);
-        node.select('text').style('display', n => showNames || n.size > 10 ? 'block' : 'none');
+        const showHubNames = document.getElementById('names-toggle').checked;
+        nodeSelection.style('opacity', 1);
+        linkSelection.style('opacity', 0.8);
+        // Return to hub-only names if toggle is on, or none if off
+        nodeSelection.select('text').style('display', n => (showHubNames && n.size > 20) ? 'block' : 'none');
     }
 }
 

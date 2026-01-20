@@ -40,16 +40,8 @@ def discover_projects(
         if not item.is_dir():
             continue
         
-        # Skip common non-project directories
-        if item.name in ["node_modules", ".git", "__pycache__", "venv", ".DS_Store"]:
-            continue
-        
-        # Skip hidden directories (starting with .)
-        if item.name.startswith('.'):
-            continue
-        
-        # Skip utility directories (starting with _)
-        if item.name.startswith('_'):
+        # Skip common non-project directories and junk
+        if should_skip_directory(item):
             continue
         
         # Check for indicators of a project
@@ -411,7 +403,13 @@ def should_skip_directory(dir_path: Path) -> bool:
         "build",
         ".DS_Store",
         ".idea",
-        ".vscode"
+        ".vscode",
+        "_trash",
+        "_inbox",
+        "trash",
+        "archives",
+        "logs",
+        "data"
     }
     
     return dir_path.name in skip_names or dir_path.name.startswith('.')

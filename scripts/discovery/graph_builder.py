@@ -32,7 +32,7 @@ SCAN_EXTENSIONS = {
 SKIP_DIRS = {
     'node_modules', 'venv', '.venv', '__pycache__',
     '.git', '.pytest_cache', 'dist', 'build', '.next',
-    '_trash', '__trash__', 'trash', 'archives', '_inbox',
+    '_trash', 'trash', 'archives', '_inbox',
     'logs', 'reports', 'temp', 'tmp', 'cursor_history', 'data',
     'gsd'
 }
@@ -42,7 +42,7 @@ SAFE_ZONES = {
 }
 
 # Regex patterns for relationship detection
-WIKI_LINK_PATTERN = re.compile(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]')
+WIKI_LINK_PATTERN = re.compile(r'\[\[([^\]]+)\]\]')
 MD_LINK_PATTERN = re.compile(r'\[([^\]]+)\]\(([^)]+\.[a-zA-Z0-9]+)\)')
 
 # Python: from x import y OR import x
@@ -185,18 +185,23 @@ class GraphBuilder:
             if edge not in self.edges:
                 self.edges.append(edge)
                 
-                # Update sizes (connection counts)
-                source_idx = self.node_map[source_id]
-                target_idx = self.node_map[target_id]
-                self.nodes[source_idx]["size"] += 1
-                self.nodes[target_idx]["size"] += 1
-                self.nodes[source_idx]["is_orphan"] = False
-                self.nodes[target_idx]["is_orphan"] = False
+            # Update sizes and orphan status (always do this if target exists)
+            source_idx = self.node_map[source_id]
+            target_idx = self.node_map[target_id]
+            self.nodes[source_idx]["size"] += 1
+            self.nodes[target_idx]["size"] += 1
+            self.nodes[source_idx]["is_orphan"] = False
+            self.nodes[target_idx]["is_orphan"] = False
 
     def _extract_markdown_relationships(self, source_id: str, content: str, file_path: Path):
-        # Wiki links [[target]]
+        source_node = self.nodes[self.node_map[source_id]]
+        source_project = source_node["project"]
+        
+        # Wiki links [[target]] or [[target|label]]
         for match in WIKI_LINK_PATTERN.findall(content):
-            target_str = match.strip()
+            # Handle potential pipe for label
+            target_str = match.split('|')[0].strip()
+            
             # Handle potential path in wiki-link
             target_name = Path(target_str).name
             
@@ -210,14 +215,37 @@ class GraphBuilder:
             ]
             
             resolved = False
+            # 1. First pass: Try to find match in the SAME project
             for pt in potential_targets:
+                pt_lower = pt.lower()
                 for node in self.nodes:
-                    # Match by full ID (path) or just filename
-                    if node["id"] == pt or node["id"].endswith("/" + pt) or node["name"] == pt:
-                        self._add_edge(source_id, node["id"], "wiki_link", f"[[{match}]]")
-                        resolved = True
-                        break
+                    if node["project"] == source_project:
+                        # Exact ID, Project-relative ID, or Filename match (case-insensitive)
+                        node_id_lower = node["id"].lower()
+                        if node_id_lower == pt_lower or \
+                           node_id_lower == f"{source_project}/{pt_lower}" or \
+                           node_id_lower.endswith("/" + pt_lower) or \
+                           node_id_lower.endswith(pt_lower) or \
+                           node["name"].lower() == pt_lower:
+                            self._add_edge(source_id, node["id"], "wiki_link", f"[[{match}]]")
+                            resolved = True
+                            break
                 if resolved: break
+            
+            # 2. Second pass: Try global match if local failed
+            if not resolved:
+                for pt in potential_targets:
+                    pt_lower = pt.lower()
+                    for node in self.nodes:
+                        node_id_lower = node["id"].lower()
+                        if node_id_lower == pt_lower or \
+                           node_id_lower.endswith("/" + pt_lower) or \
+                           node_id_lower.endswith(pt_lower) or \
+                           node["name"].lower() == pt_lower:
+                            self._add_edge(source_id, node["id"], "wiki_link", f"[[{match}]]")
+                            resolved = True
+                            break
+                    if resolved: break
 
         # Markdown links [text](path)
         for text, path in MD_LINK_PATTERN.findall(content):
