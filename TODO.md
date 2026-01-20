@@ -132,52 +132,28 @@ The Librarian gets smarter and faster the more it's used. Persistent memories "w
 
 ---
 
-## 🛠️ Knowledge Graph Hardening (Jan 16, 2026) [complete]
-- [x] **Orphan Elimination:** Reduced orphan rate from 5.8% to 0%.
-- [x] **Project Connectivity:** Linked 116+ orphan files into their respective project indices.
-- [x] **Hotspot Resolution:**
-    - [x] **__Knowledge:** Linked masterclass notes and research papers.
-    - [x] **Integrity Warden:** Created README and linked all maintenance scripts.
-    - [x] **Flo-Fi:** Connected TypeScript definitions and financial configs.
-    - [x] **SSH Agent:** Linked host configs and agent logic.
-    - [x] **Writing:** Connected creative drafts and governance protocols.
-    - [x] **Agent Skills Library:** Linked usage logs and lifecycle playbooks.
-- [x] **Special Character Fixes:** Renamed and linked files with `[` and `]` to ensure graph compatibility.
-- [x] **Journal Synchronization:** Updated 2026 journal index with latest entries.
-
-**Final Stats:** 2149 nodes | 7138 edges | 0 orphans
+## 🛠️ Knowledge Graph Hardening (Jan 20, 2026) [complete]
+- [x] **Zero Orphan Ecosystem:** Achieved 0% orphan rate across all projects.
+- [x] **Deliberate Indexing:**
+    - [x] Whitelisted `_tools` and `__Knowledge` for indexing.
+    - [x] Implemented `00_Index_ROOT.md` for ecosystem-wide root files.
+    - [x] Correctly skip `_trash` and `_inbox` at the root level.
+- [x] **Sub-Index Connectivity:**
+    - [x] Allowed Librarian to index nested indices (e.g., `library/00_Index_Library.md`).
+    - [x] Fixed `GraphBuilder` project-relative path resolution for wiki-links.
+- [x] **CLI Automation:** Integrated Librarian crawler directly into `./pt scan`.
+- [x] **Graph Robustness:** Fixed bug where duplicate edges would block orphan status updates.
 
 ---
 
 ## 📋 Current Tasks
 
-### Phase 5: Index Auto-Sync (PENDING)
-
-**Problem:** The `00_Index_*.md` files are the Source of Truth for the dashboard, but they require manual updates. Floor Managers forget to update them when they get busy doing actual work. This causes "Dashboard Drift" where projects appear stale even when active.
-
-**Solution:** Project-tracker should WRITE to index files, not just READ them.
-
-**Requirements:**
-- [ ] **Trigger on launch** - NOT a cron job. Runs when `pt launch` or `pt scan` is called.
+### Phase 5: Index Auto-Sync (IN PROGRESS)
+- [x] **Trigger on scan** - Librarian now runs automatically during `./pt scan`.
 - [ ] **Auto-update "Recent Activity"** - Pull from git log and write to index file.
 - [ ] **Detect drift** - Compare git activity timestamp vs index file mtime.
-- [ ] **Preserve manual content** - Don't clobber description, components, or other human-written sections.
-- [ ] **Atomic writes** - Use temp-file-and-rename pattern for safety.
-
-**Implementation Notes:**
-- Consider using `git log --pretty=format:"%ad %s" --date=short` to get recent activity.
-- Implement a diffing algorithm to identify changes between the current index file and the auto-generated content. This will help preserve manual content.
-- Use a configuration file to specify which sections of the index file should be auto-updated and which should be left untouched.
-- Implement a dry-run mode to preview the changes before writing them to the index file.
-
-**Sub-Tasks:**
-- [ ] Implement git log parsing.
-- [ ] Develop diffing algorithm.
-- [ ] Create configuration file format.
-- [ ] Implement atomic write functionality.
-- [ ] Add dry-run mode.
-- [ ] Write tests for index auto-sync.
-- [ ] Integrate with `pt launch` and `pt scan`.
+- [ ] **Preserve manual content** - Librarian now preserves non-indexed sections.
+- [x] **Atomic writes** - Implemented in project scanner and Librarian.
 
 ### Future Considerations
 

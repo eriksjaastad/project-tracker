@@ -14,7 +14,8 @@ from typing import List, Dict, Optional
 SKIP_DIRS = {
     "node_modules", "venv", ".venv", "__pycache__", ".git", 
     "data", "logs", "archives", "temp", "tmp", "cursor_history",
-    ".pytest_cache", ".ruff_cache", ".mypy_cache", ".next"
+    ".pytest_cache", ".ruff_cache", ".mypy_cache", ".next",
+    "_trash", "_inbox", "trash"
 }
 
 SKIP_EXTENSIONS = {
@@ -76,7 +77,7 @@ def extract_description(file_path: Path) -> str:
     
     return "No description available."
 
-def get_file_inventory(directory: Path, recursive: bool = False) -> List[Dict]:
+def get_file_inventory(directory: Path, recursive: bool = False, skip_file: Optional[Path] = None) -> List[Dict]:
     """Build a detailed inventory of files in a directory."""
     inventory = []
     pattern = "**/*" if recursive else "*"
@@ -89,15 +90,14 @@ def get_file_inventory(directory: Path, recursive: bool = False) -> List[Dict]:
         if item.name.startswith(".") or item.suffix.lower() in SKIP_EXTENSIONS:
             continue
             
-        # Skip index files
-        if item.name.startswith("00_Index_"):
+        # Skip the index file we are currently building
+        if skip_file and item.resolve() == skip_file.resolve():
             continue
             
-        # Check parent skip list (hidden dirs, skip list, or processing dirs)
+        # Check parent skip list (hidden dirs or skip list)
         rel_path = item.relative_to(directory)
         if any(part.startswith(".") for part in rel_path.parts) or \
-           any(part in SKIP_DIRS for part in rel_path.parts) or \
-           any(part.startswith("__") for part in rel_path.parts):
+           any(part in SKIP_DIRS for part in rel_path.parts):
             continue
             
         inventory.append({
@@ -110,8 +110,13 @@ def get_file_inventory(directory: Path, recursive: bool = False) -> List[Dict]:
 
 def update_directory_index(directory: Path, recursive: bool = False):
     """Sync the index file for a directory."""
-    index_file = directory / f"00_Index_{directory.name}.md"
-    inventory = get_file_inventory(directory, recursive)
+    # Special case for root projects directory
+    if directory.name == "projects" or str(directory) == os.getenv("PROJECTS_ROOT"):
+        index_file = directory / "00_Index_ROOT.md"
+    else:
+        index_file = directory / f"00_Index_{directory.name}.md"
+    
+    inventory = get_file_inventory(directory, recursive, skip_file=index_file)
     
     if not inventory:
         return
@@ -130,8 +135,10 @@ def update_directory_index(directory: Path, recursive: bool = False):
     if index_file.exists():
         content = index_file.read_text()
         if START_MARKER in content and END_MARKER in content:
-            pattern = re.compile(f"{re.escape(START_MARKER)}.*?{re.escape(END_MARKER)}", re.DOTALL)
-            new_body = pattern.sub(index_content, content)
+            # Use string replacement instead of re.sub to avoid backreference errors
+            before = content.split(START_MARKER)[0]
+            after = content.split(END_MARKER)[1]
+            new_body = before + index_content + after
         else:
             new_body = content.rstrip() + "\n\n" + index_content
     else:
@@ -164,8 +171,12 @@ def main():
         # Scan every project root
         root = Path(__file__).resolve().parents[3]
         for item in root.iterdir():
-            if item.is_dir() and not item.name.startswith((".", "_")):
+            # Index everything except hidden directories and junk
+            if item.is_dir() and not item.name.startswith(".") and item.name not in SKIP_DIRS:
                 update_directory_index(item, recursive=True)
+        
+        # Also index the root level files (non-recursive)
+        update_directory_index(root, recursive=False)
     else:
         target = Path(args.path).resolve()
         update_directory_index(target, recursive=args.recursive)
