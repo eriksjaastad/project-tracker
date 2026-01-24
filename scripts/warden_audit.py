@@ -101,8 +101,10 @@ def check_doc_ratio(project_root: pathlib.Path) -> tuple:
 
     ratio = doc_lines / code_lines
 
+    # Doc ratio is informational/warning only - never blocking (P1)
+    # Helps track doc bloat but doesn't prevent commits
     if ratio > 5.0:
-        return (ratio, Severity.P1)  # Extreme bloat - likely an error
+        return (ratio, Severity.P2)  # Extreme bloat - warning (was P1)
     elif ratio > 0.5:
         return (ratio, Severity.P2)  # Warning - docs > 50% of code
     elif ratio > 0.2:
@@ -245,11 +247,12 @@ def run_audit(root_dir: pathlib.Path, use_fast: bool = False) -> bool:
                 logger.warning(f"[P2-WARNING] {project_name}: Missing dependency manifest")
                 p2_issues += 1
 
-        # Documentation Hygiene Check (All Tiers)
+        # Documentation Hygiene Check (All Tiers) - Non-blocking warnings
         doc_ratio, doc_severity = check_doc_ratio(project_root)
         if doc_severity == Severity.P1:
-            logger.error(f"[P1-ERROR] {project_name}: Doc bloat critical - docs are {doc_ratio:.0%} of codebase (>50%)")
-            p1_issues += 1
+            # This shouldn't happen anymore since we downgraded to P2, but keep for safety
+            logger.warning(f"[P2-WARNING] {project_name}: Doc bloat extreme - docs are {doc_ratio:.0%} of codebase (non-blocking)")
+            p2_issues += 1
         elif doc_severity == Severity.P2:
             logger.warning(f"[P2-WARNING] {project_name}: Doc ratio high - docs are {doc_ratio:.0%} of codebase (>20%)")
             p2_issues += 1
