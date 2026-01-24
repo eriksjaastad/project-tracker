@@ -3,7 +3,8 @@
 # Master script for the ecosystem. Runs DAILY via LaunchAgent.
 # Changed from monthly to daily on Jan 16, 2026 (ham-induced insomnia session)
 
-PROJECT_ROOT="/Users/eriksjaastad/projects"
+# Use environment variable, fall back to resolving from script location
+PROJECT_ROOT="${PROJECTS_ROOT:-.}"
 TRACKER_DIR="$PROJECT_ROOT/project-tracker"
 LIBRARIAN="$TRACKER_DIR/scripts/discovery/librarian.py"
 JOURNAL_SPECIALIST="$TRACKER_DIR/scripts/discovery/journal_specialist.py"
@@ -12,10 +13,11 @@ GRAPH_BUILDER="$TRACKER_DIR/scripts/discovery/graph_builder.py"
 echo "🤖 Starting Daily Ecosystem Maintenance... $(date)"
 
 # Step 1: Index ai-journal entries first (so new entries are tracked)
-JOURNAL_INDEXER="/Users/eriksjaastad/projects/ai-journal/ai_journal_audit_toolkit/build_journal_index.py"
+JOURNAL_DIR="$PROJECT_ROOT/ai-journal"
+JOURNAL_INDEXER="$JOURNAL_DIR/ai_journal_audit_toolkit/build_journal_index.py"
 if [ -f "$JOURNAL_INDEXER" ]; then
     echo "📓 Indexing AI Journal entries..."
-    cd "/Users/eriksjaastad/projects/ai-journal" && source venv/bin/activate && python3 "$JOURNAL_INDEXER" 2>/dev/null || echo "⚠️ Journal indexer skipped (no venv or config)"
+    cd "$JOURNAL_DIR" && source venv/bin/activate && python3 "$JOURNAL_INDEXER" 2>/dev/null || echo "⚠️ Journal indexer skipped (no venv or config)"
     cd "$PROJECT_ROOT"
 fi
 
