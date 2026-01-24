@@ -1,104 +1,136 @@
-# CLAUDE.md - AI Collaboration Instructions
+# CLAUDE.md - project-tracker
 
-## 🛑 IMPORTANT: READ AGENTS.md FIRST
-`AGENTS.md` is the universal source of truth for this project. Always consult it for project-specific rules, tech stack, and execution commands.
+<!-- AUTO-GENERATED from .agentsync/rules/ - Do not edit directly -->
+<!-- Run: uv run $TOOLS_ROOT/agentsync/sync_rules.py project-tracker -->
 
-## 📚 Required Reading
-1. **[[AGENTS.md]]** - Source of Truth for AI Agents (Read this first!)
-2. **[[README.md]]** - Project overview and quick start
-3. **[[TODO.md]]** - Project status and completed tasks
-4. **[[00_Index_project-tracker]]** - Project index and metadata
+# AGENTS.md - Source of Truth for AI Agents
 
-## 📋 Project Summary
-**What this project does:**
-Centralized dashboard and CLI tool for tracking the status, health, and resource usage of all projects in the workspace. It auto-discovers projects and enforces documentation standards.
-
-**Current status:**
-Complete (MVP + Phase 4 enhancements). 
-
-**Key constraints:**
-- 100% Local (no cloud dependencies).
-- $0 Monthly Cost.
-- Mandatory `00_Index_*.md` files.
-
-## 🛠 Coding Standards
-- **Language:** Python 3.11+
-- **Type Hints:** Mandatory for all public functions.
-- **Error Handling:** No silent failures. Always log exceptions with context.
-- **SQL Safety:** Use parameterized queries for all SQLite operations.
-- **Logging:** Use the `logger.py` module for all logging.
-
-## 🚀 Key Commands
-- **Install Hooks:** `ln -sf ../../scripts/git-pre-commit.sh .git/hooks/pre-commit`
-- **Launch Dashboard:** `./pt launch`
-- **Full Project Scan:** `./pt scan`
-- **List Projects:** `./pt list`
-- **Run Tests:** `pytest tests/`
+> **Universal Constitution:** See `project-scaffolding/AGENTS.md` for hierarchy, workflow, and universal safety rules.
+> This file contains project-specific tech stack and constraints related to the AI agents used in the `project-tracker`.
 
 ---
 
-## Code Review and Validation
+## 🎯 Project Overview
+Centralized project status monitoring and reporting system for tracking lifecycle and health across all projects in the `$PROJECTS_ROOT` workspace. The system auto-discovers projects, parses `TODO.md` and `README.md` files, monitors cron job health, and enforces project indexing standards (Critical Rule #0). This project leverages AI agents to automate tasks such as project discovery, data extraction, and report generation.
 
-### When to Request a Code Review
+## 🤖 AI Agents
 
-Request architectural review, security audit, or performance analysis when:
-- Making significant architectural decisions
-- Implementing security-critical code paths
-- Before merging major features
-- When unsure about design approach
+This section details the AI agents currently employed within the `project-tracker` system. Each agent description includes its purpose, responsibilities, tech stack dependencies, and any specific constraints.
 
-### How to Request a Review
+### 1. Project Discovery Agent
 
-**Step 1: Create review request**
-```bash
-# Use the template
-cp "./Documents/templates/CODE_REVIEW.md.template" ./CODE_REVIEW_REQUEST.md
+*   **Purpose:** Automatically identifies and registers new projects within the `$PROJECTS_ROOT` workspace.
+*   **Responsibilities:**
+    *   Scans the filesystem for directories matching project naming conventions.
+    *   Verifies the existence of a mandatory `00_Index_*.md` file.
+    *   Adds new projects to the internal project registry (likely a database or configuration file).
+*   **Tech Stack:**
+    *   Python 3.11+
+    *   `os` module for filesystem interaction
+    *   Potentially uses regular expressions for project name matching.
+*   **Constraints:**
+    *   Must adhere to the "Local Only" constraint (no external cloud services).
+    *   Must respect the "Indexing Compliance" rule.
+    *   Must not access or modify files outside of the designated `$PROJECTS_ROOT` workspace.
+    *   Should log all discovery attempts and outcomes (successes and failures).
+*   **Prompt Template (if applicable):** N/A (primarily uses filesystem operations)
 
-# Edit CODE_REVIEW_REQUEST.md:
-# - Fill out "Definition of Done" section
-# - Describe what you want reviewed
-# - Specify review focus (architecture/security/performance)
-```
+### 2. Data Extraction Agent
 
-**Step 2: Run multi-AI review**
-```bash
-# cd "."
-source venv/bin/activate
-# ...
-```
+*   **Purpose:** Extracts relevant information from `TODO.md` and `README.md` files within each project.
+*   **Responsibilities:**
+    *   Parses `TODO.md` files to identify outstanding tasks and their status.
+    *   Parses `README.md` files to extract project descriptions, dependencies, and other metadata.
+    *   Stores extracted data in a structured format (e.g., JSON, SQLite database).
+*   **Tech Stack:**
+    *   Python 3.11+
+    *   Potentially uses libraries like `BeautifulSoup4` or `Markdown` for parsing.
+    *   Regular expressions for pattern matching.
+*   **Constraints:**
+    *   Must handle malformed or incomplete `TODO.md` and `README.md` files gracefully (no crashes).
+    *   Must not execute any code found within the parsed files (security).
+    *   Should log any parsing errors or inconsistencies.
+*   **Prompt Template (if applicable):**
 
-**Step 3: Review results**
-- Reviews saved to: `./review_outputs/round_1/CODE_REVIEW_*.md`
-- Copy relevant reviews to: `Documents/archives/reviews/`
+    ```
+    You are a data extraction agent. Your task is to extract the following information from the provided text:
 
-### How to Validate Your Work
+    - Project Description: [Extract from README.md]
+    - TODO Items: [Extract all TODO items from TODO.md with status]
 
-Run validation to check for common issues:
+    Text: 
 
-```bash
-# Quick safety check (< 1 second)
-python "./scripts/warden_audit.py" --root . --fast
+    Output (JSON):
+    ```
 
-# Full project validation
-python "./scripts/validate_project.py" project-tracker
-```
+### 3. Report Generation Agent
 
-**What validation catches:**
-- ✅ Hardcoded absolute paths (`[USER_HOME]/...`, `/home/...`)
-- ✅ Exposed secrets (API keys like `sk-...`, `AIza...`)
-- ✅ Missing required files (00_Index_*.md, AGENTS.md, etc.)
-- ✅ Invalid project structure
+*   **Purpose:** Generates reports summarizing the status and health of all tracked projects.
+*   **Responsibilities:**
+    *   Queries the internal project registry and extracted data.
+    *   Formats the data into human-readable reports (e.g., HTML, Markdown).
+    *   Potentially generates visualizations (e.g., charts, graphs).
+*   **Tech Stack:**
+    *   Python 3.11+
+    *   Jinja2 (Templating)
+    *   Potentially uses libraries like `matplotlib` or `plotly` for visualizations.
+*   **Constraints:**
+    *   Must adhere to the "Data Isolation" rule (reports must be stored in the `data/` directory).
+    *   Should provide options for filtering and sorting the report data.
+*   **Prompt Template (if applicable):** N/A (primarily uses data aggregation and formatting)
 
-**Best practice:** Validate before major commits or before requesting code reviews.
+## 🛠 Tech Stack
+- Language: Python 3.11+
+- Frameworks: FastAPI (Web Dashboard), Typer (CLI Tool), Jinja2 (Templating)
+- AI Strategy: AI-initiated project designed for Claude Code and Cursor. Emphasizes "Two-Level Game" (Meta-patterns + Domain patterns).
 
-### Learn More
+## 📋 Definition of Done (DoD)
+- [x] Code is documented with type hints.
+- [x] Technical changes follow "No Silent Failures" rule (logged).
+- [x] `00_Index_project-tracker.md` is updated with all status changes.
+- [x] All SQLite queries use parameterized placeholders (prevent SQLi).
+- [x] Dashboard successfully scans 35+ projects without crashing.
+- [ ] Code validated (no hardcoded paths, no secrets exposed).
+- [ ] Code review completed (if significant architectural changes).
 
-- **Full Protocol:** `./Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md`
-- **Pattern Docs:** `./Documents/patterns/code-review-standard.md`
-- **Review Prompts:** `./prompts/active/document_review/`
+## 🚀 Execution Commands
+- Environment: `source venv/bin/activate`
+- Run Dashboard: `./pt launch`
+- CLI Scan: `./pt scan`
+- CLI List: `./pt list`
+- Test: `pytest tests/test_parsers.py`
 
----
-*This file follows the [[00_Index_project-scaffolding]] collaboration pattern.*
+## ⚠️ Critical Constraints
+- **Local Only:** Must not depend on any external cloud services (besides local filesystem).
+- **Indexing Compliance:** Mandatory `00_Index_*.md` file in every project root.
+- **Data Isolation:** All database files and logs must stay in `data/` and `logs/`.
+- **No Silent Failures:** Bare `except: pass` is strictly forbidden.
+- **No Hardcoded Paths:** Reference code snippets in prompts MUST use relative paths or environment variables. Local models will copy absolute paths literally.
+
+## 📝 Prompt Template (Structural Bridges)
+
+### ⚠️ DOWNSTREAM HARM ESTIMATE
+- **If this fails:** [What breaks? Recovery time?]
+- **Known pitfalls:** [From LEARNINGS.md]
+- **Assumptions:** [What logic might break?]
+
+### 📚 LEARNINGS APPLIED
+- [ ] **Floor Manager Protocol**: I am the Messenger, delegation to Worker required.
+- [ ] **Portable Paths**: No absolute paths in reference snippets or code.
+- [ ] **Rule #1**: Logging for all exceptions.
+
+**Code Review Standards:** See `./Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md` for full review process.
+
+## 📖 Reference Links
+- `Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md` - Path standards and review process
+- [[00_Index_project-tracker]]
+- `CLAUDE.md` - AI Working Instructions
+- `.cursorrules` - Cursor IDE Rules
+- `Documents/reference/LEARNINGS.md` - Learning Loop & Debt Tracker
+- `Documents/reference/MODEL_LEARNINGS.md` - AI Model Behavior
+- [[00_Index_project-scaffolding]] - Meta-project patterns
+
+<!-- Source of truth: .agentsync/rules/ -->
 
 
 <!-- project-scaffolding template appended -->
@@ -124,26 +156,26 @@ python "./scripts/validate_project.py" project-tracker
 ## Project Summary
 
 **What this project does:**
-[Brief 2-3 sentence description of the project's purpose]
+Brief description of the project's purpose
 
 **Current status:**
-[Layer/phase complete, what's working, what's next]
+Active - Foundation
 
 **Key constraints:**
-[Any important limitations - budget, performance, privacy, etc.]
+None
 
 ---
 
 ## Project Structure
 
 ```
-[PROJECT_NAME]/
+project-tracker/
 ├── README.md                  # Project overview
 ├── CLAUDE.md                  # This file
 ├── TODO.md                    # Current work (if exists)
 ├── ROADMAP.md                 # Long-term vision (if exists)
 │
-├── [main_code_directory]/     # Primary codebase
+├── src/     # Primary codebase
 │   ├── core/                  # Core functionality
 │   ├── utils/                 # Utility functions
 │   └── tools/                 # CLI tools/scripts
@@ -165,7 +197,7 @@ python "./scripts/validate_project.py" project-tracker
 
 ### Language & Version
 
-**[Language]:** [Version] (e.g., Python 3.11+)
+**Python:** 3.11+
 
 ### Code Style
 
@@ -193,7 +225,7 @@ value: Optional[str] = None
 - **Error handling:** Explicit exception handling (no bare except)
 - **Logging:** Use logging module, not print statements (except CLI tools)
 - **File paths:** Use `pathlib.Path`, not `os.path`
-- **Markdown links:** Use relative paths, never absolute (`../../other-project/file.md` not `[absolute_path]/.../file.md`)
+- **Markdown links:** Use relative paths, never absolute (`../../other-project/file.md` not `[absolute_path]/file.md`)
 
 ### Code Organization
 
@@ -237,7 +269,7 @@ value: Optional[str] = None
 [List what's freely editable]
 
 **Example:**
-1. **Code files** - All code in `[main_directory]/`
+1. **Code files** - All code in `src/`
 2. **Documentation** - All `Documents/**/*.md`
 3. **Tests** - All test files
 4. **Scripts** - Development/utility scripts
@@ -272,7 +304,9 @@ def save_data_safely(target_path: Path, data: str) -> None:
         # Atomic rename (POSIX guarantee)
         shutil.move(temp_path, target_path)
     except Exception:
-        Path(temp_path).unlink(missing_ok=True)
+        # Use send2trash for cleanup
+        from send2trash import send2trash
+        send2trash(str(temp_path))
         raise
 ```
 
@@ -288,13 +322,13 @@ def save_data_safely(target_path: Path, data: str) -> None:
 
 ```bash
 # Check syntax
-python -m py_compile [main_directory]/**/*.py
+python -m py_compile src/**/*.py
 
 # Type checking (if using mypy)
-mypy [main_directory] --ignore-missing-imports
+mypy src --ignore-missing-imports
 
 # Linting (if using ruff)
-ruff check [main_directory]/
+ruff check src/
 
 # Tests (if you have them)
 pytest tests/
@@ -317,7 +351,7 @@ Request architectural review, security audit, or performance analysis when:
 **Step 1: Create review request**
 ```bash
 # Use the template
-cp "./templates/CODE_REVIEW.md.template" ./CODE_REVIEW_REQUEST.md
+cp "$PROJECT_ROOT/project-scaffolding/templates/CODE_REVIEW.md.template" ./CODE_REVIEW_REQUEST.md
 
 # Edit CODE_REVIEW_REQUEST.md:
 # - Fill out "Definition of Done" section
@@ -327,13 +361,14 @@ cp "./templates/CODE_REVIEW.md.template" ./CODE_REVIEW_REQUEST.md
 
 **Step 2: Run multi-AI review**
 ```bash
-cd "$SCAFFOLDING"
+# Run from project-scaffolding directory (requires API keys configured)
+cd "$PROJECT_ROOT/project-scaffolding"
 source venv/bin/activate
 python scaffold_cli.py review --type document --input /path/to/your/CODE_REVIEW_REQUEST.md --round 1
 ```
 
 **Step 3: Review results**
-- Reviews saved to: `./review_outputs/round_1/CODE_REVIEW_*.md`
+- Reviews saved to: `$PROJECT_ROOT/project-scaffolding/review_outputs/round_1/CODE_REVIEW_*.md`
 - Copy relevant reviews to: `Documents/archives/reviews/`
 
 ### How to Validate Your Work
@@ -342,10 +377,10 @@ Run validation to check for common issues:
 
 ```bash
 # Quick safety check (< 1 second)
-python "./scripts/warden_audit.py" --root . --fast
+python ./scripts/warden_audit.py --root . --fast
 
 # Full project validation
-python "./scripts/validate_project.py" "$(basename $(pwd))"
+python ./scripts/validate_project.py "$(basename $(pwd))"
 ```
 
 **What validation catches:**
@@ -358,9 +393,9 @@ python "./scripts/validate_project.py" "$(basename $(pwd))"
 
 ### Learn More
 
-- **Full Protocol:** `./REVIEWS_AND_GOVERNANCE_PROTOCOL.md`
+- **Full Protocol:** `./Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md`
 - **Pattern Docs:** `./Documents/patterns/code-review-standard.md`
-- **Review Prompts:** `./prompts/active/document_review/`
+- **Review Prompts:** `$PROJECT_ROOT/project-scaffolding/prompts/active/document_review/`
 
 ---
 
@@ -378,7 +413,7 @@ import json
 
 def load_config(config_name: str) -> dict:
     """Load configuration file from config/ directory."""
-    config_path = Path(__file__).parent.parent / "config" / f"{config_name}.json"
+    config_path = Path(__file__).parent.parent / "config" / f"default.json"
     return json.loads(config_path.read_text())
 ```
 
@@ -403,7 +438,7 @@ def retry_on_failure(
             if attempt == max_retries - 1:
                 raise
             wait_time = backoff ** attempt
-            print(f"Attempt {attempt + 1} failed, retrying in {wait_time}s...")
+            print(f"Attempt {attempt + 1} failed, retrying in 2s...")
             time.sleep(wait_time)
 ```
 
@@ -576,28 +611,3 @@ Notes: Additional context if needed
 
 **Remember:** Safety first, clarity second, cleverness last.
 
-
-<!-- project-scaffolding template appended -->
-
-## Related Documentation
-
-- [[CODE_QUALITY_STANDARDS]] - code standards
-- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-- [[architecture_patterns]] - architecture
-- [[cost_management]] - cost management
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[error_handling_patterns]] - error handling
-- [[prompt_engineering_guide]] - prompt engineering
-- [[queue_processing_guide]] - queue/workflow
-- [[ai_model_comparison]] - AI models
-- [[case_studies]] - examples
-- [[performance_optimization]] - performance
-- [[project_planning]] - planning/roadmap
-- [[sales_strategy]] - sales/business
-- [[security_patterns]] - security
-- [[testing_strategy]] - testing/QA
-- [[project-scaffolding/README]] - Project Scaffolding
-- [[project-tracker/README]] - Project Tracker

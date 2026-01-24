@@ -13,18 +13,13 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_ROOT"
 
-# Ensure PROJECTS_ROOT is set for validate_project.py
-if [ -z "$PROJECTS_ROOT" ]; then
-    export PROJECTS_ROOT="$(dirname "$PROJECT_ROOT")"
-fi
-
 echo "1. Running Warden Security Audit (fast mode)..."
-python3 ./scripts/warden_audit.py --root "$(pwd)" --fast
+python ./scripts/warden_audit.py --root . --fast
 WARDEN_EXIT=$?
 
 echo ""
 echo "2. Running Project Validation..."
-python3 ./scripts/validate_project.py project-tracker
+python ./scripts/validate_project.py project-tracker
 VALIDATE_EXIT=$?
 
 echo ""

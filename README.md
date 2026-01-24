@@ -495,7 +495,6 @@ project-tracker/
 **The two-level game continues.**
 
 
-
 <!-- project-scaffolding template appended -->
 
 # [PROJECT_NAME]
@@ -519,41 +518,7 @@ See the `Documents/` directory for detailed documentation:
 - [Architecture Overview](Documents/ARCHITECTURE_OVERVIEW.md)
 - [Operations Guide](Documents/OPERATIONS_GUIDE.md)
 
-## Development Resources
-- [[project-tracker/config.py|config.py]]
-- [[project-tracker/dashboard/__init__.py|__init__.py]]
-- [[project-tracker/scripts/validate_project.py|validate_project.py]]
-- [[project-tracker/scripts/warden_audit.py|warden_audit.py]]
-- [[project-tracker/scripts/discovery/__init__.py|__init__.py]]
-- [[project-tracker/scripts/db/__init__.py|__init__.py]]
-
 ## Status
 - **Current Phase:** [Phase Name]
 - **Status:** #status/active
 
-## Related Documentation
-
-- [[PROJECT_KICKOFF_GUIDE]] - project setup
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-- [[architecture_patterns]] - architecture
-- [[automation_patterns]] - automation
-- [[billing_workflows]] - billing/payments
-- [[cost_management]] - cost management
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_schema]] - database design
-- [[database_setup]] - database
-- [[discord_integration]] - Discord
-- [[error_handling_patterns]] - error handling
-- [[queue_processing_guide]] - queue/workflow
-- [[ai_model_comparison]] - AI models
-- [[case_studies]] - examples
-- [[cortana_architecture]] - Cortana AI
-- [[project_planning]] - planning/roadmap
-- [[3d-pose-factory/README]] - 3D Pose Factory
-- [[ai-usage-billing-tracker/README]] - AI Billing Tracker
-- [[audit-agent/README]] - Audit Agent
-- [[cortana-personal-ai/README]] - Cortana AI
-- [[image-workflow/README]] - Image Workflow
-- [[project-scaffolding/README]] - Project Scaffolding
-- [[project-tracker/README]] - Project Tracker
-- [[trading-copilot/README]] - Trading Copilot

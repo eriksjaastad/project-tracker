@@ -83,8 +83,10 @@ SKIP_DIRS = {
 # never be modified by automated audit processes.
 # ============================================================
 PROTECTED_PROJECTS = {
-    "ai-journal",    # Personal AI conversation journal - creative/personal content
-    "writing",       # Creative writing projects - stories, drafts, etc.
+    "ai-journal",                # Personal AI conversation journal - creative/personal content
+    "writing",                   # Creative writing projects - stories, drafts, etc.
+    "plugin-duplicate-detection", # Protected extension - do not touch
+    "plugin-find-names-chrome",   # Protected extension - do not touch
 }
 
 def is_protected(path: str) -> bool:

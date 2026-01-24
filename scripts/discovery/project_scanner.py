@@ -409,7 +409,9 @@ def should_skip_directory(dir_path: Path) -> bool:
         "trash",
         "archives",
         "logs",
-        "data"
+        "data",
+        "plugin-duplicate-detection",
+        "plugin-find-names-chrome"
     }
     
     return dir_path.name in skip_names or dir_path.name.startswith('.')

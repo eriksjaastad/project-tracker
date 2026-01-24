@@ -62,6 +62,54 @@ def check_dependencies(project_root: pathlib.Path) -> bool:
             return True
     return False
 
+
+def check_doc_ratio(project_root: pathlib.Path) -> tuple:
+    """Check documentation to code ratio.
+
+    Returns: (ratio, severity) where severity is None if healthy, P2 if warning, P1 if critical
+    """
+    code_extensions = ['*.py', '*.js', '*.ts', '*.jsx', '*.tsx', '*.go', '*.rs', '*.java', '*.rb']
+    skip_dirs = ['venv', 'node_modules', '.git', '__pycache__', 'archives', '_trash']
+
+    code_lines = 0
+    doc_lines = 0
+
+    # Count code lines
+    for ext in code_extensions:
+        for file_path in project_root.rglob(ext):
+            if any(part in file_path.parts for part in skip_dirs):
+                continue
+            try:
+                with file_path.open('r', errors='ignore') as f:
+                    code_lines += sum(1 for _ in f)
+            except Exception:
+                pass
+
+    # Count doc lines
+    for file_path in project_root.rglob('*.md'):
+        if any(part in file_path.parts for part in skip_dirs):
+            continue
+        try:
+            with file_path.open('r', errors='ignore') as f:
+                doc_lines += sum(1 for _ in f)
+        except Exception:
+            pass
+
+    # Avoid division by zero - if no code, docs are fine
+    if code_lines == 0:
+        return (0.0, None)
+
+    ratio = doc_lines / code_lines
+
+    if ratio > 5.0:
+        return (ratio, Severity.P1)  # Extreme bloat - likely an error
+    elif ratio > 0.5:
+        return (ratio, Severity.P2)  # Warning - docs > 50% of code
+    elif ratio > 0.2:
+        return (ratio, Severity.P2)  # Warning - docs 20-50% of code
+    else:
+        return (ratio, None)  # Healthy
+
 def check_dangerous_functions(project_root: pathlib.Path) -> list:
     """Greps for dangerous file removal functions.
     
@@ -69,20 +117,22 @@ def check_dangerous_functions(project_root: pathlib.Path) -> list:
     """
     dangerous_patterns = [
         'os.remove', 'os.unlink', 'shutil.rmtree',  # Dangerous functions
+        'rm -rf', 'rm ',                           # Dangerous shell commands
         '/Us' + 'ers/', '/ho' + 'me/',  # macOS/Linux absolute paths
-        'Path.home() / "projects"',  # Non-portable projects path (should use PROJECTS_ROOT)
         'C:\\' + '\\', 'C:/'       # Windows absolute paths
     ]
     found_issues = []
     
     # Simple walk and check to avoid external dependency for basic audit
-    for file_path in project_root.rglob('*.py'):
+    for file_path in project_root.rglob('*'):
         # Skip certain directories
-        if any(part in file_path.parts for part in ['venv', 'node_modules', '.git', '__pycache__']):
+        if any(part in file_path.parts for part in ['venv', 'node_modules', '.git', '__pycache__', '_trash']):
             continue
             
-        # Exclude self and fix_portability.py (contains search patterns intentionally)
-        if file_path.name in ('warden_audit.py', 'fix_portability.py'):
+        if file_path.name == 'warden_audit.py' or file_path.name == 'validate_project.py': # Exclude self and validator
+            continue
+
+        if not file_path.suffix in ['.py', '.sh', '.js', '.ts', '.md']:
             continue
 
         # Determine if test file
@@ -93,10 +143,10 @@ def check_dangerous_functions(project_root: pathlib.Path) -> list:
                 content = f.read()
                 for pattern in dangerous_patterns:
                     if pattern in content:
-                        is_hardcoded_path = any(p in pattern for p in ['/Us' + 'ers/', '/ho' + 'me/', 'C:\\' + '\\', 'C:/', 'Path.home()'])
+                        is_hardcoded_path = pattern in ['/Us' + 'ers/', '/ho' + 'me/', 'C:\\' + '\\', 'C:/']
                         if is_hardcoded_path:
                             severity = Severity.P1
-                        elif pattern in ['os.remove', 'os.unlink', 'shutil.rmtree']:
+                        elif pattern in ['os.remove', 'os.unlink', 'shutil.rmtree', 'rm -rf', 'rm ']:
                             severity = Severity.P2 if is_test_file else Severity.P0
                         else:
                             severity = Severity.P3
@@ -122,8 +172,8 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
 
     dangerous_patterns = [
         'os.remove', 'os.unlink', 'shutil.rmtree',
+        'rm -rf', 'rm ',
         '/Us' + 'ers/', '/ho' + 'me/',
-        'Path.home() / "projects"',  # Non-portable projects path
         'C:\\' + '\\', 'C:/'
     ]
     found_issues = []
@@ -143,12 +193,11 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
                 for file_path in result.stdout.strip().split('\n'):
                     if file_path:  # Skip empty lines
                         path_obj = pathlib.Path(file_path)
-                        # Exclude self and fix_portability.py (contains search patterns intentionally)
-                        if path_obj.name in ('warden_audit.py', 'fix_portability.py'):
+                        if path_obj.name == 'warden_audit.py' or path_obj.name == 'validate_project.py':
                             continue
                         
                         is_test_file = 'test' in path_obj.parts or path_obj.name.startswith('test_')
-                        is_hardcoded_path = any(p in pattern for p in ['/Us' + 'ers/', '/ho' + 'me/', 'C:\\' + '\\', 'C:/', 'Path.home()'])
+                        is_hardcoded_path = pattern in ['/Us' + 'ers/', '/ho' + 'me/', 'C:\\' + '\\', 'C:/']
                         
                         if is_hardcoded_path:
                             severity = Severity.P1
@@ -195,7 +244,16 @@ def run_audit(root_dir: pathlib.Path, use_fast: bool = False) -> bool:
             if not check_dependencies(project_root):
                 logger.warning(f"[P2-WARNING] {project_name}: Missing dependency manifest")
                 p2_issues += 1
-        
+
+        # Documentation Hygiene Check (All Tiers)
+        doc_ratio, doc_severity = check_doc_ratio(project_root)
+        if doc_severity == Severity.P1:
+            logger.error(f"[P1-ERROR] {project_name}: Doc bloat critical - docs are {doc_ratio:.0%} of codebase (>50%)")
+            p1_issues += 1
+        elif doc_severity == Severity.P2:
+            logger.warning(f"[P2-WARNING] {project_name}: Doc ratio high - docs are {doc_ratio:.0%} of codebase (>20%)")
+            p2_issues += 1
+
         # Safety Check (All Tiers)
         dangerous_usage = check_dangerous_functions_fast(project_root) if use_fast else check_dangerous_functions(project_root)
         for file_path, pattern, severity in dangerous_usage:

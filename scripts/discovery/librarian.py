@@ -114,7 +114,16 @@ def update_directory_index(directory: Path, recursive: bool = False):
     if directory.name == "projects" or str(directory) == os.getenv("PROJECTS_ROOT"):
         index_file = directory / "00_Index_ROOT.md"
     else:
-        index_file = directory / f"00_Index_{directory.name}.md"
+        # Use case-insensitive search for existing index file to avoid duplicates
+        index_file = None
+        potential_name = f"00_Index_{directory.name}.md".lower()
+        for item in directory.iterdir():
+            if item.name.lower() == potential_name:
+                index_file = item
+                break
+        
+        if not index_file:
+            index_file = directory / f"00_Index_{directory.name}.md"
     
     inventory = get_file_inventory(directory, recursive, skip_file=index_file)
     
