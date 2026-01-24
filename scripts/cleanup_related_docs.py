@@ -57,8 +57,9 @@ def extract_related_docs_section(content: str) -> tuple[str, str, str]:
 
 def deduplicate_links(section: str) -> str:
     """
-    Deduplicate wiki-links in a Related Documentation section.
+    Deduplicate markdown links in a Related Documentation section.
     Preserves order of first occurrence.
+    Changed 2026-01-23: Now handles markdown links [text](url) instead of wikilinks [[text]]
     """
     if not section:
         return ""
@@ -67,29 +68,46 @@ def deduplicate_links(section: str) -> str:
     lines = section.split('\n')
     header = lines[0] if lines else "## Related Documentation"
 
-    # Find all wiki-links with their descriptions
-    link_pattern = r'-\s*\[\[([^\]]+)\]\](?:\s*-\s*(.+))?'
+    # Find all markdown links with their descriptions
+    # Pattern matches: - [Link Text](path/to/file.md) - description
+    # or legacy wikilinks: - [[link]] - description
+    md_link_pattern = r'-\s*\[([^\]]+)\]\(([^\)]+)\)(?:\s*-\s*(.+))?'
+    wiki_link_pattern = r'-\s*\[\[([^\]]+)\]\](?:\s*-\s*(.+))?'
     seen_links = OrderedDict()
 
     for line in lines[1:]:
-        match = re.match(link_pattern, line.strip())
-        if match:
-            link_target = match.group(1)
-            description = match.group(2) or ""
-            # Keep first occurrence only
+        # Try markdown link first
+        md_match = re.match(md_link_pattern, line.strip())
+        if md_match:
+            link_text = md_match.group(1)
+            link_path = md_match.group(2)
+            description = md_match.group(3) or ""
+            # Use path as key for deduplication
+            if link_path not in seen_links:
+                seen_links[link_path] = (link_text, description)
+            continue
+        
+        # Try wikilink (legacy support - will convert to markdown)
+        wiki_match = re.match(wiki_link_pattern, line.strip())
+        if wiki_match:
+            link_target = wiki_match.group(1)
+            description = wiki_match.group(2) or ""
+            # Convert wikilink to markdown link
             if link_target not in seen_links:
-                seen_links[link_target] = description
+                # Use filename as link text, full path as URL
+                link_text = Path(link_target).name.replace('.md', '')
+                seen_links[link_target] = (link_text, description)
 
     if not seen_links:
         return ""
 
-    # Rebuild section with unique links
+    # Rebuild section with unique markdown links
     new_lines = [header, ""]
-    for link, desc in seen_links.items():
+    for link_path, (link_text, desc) in seen_links.items():
         if desc:
-            new_lines.append(f"- [[{link}]] - {desc}")
+            new_lines.append(f"- [{link_text}]({link_path}) - {desc}")
         else:
-            new_lines.append(f"- [[{link}]]")
+            new_lines.append(f"- [{link_text}]({link_path})")
     new_lines.append("")
 
     return '\n'.join(new_lines)

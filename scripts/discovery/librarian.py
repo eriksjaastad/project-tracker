@@ -135,8 +135,9 @@ def update_directory_index(directory: Path, recursive: bool = False):
     index_lines.append("| File | Description |")
     index_lines.append("| :--- | :--- |")
     for item in inventory:
-        # Use wiki-links for the file path
-        index_lines.append(f"| [[{item['path']}]] | {item['desc']} |")
+        # Use standard markdown links (not Obsidian wikilinks)
+        # Changed 2026-01-23: Wikilinks only work in Obsidian, markdown links work everywhere
+        index_lines.append(f"| [{item['path']}]({item['path']}) | {item['desc']} |")
     index_lines.append(f"\n{END_MARKER}")
     
     index_content = "\n".join(index_lines)
