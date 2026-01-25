@@ -138,6 +138,5 @@ DO NOT manually implement failed Worker tasks.
 
 ## Related Documentation
 
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
 

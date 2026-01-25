@@ -9,7 +9,7 @@ created: 2025-12-30
 
 # 🚀 project-tracker - Quick Start
 
-**Index:** [[00_Index_project-tracker]]
+**Index:** `00_Index_*.md`
 
 ## Launch the Dashboard
 
@@ -81,6 +81,5 @@ The dashboard will auto-scan projects and open in the browser.
 
 ## Related Documentation
 
-- [[automation_patterns]] - automation
-- [[dashboard_architecture]] - dashboard/UI
-- [[project-tracker/README]] - Project Tracker
+- [Automation Reliability](patterns/automation-reliability.md) - automation
+- [README](README) - Project Tracker

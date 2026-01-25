@@ -115,14 +115,9 @@ These tests ensure the application is secure and data is valid.
 
 ## Related Documentation
 
-- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-- [[architecture_patterns]] - architecture
-- [[automation_patterns]] - automation
-- [[cost_management]] - cost management
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[error_handling_patterns]] - error handling
-- [[security_patterns]] - security
-- [[project-tracker/README]] - Project Tracker
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
+- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
+- [Automation Reliability](patterns/automation-reliability.md) - automation
+- [Cost Management](Documents/reference/MODEL_COST_COMPARISON.md) - cost management
+- [Safety Systems](patterns/safety-systems.md) - security
+- [README](README) - Project Tracker

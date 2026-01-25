@@ -23,10 +23,10 @@ This directory contains historical planning documents and prompt sequences for p
 - **[Code Review Integration](code_review_integration/APPLY_CODE_REVIEW_INTEGRATION.md)** - Initial rollout of evidence-first review protocols.
 
 ## 📝 Misc Planning & Handoffs
-- [[IMPLEMENTATION_HANDOFF]] - Technical handoff for core system components.
-- [[HANDOFF_SERVICES_ISSUE]] - Resolution planning for service integration bugs.
-- [[FIX_REQUEST]] - Historical bug fix tracking.
-- [[PROMPT_REMOVE_KIRO]] - Refactor planning for external dependency removal.
+- [IMPLEMENTATION_HANDOFF](IMPLEMENTATION_HANDOFF.md) - Technical handoff for core system components.
+- [HANDOFF_SERVICES_ISSUE](HANDOFF_SERVICES_ISSUE.md) - Resolution planning for service integration bugs.
+- [FIX_REQUEST](FIX_REQUEST.md) - Historical bug fix tracking.
+- [PROMPT_REMOVE_KIRO](PROMPT_REMOVE_KIRO.md) - Refactor planning for external dependency removal.
 
 ---
 *Back to [Active Documents Index](../README.md)*
@@ -34,6 +34,5 @@ This directory contains historical planning documents and prompt sequences for p
 
 ## Related Documentation
 
-- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
 

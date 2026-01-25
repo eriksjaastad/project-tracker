@@ -78,6 +78,6 @@ print('OK')
 
 ## Related Documentation
 
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
 

@@ -14,13 +14,13 @@ Based on `project-scaffolding/README.md` "Quick Start" section:
 
 | Step | README Instruction | Status | Notes |
 |------|-------------------|--------|-------|
-| 1 | Read [[PROJECT_KICKOFF_GUIDE]] | ⚠️ Partial | Should review for any missed steps |
-| 2 | Follow [[PROJECT_STRUCTURE_STANDARDS]] | ✅ Done | venv in root, scripts/, data/, Documents/ |
-| 3 | Follow [[CODE_QUALITY_STANDARDS]] | ⚠️ AUDIT NEEDED | Need to verify 4 critical rules |
+| 1 | Read [PROJECT_KICKOFF_GUIDE](../../project-scaffolding/Documents/PROJECT_KICKOFF_GUIDE.md) | ⚠️ Partial | Should review for any missed steps |
+| 2 | Follow [PROJECT_STRUCTURE_STANDARDS](../../project-scaffolding/Documents/PROJECT_STRUCTURE_STANDARDS.md) | ✅ Done | venv in root, scripts/, data/, Documents/ |
+| 3 | Follow [CODE_QUALITY_STANDARDS](../../project-scaffolding/Documents/CODE_QUALITY_STANDARDS.md) | ⚠️ AUDIT NEEDED | Need to verify 4 critical rules |
 | 4 | Copy templates (.cursorrules, CLAUDE.md, etc.) | ✅ Done | Templates applied + safety injection |
-| 5 | Plan using [[TIERED_AI_SPRINT_PLANNING]] | ✅ Done | Phase 4 prompts use tiered approach |
+| 5 | Plan using [TIERED_AI_SPRINT_PLANNING](../../ai-usage-billing-tracker/docs/TIERED_AI_SPRINT_PLANNING.md) | ✅ Done | Phase 4 prompts use tiered approach |
 | 6 | Execute with appropriate models | 🔄 In Progress | Today's work uses local models |
-| 7 | Track external resources in [[EXTERNAL_RESOURCES]] | ✅ Done | Listed: SQLite, FastAPI ($0/mo) |
+| 7 | Track external resources in [EXTERNAL_RESOURCES](../../project-scaffolding/EXTERNAL_RESOURCES.md) | ✅ Done | Listed: SQLite, FastAPI ($0/mo) |
 
 ### README Items Not Mentioned But Now Critical
 
@@ -31,7 +31,7 @@ These systems were built AFTER the README was written:
 | [[AGENTS_CONSTITUTION]] (4-tier) | ✅ Referenced | ❌ No |
 | Global Rules Injection | ✅ Applied | ❌ No |
 | Prompt pattern for local models | ✅ Using today | ❌ No |
-| [[LOCAL_MODEL_LEARNINGS]] | ✅ Created | ❌ No |
+| [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) | ✅ Created | ❌ No |
 | Warden audit system | ❌ Not integrated | ❌ No |
 | Pre-commit hooks | ❌ Not set up | ❌ No |
 
@@ -41,7 +41,7 @@ The project-scaffolding README should be updated to include:
 
 1. **[[AGENTS_CONSTITUTION]]** - The 4-tier hierarchy (Conductor → Super Manager → Floor Manager → Workers)
 2. **Prompt Pattern** - Micro-task prompts with acceptance criteria for local models
-3. **[[LOCAL_MODEL_LEARNINGS]]** - Institutional memory for AI model behavior
+3. **[Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md)** - Institutional memory for AI model behavior
 4. **Global Rules Injection** - The update_cursorrules.py system
 5. **[[WARDEN_AUDIT]]** - Security audit tool (warden_audit.py)
 6. **Timeline Update** - Current dates (we're past "Month 6" in the timeline)
@@ -84,7 +84,7 @@ Project-scaffolding has evolved into an ecosystem constitution with **13+ patter
 - [x] Create Documents/ directory structure
 - [x] Create [[Documents_README_Index]]
 - [ ] Create guides/ with project-specific how-tos
-- [ ] Create reference/ for [[LOCAL_MODEL_LEARNINGS]]
+- [ ] Create reference/ for [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md)
 - [ ] Create archives/ for completed work
 
 ---
@@ -116,7 +116,7 @@ Project-scaffolding has evolved into an ecosystem constitution with **13+ patter
 | Pattern | Status | Evidence |
 |---------|--------|----------|
 | **Append-Only Archives** | ❌ Not Implemented | No append-only logs |
-| **Read-Only Source** | ✅ Done | Reads [[TODO]]/README.md, doesn't modify |
+| **Read-Only Source** | ✅ Done | Reads [Root TODO](../TODO.md)/README.md, doesn't modify |
 | **Atomic Writes** | ⚠️ Unknown | Need to check database writes |
 | **Move, Don't Modify** | N/A | Not applicable (no file moving) |
 | **Trash, Don't Delete** | ✅ In .cursorrules | Rule documented |
@@ -156,21 +156,19 @@ Project-scaffolding has evolved into an ecosystem constitution with **13+ patter
 - [x] `Documents/README.md` index
 - [ ] `Documents/reference/LOCAL_MODEL_LEARNINGS.md`
 - [ ] `Documents/guides/` with how-tos
-- [x] Comprehensive [[README]]
-- [x] [[TODO]] with status tracking
+- [x] Comprehensive [README](../../ai-model-scratch-build/README.md)
+- [x] [Root TODO](../TODO.md) with status tracking
 
 ---
 
 *This guide will be updated as we progress through the canary test.*
-*See also: [[PROJECT_STRUCTURE_STANDARDS]] and [[CODE_QUALITY_STANDARDS]].*
+*See also: [PROJECT_STRUCTURE_STANDARDS](../../project-scaffolding/Documents/PROJECT_STRUCTURE_STANDARDS.md) and [CODE_QUALITY_STANDARDS](../../project-scaffolding/Documents/CODE_QUALITY_STANDARDS.md).*
 
 ## Related Documentation
 
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[database_setup]] - database
-- [[prompt_engineering_guide]] - prompt engineering
-- [[adult_business_compliance]] - adult industry
-- [[ai_model_comparison]] - AI models
-- [[security_patterns]] - security
-- [[project-scaffolding/README]] - Project Scaffolding
-- [[project-tracker/README]] - Project Tracker
+- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
+- [Safety Systems](patterns/safety-systems.md) - security
+- [Project Scaffolding](../project-scaffolding/README.md) - Project Scaffolding
+- [README](README) - Project Tracker

@@ -5,6 +5,7 @@ import re
 import json
 import sys
 import argparse
+import yaml
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Set, Any, Optional
@@ -16,7 +17,24 @@ from logger import get_logger
 
 logger = get_logger(__name__)
 
-SCAN_EXTENSIONS = {
+# Load config from shared YAML file (lives in project-scaffolding)
+PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", Path.home() / "projects"))
+CONFIG_PATH = PROJECTS_ROOT / "project-scaffolding" / "config" / "scan_config.yaml"
+
+
+def load_config() -> dict:
+    """Load graph configuration from YAML file."""
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH) as f:
+            return yaml.safe_load(f)
+    else:
+        logger.warning(f"Config not found at {CONFIG_PATH}, using defaults")
+        return {}
+
+
+_config = load_config()
+
+SCAN_EXTENSIONS = _config.get('scan_extensions', {
     '.md': 'markdown',
     '.py': 'python',
     '.ts': 'typescript',
@@ -27,22 +45,15 @@ SCAN_EXTENSIONS = {
     '.json': 'config',
     '.yaml': 'config',
     '.yml': 'config',
-}
+})
 
-SKIP_DIRS = {
-    'node_modules', 'venv', '.venv', '__pycache__',
-    '.git', '.pytest_cache', 'dist', 'build', '.next',
-    '_trash', 'trash', 'archives', '_inbox',
-    'logs', 'reports', 'temp', 'tmp', 'cursor_history', 'data',
-    'gsd'
-}
-
-SAFE_ZONES = {
-    'ai-journal', 'writing'
-}
+SKIP_DIRS = set(_config.get('skip_dirs', []))
+SKIP_FILES = set(_config.get('skip_files', []))
+SKIP_PATTERNS = _config.get('skip_patterns', [])
+IGNORE_PROJECTS = set(_config.get('ignore_projects', []))
+PROTECTED_PROJECTS = set(_config.get('protected_projects', []))
 
 # Regex patterns for relationship detection
-WIKI_LINK_PATTERN = re.compile(r'\[\[([^\]]+)\]\]')
 MD_LINK_PATTERN = re.compile(r'\[([^\]]+)\]\(([^)]+\.[a-zA-Z0-9]+)\)')
 
 # Python: from x import y OR import x
@@ -104,15 +115,31 @@ class GraphBuilder:
             
             # 1. Always skip hidden directories and universal junk
             dirnames[:] = [d for d in dirnames if not d.startswith('.') and d not in SKIP_DIRS]
-            
+
+            # 2. Skip entire projects that are completely ignored
+            if project_name in IGNORE_PROJECTS:
+                dirnames.clear()  # Don't descend into this project
+                continue
+
             if project_name != "root":
                 self.projects.add(project_name)
 
             for filename in filenames:
-                # Skip package.json
-                if filename == 'package.json':
+                # Skip files from config (boilerplate that exists in every project)
+                if filename in SKIP_FILES:
                     continue
-                    
+                # Skip patterns from config (e.g., tsconfig*, *.d.ts)
+                skip = False
+                for pattern in SKIP_PATTERNS:
+                    if pattern.startswith('*') and filename.endswith(pattern[1:]):
+                        skip = True
+                        break
+                    elif pattern.endswith('*') and filename.startswith(pattern[:-1]):
+                        skip = True
+                        break
+                if skip:
+                    continue
+
                 ext = Path(filename).suffix.lower()
                 if ext in SCAN_EXTENSIONS:
                     file_path = p_dirpath / filename
@@ -197,56 +224,6 @@ class GraphBuilder:
         source_node = self.nodes[self.node_map[source_id]]
         source_project = source_node["project"]
         
-        # Wiki links [[target]] or [[target|label]]
-        for match in WIKI_LINK_PATTERN.findall(content):
-            # Handle potential pipe for label
-            target_str = match.split('|')[0].strip()
-            
-            # Handle potential path in wiki-link
-            target_name = Path(target_str).name
-            
-            # Try to find a file with this name or path
-            potential_targets = [
-                target_str,
-                target_str + ".md",
-                f"00_Index_{target_name}",
-                target_name,
-                target_name + ".md",
-            ]
-            
-            resolved = False
-            # 1. First pass: Try to find match in the SAME project
-            for pt in potential_targets:
-                pt_lower = pt.lower()
-                for node in self.nodes:
-                    if node["project"] == source_project:
-                        # Exact ID, Project-relative ID, or Filename match (case-insensitive)
-                        node_id_lower = node["id"].lower()
-                        if node_id_lower == pt_lower or \
-                           node_id_lower == f"{source_project}/{pt_lower}" or \
-                           node_id_lower.endswith("/" + pt_lower) or \
-                           node_id_lower.endswith(pt_lower) or \
-                           node["name"].lower() == pt_lower:
-                            self._add_edge(source_id, node["id"], "wiki_link", f"[[{match}]]")
-                            resolved = True
-                            break
-                if resolved: break
-            
-            # 2. Second pass: Try global match if local failed
-            if not resolved:
-                for pt in potential_targets:
-                    pt_lower = pt.lower()
-                    for node in self.nodes:
-                        node_id_lower = node["id"].lower()
-                        if node_id_lower == pt_lower or \
-                           node_id_lower.endswith("/" + pt_lower) or \
-                           node_id_lower.endswith(pt_lower) or \
-                           node["name"].lower() == pt_lower:
-                            self._add_edge(source_id, node["id"], "wiki_link", f"[[{match}]]")
-                            resolved = True
-                            break
-                    if resolved: break
-
         # Markdown links [text](path)
         for text, path in MD_LINK_PATTERN.findall(content):
             if path.startswith(('http', 'mailto', '#')):

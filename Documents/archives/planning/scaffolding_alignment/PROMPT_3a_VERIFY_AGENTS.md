@@ -82,5 +82,4 @@ grep -E "(Tech Stack|Execution|Constraints|Definition of Done)" AGENTS.md
 
 ## Related Documentation
 
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

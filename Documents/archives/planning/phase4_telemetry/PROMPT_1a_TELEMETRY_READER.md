@@ -76,5 +76,5 @@ python -c "from scripts.discovery.telemetry_reader import get_telemetry_stats; p
 
 ## Related Documentation
 
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
 

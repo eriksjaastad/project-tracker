@@ -513,6 +513,5 @@ See how it feels after a week of use. Then we can:
 
 ## Related Documentation
 
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
 

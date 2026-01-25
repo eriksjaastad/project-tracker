@@ -130,8 +130,5 @@ Architecture decisions are hard to change later. Get them right now. Be thorough
 
 ## Related Documentation
 
-- [[architecture_patterns]] - architecture
-- [[ai_model_comparison]] - AI models
-- [[performance_optimization]] - performance
-- [[testing_strategy]] - testing/QA
-- [[solutions-architect/README]] - Solutions Architect
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
+- [solutions-architect/README](../../../../ai-model-scratch-build/README.md) - Solutions Architect

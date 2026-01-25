@@ -68,5 +68,4 @@ grep "Rule #7" Documents/CODE_QUALITY_STANDARDS.md
 
 ## Related Documentation
 
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

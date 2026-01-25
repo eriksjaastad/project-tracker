@@ -1,6 +1,8 @@
 # Cursor Rules for project-tracker
-# AUTO-GENERATED from .agentsync/rules/ - Do not edit directly
-# Run: uv run $TOOLS_ROOT/agentsync/sync_rules.py project-tracker
+
+# AGENTSYNC:START - Do not edit between markers
+# To modify synced rules: Edit .agentsync/rules/*.md, then run:
+# uv run $TOOLS_ROOT/agentsync/sync_rules.py project-tracker
 
 # AGENTS.md - Source of Truth for AI Agents
 
@@ -57,7 +59,7 @@ This section details the AI agents currently employed within the `project-tracke
     - Project Description: [Extract from README.md]
     - TODO Items: [Extract all TODO items from TODO.md with status]
 
-    Text: 
+    Text: {file_content}
 
     Output (JSON):
     ```
@@ -122,186 +124,12 @@ This section details the AI agents currently employed within the `project-tracke
 
 ## 📖 Reference Links
 - `Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md` - Path standards and review process
-- [[00_Index_project-tracker]]
+- `00_Index_*.md`
 - `CLAUDE.md` - AI Working Instructions
 - `.cursorrules` - Cursor IDE Rules
 - `Documents/reference/LEARNINGS.md` - Learning Loop & Debt Tracker
 - `Documents/reference/MODEL_LEARNINGS.md` - AI Model Behavior
-- [[00_Index_project-scaffolding]] - Meta-project patterns
+- `00_Index_*.md` - Meta-project patterns
 
-# Source of truth: .agentsync/rules/
-
-
-<!-- project-scaffolding template appended -->
-
-# Cursor Rules - [PROJECT_NAME]
-
-> **IMPORTANT:** Follow role definitions and workflow in `/docs/AGENTS.md` (or symlinked `AGENTS.md` in project root).
-
----
-
-## 🎯 What This Project Is
-
-[1-2 sentence description of this specific project's purpose]
-
-**Domain:** [What problem space does this explore?]
-**Status:** [Discovery / Active Development / Data Collection / Maintenance]
-
----
-
-## 🛠 Tech Stack
-
-- **Language:** [e.g., Python 3.11+]
-- **Frameworks:** [e.g., Flask, pytest, PyYAML]
-- **Database:** [e.g., SQLite, Postgres, None]
-- **Deployment:** [e.g., Local only, Railway, etc.]
-
----
-
-## 📋 Definition of Done (Project-Specific)
-
-- [ ] Code follows project coding standards (see below)
-- [ ] Code validated (no hardcoded paths, no secrets exposed)
-- [ ] Changes logged to `[relevant log file if applicable]`
-- [ ] Documentation updated (if user-facing changes)
-- [ ] Tests pass: `[specific test command]`
-- [ ] **Index updated** (if new patterns, components, or major structure changes)
-
----
-
-## 🚀 Execution Commands
-
-```bash
-# Environment
-source venv/bin/activate
-
-# Validate project (before commits)
-python ./scripts/validate_project.py [project-name]
-
-# Run tests
-[your test command]
-
-# Run main script
-[your run command]
-```
-
----
-
-## 📁 Project Structure
-
-```
-[project-name]/
-├── [folder]/        ← [description]
-├── [folder]/        ← [description]
-├── [folder]/        ← [description]
-└── Documents/       ← Project documentation
-```
-
----
-
-## 🚫 Context Window Management
-
-**NEVER waste context on:**
-- `node_modules/`, `__pycache__/`, `.git/`
-- `venv/` — Virtual environment
-- `archives/` — Old archives
-
-**When reading files:**
-- Use targeted reads for large files
-- Prefer `codebase_search` for finding patterns
-
----
-
-## 📝 Documentation Hygiene
-
-**DO NOT create new .md files without explicit user request.**
-
-**Before creating any document, ask:**
-1. Can this go in an existing file? (CONSOLIDATE > CREATE)
-2. Can this be a code comment instead? (CODE > DOCS)
-3. Will someone actually read this? (If no, don't write it)
-
-**Rules:**
-- NEVER create files in Documents/ without asking first
-- PREFER adding sections to existing files over new files
-- PREFER code comments over separate documentation
-- KEEP explanations in code, not in external docs
-
-**Required docs only:** README.md, AGENTS.md, 00_Index, TODO.md
-**Everything else must justify its existence.**
-
-**See:** `./Documents/reference/DOCUMENTATION_HYGIENE.md` for full guidelines
-
----
-
-## 📜 Coding Standards (Project-Specific)
-
-- **File Ops:** Use `pathlib.Path`
-- **Data:** Use YAML for structured data (SSOT pattern)
-- **Library Code:** No prints, use `logging`
-- [Add any project-specific standards]
-
----
-
-## ⚠️ Project-Specific Constraints
-
-- [e.g., NEVER modify the `raw_data/` directory]
-- [e.g., ALWAYS run `--dry-run` before bulk operations]
-- [Add constraints specific to this project]
-
----
-
-## 🔗 Related Files
-
-- **Ecosystem Constitution:** `AGENTS.md`
-- **Review Protocol:** `./Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md`
-- **Code Review Pattern:** `./Documents/patterns/code-review-standard.md`
-- **Project Index:** `[[00_Index_[project-name]]]`
-- [Add project-specific references]
-
----
-
-## 🧠 Skills & Continuous Learning (Optional)
-
-<!-- Uncomment and customize the approach that fits your setup -->
-
-<!-- OPTION A: Per-project skills (keep learnings here)
-### Project-Specific Skills
-- [Skill 1]: [Description of reusable instruction]
-- [Skill 2]: [Description]
--->
-
-<!-- OPTION B: Shared skills library reference
-### Skills Library
-Reference: $PROJECTS_ROOT/agent-skills-library/
-
-Available skills for this project:
-- [Skill name]: See agent-skills-library/playbooks/[skill]/
--->
-
-<!-- OPTION C: Both (shared + project-specific)
-### Shared Skills
-Reference: $PROJECTS_ROOT/agent-skills-library/
-- [Shared skill]: agent-skills-library/playbooks/[skill]/
-
-### Project-Specific Skills
-- [Local skill]: [Description]
--->
-
----
-
-## 📚 Source Context (Optional)
-
-If this project builds on patterns from other projects, document them here:
-
-| Source Project | Pattern Borrowed |
-|----------------|------------------|
-| [e.g., image-workflow] | [e.g., FileTracker, disaster recovery] |
-| [e.g., trading-copilot] | [e.g., Cron dispatcher pattern] |
-
----
-
-*Project-specific rules. See AGENTS.md for universal standards.*
-
-
-
+# Source: .agentsync/rules/*.md
+# AGENTSYNC:END - Custom rules below this line are preserved

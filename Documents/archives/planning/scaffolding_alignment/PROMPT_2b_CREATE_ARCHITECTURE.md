@@ -131,5 +131,4 @@ Read these files to understand the architecture:
 
 ## Related Documentation
 
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

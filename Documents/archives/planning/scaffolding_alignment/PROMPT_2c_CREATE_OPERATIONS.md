@@ -153,5 +153,4 @@ pip freeze > requirements.txt
 
 ## Related Documentation
 
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

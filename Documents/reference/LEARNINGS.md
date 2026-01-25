@@ -46,7 +46,6 @@ created: 2026-01-11
 
 ## Related Documentation
 
-- [[prompt_engineering_guide]] - prompt engineering
-- [[queue_processing_guide]] - queue/workflow
-- [[security_patterns]] - security
-- [[project-tracker/README]] - Project Tracker
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [Safety Systems](patterns/safety-systems.md) - security
+- [README](README) - Project Tracker

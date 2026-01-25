@@ -169,12 +169,8 @@ TELEMETRY_PATH = Path("$HOME/...")
 
 ## Related Documentation
 
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-- [[error_handling_patterns]] - error handling
-- [[prompt_engineering_guide]] - prompt engineering
-- [[ai_model_comparison]] - AI models
-- [[case_studies]] - examples
-- [[performance_optimization]] - performance
-- [[project-scaffolding/README]] - Project Scaffolding
-- [[project-tracker/README]] - Project Tracker
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
+- [Project Scaffolding](../project-scaffolding/README.md) - Project Scaffolding
+- [README](README) - Project Tracker
