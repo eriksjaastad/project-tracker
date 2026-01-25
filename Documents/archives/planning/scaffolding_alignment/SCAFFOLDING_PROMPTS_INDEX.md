@@ -114,7 +114,6 @@ Based on CODE_REVIEW_PHASE4_TELEMETRY.md findings:
 
 ## Related Documentation
 
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
 

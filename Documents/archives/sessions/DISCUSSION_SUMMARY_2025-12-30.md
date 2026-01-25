@@ -384,5 +384,4 @@ Before proceeding with dashboard implementation:
 
 ## Related Documentation
 
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

@@ -14,7 +14,7 @@ created: 2025-12-22
 **Status:** ✅ 100% Complete - Ready for daily use
 **Cost:** $0 (100% local, no external services)  
 **Quick Start:** `./pt launch`
-**Index:** [[00_Index_project-tracker]]
+**Index:** `00_Index_*.md`
 
 ---
 
@@ -73,7 +73,7 @@ The dashboard will:
 ## 🛠 Requirements
 
 - **Python 3.11+**
-- **[[00_Index_audit-agent]] (v1.0.0+)**: This Go CLI is a required dependency for project health scoring, task aggregation, and validation.
+- **`00_Index_*.md` (v1.0.0+)**: This Go CLI is a required dependency for project health scoring, task aggregation, and validation.
   - Install by building in `../audit-agent/`
   - Ensure the `audit` binary is in your `$PATH` or configured in `config.py`.
 

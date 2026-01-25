@@ -141,10 +141,5 @@ All three phases complete. Provider pattern works, health scores display, parall
 
 ## Related Documentation
 
-- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_schema]] - database design
-- [[database_setup]] - database
-- [[error_handling_patterns]] - error handling
-- [[performance_optimization]] - performance
-- [[audit-agent/README]] - Audit Agent
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
+- [audit-agent/README](../ai-model-scratch-build/README.md) - Audit Agent

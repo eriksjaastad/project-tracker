@@ -208,7 +208,7 @@ python pt scan
 
 - **Ecosystem Constitution:** `AGENTS.md`
 - **Review Protocol:** `REVIEWS_AND_GOVERNANCE_PROTOCOL.md`
-- **Project Index:** `[[00_Index_project-tracker]]`
+- **Project Index:** ``00_Index_*.md``
 - **Scaffolding Transfer Guide:** `Documents/SCAFFOLDING_TRANSFER_GUIDE.md`
 ```
 
@@ -219,7 +219,7 @@ python pt scan
 - **Ecosystem Constitution:** `AGENTS.md`
 - **Review Protocol:** `$SCAFFOLDING/REVIEWS_AND_GOVERNANCE_PROTOCOL.md`
 - **Code Review Pattern:** `$SCAFFOLDING/patterns/code-review-standard.md`
-- **Project Index:** `[[00_Index_project-tracker]]`
+- **Project Index:** ``00_Index_*.md``
 - **Scaffolding Transfer Guide:** `Documents/SCAFFOLDING_TRANSFER_GUIDE.md`
 ```
 
@@ -295,9 +295,8 @@ grep "code-review-standard.md" .cursorrules
 
 ## Related Documentation
 
-- [[CODE_QUALITY_STANDARDS]] - code standards
-- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [CODE_QUALITY_STANDARDS](../../../../../project-scaffolding/Documents/CODE_QUALITY_STANDARDS.md) - code standards
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
+- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
 

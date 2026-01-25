@@ -92,5 +92,4 @@ grep -A2 "No Silent Failures" .cursorrules
 
 ## Related Documentation
 
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 

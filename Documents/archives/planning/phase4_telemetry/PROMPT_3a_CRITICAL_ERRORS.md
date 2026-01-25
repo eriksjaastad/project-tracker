@@ -98,5 +98,5 @@ print(f'Critical errors in last 24h: {len(errors)}')
 
 ## Related Documentation
 
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
 

@@ -1157,6 +1157,5 @@ If still stuck, document the question in TODO.md and continue with what you can 
 
 ## Related Documentation
 
-- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
 

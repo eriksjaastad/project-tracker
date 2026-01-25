@@ -191,18 +191,12 @@ See: [trustworthy_ai_report.md](../../project-scaffolding/Documents/reports/trus
 
 ## Related Documentation
 
-- [[CODE_QUALITY_STANDARDS]] - code standards
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-- [[trustworthy_ai_report]] - AI safety
-- [[architecture_patterns]] - architecture
-- [[database_setup]] - database
-- [[error_handling_patterns]] - error handling
-- [[prompt_engineering_guide]] - prompt engineering
-- [[case_studies]] - examples
-- [[security_patterns]] - security
-- [[video_analysis_tools]] - video analysis
-- [[agent-skills-library/README]] - Agent Skills
-- [[analyze-youtube-videos/README]] - YouTube Analyzer
-- [[project-scaffolding/README]] - Project Scaffolding
+- [CODE_QUALITY_STANDARDS](../../project-scaffolding/Documents/CODE_QUALITY_STANDARDS.md) - code standards
+- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
+- [Trustworthy AI Report](Documents/reports/trustworthy_ai_report.md) - AI safety
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [Safety Systems](patterns/safety-systems.md) - security
+- [Agent Skills Library](../agent-skills-library/README.md) - Agent Skills
+- [analyze-youtube-videos/README](../../ai-model-scratch-build/README.md) - YouTube Analyzer
+- [Project Scaffolding](../project-scaffolding/README.md) - Project Scaffolding

@@ -39,8 +39,6 @@ The Floor Manager (AI Assistant) failed to delegate tasks to the local Worker vi
 
 ## Related Documentation
 
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-- [[adult_business_compliance]] - adult industry
-- [[project-scaffolding/README]] - Project Scaffolding
-- [[project-tracker/README]] - Project Tracker
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
+- [Project Scaffolding](../project-scaffolding/README.md) - Project Scaffolding
+- [README](README) - Project Tracker

@@ -10,7 +10,7 @@ created: 2025-12-30
 # project-tracker - Usage Guide
 
 > **Quick Start:** `./pt launch` to open the dashboard
-**Index:** [[00_Index_project-tracker]]
+**Index:** `00_Index_*.md`
 
 ---
 
@@ -248,7 +248,7 @@ List services in EXTERNAL_RESOURCES.md to track costs.
 ## 🛠 Requirements
 
 - **Python 3.11+**
-- **[[00_Index_audit-agent]] (v1.0.0+)**: This Go CLI is a required dependency for project health scoring, task aggregation, and validation.
+- **`00_Index_*.md` (v1.0.0+)**: This Go CLI is a required dependency for project health scoring, task aggregation, and validation.
   - Install by building in `../audit-agent/`
   - Ensure the `audit` binary is in your `$PATH` or configured in `config.py`.
 

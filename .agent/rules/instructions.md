@@ -4,8 +4,9 @@ trigger: always_on
 
 # Antigravity Rules for project-tracker
 
-<!-- AUTO-GENERATED from .agentsync/rules/ - Do not edit directly -->
-<!-- Run: uv run $TOOLS_ROOT/agentsync/sync_rules.py project-tracker -->
+<!-- AGENTSYNC:START - Do not edit between markers -->
+<!-- To modify synced rules: Edit .agentsync/rules/*.md, then run: -->
+<!-- uv run $TOOLS_ROOT/agentsync/sync_rules.py project-tracker -->
 
 # AGENTS.md - Source of Truth for AI Agents
 
@@ -127,11 +128,12 @@ This section details the AI agents currently employed within the `project-tracke
 
 ## 📖 Reference Links
 - `Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md` - Path standards and review process
-- [[00_Index_project-tracker]]
+- `00_Index_*.md`
 - `CLAUDE.md` - AI Working Instructions
 - `.cursorrules` - Cursor IDE Rules
 - `Documents/reference/LEARNINGS.md` - Learning Loop & Debt Tracker
 - `Documents/reference/MODEL_LEARNINGS.md` - AI Model Behavior
-- [[00_Index_project-scaffolding]] - Meta-project patterns
+- `00_Index_*.md` - Meta-project patterns
 
-<!-- Source of truth: .agentsync/rules/ -->
+<!-- Source: .agentsync/rules/*.md -->
+<!-- AGENTSYNC:END - Custom rules below this line are preserved -->

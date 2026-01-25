@@ -36,15 +36,15 @@ Project Tracker is a centralized monitoring and reporting system designed to tra
 ## Key Components
 
 ### CLI (`pt.py`)
-A Typer-based command-line interface that allows users to initialize the database, scan projects, list project details, and launch the web dashboard. See [[OPERATIONS]] for command details.
+A Typer-based command-line interface that allows users to initialize the database, scan projects, list project details, and launch the web dashboard. See [OPERATIONS](OPERATIONS.md) for command details.
 
 ### Dashboard (`dashboard/`)
 A FastAPI web application that provides a visual overview of all projects. It includes a main dashboard with project cards, detailed project views, and a viewer for rendered `TODO.md` files.
 
 ### Discovery Engine (`scripts/discovery/`)
 The core intelligence of the system. It consists of multiple specialized scanners:
-- `project_scanner.py`: Discovers project directories and basic metadata. See [[PROJECT_STRUCTURE_STANDARDS]].
-- `todo_parser.py`: Extracts task status from `TODO.md` files. See [[TODO_FORMAT_STANDARD]].
+- `project_scanner.py`: Discovers project directories and basic metadata. See [PROJECT_STRUCTURE_STANDARDS](../../project-scaffolding/Documents/PROJECT_STRUCTURE_STANDARDS.md).
+- `todo_parser.py`: Extracts task status from `TODO.md` files. See [TODO_FORMAT_STANDARD](../../project-scaffolding/Documents/TODO_FORMAT_STANDARD.md).
 - `git_metadata.py`: Collects recent git activity and branch information.
 - `telemetry_reader.py`: (In progress) Reads AI Router telemetry for usage statistics.
 - `hygiene_detector.py`: Checks for project standard compliance (e.g., `00_Index_*.md` files).
@@ -79,15 +79,10 @@ Uses SQLite for persistent storage of project metadata, cron job information, AI
 
 ---
 
-*See also: [[SCAFFOLDING_TRANSFER_GUIDE]], [[PROJECT_STRUCTURE_STANDARDS]], and [[DOPPLER_SECRETS_MANAGEMENT]].*
+*See also: [SCAFFOLDING_TRANSFER_GUIDE](SCAFFOLDING_TRANSFER_GUIDE.md), [PROJECT_STRUCTURE_STANDARDS](../../project-scaffolding/Documents/PROJECT_STRUCTURE_STANDARDS.md), and [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md).*
 
 ## Related Documentation
 
-- [[architecture_patterns]] - architecture
-- [[automation_patterns]] - automation
-- [[cost_management]] - cost management
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[error_handling_patterns]] - error handling
-- [[adult_business_compliance]] - adult industry
-- [[project-tracker/README]] - Project Tracker
+- [Automation Reliability](patterns/automation-reliability.md) - automation
+- [Cost Management](Documents/reference/MODEL_COST_COMPARISON.md) - cost management
+- [README](README) - Project Tracker

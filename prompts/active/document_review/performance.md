@@ -125,9 +125,4 @@ Performance problems found early are easy to fix. Performance problems found in 
 
 ## Related Documentation
 
-- [[api_design_patterns]] - API design
-- [[architecture_patterns]] - architecture
-- [[database_setup]] - database
-- [[ai_model_comparison]] - AI models
-- [[case_studies]] - examples
-- [[performance_optimization]] - performance
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models

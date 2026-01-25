@@ -125,9 +125,5 @@ Security issues found early save massive problems later. Be thorough, be specifi
 
 ## Related Documentation
 
-- [[architecture_patterns]] - architecture
-- [[database_setup]] - database
-- [[error_handling_patterns]] - error handling
-- [[ai_model_comparison]] - AI models
-- [[case_studies]] - examples
-- [[security_patterns]] - security
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
+- [Safety Systems](patterns/safety-systems.md) - security

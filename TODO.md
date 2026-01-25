@@ -13,7 +13,7 @@ created: 2025-12-22
 **Project Status:** Active (Phase 5 pending)
 **Current Phase:** Phase 5: Index Auto-Sync
 **Type:** Infrastructure
-**Index:** [[00_Index_project-tracker]]
+**Index:** `00_Index_*.md`
 
 ---
 
@@ -21,15 +21,13 @@ created: 2025-12-22
 
 **LIBRARIAN LINK FORMAT CHANGED: Wikilinks → Markdown Links**
 
-The librarian was generating Obsidian wikilinks `[[file.md]]` which only work in Obsidian. This was discovered when scaffolding templates were audited and found to have 217+ broken wikilinks across projects.
 
 **What Changed:**
-- `librarian.py` line 139: Now generates `[file.md](file.md)` instead of `[[file.md]]`
+- `librarian.py` line 139: Now generates `[file.md](file.md)` instead of `[file.md](file.md)`
 - All future librarian runs will use standard markdown links
 - Links now work in GitHub, VS Code, Cursor, and any markdown viewer
 
 **Why This Matters:**
-- Obsidian was abandoned in favor of custom D3 knowledge graph
 - Wikilinks were "backwards" - projects should parse files and feed project-tracker, not the other way around
 - This prevents reintroducing wikilinks every time librarian runs
 

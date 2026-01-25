@@ -4,6 +4,7 @@ from collections import defaultdict
 
 GRAPH_PATH = Path(__file__).parent / "data" / "graph.json"
 
+
 def main():
     if not GRAPH_PATH.exists():
         print(f"Error: {GRAPH_PATH} not found.")

@@ -489,23 +489,13 @@ And it's working.
 
 ## Related Documentation
 
-- [[PROJECT_KICKOFF_GUIDE]] - project setup
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-- [[automation_patterns]] - automation
-- [[billing_workflows]] - billing/payments
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[discord_integration]] - Discord
-- [[error_handling_patterns]] - error handling
-- [[image_processing_guide]] - image processing
-- [[queue_processing_guide]] - queue/workflow
-- [[adult_business_compliance]] - adult industry
-- [[ai_model_comparison]] - AI models
-- [[cortana_architecture]] - Cortana AI
-- [[portfolio_content]] - portfolio/career
-- [[security_patterns]] - security
-- [[3d-pose-factory/README]] - 3D Pose Factory
-- [[cortana-personal-ai/README]] - Cortana AI
-- [[image-workflow/README]] - Image Workflow
-- [[project-scaffolding/README]] - Project Scaffolding
-- [[project-tracker/README]] - Project Tracker
+- [PROJECT_KICKOFF_GUIDE](../../project-scaffolding/Documents/PROJECT_KICKOFF_GUIDE.md) - project setup
+- [Automation Reliability](patterns/automation-reliability.md) - automation
+- [Discord Webhooks Per Project](patterns/discord-webhooks-per-project.md) - Discord
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
+- [Safety Systems](patterns/safety-systems.md) - security
+- [3d-pose-factory/README](../../ai-model-scratch-build/README.md) - 3D Pose Factory
+- [cortana-personal-ai/README](../../ai-model-scratch-build/README.md) - Cortana AI
+- [image-workflow/README](../../ai-model-scratch-build/README.md) - Image Workflow
+- [Project Scaffolding](../project-scaffolding/README.md) - Project Scaffolding
+- [README](README) - Project Tracker
