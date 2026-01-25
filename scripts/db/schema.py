@@ -147,6 +147,74 @@ def create_database(db_path: Optional[Path] = None) -> None:
         ON service_dependencies(project_id)
     """)
     
+    # Kanban tasks table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Done')),
+            project_id TEXT NOT NULL,
+            priority TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Migration: ensure tasks table has all columns
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN completed_at TEXT")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Task history table for productivity graphs
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS task_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            project_id TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK(event_type IN ('created', 'status_changed', 'completed')),
+            old_status TEXT,
+            new_status TEXT,
+            timestamp TEXT NOT NULL,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Indexes for tasks table
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_tasks_project 
+        ON tasks(project_id)
+    """)
+    
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_tasks_status 
+        ON tasks(status)
+    """)
+    
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_tasks_completed 
+        ON tasks(completed_at) WHERE completed_at IS NOT NULL
+    """)
+    
+    # Indexes for task_history table
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_history_timestamp 
+        ON task_history(timestamp)
+    """)
+    
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_history_project 
+        ON task_history(project_id)
+    """)
+    
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_history_event 
+        ON task_history(event_type)
+    """)
+    
     conn.commit()
     conn.close()
 
