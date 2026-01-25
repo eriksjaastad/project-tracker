@@ -4,6 +4,7 @@ import sqlite3
 import sys
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -23,7 +24,15 @@ def create_database(db_path: Optional[Path] = None) -> None:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    # Core projects table
+    # 0. Schema Versioning
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER PRIMARY KEY,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    
+    # 1. Core projects table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS projects (
             id TEXT PRIMARY KEY,
@@ -121,31 +130,17 @@ def create_database(db_path: Optional[Path] = None) -> None:
         )
     """)
     
-    # Create indexes for performance
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_projects_last_modified 
-        ON projects(last_modified DESC)
-    """)
-    
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_projects_status 
-        ON projects(status)
-    """)
-    
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_cron_jobs_project 
-        ON cron_jobs(project_id)
-    """)
-    
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_ai_agents_project 
-        ON ai_agents(project_id)
-    """)
-    
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_service_deps_project 
-        ON service_dependencies(project_id)
-    """)
+    # 2. Kanban tasks table migration check
+    # Check if tasks table exists and has TEXT id (old schema)
+    cursor.execute("PRAGMA table_info(tasks)")
+    columns = cursor.fetchall()
+    if columns:
+        id_column = next((c for c in columns if c[1] == 'id'), None)
+        if id_column and id_column[2].upper() == 'TEXT':
+            print("⚠️ Detected old tasks schema (TEXT id). Migrating to INTEGER PRIMARY KEY AUTOINCREMENT...")
+            # Drop history first due to foreign key
+            cursor.execute("DROP TABLE IF EXISTS task_history")
+            cursor.execute("DROP TABLE IF EXISTS tasks")
     
     # Kanban tasks table
     cursor.execute("""
@@ -183,37 +178,21 @@ def create_database(db_path: Optional[Path] = None) -> None:
         )
     """)
     
-    # Indexes for tasks table
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_tasks_project 
-        ON tasks(project_id)
-    """)
+    # Create indexes for performance
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_last_modified ON projects(last_modified DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cron_jobs_project ON cron_jobs(project_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_agents_project ON ai_agents(project_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_service_deps_project ON service_dependencies(project_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(completed_at) WHERE completed_at IS NOT NULL")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_timestamp ON task_history(timestamp)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_project ON task_history(project_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_event ON task_history(event_type)")
     
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_tasks_status 
-        ON tasks(status)
-    """)
-    
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_tasks_completed 
-        ON tasks(completed_at) WHERE completed_at IS NOT NULL
-    """)
-    
-    # Indexes for task_history table
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_history_timestamp 
-        ON task_history(timestamp)
-    """)
-    
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_history_project 
-        ON task_history(project_id)
-    """)
-    
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_history_event 
-        ON task_history(event_type)
-    """)
+    # Update schema version (current version: 2)
+    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (2, ?)", (datetime.now().isoformat(),))
     
     conn.commit()
     conn.close()
@@ -230,4 +209,3 @@ if __name__ == "__main__":
     # For testing
     db_path = init_db()
     print(f"Database created at: {db_path}")
-
