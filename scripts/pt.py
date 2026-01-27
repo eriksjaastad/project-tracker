@@ -179,13 +179,14 @@ def scan(
     existing_ids = {p["id"] for p in existing_projects}
     discovered_ids = {p["id"] for p in projects}
     
-    # Delete projects that are no longer found
-    to_delete = existing_ids - discovered_ids
-    for project_id in to_delete:
-        db.delete_project(project_id)
-        project_name = next((p["name"] for p in existing_projects if p["id"] == project_id), project_id)
-        console.print(f"  [red]✗ Removed {project_name}[/red]")
-    
+    # NOTE: We intentionally do NOT delete projects that are no longer found.
+    # Projects may be temporarily unavailable (unmounted drives, renamed folders).
+    # Deleting a project cascades to delete ALL tasks - too dangerous for auto-cleanup.
+    # Use explicit `./pt remove <project>` command if needed (to be implemented).
+    stale_ids = existing_ids - discovered_ids
+    if stale_ids:
+        console.print(f"  [dim]ℹ {len(stale_ids)} projects not found in scan (preserved in DB)[/dim]")
+
     # Update database
     hygiene_fixes = 0
     for project in projects:
@@ -213,7 +214,10 @@ def scan(
             has_index=project.get("has_index", False),
             index_is_valid=project.get("index_is_valid", False),
             index_updated_at=project.get("index_updated_at"),
-            project_type=project.get("project_type", "standard")
+            project_type=project.get("project_type", "standard"),
+            scaffolding_version=project.get("scaffolding_version"),
+            rules_version=project.get("rules_version"),
+            scaffolding_applied_at=project.get("scaffolding_applied_at")
         )
         
         # Clear old AI agents, cron jobs, and services
