@@ -319,6 +319,71 @@ def create_database(db_path: Optional[Path] = None) -> None:
         )
     """)
     
+    # ==========================================================================
+    # SAFETY: Delete audit log - catches ALL deletions including raw SQL
+    # ==========================================================================
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS delete_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_name TEXT NOT NULL,
+            deleted_id TEXT NOT NULL,
+            deleted_data TEXT NOT NULL,
+            deleted_at TEXT NOT NULL,
+            source TEXT DEFAULT 'unknown'
+        )
+    """)
+    
+    # SAFETY TRIGGER: Log all task deletions (catches raw SQL too)
+    cursor.execute("DROP TRIGGER IF EXISTS audit_task_delete")
+    cursor.execute("""
+        CREATE TRIGGER audit_task_delete
+        BEFORE DELETE ON tasks
+        FOR EACH ROW
+        BEGIN
+            INSERT INTO delete_audit_log (table_name, deleted_id, deleted_data, deleted_at, source)
+            VALUES (
+                'tasks',
+                OLD.id,
+                json_object(
+                    'id', OLD.id,
+                    'text', OLD.text,
+                    'status', OLD.status,
+                    'project_id', OLD.project_id,
+                    'priority', OLD.priority,
+                    'created_at', OLD.created_at,
+                    'updated_at', OLD.updated_at,
+                    'completed_at', OLD.completed_at
+                ),
+                datetime('now'),
+                'trigger'
+            );
+        END
+    """)
+    
+    # SAFETY TRIGGER: Log all project deletions
+    cursor.execute("DROP TRIGGER IF EXISTS audit_project_delete")
+    cursor.execute("""
+        CREATE TRIGGER audit_project_delete
+        BEFORE DELETE ON projects
+        FOR EACH ROW
+        BEGIN
+            INSERT INTO delete_audit_log (table_name, deleted_id, deleted_data, deleted_at, source)
+            VALUES (
+                'projects',
+                OLD.id,
+                json_object(
+                    'id', OLD.id,
+                    'name', OLD.name,
+                    'path', OLD.path,
+                    'status', OLD.status,
+                    'description', OLD.description
+                ),
+                datetime('now'),
+                'trigger'
+            );
+        END
+    """)
+    
     # Create indexes for performance
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_last_modified ON projects(last_modified DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)")
@@ -331,9 +396,11 @@ def create_database(db_path: Optional[Path] = None) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_timestamp ON task_history(timestamp)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_project ON task_history(project_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_event ON task_history(event_type)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_delete_audit_table ON delete_audit_log(table_name)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_delete_audit_time ON delete_audit_log(deleted_at)")
     
-    # Update schema version (current version: 2)
-    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (2, ?)", (datetime.now().isoformat(),))
+    # Update schema version (current version: 3 - added delete audit triggers)
+    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (3, ?)", (datetime.now().isoformat(),))
     
     conn.commit()
     conn.close()
