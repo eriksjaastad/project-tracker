@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { DndContext, closestCenter, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import type { Task, TaskStatus, TaskPriority } from '../types';
-import { fetchTasks, updateTask, createTask, deleteTask } from '../api';
+import { fetchTasks, updateTask, createTask, deleteTask, deleteDoneTasks } from '../api';
 import { Column } from './Column';
 import { Notification } from './Notification';
 import { AddTaskButton } from './AddTaskButton';
@@ -167,6 +167,27 @@ export function KanbanBoard() {
     }
   }, []);
 
+  const handleDeleteDone = useCallback(async () => {
+    const doneCount = tasks.filter(t => t.status === 'Done').length;
+    if (doneCount === 0) {
+      showNotification('No Done tasks to delete', 'error');
+      return;
+    }
+
+    if (!confirm(`Delete ${doneCount} Done task(s)?`)) {
+      return;
+    }
+
+    try {
+      const result = await deleteDoneTasks(project);
+      setTasks(prev => prev.filter(t => t.status !== 'Done'));
+      showNotification(`Deleted ${result.deleted} Done task(s)`, 'success');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to delete done tasks';
+      showNotification(errorMessage, 'error');
+    }
+  }, [tasks, project, showNotification]);
+
   // Group tasks by status (memoized for performance)
   const tasksByStatus = useMemo(() => {
     return STATUSES.reduce((acc, status) => {
@@ -217,6 +238,9 @@ export function KanbanBoard() {
           <h1>Kanban Board{project ? ` - ${project}` : ''}</h1>
           <div className="kanban-board-header-actions">
             <AddTaskButton onClick={() => setShowTaskForm(true)} />
+            <button onClick={handleDeleteDone} className="delete-done-button">
+              Delete Done
+            </button>
             <button onClick={loadTasks} className="refresh-button">
               Refresh
             </button>

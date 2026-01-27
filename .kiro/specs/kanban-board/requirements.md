@@ -149,7 +149,7 @@ The Kanban Board feature transforms project-tracker from a read-only dashboard i
 4. WHEN parsing "- [~] Task" or tasks with 🔄 marker, THE Migration_Tool SHALL set status to In Progress
 5. WHEN parsing "- [x] Task", THE Migration_Tool SHALL set status to Done
 6. THE Migration_Tool SHALL verify import counts match source file counts
-7. WHEN migration completes successfully, THE Migration_Tool SHALL archive TODO.md files
+7. WHEN migration completes successfully, THE Migration_Tool SHALL delete TODO.md files
 
 ### Requirement 12: Productivity Insights
 

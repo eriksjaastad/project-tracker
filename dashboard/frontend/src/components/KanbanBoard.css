@@ -80,6 +80,22 @@
   border-color: var(--accent-soft);
 }
 
+.delete-done-button {
+  background: var(--surface);
+  color: #e57373;
+  border: 1px solid rgba(229, 115, 115, 0.3);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.delete-done-button:hover {
+  background: rgba(229, 115, 115, 0.1);
+  border-color: rgba(229, 115, 115, 0.5);
+}
+
 .kanban-board-content {
   display: flex;
   gap: var(--space-xl);

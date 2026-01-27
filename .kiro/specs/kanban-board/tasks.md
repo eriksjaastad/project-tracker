@@ -502,16 +502,16 @@ This implementation plan breaks down the Kanban Board feature into discrete, inc
     - Verify task count in database matches source file
     - _Requirements: 11.6_
 
-  - [ ] 15.4 Implement file archival
-    - Move TODO.md to .archive/ directory after migration
+  - [ ] 15.4 Implement file deletion after migration
+    - Delete TODO.md after successful migration
     - Verify file no longer in original location
     - _Requirements: 11.7_
 
-  - [ ] 15.5 Write property test for migration file archival
-    - **Property 21: Migration File Archival**
+  - [ ] 15.5 Write property test for migration file deletion
+    - **Property 21: Migration File Deletion**
     - **Validates: Requirements 11.7**
     - Run migration on TODO.md files
-    - Verify files moved to archive
+    - Verify files deleted
     - Verify files not in original location
     - _Requirements: 11.7_
 

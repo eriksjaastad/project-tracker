@@ -69,7 +69,7 @@ def check_doc_ratio(project_root: pathlib.Path) -> tuple:
     Returns: (ratio, severity) where severity is None if healthy, P2 if warning, P1 if critical
     """
     code_extensions = ['*.py', '*.js', '*.ts', '*.jsx', '*.tsx', '*.go', '*.rs', '*.java', '*.rb']
-    skip_dirs = ['venv', '.venv', 'node_modules', '.git', '__pycache__', 'archives', '_trash']
+    skip_dirs = ['venv', '.venv', 'node_modules', '.git', '__pycache__']
 
     code_lines = 0
     doc_lines = 0
@@ -102,7 +102,7 @@ def check_doc_ratio(project_root: pathlib.Path) -> tuple:
     ratio = doc_lines / code_lines
 
     if ratio > 5.0:
-        return (ratio, Severity.P1)  # Extreme bloat - likely an error
+        return (ratio, Severity.P2)  # Extreme bloat - warning only
     elif ratio > 0.5:
         return (ratio, Severity.P2)  # Warning - docs > 50% of code
     elif ratio > 0.2:
@@ -129,39 +129,31 @@ def check_dangerous_functions(project_root: pathlib.Path) -> list:
     # Simple walk and check to avoid external dependency for basic audit
     for file_path in project_root.rglob('*'):
         # Skip certain directories (including .venv)
-        if any(part in file_path.parts for part in ['venv', '.venv', 'node_modules', '.git', '__pycache__', '_trash', 'archives']):
+        if any(part in file_path.parts for part in ['venv', '.venv', 'node_modules', '.git', '__pycache__']):
             continue
             
-        if file_path.name == 'warden_audit.py' or file_path.name == 'validate_project.py': # Exclude self and validator
+        if file_path.name == 'warden_audit.py' or file_path.name == 'validate_project.py':
             continue
 
-        # Files that document rules about paths (contain examples, not violations)
-        rule_docs = {'AGENTS.md', 'REVIEWS_AND_GOVERNANCE_PROTOCOL.md', 'GOVERNANCE.md',
-                     'CODE_REVIEW.md', 'LEARNINGS.md', 'instructions.md'}
-        if file_path.name in rule_docs:
-            continue  # Skip governance docs that discuss path rules
-
-        # Code files: check both dangerous functions and hardcoded paths
-        # Docs/markdown: only check hardcoded paths (rm mentions are often examples)
         is_code_file = file_path.suffix in ['.py', '.sh', '.js', '.ts']
-        is_doc_file = file_path.suffix in ['.md']
-        
-        if not (is_code_file or is_doc_file):
+        is_markdown_file = file_path.suffix == '.md'
+
+        if not (is_code_file or is_markdown_file):
             continue
 
-        # Determine if test file
         is_test_file = 'test' in file_path.parts or file_path.name.startswith('test_')
 
         try:
             with file_path.open('r') as f:
                 content = f.read()
-                
-                # Check hardcoded paths in all files
+
+                # Hardcoded paths: P1 in code, P2 in markdown
                 for pattern in hardcoded_path_patterns:
                     if pattern in content:
-                        found_issues.append((file_path, pattern, Severity.P1))
-                
-                # Check dangerous functions only in code files
+                        severity = Severity.P1 if is_code_file else Severity.P2
+                        found_issues.append((file_path, pattern, severity))
+
+                # Dangerous functions: only check code files
                 if is_code_file:
                     for pattern in dangerous_code_patterns:
                         if pattern in content:
@@ -205,14 +197,12 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
                 # ripgrep: --type for multiple types, exclude directories
                 cmd = ['rg', '--type', 'py', '--type', 'sh', '--type', 'js', '--type', 'ts',
                        '--glob', '!.venv/', '--glob', '!venv/', '--glob', '!node_modules/',
-                       '--glob', '!archives/', '--glob', '!_trash/',
                        '-l', pattern, str(project_root)]
             else:
                 # grep: -r (recursive), -l (files), --include (code files), --exclude-dir
-                cmd = ['grep', '-r', '-l',
+                cmd = ['grep', '-r', '-l', 
                        '--include=*.py', '--include=*.sh', '--include=*.js', '--include=*.ts',
                        '--exclude-dir=venv', '--exclude-dir=.venv', '--exclude-dir=node_modules',
-                       '--exclude-dir=archives', '--exclude-dir=_trash',
                        pattern, str(project_root)]
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=2, check=False)
@@ -233,35 +223,30 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
         except Exception as e:
             logger.warning(f"Fast scan error: {e}")
     
-    # Check hardcoded paths in all files (code and docs)
+    # Check hardcoded paths: P1 in code files, P2 in markdown
     for pattern in hardcoded_path_patterns:
         try:
             if grep_cmd == 'rg':
                 cmd = ['rg', '--type', 'py', '--type', 'sh', '--type', 'js', '--type', 'ts', '--type', 'md',
                        '--glob', '!.venv/', '--glob', '!venv/', '--glob', '!node_modules/',
-                       '--glob', '!archives/', '--glob', '!_trash/',
                        '-l', pattern, str(project_root)]
             else:
                 cmd = ['grep', '-r', '-l',
                        '--include=*.py', '--include=*.sh', '--include=*.js', '--include=*.ts', '--include=*.md',
                        '--exclude-dir=venv', '--exclude-dir=.venv', '--exclude-dir=node_modules',
-                       '--exclude-dir=archives', '--exclude-dir=_trash',
                        pattern, str(project_root)]
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=2, check=False)
 
             if result.returncode == 0:
-                # Files that document rules about paths (contain examples, not violations)
-                rule_docs = {'AGENTS.md', 'REVIEWS_AND_GOVERNANCE_PROTOCOL.md', 'GOVERNANCE.md',
-                             'CODE_REVIEW.md', 'LEARNINGS.md', 'instructions.md'}
                 for file_path in result.stdout.strip().split('\n'):
                     if file_path:
                         path_obj = pathlib.Path(file_path)
                         if path_obj.name == 'warden_audit.py' or path_obj.name == 'validate_project.py':
                             continue
-                        if path_obj.name in rule_docs:
-                            continue  # Skip governance docs that discuss path rules
-                        found_issues.append((path_obj, pattern, Severity.P1))
+                        # P1 for code, P2 for markdown
+                        severity = Severity.P1 if path_obj.suffix in ['.py', '.sh', '.js', '.ts'] else Severity.P2
+                        found_issues.append((path_obj, pattern, severity))
 
         except subprocess.TimeoutExpired:
             logger.warning(f"Fast scan timeout for pattern: {pattern}")
@@ -281,8 +266,8 @@ def run_audit(root_dir: pathlib.Path, use_fast: bool = False) -> bool:
     
     # Find all project roots by looking for 00_Index_*.md files
     for index_path in root_dir.rglob('00_Index_*.md'):
-        # Skip indices in templates or archives
-        if any(part in index_path.parts for part in ['templates', 'archives', 'venv', '.git']):
+        # Skip indices in templates
+        if any(part in index_path.parts for part in ['templates', 'venv', '.git']):
             continue
             
         projects_found += 1

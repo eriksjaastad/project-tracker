@@ -1,12 +1,4 @@
-venv/
-__pycache__/
-*.db
-logs/
-.git/
-
-
-<!-- project-scaffolding template appended -->
-
+<!-- SCAFFOLD:START - Do not edit between markers -->
 # Dependencies & Packages
 node_modules/
 venv/
@@ -33,3 +25,11 @@ build/
 .idea/
 .cursor/
 
+
+<!-- SCAFFOLD:END - Custom content below is preserved -->
+
+venv/
+__pycache__/
+*.db
+logs/
+.git/

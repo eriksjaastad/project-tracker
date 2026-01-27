@@ -682,8 +682,8 @@ Property 20: Migration Completeness
 *For any* TODO.md file, after migration, the number of tasks in the database should equal the number of task items in the source file
 **Validates: Requirements 11.6**
 
-Property 21: Migration File Archival
-*For any* TODO.md file, after successful migration, the file should be moved to an archive location and no longer exist in its original location
+Property 21: Migration File Deletion
+*For any* TODO.md file, after successful migration, the file should be deleted and no longer exist in its original location
 **Validates: Requirements 11.7**
 
 Property 22: Graph Project Filtering

@@ -137,7 +137,7 @@ def validate_dna_integrity(project_path: Path) -> List[str]:
     # Files to exclude from scan
     exclude_dirs = {
         ".git", "venv", ".venv", "__pycache__", "node_modules", "data",
-        "library", ".mypy_cache", ".pytest_cache", ".ruff_cache", "archives", "_trash",
+        "library", ".mypy_cache", ".pytest_cache", ".ruff_cache",
         "htmlcov", ".tox", ".nox", ".cache", "logs", "recovered", "cursor_history",
         "entries", "insights"
     }
@@ -254,7 +254,7 @@ def validate_project(project_path: Path, verbose: bool = True) -> bool:
     
     for root, dirs, files in os.walk(project_path):
         # Filter directories in-place
-        dirs[:] = [d for d in dirs if d not in {"venv", ".venv", "__pycache__", "node_modules", ".git", "_trash", "archives"}]
+        dirs[:] = [d for d in dirs if d not in {"venv", ".venv", "__pycache__", "node_modules", ".git"}]
         
         rel_root = Path(root).relative_to(project_path)
         is_in_skip_dir = any(part in placeholder_skip_dirs for part in rel_root.parts)

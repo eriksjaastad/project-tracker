@@ -57,7 +57,7 @@ This document serves as the index for the Project Tracker, providing a high-leve
     *   Setup guides
     *   Metric definitions
     *   Architecture & Operations docs
-    *   Integrated Archives & Planning history
+    *   Planning history
 
 ### 4. Configuration
 
