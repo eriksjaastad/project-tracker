@@ -15,13 +15,13 @@ async function fetchWithErrorHandling(
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const response = await fetch(url, options);
-      
+
       // Retry on 5xx errors
       if (response.status >= 500 && attempt < retries - 1) {
         await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
         continue;
       }
-      
+
       return response;
     } catch (error) {
       if (attempt === retries - 1) {
@@ -30,7 +30,7 @@ async function fetchWithErrorHandling(
       await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
     }
   }
-  
+
   throw new Error('Failed to fetch after retries');
 }
 
@@ -38,17 +38,17 @@ export async function fetchTasks(projectId?: string, status?: TaskStatus): Promi
   const params = new URLSearchParams();
   if (projectId) params.append('project_id', projectId);
   if (status) params.append('status', status);
-  
+
   const url = `${API_BASE}/tasks${params.toString() ? '?' + params.toString() : ''}`;
-  
+
   try {
     const response = await fetchWithErrorHandling(url);
-    
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || errorData.detail || `Failed to fetch tasks: ${response.statusText}`);
     }
-    
+
     const data = await response.json();
     return data.tasks || [];
   } catch (error) {
@@ -61,7 +61,7 @@ export async function fetchTasks(projectId?: string, status?: TaskStatus): Promi
 
 export async function updateTask(
   taskId: number,
-  updates: { text?: string; status?: TaskStatus; priority?: TaskPriority | null }
+  updates: { text?: string; title?: string | null; notes?: string | null; commit_sha?: string | null; category?: string | null; status?: TaskStatus; priority?: TaskPriority | null }
 ): Promise<Task> {
   try {
     const response = await fetchWithErrorHandling(`${API_BASE}/tasks/${taskId}`, {
@@ -71,12 +71,12 @@ export async function updateTask(
       },
       body: JSON.stringify(updates),
     });
-    
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || errorData.detail || `Failed to update task: ${response.statusText}`);
     }
-    
+
     return response.json();
   } catch (error) {
     if (error instanceof Error) {
@@ -105,12 +105,12 @@ export async function createTask(
         priority,
       }),
     });
-    
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || errorData.detail || `Failed to create task: ${response.statusText}`);
     }
-    
+
     return response.json();
   } catch (error) {
     if (error instanceof Error) {
@@ -166,12 +166,12 @@ export async function deleteDoneTasks(projectId?: string): Promise<{ deleted: nu
 export async function fetchProjects(): Promise<any[]> {
   try {
     const response = await fetchWithErrorHandling(`${API_BASE}/projects`);
-    
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || errorData.detail || `Failed to fetch projects: ${response.statusText}`);
     }
-    
+
     const data = await response.json();
     return data.projects || [];
   } catch (error) {
@@ -186,17 +186,17 @@ export async function fetchTaskHistory(days: number = 30, projectId?: string): P
   const params = new URLSearchParams();
   params.append('days', days.toString());
   if (projectId) params.append('project_id', projectId);
-  
+
   const url = `${API_BASE}/tasks/history?${params.toString()}`;
-  
+
   try {
     const response = await fetchWithErrorHandling(url);
-    
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || errorData.detail || `Failed to fetch history: ${response.statusText}`);
     }
-    
+
     return response.json();
   } catch (error) {
     if (error instanceof Error) {

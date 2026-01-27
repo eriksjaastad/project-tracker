@@ -1,20 +1,13 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import './Navigation.css';
 
 export function Navigation() {
-  const location = useLocation();
-
   return (
     <nav className="navigation">
       <div className="navigation-container">
-        <NavLink
-          to="/"
-          className={({ isActive }) =>
-            `nav-link ${isActive || location.pathname === '/dashboard' ? 'active' : ''}`
-          }
-        >
+        <a href="/" className="nav-link">
           Dashboard
-        </NavLink>
+        </a>
         <NavLink
           to="/kanban"
           className={({ isActive }) =>

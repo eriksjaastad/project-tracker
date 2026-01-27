@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,12 +9,15 @@
     <link rel="stylesheet" href="/static/graph.css">
     <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
+
 <body class="graph-page">
+    <!-- Navigation -->
+    {% include 'partials/nav.html' %}
+
     <header>
         <div class="header-content">
             <h1>🕸️ Knowledge Graph</h1>
             <div class="header-actions">
-                <a href="/" class="btn-secondary">🔙 Dashboard</a>
                 <button onclick="rebuildGraph()" class="btn-refresh">🔄 Rebuild Data</button>
             </div>
         </div>
@@ -60,7 +64,7 @@
             </div>
 
             <svg id="graph-svg"></svg>
-            
+
             <div id="node-details" class="details-panel hidden">
                 <button class="close-btn" onclick="closeDetails()">&times;</button>
                 <h3 id="details-name">Select a node</h3>
@@ -91,4 +95,5 @@
 
     <script src="/static/graph.js"></script>
 </body>
+
 </html>

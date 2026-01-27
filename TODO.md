@@ -1,3 +1,4 @@
+
 <!-- SCAFFOLD:START - Do not edit between markers -->
 # project-tracker - TODO
 
@@ -66,7 +67,6 @@
 *Source: project-scaffolding/templates/TODO.md.template*
 
 <!-- SCAFFOLD:END - Custom content below is preserved -->
-
 ---
 tags:
   - p/project-tracker

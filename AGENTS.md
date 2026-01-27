@@ -1,3 +1,4 @@
+
 <!-- SCAFFOLD:START - Do not edit between markers -->
 # AGENTS.md - Ecosystem Constitution (SSOT)
 
@@ -239,6 +240,20 @@ See: `agent-skills-library/playbooks/staged-prompt-engineering/` for templates.
 - ALWAYS update `EXTERNAL_RESOURCES.yaml` when adding external services
 - ALWAYS use retry logic and cost tracking for API calls
 
+### 🔐 DATABASE SAFETY (CRITICAL)
+
+**No agent may execute DROP, TRUNCATE, or DELETE without explicit human approval in that session.**
+
+This rule exists because of the 2026-01-27 incident where 94 tasks were lost to an auto-migration.
+
+- **Detection ≠ Execution:** The AI that detects a schema problem must NOT automatically fix it
+- **Destructive operations require:**
+  1. Automatic backup BEFORE the operation (enforced by code)
+  2. Explicit human confirmation in the current session
+  3. Audit log entry documenting the action
+- **If schema is incompatible:** Print instructions and REFUSE. Never auto-fix.
+- **Safe operations only:** Migrations must be ADDITIVE (ALTER TABLE ADD COLUMN)
+
 ---
 
 ## 🛡️ Safety & File Operations (UNIVERSAL)
@@ -430,4 +445,3 @@ Cross-project resources (relative paths from project root):
 - [Project Scaffolding](../project-scaffolding/README.md) - This scaffolding system
 
 <!-- SCAFFOLD:END - Custom content below is preserved -->
-

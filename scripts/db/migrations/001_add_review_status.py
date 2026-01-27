@@ -2,13 +2,15 @@
 """
 Migration script to add 'Review' status to tasks table.
 
-This script handles the database migration by:
-1. Creating a backup of the tasks table
-2. Dropping the old tasks table (and task_history due to FK)
-3. Recreating both tables with the new schema (including 'Review')
-4. Restoring all data from the backup
+DEPRECATED: This migration is no longer needed - the 'Review' status is now
+included in the base schema. This file is kept for historical reference only.
 
-Run this script before using the updated CLI/dashboard.
+DO NOT RUN THIS SCRIPT - it contains destructive operations.
+
+If you need to add 'Review' status to an old database:
+1. Export tasks: ./pt tasks export
+2. Backup database: cp data/tracker.db data/tracker.db.backup
+3. The schema.py will handle additive migrations safely
 """
 
 import sqlite3
@@ -20,7 +22,23 @@ from datetime import datetime
 DATABASE_PATH = Path(__file__).parent.parent.parent / "tracker.db"
 
 def migrate_add_review_status():
-    """Migrate database to include 'Review' status in tasks."""
+    """Migrate database to include 'Review' status in tasks.
+
+    DEPRECATED: This function should NOT be run. See module docstring.
+    """
+    print("❌ MIGRATION BLOCKED")
+    print("   This migration script is deprecated and contains destructive operations.")
+    print("   The 'Review' status is now part of the base schema.")
+    print("")
+    print("   If you need to migrate an old database:")
+    print("   1. Export: ./pt tasks export")
+    print("   2. Backup: cp data/tracker.db data/tracker.db.backup")
+    print("   3. Run: ./pt scan (schema.py handles safe migrations)")
+    print("")
+    print("   To force run this (DANGEROUS), edit this file and remove the safety block.")
+    sys.exit(1)
+
+    # SAFETY BLOCK - code below will not execute
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()

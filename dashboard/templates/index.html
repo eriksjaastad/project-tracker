@@ -10,6 +10,9 @@
 </head>
 
 <body>
+    <!-- Navigation -->
+    {% include 'partials/nav.html' %}
+
     <header>
         <div class="header-content">
             <h1>📊 Project Dashboard</h1>
@@ -24,8 +27,6 @@
                     </span>
                 </div>
                 <span class="project-count">{{ total_projects }} projects</span>
-                <a href="/kanban" class="btn-secondary">📋 Kanban</a>
-                <a href="/graph" class="btn-secondary">🕸️ Graph</a>
                 <button onclick="refreshData()" class="btn-refresh">🔄 Refresh</button>
             </div>
         </div>
@@ -40,6 +41,35 @@
     {% endif %}
 
     <main>
+        <!-- Outdated Projects Section -->
+        {% if outdated_count > 0 or unscaffolded_count > 0 %}
+        <div class="alerts-section" style="border-left-color: #ff9800;">
+            <div class="alerts-header">
+                <h2>🔧 Scaffolding Updates Needed</h2>
+                <span class="alerts-count">
+                    {{ outdated_count }} outdated, {{ unscaffolded_count }} not scaffolded
+                </span>
+            </div>
+            <div class="alerts-grid">
+                {% for project in outdated_projects %}
+                <a href="/project/{{ project.id }}" class="alert-item alert-warning">
+                    <span class="alert-icon-small">⚠️</span>
+                    <span class="alert-project-name">{{ project.name }}</span>
+                    <span class="alert-msg">v{{ project.scaffolding_version }} → v{{ current_scaffolding_version
+                        }}</span>
+                </a>
+                {% endfor %}
+                {% for project in unscaffolded_projects %}
+                <a href="/project/{{ project.id }}" class="alert-item alert-warning">
+                    <span class="alert-icon-small">❌</span>
+                    <span class="alert-project-name">{{ project.name }}</span>
+                    <span class="alert-msg">Not scaffolded</span>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         {% if alerts %}
         <div class="alerts-section">
             <div class="alerts-header">
@@ -242,6 +272,19 @@
                     {% endif %}
 
                     <div class="meta-row space-between">
+                        <span class="meta-label">Scaffolding:</span>
+                        <span class="meta-value">
+                            {% if project.version_status == 'outdated' %}
+                            <span style="color: #ff9800;">⚠️ v{{ project.scaffolding_version }}</span>
+                            {% elif project.version_status == 'unscaffolded' %}
+                            <span style="color: #888;">❌ Not scaffolded</span>
+                            {% elif project.version_status == 'current' %}
+                            <span style="color: #4caf50;">✓ v{{ project.scaffolding_version }}</span>
+                            {% endif %}
+                        </span>
+                    </div>
+
+                    <div class="meta-row space-between">
                         <span class="meta-label">Last work:</span>
                         <span class="meta-value">{{ project.last_modified_human }}</span>
                     </div>
@@ -421,7 +464,8 @@
 
                 <div class="project-actions">
                     <a href="/project/{{ project.id }}" class="btn btn-secondary">Details</a>
-                    <a href="/kanban/{{ project.id }}" class="btn btn-primary">📋 {{ project.task_count|default(0) }} Tasks</a>
+                    <a href="/kanban/{{ project.id }}" class="btn btn-primary">📋 {{ project.task_count|default(0) }}
+                        Tasks</a>
                     {% if not project.has_index %}
                     <button onclick="createIndex('{{ project.id }}')" class="btn btn-warning"
                         id="btn-index-{{ project.id }}">Create Index</button>

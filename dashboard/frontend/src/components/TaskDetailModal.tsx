@@ -18,6 +18,10 @@ export function TaskDetailModal({
 }: TaskDetailModalProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState('');
+  const [editedTitle, setEditedTitle] = useState('');
+  const [editedNotes, setEditedNotes] = useState('');
+  const [editedCommitSha, setEditedCommitSha] = useState('');
+  const [editedCategory, setEditedCategory] = useState('');
   const [editedStatus, setEditedStatus] = useState<TaskStatus>('Backlog');
   const [editedPriority, setEditedPriority] = useState<TaskPriority | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -31,6 +35,10 @@ export function TaskDetailModal({
   useEffect(() => {
     if (task) {
       setEditedText(task.text);
+      setEditedTitle(task.title || '');
+      setEditedNotes(task.notes || '');
+      setEditedCommitSha(task.commit_sha || '');
+      setEditedCategory(task.category || '');
       setEditedStatus(task.status);
       setEditedPriority(task.priority);
       setIsEditing(false);
@@ -74,6 +82,10 @@ export function TaskDetailModal({
     try {
       await updateTask(task.id, {
         text: editedText.trim(),
+        title: editedTitle.trim() || null,
+        notes: editedNotes.trim() || null,
+        commit_sha: editedCommitSha.trim() || null,
+        category: editedCategory.trim() || null,
         status: editedStatus,
         priority: editedPriority,
       });
@@ -88,6 +100,10 @@ export function TaskDetailModal({
 
   const handleCancel = () => {
     setEditedText(task.text);
+    setEditedTitle(task.title || '');
+    setEditedNotes(task.notes || '');
+    setEditedCommitSha(task.commit_sha || '');
+    setEditedCategory(task.category || '');
     setEditedStatus(task.status);
     setEditedPriority(task.priority);
     setIsEditing(false);
@@ -171,6 +187,21 @@ export function TaskDetailModal({
             <>
               <div className="task-detail-field">
                 <label className="task-detail-label">
+                  Title (short name for card)
+                </label>
+                <input
+                  type="text"
+                  className="task-detail-select"
+                  value={editedTitle}
+                  onChange={(e) => setEditedTitle(e.target.value)}
+                  placeholder="Optional short title..."
+                  maxLength={100}
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="task-detail-field">
+                <label className="task-detail-label">
                   Task Description <span className="required">*</span>
                 </label>
                 <textarea
@@ -184,6 +215,35 @@ export function TaskDetailModal({
                 <div className="task-detail-char-count">
                   {editedText.length} / 1000 characters
                 </div>
+              </div>
+
+              <div className="task-detail-field">
+                <label className="task-detail-label">
+                  Notes (internal)
+                </label>
+                <textarea
+                  className="task-detail-textarea"
+                  value={editedNotes}
+                  onChange={(e) => setEditedNotes(e.target.value)}
+                  rows={4}
+                  placeholder="Optional notes, context, or comments..."
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="task-detail-field">
+                <label className="task-detail-label">
+                  Commit SHA / PR Link
+                </label>
+                <input
+                  type="text"
+                  className="task-detail-select"
+                  value={editedCommitSha}
+                  onChange={(e) => setEditedCommitSha(e.target.value)}
+                  placeholder="Optional commit hash or PR URL..."
+                  disabled={loading}
+                  style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}
+                />
               </div>
 
               <div className="task-detail-row">
@@ -227,14 +287,47 @@ export function TaskDetailModal({
                     ))}
                   </select>
                 </div>
+
+                <div className="task-detail-field">
+                  <label className="task-detail-label">Category</label>
+                  <input
+                    type="text"
+                    className="task-detail-select"
+                    value={editedCategory}
+                    onChange={(e) => setEditedCategory(e.target.value)}
+                    placeholder="e.g. ui, api, database..."
+                    disabled={loading}
+                  />
+                </div>
               </div>
             </>
           ) : (
             <>
+              {task.title && (
+                <div className="task-detail-field">
+                  <label className="task-detail-label">Title</label>
+                  <div className="task-detail-value">{task.title}</div>
+                </div>
+              )}
+
               <div className="task-detail-field">
                 <label className="task-detail-label">Task Description</label>
                 <div className="task-detail-text">{task.text}</div>
               </div>
+
+              {task.notes && (
+                <div className="task-detail-field">
+                  <label className="task-detail-label">Notes</label>
+                  <div className="task-detail-text">{task.notes}</div>
+                </div>
+              )}
+
+              {task.prompt && (
+                <div className="task-detail-field">
+                  <label className="task-detail-label">Agent Prompt</label>
+                  <div className="task-detail-prompt">{task.prompt}</div>
+                </div>
+              )}
 
               <div className="task-detail-row">
                 <div className="task-detail-field">
@@ -270,74 +363,94 @@ export function TaskDetailModal({
                   </div>
                 </div>
 
-                <div className="task-detail-field">
-                  <label className="task-detail-label">Created</label>
-                  <div className="task-detail-value">
-                    {formatDate(task.created_at)}
+                {task.category && (
+                  <div className="task-detail-field">
+                    <label className="task-detail-label">Category</label>
+                    <div className="task-detail-value">
+                      <span className="task-detail-category-badge">
+                        {task.category}
+                      </span>
+                    </div>
                   </div>
+                )}
+              </div>
+
+              <div className="task-detail-field">
+                <label className="task-detail-label">Created</label>
+                <div className="task-detail-value">
+                  {formatDate(task.created_at)}
                 </div>
               </div>
 
               {task.updated_at !== task.created_at && (
-                <div className="task-detail-field">
-                  <label className="task-detail-label">Last Updated</label>
-                  <div className="task-detail-value">
-                    {formatDate(task.updated_at)}
-                  </div>
-                </div>
-              )}
-
-              {task.completed_at && (
-                <div className="task-detail-field">
-                  <label className="task-detail-label">Completed</label>
-                  <div className="task-detail-value">
-                    {formatDate(task.completed_at)}
-                  </div>
-                </div>
-              )}
-            </>
+            <div className="task-detail-field">
+              <label className="task-detail-label">Last Updated</label>
+              <div className="task-detail-value">
+                {formatDate(task.updated_at)}
+              </div>
+            </div>
           )}
-        </div>
 
-        <div className="task-detail-modal-actions">
-          {isEditing ? (
-            <>
-              <button
-                className="task-detail-button task-detail-button-cancel"
-                onClick={handleCancel}
-                disabled={loading}
-              >
-                Cancel
-              </button>
-              <button
-                className="task-detail-button task-detail-button-save"
-                onClick={handleSave}
-                disabled={loading || !editedText.trim()}
-              >
-                {loading ? 'Saving...' : 'Save Changes'}
-              </button>
-            </>
-          ) : (
-            <>
-              {onDelete && (
-                <button
-                  className="task-detail-button task-detail-button-delete"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                >
-                  {deleting ? 'Deleting...' : 'Delete Task'}
-                </button>
-              )}
-              <button
-                className="task-detail-button task-detail-button-edit"
-                onClick={() => setIsEditing(true)}
-              >
-                Edit Task
-              </button>
-            </>
+          {task.completed_at && (
+            <div className="task-detail-field">
+              <label className="task-detail-label">Completed</label>
+              <div className="task-detail-value">
+                {formatDate(task.completed_at)}
+              </div>
+            </div>
           )}
-        </div>
+
+          {task.commit_sha && (
+            <div className="task-detail-field">
+              <label className="task-detail-label">Commit/PR</label>
+              <div className="task-detail-value" style={{ fontFamily: 'monospace' }} title={task.commit_sha}>
+                {task.commit_sha.substring(0, 12)}
+              </div>
+            </div>
+          )}
+        </>
+          )}
       </div>
-    </div>
+
+      <div className="task-detail-modal-actions">
+        {isEditing ? (
+          <>
+            <button
+              className="task-detail-button task-detail-button-cancel"
+              onClick={handleCancel}
+              disabled={loading}
+            >
+              Cancel
+            </button>
+            <button
+              className="task-detail-button task-detail-button-save"
+              onClick={handleSave}
+              disabled={loading || !editedText.trim()}
+            >
+              {loading ? 'Saving...' : 'Save Changes'}
+            </button>
+          </>
+        ) : (
+          <>
+            {onDelete && (
+              <button
+                className="task-detail-button task-detail-button-delete"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting...' : 'Delete Task'}
+              </button>
+            )}
+            <button
+              className="task-detail-button task-detail-button-edit"
+              onClick={() => setIsEditing(true)}
+            >
+              Edit Task
+            </button>
+          </>
+        )}
+      </div>
+    </div >
+    </div >
   );
 }
