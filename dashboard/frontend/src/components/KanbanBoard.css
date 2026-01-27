@@ -1,0 +1,126 @@
+.kanban-board {
+  padding: var(--space-xl);
+  min-height: calc(100vh - 60px);
+  background: var(--bg);
+  color: #e0e0e0;
+}
+
+.kanban-board-loading {
+  padding: var(--space-xl);
+  min-height: calc(100vh - 60px);
+}
+
+.kanban-board-loading-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
+  color: var(--muted);
+}
+
+.kanban-board-skeleton {
+  display: flex;
+  gap: var(--space-xl);
+  overflow-x: auto;
+}
+
+.column-skeleton {
+  min-width: 300px;
+  background: var(--surface);
+  border-radius: 8px;
+  padding: var(--space-md);
+}
+
+.column-skeleton-header {
+  margin-bottom: var(--space-md);
+}
+
+.column-skeleton-header h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.kanban-board-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-xl);
+}
+
+.kanban-board-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.kanban-board-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.refresh-button {
+  background: var(--surface);
+  color: #e0e0e0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.refresh-button:hover {
+  background: var(--surface-alt);
+  border-color: var(--accent-soft);
+}
+
+.kanban-board-content {
+  display: flex;
+  gap: var(--space-xl);
+  overflow-x: auto;
+  padding-bottom: var(--space-lg);
+}
+
+.kanban-board-content::-webkit-scrollbar {
+  height: 8px;
+}
+
+.kanban-board-content::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+.kanban-board-content::-webkit-scrollbar-thumb {
+  background: var(--surface-alt);
+  border-radius: 4px;
+}
+
+.kanban-board-content::-webkit-scrollbar-thumb:hover {
+  background: var(--surface);
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-lg);
+}
+
+.modal-content {
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+}

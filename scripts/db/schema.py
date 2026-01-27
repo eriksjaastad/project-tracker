@@ -147,16 +147,29 @@ def create_database(db_path: Optional[Path] = None) -> None:
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             text TEXT NOT NULL,
-            status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Done')),
+            status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done')),
             project_id TEXT NOT NULL,
             priority TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL)),
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             completed_at TEXT,
+            prompt TEXT,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )
     """)
     
+    # Migration: add prompt column if it doesn't exist
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN prompt TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: add archived column for auto-archive feature
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN archived INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
     # Migration: ensure tasks table has all columns
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN completed_at TEXT")

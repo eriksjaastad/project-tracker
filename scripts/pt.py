@@ -242,48 +242,24 @@ def scan(
 
 @app.command(name="list")
 def list_projects():
-    """List all projects."""
+    """List all projects. AI-first: plain print(), no terminal width constraints."""
     db = DatabaseManager()
     projects = db.get_all_projects()
-    
+
     if not projects:
-        console.print("[yellow]No projects found. Run 'pt scan' first.[/yellow]")
+        print("No projects found. Run 'pt scan' first.")
         return
-    
-    # Create table
-    table = Table(title="Projects")
-    table.add_column("Name", style="cyan", no_wrap=True)
-    table.add_column("Status", style="green")
-    table.add_column("Phase")
-    table.add_column("Progress", justify="right")
-    table.add_column("Index", justify="center")
-    table.add_column("Last Modified")
-    
+
+    print("Projects\n")
     for project in projects:
-        # Format last modified
-        last_mod = project.get("last_modified", "unknown")
-        if last_mod and last_mod != "unknown":
-            # Just show date part
-            last_mod = last_mod.split("T")[0]
-            
         # Format index status
-        index_status = "-"
-        if project.get("has_index"):
-            index_status = "[green]✓[/green]" if project.get("index_is_valid") else "[yellow]![/yellow]"
-        else:
-            index_status = "[red]✗[/red]"
-        
-        table.add_row(
-            project["name"],
-            project["status"],
-            project.get("phase") or "-",
-            f"{project.get('completion_pct', 0)}%",
-            index_status,
-            last_mod
-        )
-    
-    console.print(table)
-    console.print(f"\n[bold]Total: {len(projects)} projects[/bold]")
+        idx = "✓" if project.get("has_index") and project.get("index_is_valid") else "!"
+        phase = project.get("phase") or "-"
+        pct = project.get("completion_pct", 0)
+
+        print(f"{project['name']} | {project['status']} | {phase} | {pct}% | {idx}")
+
+    print(f"\nTotal: {len(projects)} projects")
 
 
 @app.command()
@@ -491,7 +467,7 @@ def add_cron(project: str, schedule: str, command: str, description: str = ""):
 def add_service(project: str, service_name: str, cost: float = 0, purpose: str = ""):
     """Add a service dependency to a project."""
     db = DatabaseManager()
-    
+
     # Find project
     projects = db.get_all_projects()
     project_id = None
@@ -499,15 +475,346 @@ def add_service(project: str, service_name: str, cost: float = 0, purpose: str =
         if p["name"].lower() == project.lower():
             project_id = p["id"]
             break
-    
+
     if not project_id:
         console.print(f"[red]Project '{project}' not found[/red]")
         return
-    
+
     db.add_service(project_id, service_name, purpose, cost)
     console.print(f"[green]✅ Added service '{service_name}' to {project}[/green]")
 
 
+# -----------------------------------------------------------------------------
+# Tasks CLI (Pure Click for Python 3.14 compatibility)
+# -----------------------------------------------------------------------------
+
+import click
+
+def _display_tasks(task_list: list, project: str | None = None):
+    """Display tasks. AI-first: plain print(), no terminal width constraints."""
+    if not task_list:
+        filter_msg = f" for project '{project}'" if project else ""
+        print(f"No tasks found{filter_msg}.")
+        return
+
+    title = f"Tasks - {project}" if project else "Tasks"
+    print(f"{title}\n")
+
+    for task in task_list:
+        priority = task.get("priority") or "-"
+        status = task["status"]
+        task_id = task["id"]
+        task_text = task["text"]
+
+        # Plain print - no terminal width wrapping
+        if project:
+            print(f"#{task_id} | {status} | {priority} | {task_text}")
+        else:
+            print(f"#{task_id} | {task['project_id']} | {status} | {priority} | {task_text}")
+
+    # Summary
+    status_counts = {}
+    for task in task_list:
+        status_counts[task["status"]] = status_counts.get(task["status"], 0) + 1
+
+    summary_parts = [f"{s}: {status_counts[s]}" for s in ["Backlog", "To Do", "In Progress", "Review", "Done"] if s in status_counts]
+    print(f"\nTotal: {len(task_list)} tasks ({', '.join(summary_parts)})")
+
+
+def _resolve_project_id(db: DatabaseManager, project: str | None) -> str | None:
+    """Resolve project name to project_id, returns None if not found or not specified."""
+    if not project:
+        return None
+    projects = db.get_all_projects()
+    for p in projects:
+        if p["name"].lower() == project.lower() or p["id"].lower() == project.lower():
+            return p["id"]
+    return None
+
+
+def _detect_project_from_cwd(db: DatabaseManager) -> str | None:
+    """Auto-detect project from current working directory. AI-first: no flags needed."""
+    import os
+    cwd = os.getcwd()
+    dir_name = os.path.basename(cwd)
+    # Check if current directory name matches a known project
+    return _resolve_project_id(db, dir_name)
+
+
+@click.group(name="tasks", invoke_without_command=True)
+@click.pass_context
+@click.option("-p", "--project", default=None, help="Filter by project name or ID")
+@click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Done)")
+@click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
+@click.option("--archived", is_flag=True, help="Include archived tasks (Done > 7 days)")
+def tasks_group(ctx, project, status, show_all, archived):
+    """Manage Kanban board tasks.
+
+    \b
+    Examples:
+        ./pt tasks                       # Show open tasks (all projects)
+        ./pt tasks -p project-tracker    # Tasks for a specific project
+        ./pt tasks -s "In Progress"      # Filter by status
+        ./pt tasks --all                 # Include completed tasks
+        ./pt tasks --archived            # Include archived tasks
+        ./pt tasks create "Fix bug" -p myproject
+    """
+    # If a subcommand is invoked, don't run the default list behavior
+    if ctx.invoked_subcommand is not None:
+        return
+
+    # Default behavior: list tasks
+    db = DatabaseManager()
+    project_id = _resolve_project_id(db, project)
+
+    if project and not project_id:
+        console.print(f"[red]Project '{project}' not found[/red]")
+        return
+
+    task_list = db.get_tasks(project_id=project_id, status=status, include_archived=archived)
+
+    # Filter out Done unless --all or specific status
+    if not show_all and not status:
+        task_list = [t for t in task_list if t["status"] != "Done"]
+
+    _display_tasks(task_list, project)
+
+
+@tasks_group.command(name="list")
+@click.option("-p", "--project", default=None, help="Filter by project name or ID")
+@click.option("-s", "--status", default=None, help="Filter by status")
+@click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
+@click.option("--archived", is_flag=True, help="Include archived tasks (Done > 7 days)")
+def tasks_list(project, status, show_all, archived):
+    """List tasks from the Kanban board."""
+    db = DatabaseManager()
+    project_id = _resolve_project_id(db, project)
+
+    if project and not project_id:
+        console.print(f"[red]Project '{project}' not found[/red]")
+        return
+
+    task_list = db.get_tasks(project_id=project_id, status=status, include_archived=archived)
+
+    if not show_all and not status:
+        task_list = [t for t in task_list if t["status"] != "Done"]
+
+    _display_tasks(task_list, project)
+
+
+@tasks_group.command(name="create")
+@click.argument("text")
+@click.option("-p", "--project", default=None, help="Project ID or name (auto-detects from cwd)")
+@click.option("-s", "--status", default="Backlog", help="Initial status (default: Backlog)")
+@click.option("--priority", default=None, help="Priority: Critical, High, Medium, Low")
+@click.option("--prompt", default=None, help="Agent prompt (execution instructions for AI)")
+def tasks_create(text, project, status, priority, prompt):
+    """Create a new task. Auto-detects project from current directory.
+
+    \b
+    Examples:
+        ./pt tasks create "Fix login bug"
+        ./pt tasks create "Add tests" -p myproject -s "To Do" --priority High
+        ./pt tasks create "Refactor auth" --prompt "Overview: ... Execution: ... Done:"
+    """
+    db = DatabaseManager()
+
+    # Auto-detect project from cwd if not specified
+    if project:
+        project_id = _resolve_project_id(db, project)
+    else:
+        project_id = _detect_project_from_cwd(db)
+
+    if not project_id:
+        if project:
+            console.print(f"[red]Project '{project}' not found[/red]")
+        else:
+            console.print("[red]Could not auto-detect project from current directory. Use -p to specify.[/red]")
+        return
+
+    # Validate status
+    valid_statuses = ["Backlog", "To Do", "In Progress", "Review", "Done"]
+    if status not in valid_statuses:
+        console.print(f"[red]Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}[/red]")
+        return
+
+    # Validate priority if provided
+    valid_priorities = ["Critical", "High", "Medium", "Low", None]
+    if priority and priority not in valid_priorities:
+        console.print(f"[red]Invalid priority '{priority}'. Must be one of: Critical, High, Medium, Low[/red]")
+        return
+
+    try:
+        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=prompt)
+        console.print(f"[green]Created task #{task['id']}: {text[:50]}{'...' if len(text) > 50 else ''}[/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to create task: {e}[/red]")
+
+
+@tasks_group.command(name="update")
+@click.argument("task_id", type=int)
+@click.option("-s", "--status", default=None, help="New status")
+@click.option("-t", "--text", default=None, help="New task text")
+@click.option("--priority", default=None, help="New priority")
+@click.option("--prompt", default=None, help="Agent prompt (execution instructions for AI)")
+def tasks_update(task_id, status, text, priority, prompt):
+    """Update an existing task.
+
+    \b
+    Examples:
+        ./pt tasks update 42 -s "In Progress"
+        ./pt tasks update 42 -t "Updated description" --priority High
+        ./pt tasks update 42 --prompt "Overview: ... Execution: ... Done:"
+    """
+    db = DatabaseManager()
+
+    # Build updates dict
+    updates = {}
+    if status:
+        valid_statuses = ["Backlog", "To Do", "In Progress", "Review", "Done"]
+        if status not in valid_statuses:
+            console.print(f"[red]Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}[/red]")
+            return
+        updates["status"] = status
+    if text:
+        updates["text"] = text
+    if priority:
+        valid_priorities = ["Critical", "High", "Medium", "Low"]
+        if priority not in valid_priorities:
+            console.print(f"[red]Invalid priority '{priority}'. Must be one of: {', '.join(valid_priorities)}[/red]")
+            return
+        updates["priority"] = priority
+    if prompt:
+        updates["prompt"] = prompt
+
+    if not updates:
+        console.print("[yellow]No updates specified. Use -s, -t, --priority, or --prompt.[/yellow]")
+        return
+
+    try:
+        task = db.update_task(task_id, **updates)
+        console.print(f"[green]Updated task #{task_id}[/green]")
+
+        # Show what was updated
+        for key, value in updates.items():
+            console.print(f"  {key}: {value}")
+    except Exception as e:
+        console.print(f"[red]Failed to update task #{task_id}: {e}[/red]")
+
+
+@tasks_group.command(name="done")
+@click.argument("task_id", type=int)
+def tasks_done(task_id):
+    """Mark a task as Done.
+
+    \b
+    Example:
+        ./pt tasks done 42
+    """
+    db = DatabaseManager()
+
+    try:
+        task = db.get_task(task_id)
+        if not task:
+            console.print(f"[red]Task #{task_id} not found[/red]")
+            return
+        db.update_task(task_id, status="Done")
+        console.print(f"[green]Done:[/green] {task['text']}")
+    except Exception as e:
+        console.print(f"[red]Failed to complete task #{task_id}: {e}[/red]")
+
+
+@tasks_group.command(name="start")
+@click.argument("task_id", type=int)
+def tasks_start(task_id):
+    """Move a task to In Progress.
+
+    \b
+    Example:
+        ./pt tasks start 42
+    """
+    db = DatabaseManager()
+
+    try:
+        task = db.get_task(task_id)
+        if not task:
+            console.print(f"[red]Task #{task_id} not found[/red]")
+            return
+        db.update_task(task_id, status="In Progress")
+        console.print(f"[yellow]Started:[/yellow] {task['text']}")
+    except Exception as e:
+        console.print(f"[red]Failed to start task #{task_id}: {e}[/red]")
+
+
+@tasks_group.command(name="show")
+@click.argument("task_id", type=int)
+def tasks_show(task_id):
+    """Show full details of a task including prompt.
+
+    \b
+    Example:
+        ./pt tasks show 42
+    """
+    db = DatabaseManager()
+
+    try:
+        task = db.get_task(task_id)
+        if not task:
+            console.print(f"[red]Task #{task_id} not found[/red]")
+            return
+
+        # Print task details in plain text (AI-first)
+        print(f"Task #{task['id']}")
+        print(f"Project: {task['project_id']}")
+        print(f"Status: {task['status']}")
+        print(f"Priority: {task.get('priority') or 'None'}")
+        print(f"Created: {task['created_at']}")
+        print(f"Updated: {task['updated_at']}")
+        if task.get('completed_at'):
+            print(f"Completed: {task['completed_at']}")
+        print()
+        print("Description:")
+        print(task['text'])
+
+        if task.get('prompt'):
+            print()
+            print("Agent Prompt:")
+            print(task['prompt'])
+    except Exception as e:
+        console.print(f"[red]Failed to get task #{task_id}: {e}[/red]")
+
+
+@tasks_group.command(name="archive")
+@click.option("--days", default=7, help="Archive Done tasks older than N days (default: 7)")
+def tasks_archive(days):
+    """Manually archive old Done tasks.
+
+    \b
+    Tasks in Done status for more than N days are archived.
+    Archived tasks are hidden from normal views but preserved in the database.
+
+    \b
+    Examples:
+        ./pt tasks archive           # Archive Done tasks > 7 days old
+        ./pt tasks archive --days 14 # Archive Done tasks > 14 days old
+    """
+    db = DatabaseManager()
+
+    try:
+        archived_count = db.archive_old_done_tasks(days=days)
+        if archived_count > 0:
+            console.print(f"[green]Archived {archived_count} task(s) completed more than {days} days ago[/green]")
+        else:
+            console.print(f"[dim]No tasks to archive (none in Done > {days} days)[/dim]")
+    except Exception as e:
+        console.print(f"[red]Failed to archive tasks: {e}[/red]")
+
+
+# Register Click group with Typer app and create the combined CLI
+typer_click_object = typer.main.get_command(app)
+typer_click_object.add_command(tasks_group)
+
+
 if __name__ == "__main__":
-    app()
+    typer_click_object()
 

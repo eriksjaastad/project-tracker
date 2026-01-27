@@ -1,0 +1,415 @@
+"""Property-based tests for Kanban board database operations.
+
+Feature: kanban-board
+Properties tested:
+- Property 1: Task Creation Completeness
+- Property 2: Query Filtering Accuracy
+- Property 12: Secret Pattern Detection
+- Property 16: Project Validation
+"""
+
+import pytest
+import sqlite3
+import tempfile
+import re
+import html
+from pathlib import Path
+from typing import Optional, Dict, Any, List
+from datetime import datetime
+
+from hypothesis import given, strategies as st, assume, settings
+
+# Add scripts to path
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+
+from db.manager import DatabaseManager
+from db.schema import create_database
+
+
+# Secret patterns from design.md
+SECRET_PATTERNS = [
+    r'sk-[a-zA-Z0-9]{32,}',           # OpenAI keys
+    r'api[_-]?key[_-]?=\s*["\']?[\w-]+',  # Generic API keys
+    r'\d{3}-\d{2}-\d{4}',             # SSN format
+    r'[A-Z0-9]{20,}',                 # Generic long tokens
+    r'password\s*=\s*["\']?[\w-]+',   # Passwords
+]
+
+
+def contains_secret(text: str) -> tuple[bool, str]:
+    """Check if text contains secret patterns.
+    
+    Returns:
+        (is_secret, pattern_matched)
+    """
+    for pattern in SECRET_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return (True, pattern)
+    return (False, "")
+
+
+def _setup_fresh_database():
+    """Create a fresh database for each Hypothesis example.
+    
+    This function sets up a temporary database with schema and test projects.
+    Returns a tuple of (db_path, db_manager, project_ids).
+    """
+    # Create temporary database file
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+        db_path = Path(f.name)
+    
+    # Create database schema
+    create_database(db_path)
+    
+    # Add tasks and task_history tables (from design.md)
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Done')),
+            project_id TEXT NOT NULL,
+            priority TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS task_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            project_id TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK(event_type IN ('created', 'status_changed', 'completed')),
+            old_status TEXT,
+            new_status TEXT,
+            timestamp TEXT NOT NULL,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """)
+    
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(completed_at) WHERE completed_at IS NOT NULL")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_timestamp ON task_history(timestamp)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_project ON task_history(project_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_event ON task_history(event_type)")
+    
+    conn.commit()
+    conn.close()
+    
+    # Create DatabaseManager instance
+    db_manager = DatabaseManager(db_path=db_path)
+    
+    # Create test projects
+    projects = [
+        ("project-tracker", "Project Tracker", "/path/to/project-tracker"),
+        ("image-workflow", "Image Workflow", "/path/to/image-workflow"),
+        ("trading-copilot", "Trading Copilot", "/path/to/trading-copilot"),
+        ("test-project-1", "Test Project 1", "/path/to/test-project-1"),
+        ("test-project-2", "Test Project 2", "/path/to/test-project-2"),
+    ]
+    
+    project_ids = []
+    for project_id, name, path in projects:
+        db_manager.add_project(
+            project_id=project_id,
+            name=name,
+            path=path,
+            status="active"
+        )
+        project_ids.append(project_id)
+    
+    return db_path, db_manager, project_ids
+
+
+# Property 1: Task Creation Completeness
+# For any valid task data, creating a task should result in a task object
+# containing all provided fields plus generated fields (id, created_at, updated_at),
+# and querying that task by ID should return the same data
+@given(
+    text=st.text(min_size=1, max_size=1000).map(lambda s: s.strip()).filter(lambda s: len(s) > 0),
+    project_id=st.sampled_from(["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"]),
+    status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
+    priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
+)
+@settings(max_examples=100)
+def test_property_1_task_creation_completeness(text, project_id, status, priority):
+    """
+    Feature: kanban-board, Property 1: Task Creation Completeness
+    Validates: Requirements 1.2, 6.5
+    
+    For any valid task data, creating a task should result in a task object
+    containing all provided fields plus generated fields, and querying that
+    task by ID should return the same data.
+    """
+    # Setup fresh database for this example
+    db_path, db_manager, test_projects = _setup_fresh_database()
+    
+    try:
+        # Ensure project exists
+        assume(project_id in test_projects)
+        
+        # Ensure text doesn't contain secrets (for this property test)
+        is_secret, _ = contains_secret(text)
+        assume(not is_secret)
+        
+        # Create task
+        task = db_manager.add_task(
+            text=text,
+            project_id=project_id,
+            status=status,
+            priority=priority
+        )
+        
+        # Verify all provided fields are present
+        # Text is sanitized (HTML-escaped) before storage, so compare against escaped version
+        assert task["text"] == html.escape(text, quote=True)
+        assert task["project_id"] == project_id
+        assert task["status"] == status
+        assert task["priority"] == priority
+        
+        # Verify generated fields are present
+        assert "id" in task
+        assert isinstance(task["id"], int)
+        assert "created_at" in task
+        assert "updated_at" in task
+        assert isinstance(task["created_at"], str)
+        assert isinstance(task["updated_at"], str)
+        
+        # Verify timestamps are valid ISO format
+        datetime.fromisoformat(task["created_at"])
+        datetime.fromisoformat(task["updated_at"])
+        
+        # Verify created_at and updated_at are initially equal
+        assert task["created_at"] == task["updated_at"]
+        
+        # Verify persistence: query task by ID
+        retrieved = db_manager.get_task(task["id"])
+        assert retrieved is not None
+        
+        # Verify retrieved task matches created task
+        assert retrieved["id"] == task["id"]
+        assert retrieved["text"] == task["text"]
+        assert retrieved["project_id"] == task["project_id"]
+        assert retrieved["status"] == task["status"]
+        assert retrieved["priority"] == task["priority"]
+        assert retrieved["created_at"] == task["created_at"]
+        assert retrieved["updated_at"] == task["updated_at"]
+    finally:
+        # Cleanup
+        db_path.unlink()
+
+
+# Property 2: Query Filtering Accuracy
+# For any set of tasks with various projects, statuses, and priorities,
+# querying with filter parameters should return only tasks matching all specified filters
+@given(
+    num_tasks=st.integers(min_value=5, max_value=20),
+    filter_project_id=st.one_of(st.none(), st.sampled_from(["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"])),
+    filter_status=st.one_of(st.none(), st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]))
+)
+@settings(max_examples=50)
+def test_property_2_query_filtering_accuracy(num_tasks, filter_project_id, filter_status):
+    """
+    Feature: kanban-board, Property 2: Query Filtering Accuracy
+    Validates: Requirements 1.4
+    
+    For any set of tasks with various projects, statuses, and priorities,
+    querying with filter parameters should return only tasks matching all
+    specified filters.
+    """
+    # Setup fresh database for this example
+    db_path, db_manager, test_projects = _setup_fresh_database()
+    
+    try:
+        # Create a diverse set of tasks
+        all_projects = ["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"]
+        all_statuses = ["Backlog", "To Do", "In Progress", "Done"]
+        all_priorities = [None, "Critical", "High", "Medium", "Low"]
+        
+        created_tasks = []
+        
+        for i in range(num_tasks):
+            project_id = all_projects[i % len(all_projects)]
+            status = all_statuses[i % len(all_statuses)]
+            priority = all_priorities[i % len(all_priorities)]
+            text = f"Test task {i}"
+            
+            task = db_manager.add_task(
+                text=text,
+                project_id=project_id,
+                status=status,
+                priority=priority
+            )
+            created_tasks.append(task)
+        
+        # Query with filters
+        results = db_manager.get_tasks(
+            project_id=filter_project_id,
+            status=filter_status
+        )
+        
+        # Verify all results match the filters
+        for task in results:
+            if filter_project_id is not None:
+                assert task["project_id"] == filter_project_id, \
+                    f"Task {task['id']} has project_id {task['project_id']}, expected {filter_project_id}"
+            
+            if filter_status is not None:
+                assert task["status"] == filter_status, \
+                    f"Task {task['id']} has status {task['status']}, expected {filter_status}"
+        
+        # Verify we got all matching tasks (completeness check)
+        expected_count = sum(
+            1 for task in created_tasks
+            if (filter_project_id is None or task["project_id"] == filter_project_id)
+            and (filter_status is None or task["status"] == filter_status)
+        )
+        
+        assert len(results) == expected_count, \
+            f"Expected {expected_count} tasks matching filters, got {len(results)}"
+    finally:
+        # Cleanup
+        db_path.unlink()
+
+
+# Property 12: Secret Pattern Detection
+# For any string containing secret patterns (API keys, SSNs, passwords),
+# attempting to create a task with that text should either warn the user
+# or block creation depending on confidence level
+@given(
+    secret_type=st.sampled_from(["openai_key", "api_key", "api_key_dash", "ssn", "long_token", "password_eq", "password_space"]),
+    random_part=st.text(min_size=32, max_size=50, alphabet=st.sampled_from("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")),
+    project_id=st.sampled_from(["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"]),
+    status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
+)
+@settings(max_examples=100)
+def test_property_12_secret_pattern_detection(secret_type, random_part, project_id, status):
+    """
+    Feature: kanban-board, Property 12: Secret Pattern Detection
+    Validates: Requirements 6.4, 14.1, 14.2
+    
+    For any string containing secret patterns, attempting to create a task
+    with that text should either warn the user or block creation depending
+    on confidence level.
+    """
+    # Setup fresh database for this example
+    db_path, db_manager, test_projects = _setup_fresh_database()
+    
+    try:
+        # Ensure project exists
+        assume(project_id in test_projects)
+        
+        # Generate secret text based on type
+        if secret_type == "openai_key":
+            # Ensure at least 32 characters after "sk-" to match regex pattern
+            secret_text = f"sk-{random_part[:32]}"
+        elif secret_type == "api_key":
+            secret_text = f"api_key={random_part}"
+        elif secret_type == "api_key_dash":
+            secret_text = f"api-key={random_part}"
+        elif secret_type == "ssn":
+            # Generate SSN format: XXX-XX-XXXX
+            digits = "".join([c for c in random_part if c.isdigit()])
+            if len(digits) >= 9:
+                secret_text = f"{digits[:3]}-{digits[3:5]}-{digits[5:9]}"
+            else:
+                secret_text = f"123-45-6789"  # Fallback
+        elif secret_type == "long_token":
+            # Generate uppercase alphanumeric token
+            token = "".join([c.upper() for c in random_part if c.isalnum()])[:20]
+            if len(token) < 20:
+                token = token + "A" * (20 - len(token))
+            secret_text = token
+        elif secret_type == "password_eq":
+            secret_text = f"password={random_part}"
+        else:  # password_space
+            secret_text = f"password = {random_part}"
+        
+        # Verify secret detection function identifies the secret
+        is_secret, pattern = contains_secret(secret_text)
+        assert is_secret, f"Secret detection failed for text: {secret_text[:50]}..."
+        
+        # Attempt to create task with secret text
+        # The system should reject this (raise ValueError or similar)
+        with pytest.raises((ValueError, Exception)) as exc_info:
+            task = db_manager.add_task(
+                text=secret_text,
+                project_id=project_id,
+                status=status
+            )
+        
+        # Verify error message mentions secret or validation
+        error_msg = str(exc_info.value).lower()
+        assert any(keyword in error_msg for keyword in ["secret", "pattern", "validation", "invalid", "blocked"]), \
+            f"Error message should mention secret/validation, got: {error_msg}"
+    finally:
+        # Cleanup
+        db_path.unlink()
+
+
+# Property 16: Project Validation
+# For any task creation attempt with a non-existent project ID,
+# the system should reject the creation and return an error
+@given(
+    invalid_project_id=st.text(
+        min_size=1,
+        max_size=50,
+        alphabet=st.characters(min_codepoint=97, max_codepoint=122)  # lowercase letters
+    ).filter(lambda s: s not in ["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"]),
+    text=st.text(min_size=1, max_size=100).map(lambda s: s.strip()).filter(lambda s: len(s) > 0),
+    status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
+    priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
+)
+@settings(max_examples=50)
+def test_property_16_project_validation(invalid_project_id, text, status, priority):
+    """
+    Feature: kanban-board, Property 16: Project Validation
+    Validates: Requirements 14.3
+    
+    For any task creation attempt with a non-existent project ID,
+    the system should reject the creation and return an error.
+    """
+    # Setup fresh database for this example
+    db_path, db_manager, test_projects = _setup_fresh_database()
+    
+    try:
+        # Ensure text doesn't contain secrets (we're testing project validation, not secret detection)
+        is_secret, _ = contains_secret(text)
+        assume(not is_secret)
+        
+        # Ensure project doesn't exist
+        assume(invalid_project_id not in test_projects)
+        
+        # Verify project doesn't exist in database
+        project = db_manager.get_project(invalid_project_id)
+        assert project is None, f"Project {invalid_project_id} should not exist"
+        
+        # Attempt to create task with invalid project ID
+        # The system should reject this (raise ValueError or similar)
+        with pytest.raises((ValueError, Exception)) as exc_info:
+            task = db_manager.add_task(
+                text=text,
+                project_id=invalid_project_id,
+                status=status,
+                priority=priority
+            )
+        
+        # Verify error message mentions project or validation
+        error_msg = str(exc_info.value).lower()
+        assert any(keyword in error_msg for keyword in ["project", "not found", "invalid", "validation", "exist"]), \
+            f"Error message should mention project/validation, got: {error_msg}"
+    finally:
+        # Cleanup
+        db_path.unlink()
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

@@ -38,6 +38,7 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+.hypothesis/
 
 # Distribution
 *.whl

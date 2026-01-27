@@ -6,11 +6,17 @@ from typing import Optional, List, Dict
 from datetime import datetime
 import subprocess
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler
+)
 import markdown
+import sqlite3
 
 # Add parent directory to path for logger import
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -45,6 +51,23 @@ app = FastAPI(title="Project Tracker Dashboard")
 # Setup templates and static files
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+
+# Mount React frontend build
+frontend_dist = Path(__file__).parent / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
+
+@app.get("/kanban", response_class=HTMLResponse)
+@app.get("/kanban/{project}", response_class=HTMLResponse)
+@app.get("/dashboard", response_class=HTMLResponse)
+async def serve_react_app(request: Request):
+    """Serve the React frontend for SPA routes."""
+    index_path = frontend_dist / "index.html"
+    if index_path.exists():
+        return HTMLResponse(content=index_path.read_text(), status_code=200)
+    else:
+        # Fallback to old dashboard if React app not built
+        return await dashboard(request)
 
 
 def format_time_ago(iso_date: str) -> str:
@@ -189,6 +212,14 @@ def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
 
 
 @app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    """Serve the React frontend or fallback to old dashboard."""
+    index_path = frontend_dist / "index.html"
+    if index_path.exists():
+        return HTMLResponse(content=index_path.read_text(), status_code=200)
+    return await dashboard(request)
+
+@app.get("/old", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Main dashboard view."""
     db = DatabaseManager()
@@ -590,6 +621,20 @@ class AgentRunRequest(BaseModel):
     args: Optional[str] = ""
 
 
+# Pydantic models for task requests
+class TaskCreateRequest(BaseModel):
+    text: str
+    project_id: str
+    status: Optional[str] = "Backlog"
+    priority: Optional[str] = None
+
+
+class TaskUpdateRequest(BaseModel):
+    text: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+
+
 # GET /api/agents - List all agents
 @app.get("/api/agents")
 async def list_agents():
@@ -634,3 +679,323 @@ async def run_agent(request: AgentRunRequest):
         "duration_ms": result.duration_ms,
         "command": result.command
     }
+
+
+# ==================== ERROR HANDLING MIDDLEWARE ====================
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    """Handle validation errors (ValueError from DatabaseManager)."""
+    error_message = str(exc)
+    
+    # Check if it's a validation error (contains common validation keywords)
+    if any(keyword in error_message.lower() for keyword in [
+        "must be", "invalid", "does not exist", "contains potential secret",
+        "required", "too long", "too short"
+    ]):
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": "validation_error",
+                "message": error_message,
+                "details": {
+                    "field": _extract_field_from_error(error_message),
+                    "pattern": _extract_pattern_from_error(error_message)
+                }
+            }
+        )
+    
+    # Check if it's a not found error
+    if "not found" in error_message.lower():
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "error": "not_found",
+                "message": error_message
+            }
+        )
+    
+    # Default to 400 for other ValueError cases
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={
+            "error": "validation_error",
+            "message": error_message
+        }
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle FastAPI request validation errors."""
+    errors = exc.errors()
+    first_error = errors[0] if errors else {}
+
+    # Debug logging
+    try:
+        body = await request.body()
+        logger.error(f"Validation error for {request.method} {request.url.path}: {body.decode()}")
+        logger.error(f"Errors: {errors}")
+    except Exception:
+        pass
+
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={
+            "error": "validation_error",
+            "message": f"Invalid request: {first_error.get('msg', 'Validation failed')}",
+            "details": {
+                "field": ".".join(str(loc) for loc in first_error.get("loc", [])),
+                "type": first_error.get("type", "unknown")
+            }
+        }
+    )
+
+
+@app.exception_handler(sqlite3.Error)
+async def database_error_handler(request: Request, exc: sqlite3.Error):
+    """Handle database errors."""
+    logger.error(f"Database error: {exc}", exc_info=True)
+    
+    error_type = type(exc).__name__
+    operation = "unknown"
+    
+    # Try to extract operation from request path
+    if "/tasks" in str(request.url.path):
+        if request.method == "POST":
+            operation = "INSERT"
+        elif request.method == "PATCH":
+            operation = "UPDATE"
+        elif request.method == "DELETE":
+            operation = "DELETE"
+        elif request.method == "GET":
+            operation = "SELECT"
+    
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": "database_error",
+            "message": "Failed to process request due to database error",
+            "details": {
+                "operation": operation,
+                "table": "tasks",
+                "error_type": error_type
+            }
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle unexpected errors."""
+    logger.error(f"Unexpected error: {exc}", exc_info=True)
+    
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": "internal_error",
+            "message": "An unexpected error occurred"
+        }
+    )
+
+
+def _extract_field_from_error(error_message: str) -> Optional[str]:
+    """Extract field name from error message."""
+    # Common patterns: "Task text...", "Project ID...", "Status...", "Priority..."
+    if "task text" in error_message.lower() or "text" in error_message.lower():
+        return "text"
+    elif "project" in error_message.lower():
+        return "project_id"
+    elif "status" in error_message.lower():
+        return "status"
+    elif "priority" in error_message.lower():
+        return "priority"
+    return None
+
+
+def _extract_pattern_from_error(error_message: str) -> Optional[str]:
+    """Extract secret pattern from error message if present."""
+    if "pattern:" in error_message.lower():
+        parts = error_message.split("pattern:")
+        if len(parts) > 1:
+            return parts[1].strip()
+    return None
+
+
+# ==================== TASK API ENDPOINTS ====================
+
+@app.post("/api/tasks", status_code=status.HTTP_201_CREATED)
+async def create_task(task_data: TaskCreateRequest):
+    """Create a new task.
+    
+    Args:
+        task_data: Task creation data (text, project_id, status, priority)
+        
+    Returns:
+        Created task object with ID and timestamps
+        
+    Raises:
+        HTTPException: 400 if validation fails, 404 if project not found
+    """
+    try:
+        db = DatabaseManager()
+        task = db.add_task(
+            text=task_data.text,
+            project_id=task_data.project_id,
+            status=task_data.status or "Backlog",
+            priority=task_data.priority
+        )
+        return task
+    except ValueError as e:
+        # Re-raise to be caught by error handler
+        raise
+    except Exception as e:
+        logger.error(f"Error creating task: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create task"
+        )
+
+
+@app.get("/api/tasks")
+async def list_tasks(
+    project_id: Optional[str] = None,
+    status: Optional[str] = None,
+    archived: bool = False
+):
+    """List tasks with optional filtering.
+
+    Args:
+        project_id: Filter by project ID (optional)
+        status: Filter by status (optional)
+        archived: Include archived tasks (default: False)
+
+    Returns:
+        Dictionary with tasks list and total count
+    """
+    try:
+        db = DatabaseManager()
+        tasks = db.get_tasks(project_id=project_id, status=status, include_archived=archived)
+        return {
+            "tasks": tasks,
+            "total": len(tasks)
+        }
+    except Exception as e:
+        logger.error(f"Error listing tasks: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve tasks"
+        )
+
+
+@app.get("/api/tasks/{task_id}")
+async def get_task(task_id: int):
+    """Get a single task by ID.
+    
+    Args:
+        task_id: Task ID
+        
+    Returns:
+        Task object
+        
+    Raises:
+        HTTPException: 404 if task not found
+    """
+    try:
+        db = DatabaseManager()
+        task = db.get_task(task_id)
+        
+        if not task:
+            raise ValueError(f"Task with ID {task_id} not found")
+        
+        return task
+    except ValueError as e:
+        # Re-raise to be caught by error handler
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving task {task_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve task"
+        )
+
+
+@app.patch("/api/tasks/{task_id}")
+async def update_task(task_id: int, task_data: TaskUpdateRequest):
+    """Update a task (text, status, priority).
+    
+    Args:
+        task_id: Task ID
+        task_data: Fields to update (text, status, priority)
+        
+    Returns:
+        Updated task object
+        
+    Raises:
+        HTTPException: 400 if validation fails, 404 if task not found
+        
+    Note:
+        Status changes are automatically recorded in task_history.
+    """
+    try:
+        db = DatabaseManager()
+        
+        # Build update dict from non-None fields
+        updates = {}
+        if task_data.text is not None:
+            updates["text"] = task_data.text
+        if task_data.status is not None:
+            updates["status"] = task_data.status
+        if task_data.priority is not None:
+            updates["priority"] = task_data.priority
+        
+        if not updates:
+            # No updates provided, return current task
+            task = db.get_task(task_id)
+            if not task:
+                raise ValueError(f"Task with ID {task_id} not found")
+            return task
+        
+        # update_task handles history recording for status changes
+        task = db.update_task(task_id, **updates)
+        return task
+    except ValueError as e:
+        # Re-raise to be caught by error handler
+        raise
+    except Exception as e:
+        logger.error(f"Error updating task {task_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update task"
+        )
+
+
+@app.delete("/api/tasks/{task_id}", status_code=status.HTTP_200_OK)
+async def delete_task(task_id: int):
+    """Delete a task.
+    
+    Args:
+        task_id: Task ID
+        
+    Returns:
+        Success confirmation
+        
+    Raises:
+        HTTPException: 404 if task not found
+    """
+    try:
+        db = DatabaseManager()
+        db.delete_task(task_id)
+        return {
+            "success": True,
+            "message": f"Task {task_id} deleted successfully"
+        }
+    except ValueError as e:
+        # Re-raise to be caught by error handler
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting task {task_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete task"
+        )

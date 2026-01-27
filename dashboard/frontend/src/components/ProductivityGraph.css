@@ -1,0 +1,26 @@
+.productivity-graph {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.graph-header {
+  text-align: center;
+}
+
+.graph-header h1 {
+  margin-bottom: 1rem;
+  font-size: 2rem;
+  color: #212529;
+}
+
+.graph-placeholder {
+  color: #6c757d;
+  font-size: 1.1rem;
+  margin-top: 2rem;
+}
+
+.graph-info {
+  margin-top: 1rem;
+  color: #495057;
+}
