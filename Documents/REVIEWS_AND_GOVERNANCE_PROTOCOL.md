@@ -1,6 +1,6 @@
-# 🛡️ Ecosystem Governance & Review Protocol (v1.2)
+# 🛡️ Ecosystem Governance & Review Protocol (v1.3)
 
-**Date:** 2026-01-24
+**Date:** 2026-01-27
 **Status:** ACTIVE
 **Goal:** Transition from "Rapid Experimentation" to "Industrial-Grade Hardening."
 
@@ -44,6 +44,22 @@ Reviewers must verify that any script writing to global or external paths (e.g.,
 *   **Dry-Run Mandate:** A `--dry-run` flag that parses all logic but performs zero disk writes.
 *   **Safety Gate:** Refuse to write if the `target_path` is not explicitly validated against a whitelist of project roots.
 
+**Database Operations (Added 2026-01-27 after 94-task data loss):**
+
+Reviewers must verify that any code performing database DELETE operations includes:
+*   **CASCADE Awareness:** Document foreign key relationships. A `DELETE FROM projects` may cascade to tasks, history, etc.
+*   **Backup Before Delete:** Bulk deletions (>1 row) must create a backup first (JSON export or table copy).
+*   **Confirmation Gate:** Auto-cleanup logic (e.g., "delete stale entries") requires explicit user confirmation, not silent execution.
+*   **No Unrequested Cleanup:** Never add "delete items not found" logic without explicit authorization from the Conductor.
+
+**The 2026-01-27 Incident:** An AI added unrequested auto-delete logic to a scan function. When the scan temporarily found zero projects (due to path issues), it deleted all projects, which CASCADE-deleted 94 tasks. This section exists to prevent that class of failure.
+
+### 1b. Feature Authorization (Scope Creep Prevention)
+Reviewers must verify that code changes do not introduce unrequested destructive behavior:
+*   **Authorization Check:** Any new DELETE, DROP, TRUNCATE, or cleanup logic must trace to an explicit user request.
+*   **Scope Boundary:** "Helpful" additions that weren't asked for are defects, not features—especially if destructive.
+*   **The Test:** Ask "Did the Conductor explicitly request this behavior?" If no, reject it.
+
 ### 2. Subprocess Integrity
 Every `subprocess.run` call must follow the **Production Standard**:
 *   `check=True`: Fail loudly on non-zero exit codes.
@@ -68,6 +84,57 @@ Every scaffolded project must be validated for unfilled template placeholders:
 *   **The Check:** Run `scripts/validate_project.py` or `scripts/audit_all_projects.py`.
 *   **The Standard:** Zero results for `{{VAR}}` patterns in any `.md`, `.py`, or `.sh` files.
 *   **The Enforcement:** A single unfilled placeholder triggers a **Scaffolding Failure** alert to Discord.
+
+### 6. Silent Failure Prevention (Added 2026-01-27)
+Functions that discover, scan, or aggregate data must NEVER silently return empty results when the underlying operation failed:
+*   **No Silent Empty Returns:** `return []` without logging is a defect. If a directory doesn't exist, LOG a warning, don't just return empty.
+*   **Distinguish "Nothing Found" from "Couldn't Look":** A scanner finding 0 items in a valid directory is different from a scanner failing to read the directory.
+*   **The Pattern:**
+    ```python
+    # BAD - Silent failure
+    if not base.exists():
+        return []  # Caller has no idea why
+
+    # GOOD - Explicit failure
+    if not base.exists():
+        logger.warning(f"Directory does not exist: {base}")
+        return []  # Caller can see the warning in logs
+    ```
+*   **Exception Handling Required:** `iterdir()`, `glob()`, and similar filesystem operations can raise `PermissionError`, `OSError`. Wrap in try/except with logging.
+
+**The 2026-01-27 Incident Context:** The `discover_projects()` function returned an empty list when PROJECTS_ROOT pointed to a non-existent path. No warning was logged. Downstream code interpreted "0 projects" as "delete everything not found."
+
+### 7. Environment Variable Standards
+Critical environment variables that affect data paths must be validated:
+*   **PROJECTS_ROOT Standard:**
+    - Must be validated at startup (exists, is directory, is readable)
+    - Empty string fallback to cwd is FORBIDDEN (use explicit default or fail)
+    - Log the resolved path at startup for debugging
+*   **Validation Pattern:**
+    ```python
+    # BAD - Empty string becomes cwd silently
+    PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", ""))
+
+    # GOOD - Explicit validation
+    projects_root = os.getenv("PROJECTS_ROOT")
+    if not projects_root:
+        projects_root = Path(__file__).parent.parent  # Explicit default
+        logger.info(f"PROJECTS_ROOT not set, using {projects_root}")
+    PROJECTS_ROOT = Path(projects_root)
+    if not PROJECTS_ROOT.is_dir():
+        raise ValueError(f"PROJECTS_ROOT is not a directory: {PROJECTS_ROOT}")
+    ```
+*   **The Test:** If an env var is unset, does the code behave predictably? If the answer is "it uses cwd" or "it silently fails," that's a defect.
+
+### 8. Performance Guards
+Filesystem operations that scale with codebase size must be bounded:
+*   **No Unbounded Recursive Globs:** `any(item.glob("**/*.py"))` scans the ENTIRE subtree. For 35+ projects with node_modules, this is catastrophic.
+*   **Alternatives:**
+    - Check only root-level files: `any(item.glob("*.py"))`
+    - Check specific known locations: `(item / "src").exists()`
+    - Use cached metadata from prior scans
+    - Limit depth: `item.glob("*/*.py")` (one level deep)
+*   **Sanity Checks for Zero Results:** If a scanner expects to find items (e.g., projects in PROJECTS_ROOT) and finds zero, emit a WARNING. Don't silently proceed with destructive operations.
 
 ---
 
@@ -113,11 +180,19 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 | **T3** | **Tests** | Every public class/function has test coverage | Coverage report or file audit |
 | **T4** | **Tests** | External dependencies mocked (subprocess, network) | Verify `@patch` or mock usage |
 | **E1** | **Errors** | Exit codes are accurate (non-zero on fail) | Document manual test of failure path |
+| **E2** | **Errors** | No silent failure returns (`return []` without warning) | Grep for `return []`, `return None`, `return {}` - verify logging/warning |
+| **E3** | **Errors** | Critical env vars validated at startup | List env vars, verify validation logic exists |
+| **E4** | **Errors** | Zero-result sanity checks (warn when 0 items found) | Verify scanner/discovery functions have sanity warnings |
 | **D1** | **Deps** | Dependency versions are pinned/bounded | Paste `requirements.txt` snapshot |
 | **H1** | **Hardening**| Subprocess `check=True` and `timeout` used | List files/lines checked |
 | **H2** | **Hardening**| Dry-run flag implemented for global writes | Verify `--dry-run` logic exists |
 | **H3** | **Hardening**| Atomic writes used for critical file updates | Verify temp-and-rename pattern |
 | **H4** | **Hardening**| Path Safety (safe_slug + traversal check) | Verify all user-input paths are sanitized |
+| **H5** | **Hardening**| CASCADE DELETE documented for all DB deletions | List FK relationships and what cascades |
+| **H6** | **Hardening**| Bulk DELETE has backup-before-delete | Verify backup logic in delete functions |
+| **H7** | **Hardening**| No unrequested auto-cleanup/delete logic | Grep for DELETE/drop patterns, verify authorization |
+| **H8** | **Hardening**| No unbounded recursive globs (`**/*.py`) | Grep for `.glob("**` patterns, verify bounded or cached |
+| **H9** | **Hardening**| Exception handling around filesystem iterators | Verify `iterdir()`, `glob()` wrapped in try/except |
 | **R1** | **Reviews** | **Active Review Location** | Must be in project root: `CODE_REVIEW_{MODEL}_{VERSION}.md` |
 | **R2** | **Reviews** | **Review Archival** | Previous versions MUST be moved to `Documents/archives/reviews/` |
 | **S1** | **Scaling** | Context ceiling strategy (Map-Reduce/RAG) | Document the architectural ceiling |
@@ -130,6 +205,8 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 - [ ] **Task 2:** Refactor `test_scripts_follow_standards.py` to `test_ecosystem_dna_integrity.py`.
 - [ ] **Task 3:** Establish the "Vault" protocol for the local `.env` record of API keys.
 - [x] **Task 4:** Implement `scripts/audit_all_projects.py` for ecosystem-wide placeholder scanning.
+- [x] **Task 5:** Add database safety rules (H5-H7) and incident documentation (2026-01-27).
+- [x] **Task 6:** Add silent failure prevention rules (E2-E4, Section 6-8) after code quality audit.
 
 ---
 **Protocol Authorized by:** The Phase 5 Judge (Super Manager)

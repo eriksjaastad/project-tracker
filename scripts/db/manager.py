@@ -126,7 +126,10 @@ class DatabaseManager:
         index_updated_at: Optional[str] = None,
         health_score: Optional[int] = None,
         health_grade: Optional[str] = None,
-        project_type: str = 'standard'
+        project_type: str = 'standard',
+        scaffolding_version: Optional[str] = None,
+        rules_version: Optional[str] = None,
+        scaffolding_applied_at: Optional[str] = None
     ) -> None:
         """Add or update a project."""
         with self._get_conn() as conn:
@@ -145,10 +148,12 @@ class DatabaseManager:
             cursor.execute("""
                 INSERT OR REPLACE INTO projects 
                 (id, name, path, status, description, phase, last_modified, created_at, completion_pct, 
-                 is_infrastructure, has_index, index_is_valid, index_updated_at, health_score, health_grade, project_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 is_infrastructure, has_index, index_is_valid, index_updated_at, health_score, health_grade, project_type,
+                 scaffolding_version, rules_version, scaffolding_applied_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (project_id, name, path, status, description, phase, last_modified, created_at, completion_pct, 
-                  is_infrastructure, has_index, index_is_valid, index_updated_at, final_health_score, final_health_grade, project_type))
+                  is_infrastructure, has_index, index_is_valid, index_updated_at, final_health_score, final_health_grade, project_type,
+                  scaffolding_version, rules_version, scaffolding_applied_at))
             
             conn.commit()
     
