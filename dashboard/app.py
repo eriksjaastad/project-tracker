@@ -194,6 +194,12 @@ def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
     project["service_details"] = services
     project["services_by_category"] = categorize_services(services)
     
+    # Get task counts
+    all_tasks = db.get_tasks(project_id=project["id"])
+    open_tasks = [t for t in all_tasks if t.get("status") != "Done"]
+    project["task_count"] = len(open_tasks)
+    project["total_tasks"] = len(all_tasks)
+    
     # Check for code review
     review_path = Path(project["path"]) / "CODE_REVIEW.md"
     if review_path.exists():
@@ -213,13 +219,18 @@ def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    """Serve the React frontend or fallback to old dashboard."""
+    """Serve the Jinja dashboard."""
+    return await dashboard(request)
+
+@app.get("/old", response_class=HTMLResponse)
+async def react_frontend(request: Request):
+    """Serve the React frontend or fallback to Jinja dashboard."""
     index_path = frontend_dist / "index.html"
     if index_path.exists():
         return HTMLResponse(content=index_path.read_text(), status_code=200)
     return await dashboard(request)
 
-@app.get("/old", response_class=HTMLResponse)
+@app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Main dashboard view."""
     db = DatabaseManager()
@@ -296,46 +307,6 @@ async def project_detail(request: Request, project_id: str):
     return templates.TemplateResponse("project_detail.html", {
         "request": request,
         "project": project
-    })
-
-
-@app.get("/todo/{project_id}", response_class=HTMLResponse)
-async def view_todo(request: Request, project_id: str):
-    """View rendered TODO.md."""
-    db = DatabaseManager()
-    project = db.get_project(project_id)
-    
-    if not project:
-        return HTMLResponse(content="<h1>Project not found</h1>", status_code=404)
-    
-    # Read TODO.md
-    todo_path = Path(project["path"]) / "TODO.md"
-    
-    if not todo_path.exists():
-        todo_html = "<p class='no-todo'>No TODO.md found for this project.</p>"
-    else:
-        try:
-            todo_content = todo_path.read_text()
-            
-            # Render markdown with extensions
-            md = markdown.Markdown(
-                extensions=[
-                    'tables',
-                    'fenced_code',
-                    'codehilite',
-                    'nl2br',
-                    'sane_lists'
-                ]
-            )
-            todo_html = md.convert(todo_content)
-        except Exception as e:
-            logger.error(f"Error converting TODO.md for project {project_id}: {e}")
-            todo_html = f"<p class='error'>Error reading TODO.md: {e}</p>"
-    
-    return templates.TemplateResponse("todo_viewer.html", {
-        "request": request,
-        "project": project,
-        "todo_html": todo_html
     })
 
 

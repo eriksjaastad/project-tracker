@@ -2,8 +2,8 @@
   background: var(--accent);
   color: #fff;
   border: none;
-  padding: var(--space-md) var(--space-lg);
-  border-radius: 8px;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 6px;
   cursor: pointer;
   font-size: 0.875rem;
   font-weight: 600;
@@ -11,7 +11,6 @@
   align-items: center;
   gap: var(--space-sm);
   transition: all 0.2s ease;
-  margin-bottom: var(--space-lg);
 }
 
 .add-task-button:hover {

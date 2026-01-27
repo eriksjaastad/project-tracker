@@ -138,7 +138,19 @@ export function TaskDetailModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="task-detail-modal-header">
-          <h2>Task Details</h2>
+          <div className="task-detail-header-left">
+            <h2>Task Details</h2>
+            <button
+              className="task-id-copy-button"
+              onClick={() => {
+                navigator.clipboard.writeText(`#${task.id}`);
+                // Could show a toast notification here
+              }}
+              title="Copy task ID"
+            >
+              #{task.id}
+            </button>
+          </div>
           <button
             className="task-detail-modal-close"
             onClick={onClose}

@@ -490,6 +490,19 @@ def add_service(project: str, service_name: str, cost: float = 0, purpose: str =
 
 import click
 
+
+def _has_complete_prompt(prompt: str | None) -> bool:
+    """Check if a prompt has all three required sections."""
+    if not prompt:
+        return False
+    prompt_lower = prompt.lower()
+    return (
+        "## overview" in prompt_lower and
+        "## execution" in prompt_lower and
+        "## done criteria" in prompt_lower
+    )
+
+
 def _display_tasks(task_list: list, project: str | None = None, json_output: bool = False):
     """Display tasks. AI-first: plain print(), no terminal width constraints."""
     import json as json_lib
@@ -511,12 +524,15 @@ def _display_tasks(task_list: list, project: str | None = None, json_output: boo
         status = task["status"]
         task_id = task["id"]
         task_text = task["text"]
+        
+        # [P] marker if prompt has all three sections (Overview, Execution, Done Criteria)
+        prompt_marker = "[P] " if _has_complete_prompt(task.get("prompt")) else ""
 
         # Plain print - no terminal width wrapping
         if project:
-            print(f"#{task_id} | {status} | {priority} | {task_text}")
+            print(f"#{task_id} {prompt_marker}| {status} | {priority} | {task_text}")
         else:
-            print(f"#{task_id} | {task['project_id']} | {status} | {priority} | {task_text}")
+            print(f"#{task_id} {prompt_marker}| {task['project_id']} | {status} | {priority} | {task_text}")
 
     # Summary
     status_counts = {}
@@ -766,41 +782,60 @@ def tasks_start(task_ids):
 
 
 @tasks_group.command(name="show")
-@click.argument("task_id", type=int)
-def tasks_show(task_id):
-    """Show full details of a task including prompt.
+@click.argument("task_ids", type=int, nargs=-1, required=True)
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def tasks_show(task_ids, json_output):
+    """Show full details of one or more tasks including prompt.
 
     \b
-    Example:
+    Examples:
         ./pt tasks show 42
+        ./pt tasks show 42 43 44
     """
     db = DatabaseManager()
+    
+    tasks = []
+    for i, task_id in enumerate(task_ids):
+        try:
+            task = db.get_task(task_id)
+            if not task:
+                if not json_output:
+                    console.print(f"[red]Task #{task_id} not found[/red]")
+                continue
+            
+            if json_output:
+                tasks.append(task)
+            else:
+                if i > 0:
+                    print("\n" + "-" * 40 + "\n")
+                
+                # Print task details in plain text (AI-first)
+                print(f"Task #{task['id']}")
+                print(f"Project: {task['project_id']}")
+                print(f"Status: {task['status']}")
+                print(f"Priority: {task.get('priority') or 'None'}")
+                print(f"Created: {task['created_at']}")
+                print(f"Updated: {task['updated_at']}")
+                if task.get('completed_at'):
+                    print(f"Completed: {task['completed_at']}")
+                print()
+                print("Description:")
+                print(task['text'])
 
-    try:
-        task = db.get_task(task_id)
-        if not task:
-            console.print(f"[red]Task #{task_id} not found[/red]")
-            return
+                if task.get('prompt'):
+                    print()
+                    print("Agent Prompt:")
+                    print(task['prompt'])
+        except Exception as e:
+            if not json_output:
+                console.print(f"[red]Failed to get task #{task_id}: {e}[/red]")
 
-        # Print task details in plain text (AI-first)
-        print(f"Task #{task['id']}")
-        print(f"Project: {task['project_id']}")
-        print(f"Status: {task['status']}")
-        print(f"Priority: {task.get('priority') or 'None'}")
-        print(f"Created: {task['created_at']}")
-        print(f"Updated: {task['updated_at']}")
-        if task.get('completed_at'):
-            print(f"Completed: {task['completed_at']}")
-        print()
-        print("Description:")
-        print(task['text'])
-
-        if task.get('prompt'):
-            print()
-            print("Agent Prompt:")
-            print(task['prompt'])
-    except Exception as e:
-        console.print(f"[red]Failed to get task #{task_id}: {e}[/red]")
+    if json_output:
+        import json as json_lib
+        if len(tasks) == 1:
+            print(json_lib.dumps(tasks[0], indent=2))
+        else:
+            print(json_lib.dumps(tasks, indent=2))
 
 
 @tasks_group.command(name="next")
