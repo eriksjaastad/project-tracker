@@ -94,7 +94,6 @@ A task has:
 - **Priority** - Optional: Critical, High, Medium, Low
 - **Prompt** - Optional: Structured execution instructions for AI agents (Overview, Execution steps, Done criteria)
 - **Timestamps** - created_at, updated_at, completed_at
-- **Archived** - Boolean flag for auto-archive (Done tasks > 7 days old are hidden but preserved)
 
 ### Migration Mapping (one-time import from TODO.md)
 | TODO.md Syntax | Kanban Status |
@@ -142,7 +141,7 @@ Available as CLI command, Python function, or MCP tool for AI agents.
 - Display 5 columns: Backlog, To Do, In Progress, Review, Done
 - Show task cards with: text (truncated), project label, priority indicator
 - Color-code or badge tasks by source project
-- Auto-archive: Done tasks older than 7 days are hidden (preserved in DB, viewable via `?archived=true`)
+- "Delete Done" button to permanently remove all completed tasks
 
 ### FR4: Project Filtering
 - Collapsible left sidebar with project list
@@ -174,7 +173,7 @@ Available as CLI command, Python function, or MCP tool for AI agents.
 ### FR9: Migration Tool
 - One-time import from existing TODO.md files
 - Parse using migration mapping (see Data Model)
-- Archive TODO.md files after successful import
+- Delete TODO.md files after successful import
 
 ---
 
@@ -217,7 +216,7 @@ Available as CLI command, Python function, or MCP tool for AI agents.
 ```
 
 **Review Column:** AI agents move completed work to Review. Humans verify and promote to Done.
-Tasks in Done for 7+ days are auto-archived (hidden but preserved).
+Use "Delete Done" button to clear completed tasks when ready.
 
 ### Design Requirements
 - **Dark theme only** - No light mode, no toggle
@@ -331,7 +330,7 @@ Inherit the established design system from `image-workflow/Documents/reference/W
 ### Phase 3 - Polish (In Progress)
 - [x] Task detail modal with inline edit
 - [x] Priority indicators (color-coded)
-- [x] Auto-archive: Done tasks > 7 days hidden automatically
+- [x] Delete Done button to clear completed tasks
 - [x] Prompt field for AI agent execution instructions
 - [x] History tracking for productivity graphs
 - [ ] Sort by task count
@@ -384,14 +383,14 @@ Inherit the established design system from `image-workflow/Documents/reference/W
 1. **Frontend:** React with Vite (consistent with tax-organizer, flo-fi, portfolio-ai)
 2. **Drag-and-drop:** @dnd-kit/core - modern, accessible, well-maintained
 3. **5 columns:** Added Review column as agent governance gate (Jan 27, 2026)
-4. **Auto-archive:** Done tasks hidden after 7 days to keep board clean (Jan 27, 2026)
+4. **Delete Done:** Manual cleanup button to remove completed tasks (Jan 27, 2026)
 5. **CLI-first for agents:** `./pt tasks` over MCP for simplicity and discoverability
 
 ---
 
 ## Resolved Questions
 
-1. **SQLite schema** - ✅ Tasks table with id, text, status, project_id, priority, prompt, timestamps, archived flag. Indexes on status, project_id, completed_at.
+1. **SQLite schema** - ✅ Tasks table with id, text, status, project_id, priority, prompt, timestamps. Indexes on status, project_id, completed_at.
 2. **API endpoint design** - ✅ REST: GET/POST /api/tasks, GET/PATCH/DELETE /api/tasks/{id}
 3. **Drag-and-drop library** - ✅ @dnd-kit/core (modern, accessible, maintained)
 4. **Secret detection patterns** - ✅ Regex patterns for API keys, passwords, tokens in validation.py

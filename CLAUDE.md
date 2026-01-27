@@ -2,7 +2,7 @@
 
 <!-- AGENTSYNC:START - Do not edit between markers -->
 <!-- To modify synced rules: Edit .agentsync/rules/*.md, then run: -->
-<!-- uv run $PROJECTS_ROOT/project-scaffolding/agentsync/sync_rules.py $PROJECTS_ROOT/project-tracker -->
+<!-- uv run $PROJECTS_ROOT/project-scaffolding/agentsync/sync_rules.py project-tracker -->
 
 # AGENTS.md - Source of Truth for AI Agents
 
@@ -174,6 +174,90 @@ $PROJECTS_ROOT/project-tracker/pt tasks done <task-id>
 - `Documents/reference/LEARNINGS.md` - Learning Loop & Debt Tracker
 - `Documents/reference/MODEL_LEARNINGS.md` - AI Model Behavior
 - `00_Index_*.md` - Meta-project patterns
+
+# project-tracker
+
+> Brief description of the project's purpose
+
+## Tech Stack
+
+- **Language:** Python
+- **Frameworks:** None
+
+## Commands
+
+- **Run:** `python main.py`
+- **Test:** `pytest`
+
+# Workflow
+
+## Agent Hierarchy
+
+### 1. The Conductor (Erik)
+- **Role:** Human-in-the-Loop / Vision / Command
+- **Authority:** Final approval on all architecture, logic, and project direction
+
+### 2. The Super Manager (Strategy & Context)
+- **Role:** Strategic Planner and Prompt Engineer
+- **Constraint:** STRICTLY PROHIBITED from writing code or using tools
+- **Mandate:** Drafts prompts with acceptance criteria as checklists
+
+### 3. The Floor Manager (QA & Execution)
+- **Role:** Orchestrator, Quality Assurance Lead, File Operator
+- **Constraint:** STRICTLY PROHIBITED from generating logic or writing code
+- **Mandate:** Verify work against checklists, perform file operations
+
+### 4. The Workers (Local Models via Ollama)
+- **Role:** Primary Implementers of logic and code generation
+- **Mandate:** Generate code, report completion for inspection
+
+## Workflow Steps
+
+1. **Drafting:** Super Manager writes task prompt with acceptance criteria
+2. **Handoff:** Pass to Floor Manager
+3. **Execution:** Floor Manager delegates to Worker, provides context
+4. **Inspection:** Floor Manager checks each acceptance criteria item
+5. **Loop/Correction:** If fail, send back to Worker (max 3 attempts)
+6. **Finalization:** Task marked complete after sign-off
+
+**CRITICAL:** Only Workers write code. Super Manager and Floor Manager never generate code.
+
+# Universal Constraints
+
+## Never Do
+
+- NEVER modify `.env` or `venv/`
+- NEVER install dependencies globally (use project-local venv, uv, pipx, or poetry)
+- NEVER hard-code API keys, secrets, or credentials (use `.env` and `os.getenv()`)
+- NEVER use absolute paths (e.g., `/Users/...`) - use relative paths or env variables
+- NEVER use `rm` for file deletion - use `trash` command instead
+- NEVER use `--no-verify` or `-n` with git commit/push - fix the hook issue, don't bypass it
+
+## Always Do
+
+- ALWAYS update `EXTERNAL_RESOURCES.yaml` when adding external services
+- ALWAYS use retry logic and cost tracking for API calls
+- ALWAYS use `$HOME/.local/bin/uv run` for Python script execution in hooks/automation
+
+# Safety Rules
+
+## File Operations
+
+- **Trash, Don't Delete:** NEVER use `rm` or permanent deletion
+- Use `trash` CLI (preferred) or `send2trash` (Python)
+- Use `git restore` for reverting tracked files
+
+## Context Protocol
+
+If context is missing or a file is unknown:
+- **STOP** and request information from the Floor Manager
+- **DO NOT GUESS**
+
+## Failure Protocol
+
+If Worker fails **3 times** on the same task:
+- Halt and alert the Conductor
+- Do not continue attempting
 
 <!-- Source: .agentsync/rules/*.md -->
 <!-- AGENTSYNC:END - Custom rules below this line are preserved -->

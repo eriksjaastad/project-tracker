@@ -116,7 +116,7 @@ KANBAN_ADD_TASK_SCHEMA = {
             },
             "status": {
                 "type": "string",
-                "enum": ["Backlog", "To Do", "In Progress", "Done"],
+                "enum": ["Backlog", "To Do", "In Progress", "Review", "Done"],
                 "default": "Backlog",
                 "description": "Initial task status"
             },

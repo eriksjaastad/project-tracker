@@ -860,22 +860,20 @@ async def create_task(task_data: TaskCreateRequest):
 @app.get("/api/tasks")
 async def list_tasks(
     project_id: Optional[str] = None,
-    status: Optional[str] = None,
-    archived: bool = False
+    status: Optional[str] = None
 ):
     """List tasks with optional filtering.
 
     Args:
         project_id: Filter by project ID (optional)
         status: Filter by status (optional)
-        archived: Include archived tasks (default: False)
 
     Returns:
         Dictionary with tasks list and total count
     """
     try:
         db = DatabaseManager()
-        tasks = db.get_tasks(project_id=project_id, status=status, include_archived=archived)
+        tasks = db.get_tasks(project_id=project_id, status=status)
         return {
             "tasks": tasks,
             "total": len(tasks)
@@ -885,6 +883,31 @@ async def list_tasks(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve tasks"
+        )
+
+
+@app.delete("/api/tasks/done")
+async def delete_done_tasks(project_id: Optional[str] = None):
+    """Delete all tasks in Done status.
+
+    Args:
+        project_id: Filter by project ID (optional). If None, deletes Done tasks from all projects.
+
+    Returns:
+        Dictionary with count of deleted tasks
+    """
+    try:
+        db = DatabaseManager()
+        deleted_count = db.delete_done_tasks(project_id=project_id)
+        return {
+            "deleted": deleted_count,
+            "message": f"Deleted {deleted_count} done task(s)"
+        }
+    except Exception as e:
+        logger.error(f"Error deleting done tasks: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete done tasks"
         )
 
 

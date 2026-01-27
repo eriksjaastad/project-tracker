@@ -164,12 +164,6 @@ def create_database(db_path: Optional[Path] = None) -> None:
     except sqlite3.OperationalError:
         pass
 
-    # Migration: add archived column for auto-archive feature
-    try:
-        cursor.execute("ALTER TABLE tasks ADD COLUMN archived INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-
     # Migration: ensure tasks table has all columns
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN completed_at TEXT")

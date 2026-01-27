@@ -490,8 +490,14 @@ def add_service(project: str, service_name: str, cost: float = 0, purpose: str =
 
 import click
 
-def _display_tasks(task_list: list, project: str | None = None):
+def _display_tasks(task_list: list, project: str | None = None, json_output: bool = False):
     """Display tasks. AI-first: plain print(), no terminal width constraints."""
+    import json as json_lib
+    
+    if json_output:
+        print(json_lib.dumps({"tasks": task_list, "total": len(task_list)}, indent=2))
+        return
+
     if not task_list:
         filter_msg = f" for project '{project}'" if project else ""
         print(f"No tasks found{filter_msg}.")
@@ -546,8 +552,8 @@ def _detect_project_from_cwd(db: DatabaseManager) -> str | None:
 @click.option("-p", "--project", default=None, help="Filter by project name or ID")
 @click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Done)")
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
-@click.option("--archived", is_flag=True, help="Include archived tasks (Done > 7 days)")
-def tasks_group(ctx, project, status, show_all, archived):
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def tasks_group(ctx, project, status, show_all, json_output):
     """Manage Kanban board tasks.
 
     \b
@@ -556,7 +562,6 @@ def tasks_group(ctx, project, status, show_all, archived):
         ./pt tasks -p project-tracker    # Tasks for a specific project
         ./pt tasks -s "In Progress"      # Filter by status
         ./pt tasks --all                 # Include completed tasks
-        ./pt tasks --archived            # Include archived tasks
         ./pt tasks create "Fix bug" -p myproject
     """
     # If a subcommand is invoked, don't run the default list behavior
@@ -571,21 +576,21 @@ def tasks_group(ctx, project, status, show_all, archived):
         console.print(f"[red]Project '{project}' not found[/red]")
         return
 
-    task_list = db.get_tasks(project_id=project_id, status=status, include_archived=archived)
+    task_list = db.get_tasks(project_id=project_id, status=status)
 
     # Filter out Done unless --all or specific status
     if not show_all and not status:
         task_list = [t for t in task_list if t["status"] != "Done"]
 
-    _display_tasks(task_list, project)
+    _display_tasks(task_list, project, json_output=json_output)
 
 
 @tasks_group.command(name="list")
 @click.option("-p", "--project", default=None, help="Filter by project name or ID")
 @click.option("-s", "--status", default=None, help="Filter by status")
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
-@click.option("--archived", is_flag=True, help="Include archived tasks (Done > 7 days)")
-def tasks_list(project, status, show_all, archived):
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def tasks_list(project, status, show_all, json_output):
     """List tasks from the Kanban board."""
     db = DatabaseManager()
     project_id = _resolve_project_id(db, project)
@@ -594,12 +599,12 @@ def tasks_list(project, status, show_all, archived):
         console.print(f"[red]Project '{project}' not found[/red]")
         return
 
-    task_list = db.get_tasks(project_id=project_id, status=status, include_archived=archived)
+    task_list = db.get_tasks(project_id=project_id, status=status)
 
     if not show_all and not status:
         task_list = [t for t in task_list if t["status"] != "Done"]
 
-    _display_tasks(task_list, project)
+    _display_tasks(task_list, project, json_output=json_output)
 
 
 @tasks_group.command(name="create")
@@ -703,47 +708,61 @@ def tasks_update(task_id, status, text, priority, prompt):
 
 
 @tasks_group.command(name="done")
-@click.argument("task_id", type=int)
-def tasks_done(task_id):
-    """Mark a task as Done.
+@click.argument("task_ids", type=int, nargs=-1, required=True)
+def tasks_done(task_ids):
+    """Mark one or more tasks as Done.
 
     \b
-    Example:
+    Examples:
         ./pt tasks done 42
+        ./pt tasks done 42 43 44
     """
     db = DatabaseManager()
-
-    try:
-        task = db.get_task(task_id)
-        if not task:
-            console.print(f"[red]Task #{task_id} not found[/red]")
-            return
-        db.update_task(task_id, status="Done")
-        console.print(f"[green]Done:[/green] {task['text']}")
-    except Exception as e:
-        console.print(f"[red]Failed to complete task #{task_id}: {e}[/red]")
+    
+    success_count = 0
+    for task_id in task_ids:
+        try:
+            task = db.get_task(task_id)
+            if not task:
+                print(f"Task #{task_id} not found")
+                continue
+            db.update_task(task_id, status="Done")
+            print(f"Done: #{task_id} - {task['text'][:50]}")
+            success_count += 1
+        except Exception as e:
+            print(f"Failed to complete task #{task_id}: {e}")
+    
+    if len(task_ids) > 1:
+        print(f"\nCompleted {success_count}/{len(task_ids)} tasks")
 
 
 @tasks_group.command(name="start")
-@click.argument("task_id", type=int)
-def tasks_start(task_id):
-    """Move a task to In Progress.
+@click.argument("task_ids", type=int, nargs=-1, required=True)
+def tasks_start(task_ids):
+    """Move one or more tasks to In Progress.
 
     \b
-    Example:
+    Examples:
         ./pt tasks start 42
+        ./pt tasks start 42 43 44
     """
     db = DatabaseManager()
-
-    try:
-        task = db.get_task(task_id)
-        if not task:
-            console.print(f"[red]Task #{task_id} not found[/red]")
-            return
-        db.update_task(task_id, status="In Progress")
-        console.print(f"[yellow]Started:[/yellow] {task['text']}")
-    except Exception as e:
-        console.print(f"[red]Failed to start task #{task_id}: {e}[/red]")
+    
+    success_count = 0
+    for task_id in task_ids:
+        try:
+            task = db.get_task(task_id)
+            if not task:
+                print(f"Task #{task_id} not found")
+                continue
+            db.update_task(task_id, status="In Progress")
+            print(f"Started: #{task_id} - {task['text'][:50]}")
+            success_count += 1
+        except Exception as e:
+            print(f"Failed to start task #{task_id}: {e}")
+    
+    if len(task_ids) > 1:
+        print(f"\nStarted {success_count}/{len(task_ids)} tasks")
 
 
 @tasks_group.command(name="show")
@@ -784,30 +803,120 @@ def tasks_show(task_id):
         console.print(f"[red]Failed to get task #{task_id}: {e}[/red]")
 
 
-@tasks_group.command(name="archive")
-@click.option("--days", default=7, help="Archive Done tasks older than N days (default: 7)")
-def tasks_archive(days):
-    """Manually archive old Done tasks.
+@tasks_group.command(name="next")
+@click.option("-p", "--project", default=None, help="Filter by project (auto-detects from cwd)")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def tasks_next(project, json_output):
+    """Get the next task to work on.
+    
+    Returns the highest-priority task that is either "To Do" or "In Progress".
+    Priority order: Critical > High > Medium > Low > None
+    Status order: In Progress > To Do (prefer continuing over starting new)
+    
+    \b
+    Examples:
+        ./pt tasks next
+        ./pt tasks next -p project-tracker
+    
+    \b
+    Output format (single line, parseable):
+        #<id> | <project> | <status> | <priority> | <text>
+    
+    \b
+    Exit codes:
+        0: Task found
+        1: No tasks available
+    """
+    import sys
+    
+    db = DatabaseManager()
+    
+    # Resolve project (auto-detect from cwd if not specified)
+    if project:
+        project_id = _resolve_project_id(db, project)
+        if not project_id:
+            print(f"Project '{project}' not found")
+            sys.exit(1)
+    else:
+        project_id = _detect_project_from_cwd(db)
+    
+    # Get all non-done tasks
+    all_tasks = db.get_tasks(project_id=project_id)
+    
+    # Filter to actionable statuses
+    actionable = [t for t in all_tasks if t["status"] in ("In Progress", "To Do")]
+    
+    if not actionable:
+        print("No tasks available")
+        sys.exit(1)
+    
+    # Priority ranking (lower = higher priority)
+    priority_rank = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3, None: 4}
+    # Status ranking (prefer In Progress over To Do)
+    status_rank = {"In Progress": 0, "To Do": 1}
+    
+    # Sort by: status (In Progress first), then priority (Critical first)
+    actionable.sort(key=lambda t: (
+        status_rank.get(t["status"], 99),
+        priority_rank.get(t.get("priority"), 4)
+    ))
+    
+    # Return the top task
+    task = actionable[0]
+    
+    if json_output:
+        import json as json_lib
+        print(json_lib.dumps(task, indent=2))
+    else:
+        priority = task.get("priority") or "-"
+        print(f"#{task['id']} | {task['project_id']} | {task['status']} | {priority} | {task['text']}")
+    
+    sys.exit(0)
+
+
+@tasks_group.command(name="clear-done")
+@click.option("-p", "--project", default=None, help="Filter by project (optional, clears all if not specified)")
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
+def tasks_clear_done(project, yes):
+    """Delete all tasks in Done status.
 
     \b
-    Tasks in Done status for more than N days are archived.
-    Archived tasks are hidden from normal views but preserved in the database.
+    Permanently removes completed tasks from the database.
 
     \b
     Examples:
-        ./pt tasks archive           # Archive Done tasks > 7 days old
-        ./pt tasks archive --days 14 # Archive Done tasks > 14 days old
+        ./pt tasks clear-done                    # Delete all Done tasks (with confirmation)
+        ./pt tasks clear-done -p project-tracker # Delete Done tasks for specific project
+        ./pt tasks clear-done -y                 # Skip confirmation
     """
     db = DatabaseManager()
+    project_id = _resolve_project_id(db, project) if project else None
+
+    if project and not project_id:
+        console.print(f"[red]Project '{project}' not found[/red]")
+        return
+
+    # Count tasks that will be deleted
+    done_tasks = db.get_tasks(project_id=project_id, status="Done")
+    count = len(done_tasks)
+
+    if count == 0:
+        console.print("[dim]No Done tasks to delete[/dim]")
+        return
+
+    # Confirm unless -y flag
+    if not yes:
+        scope = f"for project '{project}'" if project else "across all projects"
+        confirm = click.confirm(f"Delete {count} Done task(s) {scope}?", default=False)
+        if not confirm:
+            console.print("[dim]Cancelled[/dim]")
+            return
 
     try:
-        archived_count = db.archive_old_done_tasks(days=days)
-        if archived_count > 0:
-            console.print(f"[green]Archived {archived_count} task(s) completed more than {days} days ago[/green]")
-        else:
-            console.print(f"[dim]No tasks to archive (none in Done > {days} days)[/dim]")
+        deleted_count = db.delete_done_tasks(project_id=project_id)
+        console.print(f"[green]Deleted {deleted_count} Done task(s)[/green]")
     except Exception as e:
-        console.print(f"[red]Failed to archive tasks: {e}[/red]")
+        console.print(f"[red]Failed to delete tasks: {e}[/red]")
 
 
 # Register Click group with Typer app and create the combined CLI

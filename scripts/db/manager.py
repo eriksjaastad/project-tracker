@@ -344,31 +344,22 @@ class DatabaseManager:
     def get_tasks(
         self,
         project_id: Optional[str] = None,
-        status: Optional[str] = None,
-        include_archived: bool = False
+        status: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Get tasks with optional filtering.
 
         Args:
             project_id: Filter by project ID (optional)
             status: Filter by status (optional)
-            include_archived: Include archived tasks (default: False)
 
         Returns:
             List of task dictionaries
         """
-        # Auto-archive old Done tasks on each fetch (lazy cleanup)
-        self.archive_old_done_tasks(days=7)
-
         with self._get_conn() as conn:
             cursor = conn.cursor()
 
             query = "SELECT * FROM tasks WHERE 1=1"
             params = []
-
-            # Filter out archived tasks by default
-            if not include_archived:
-                query += " AND (archived = 0 OR archived IS NULL)"
 
             if project_id:
                 query += " AND project_id = ?"
@@ -521,29 +512,24 @@ class DatabaseManager:
             cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
             conn.commit()
 
-    def archive_old_done_tasks(self, days: int = 7) -> int:
-        """Archive tasks in Done status for more than N days.
+    def delete_done_tasks(self, project_id: Optional[str] = None) -> int:
+        """Delete all tasks in Done status.
 
         Args:
-            days: Number of days a task must be in Done before archiving (default: 7)
+            project_id: Filter by project ID (optional). If None, deletes Done tasks from all projects.
 
         Returns:
-            Number of tasks archived
+            Number of tasks deleted
         """
-        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
-
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE tasks
-                SET archived = 1
-                WHERE status = 'Done'
-                    AND completed_at < ?
-                    AND (archived = 0 OR archived IS NULL)
-            """, (cutoff,))
-            archived_count = cursor.rowcount
+            if project_id:
+                cursor.execute("DELETE FROM tasks WHERE status = 'Done' AND project_id = ?", (project_id,))
+            else:
+                cursor.execute("DELETE FROM tasks WHERE status = 'Done'")
+            deleted_count = cursor.rowcount
             conn.commit()
-            return archived_count
+            return deleted_count
 
     def get_task_history(
         self,

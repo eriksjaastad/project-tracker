@@ -1,5 +1,4 @@
-<!-- project-scaffolding template appended -->
-
+<!-- SCAFFOLD:START - Do not edit between markers -->
 # AGENTS.md - Ecosystem Constitution (SSOT)
 
 > The single source of truth for hierarchy, workflow, and AI collaboration philosophy.
@@ -16,7 +15,7 @@
 ### 2. The Super Manager (Strategy & Context)
 - **Role:** Strategic Planner and Prompt Engineer
 - **Scope:** Cross-project context and task planning
-- **Current Model:** [Gemini 3 Flash / Claude / as needed]
+- **Current Model:** Claude or Gemini (as available)
 - **Constraint:** **STRICTLY PROHIBITED** from writing code or using tools
 - **Mandate:**
   - Drafts prompts and **[ACCEPTANCE CRITERIA]** for Workers
@@ -26,7 +25,7 @@
 
 ### 3. The Floor Manager (QA, Messenger & File Operator)
 - **Role:** Orchestrator, Quality Assurance Lead, Context Bridge, Draft Gatekeeper, and Primary File Operator.
-- **Current Model:** [Gemini 3 Flash / Claude / as needed]
+- **Current Model:** Claude or Gemini (as available)
 - **Tools:** Ollama MCP (`ollama_run`, `ollama_run_many`), Shell tool, File tools, Draft Gate.
 - **Constraint:** **STRICTLY PROHIBITED** from generating logic or writing code.
 - **Mandate:**
@@ -236,6 +235,7 @@ See: `agent-skills-library/playbooks/staged-prompt-engineering/` for templates.
 - NEVER install dependencies globally. Use a project-local virtual environment or tool-managed environment (e.g., `venv`, `uv`, `pipx`, `poetry`).
 - NEVER hard-code API keys, secrets, or credentials in script files. Use `.env` and `os.getenv()`
 - NEVER use absolute paths (e.g., `/Users/erik/...`). Use relative paths or environment variables
+- NEVER use `--no-verify` or `-n` with git commit/push. Pre-commit hooks exist to catch problems. Fix the issue, don't bypass the hook.
 - ALWAYS update `EXTERNAL_RESOURCES.yaml` when adding external services
 - ALWAYS use retry logic and cost tracking for API calls
 
@@ -381,7 +381,7 @@ tags:
   - type/[pattern|template|tool|journal-entry]
   - domain/[relevant-domain]
 status: #status/[active|archived|draft]
-created: 2026-01-23
+created: 2026-01-27
 ---
 ```
 
@@ -391,9 +391,9 @@ created: 2026-01-23
 - `#domain/[meta|trading|image|etc]` — Subject domain
 - `#status/[active|archived]` — Current state
 
-### Wikilinks
-- Use `[document name](path/to/document.md)` for cross-references
-- Link to ``00_Index_*.md`` for project documentation hubs
+### Documentation Links
+- Use standard markdown links: `[Document Name](path/to/document.md)`
+- Link to the project index file: `00_Index_*.md`
 
 ---
 
@@ -411,13 +411,23 @@ created: 2026-01-23
 
 ## Related Documentation
 
-- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
-- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
-- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
-- [Trustworthy AI Report](Documents/reports/trustworthy_ai_report.md) - AI safety
-- [Cost Management](Documents/reference/MODEL_COST_COMPARISON.md) - cost management
-- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
-- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
-- [AI Team Orchestration](patterns/ai-team-orchestration.md) - orchestration
-- [Safety Systems](patterns/safety-systems.md) - security
-- [Agent Skills Library](../agent-skills-library/README.md) - Agent Skills
+### Project Documentation
+These documents are copied to each project during scaffolding:
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - Anti-patterns to avoid in code reviews
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - Lessons learned from working with local AI models
+- [Reviews and Governance Protocol](Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md) - Full audit checklist and evidence requirements
+
+### Pattern Library
+Located in `patterns/` directory of project-scaffolding:
+- [AI Team Orchestration](patterns/ai-team-orchestration.md) - Multi-agent workflow patterns
+- [Safety Systems](patterns/safety-systems.md) - Data protection and security patterns
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - Cost-effective AI usage
+- [Learning Loop Pattern](patterns/learning-loop-pattern.md) - Reinforcement learning cycles
+
+### Ecosystem Resources
+Cross-project resources (relative paths from project root):
+- [Agent Skills Library](../agent-skills-library/README.md) - Reusable AI instructions
+- [Project Scaffolding](../project-scaffolding/README.md) - This scaffolding system
+
+<!-- SCAFFOLD:END - Custom content below is preserved -->
+
