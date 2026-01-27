@@ -73,17 +73,16 @@ This document serves as the index for the Project Tracker, providing a high-leve
 
 ## Recent Activity
 
+- 2026-01-25: Update documentation and sync agent rules across project
+- 2026-01-23: Fix: Downgrade doc ratio check from blocking error to warning
+- 2026-01-23: Fix: Stop generating Obsidian wikilinks in librarian and cleanup scripts
+- 2026-01-23: fix: Replace hardcoded absolute paths with environment variables
+- 2026-01-23: chore: Synchronize agentsync rules and clean up backup files
+- 2026-01-20: feat: Achieve 0% orphan rate and enhance Knowledge Graph UI
+- 2026-01-18: chore: stabilize knowledge graph and fix portability issues
+- 2026-01-15: feat: Implement interactive D3 Knowledge Graph and intelligent indexing
+- 2026-01-15: docs: finalize project-tracker hardening and update scaffolding templates
 - 2026-01-13: Merge pull request #3 from eriksjaastad/claude/code-review-session-72x3V
-- 2026-01-13: fix: resolve warden_audit.py syntax error and update review to final
-- 2026-01-13: fix: address v2 code review blockers and enhance portability
-- 2026-01-13: Merge pull request #2 from eriksjaastad/claude/code-review-session-72x3V
-- 2026-01-13: docs: add code review v2, archive v1
-- 2026-01-13: chore: harden project portability and governance
-- 2026-01-12: Merge pull request #1 from eriksjaastad/claude/code-review-z5udV
-- 2026-01-12: docs: add code review for project-tracker
-- 2026-01-12: chore: apply project-scaffolding to make project standalone
-- 2026-01-11: docs: final update to 00_Index counts and components
-
 ## Related Documentation
 
 - [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review

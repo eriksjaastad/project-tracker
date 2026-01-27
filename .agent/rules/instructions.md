@@ -6,7 +6,7 @@ trigger: always_on
 
 <!-- AGENTSYNC:START - Do not edit between markers -->
 <!-- To modify synced rules: Edit .agentsync/rules/*.md, then run: -->
-<!-- uv run $TOOLS_ROOT/agentsync/sync_rules.py project-tracker -->
+<!-- uv run $PROJECTS_ROOT/project-scaffolding/agentsync/sync_rules.py $PROJECTS_ROOT/project-tracker -->
 
 # AGENTS.md - Source of Truth for AI Agents
 
@@ -103,7 +103,51 @@ This section details the AI agents currently employed within the `project-tracke
 - Run Dashboard: `./pt launch`
 - CLI Scan: `./pt scan`
 - CLI List: `./pt list`
+- CLI Tasks: `./pt tasks` (see below)
 - Test: `pytest tests/test_parsers.py`
+
+### Task Management CLI
+
+**Agents can check and manage tasks from any project using the CLI:**
+
+```bash
+# List open tasks (all projects):
+$PROJECTS_ROOT/project-tracker/pt tasks
+
+# Filter by project:
+$PROJECTS_ROOT/project-tracker/pt tasks -p <project-name>
+
+# Filter by status (Backlog, To Do, In Progress, Done):
+$PROJECTS_ROOT/project-tracker/pt tasks -s "In Progress"
+
+# Show all tasks including completed:
+$PROJECTS_ROOT/project-tracker/pt tasks --all
+
+# Combine filters:
+$PROJECTS_ROOT/project-tracker/pt tasks -p project-tracker -s "To Do"
+
+# Create a new task (quick capture):
+$PROJECTS_ROOT/project-tracker/pt tasks create "Fix the login bug" -p <project-name>
+$PROJECTS_ROOT/project-tracker/pt tasks create "Add tests" -p myproject -s "To Do" --priority High
+
+# Start working on a task (moves to In Progress):
+$PROJECTS_ROOT/project-tracker/pt tasks start <task-id>
+
+# Update a task:
+$PROJECTS_ROOT/project-tracker/pt tasks update <task-id> -s "To Do" --priority Medium
+$PROJECTS_ROOT/project-tracker/pt tasks update <task-id> -t "New task description"
+
+# Mark a task as done:
+$PROJECTS_ROOT/project-tracker/pt tasks done <task-id>
+```
+
+**Usage notes for agents:**
+- Check `./pt tasks -p <your-project>` before starting work to see pending tasks
+- Use `./pt tasks start <id>` when beginning work on a task
+- Use `./pt tasks done <id>` when completing a task
+- Tasks are tracked in a Kanban board (Backlog → To Do → In Progress → Done)
+- The web dashboard at `localhost:8000/kanban` provides a visual interface
+- Task IDs are unique integers that can be referenced in commits
 
 ## ⚠️ Critical Constraints
 - **Local Only:** Must not depend on any external cloud services (besides local filesystem).

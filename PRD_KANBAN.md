@@ -3,22 +3,25 @@
 > **Type:** Feature PRD (adding to existing project)
 > **Parent Project:** project-tracker
 > **Created:** January 25, 2026
+> **Last Updated:** January 27, 2026
 
 ---
 
 ## Overview
 
-Add a Kanban board view to the existing project-tracker dashboard that aggregates tasks from all `TODO.md` files across 20+ projects into a unified, visual interface with drag-and-drop status updates.
+Replace scattered `TODO.md` files with a centralized Kanban system that becomes the **single source of truth** for all tasks across 20+ projects. Provides a visual board interface with drag-and-drop, plus a programmatic `add_task` hook for AI agents to create tasks from any project context.
 
 ---
 
 ## Goals
 
-1. Provide a single view of all tasks across all projects
-2. Enable visual status management via drag-and-drop
-3. Allow filtering and sorting by project
-4. Write status changes back to source TODO.md files
-5. Integrate seamlessly with existing project-tracker dashboard
+1. **Single source of truth** - Kanban DB replaces all TODO.md files
+2. **Visual management** - Drag-and-drop status changes across 5 columns (Backlog, To Do, In Progress, Review, Done)
+3. **Filtering and sorting** - By project, alphabetically, or by task count
+4. **Programmatic access** - CLI (`./pt tasks`) and API for AI agents to create/update tasks from any context
+5. **Dashboard integration** - Main dashboard reads from Kanban data
+6. **Productivity insights** - Track completion trends over time (graphs showing "you got shit done this month" or "you bought a video game and nothing got done")
+7. **Agent governance** - Review column as quality gate (agents move to Review, humans promote to Done)
 
 ---
 
@@ -27,9 +30,18 @@ Add a Kanban board view to the existing project-tracker dashboard that aggregate
 - **No multi-user support** - Personal tool, not team collaboration
 - **No external integrations** - Not connecting to Jira, Trello, GitHub Issues
 - **No light theme** - Dark mode only, no theme toggle
-- **No mobile app** - Desktop browser only
-- **No task creation from board** - Tasks created by editing TODO.md; board is view layer
+- **No mobile app** - Desktop browser only (local-first)
 - **No notifications/reminders** - Board shows state, doesn't push alerts
+- **No TODO.md sync** - One-time migration, then Kanban is the only source
+
+---
+
+## Security
+
+- **No authentication required** - Single user, local-first application
+- **No sensitive data in tasks** - Task text should never contain API keys, passwords, SSNs, or credentials
+- **Input validation** - Warn or block task text that looks like secrets (patterns: `sk-`, `api_key=`, social security formats, etc.)
+- **No external data transmission** - All data stays in local SQLite
 
 ---
 
@@ -41,93 +53,141 @@ Add a Kanban board view to the existing project-tracker dashboard that aggregate
 
 ## Problem Statement
 
-With 20+ active projects, tasks are scattered across individual `TODO.md` files. There's no unified view to see what's in progress across the entire ecosystem. Finding "what should I work on next?" requires opening multiple files and mentally aggregating state.
+With 20+ active projects, tasks are scattered across individual `TODO.md` files. There's no unified view, no programmatic access for AI agents, and no way to manage tasks without editing markdown files manually. Finding "what should I work on next?" requires opening multiple files and mentally aggregating state.
+
+---
+
+## Integration Context
+
+**Reference:** `project-scaffolding/EXTERNAL_RESOURCES.yaml` - project-tracker entry
+
+- **Existing infrastructure:** project-tracker already has SQLite (`tracker.db`) and FastAPI - Kanban extends these
+- **External services needed:** None - 100% local (consistent with existing project-tracker)
+- **Publishing destination:** localhost (Phase 1-3), Vercel (Phase 4+)
+- **Notification channels:** None (explicitly a non-goal)
+
+---
+
+## Human Touchpoints
+
+This is a direct-manipulation tool. The human (Erik) interacts with the board constantly:
+
+- **Create tasks** - Via "Add Task" button on the board or CLI (`./pt tasks create`)
+- **Move tasks** - Drag-and-drop between columns (Backlog → To Do → In Progress → Review → Done)
+- **Edit tasks** - Click to expand, edit text inline
+- **Filter view** - Toggle projects on/off via sidebar checkboxes
+- **Review progress** - View productivity graphs to see completion trends
+- **Approve agent work** - Review column acts as quality gate; only humans promote to Done
+
+**Review Column Workflow:** AI agents complete work and move tasks to Review. Humans verify the work and promote to Done (or move back to In Progress if changes needed). This prevents agents from marking their own work as complete.
 
 ---
 
 ## Core Concept / Data Model
 
 ### Task Model
-```
-Task {
-  id: string (hash of project + task text)
-  text: string (task description)
-  status: enum [Backlog, ToDo, InProgress, Done]
-  project: string (source project name)
-  source_file: path (TODO.md location)
-  line_number: int (for write-back)
-  priority: optional string (Critical, High, etc.)
-}
-```
 
-### Status Mapping from TODO.md
-| Kanban Column | TODO.md Syntax |
-|---------------|----------------|
-| **Backlog** | `- [ ] Task` (no priority section) |
-| **To Do** | `- [ ] Task` (under priority header like `### 🔴 CRITICAL`) |
-| **In Progress** | `- [~] Task` or `- [ ] 🔄 Task` |
-| **Done** | `- [x] Task` |
+A task has:
+- **Text** - The task description
+- **Status** - One of: Backlog, To Do, In Progress, Review, Done
+- **Project** - Which project it belongs to
+- **Priority** - Optional: Critical, High, Medium, Low
+- **Prompt** - Optional: Structured execution instructions for AI agents (Overview, Execution steps, Done criteria)
+- **Timestamps** - created_at, updated_at, completed_at
+- **Archived** - Boolean flag for auto-archive (Done tasks > 7 days old are hidden but preserved)
+
+### Migration Mapping (one-time import from TODO.md)
+| TODO.md Syntax | Kanban Status |
+|----------------|---------------|
+| `- [ ] Task` (no priority) | Backlog |
+| `- [ ] Task` (under priority header) | To Do |
+| `- [~] Task` or `🔄` marker | In Progress |
+| `- [x] Task` | Done |
 
 ### Data Flow
 ```
-TODO.md files (source of truth)
-       ↓ [parse on load]
-   In-memory task list
-       ↓ [render]
-   Kanban Board UI
-       ↓ [drag action]
-   Write back to TODO.md (update checkbox/marker)
+Kanban DB (SQLite - source of truth)
+       ↑ write              ↓ read
+add_task hook          Board UI + Dashboard
+(from any agent)       (drag-and-drop updates)
 ```
+
+### Add Task Hook
+```python
+add_task(
+    project: str,      # e.g., "project-tracker"
+    text: str,         # task description
+    status: str = "Backlog",
+    priority: str = None
+) -> Task
+```
+Available as CLI command, Python function, or MCP tool for AI agents.
 
 ---
 
 ## Functional Requirements
 
-### FR1: Task Aggregation
-- Parse all `TODO.md` files from projects in `$PROJECTS_ROOT`
-- Extract task text, status, and priority from markdown syntax
-- Associate each task with its source project
+### FR1: Task Storage
+- SQLite table for tasks (extends existing `tracker.db`)
+- CRUD operations: create, read, update, delete tasks
+- Query by project, status, priority
 
-### FR2: Kanban Board Display
-- Display 4 columns: Backlog, To Do, In Progress, Done
+### FR2: Task Management Interface
+- **CLI:** `./pt tasks` - list, create, update, start, done commands (primary for AI agents)
+- **REST API:** Full CRUD at `/api/tasks` endpoints
+- **Dashboard UI:** "Add Task" button for manual entry from the board
+- **Python function:** `DatabaseManager.add_task()` for internal use
+
+### FR3: Kanban Board Display
+- Display 5 columns: Backlog, To Do, In Progress, Review, Done
 - Show task cards with: text (truncated), project label, priority indicator
 - Color-code or badge tasks by source project
+- Auto-archive: Done tasks older than 7 days are hidden (preserved in DB, viewable via `?archived=true`)
 
-### FR3: Project Filtering
+### FR4: Project Filtering
 - Collapsible left sidebar with project list
 - Checkbox per project to show/hide its tasks on the board
 - "Select All" / "Deselect All" controls
 
-### FR4: Project Sorting
+### FR5: Project Sorting
 - Sort project list alphabetically (A-Z, Z-A)
 - Sort project list by open task count (most first, least first)
 
-### FR5: Drag-and-Drop Status Update
-- Drag task card between columns to change status
-- On drop, write change back to source TODO.md file
-- Update the checkbox marker (`[ ]` → `[x]`, etc.)
+### FR6: URL Routing & Deep Links
+- URLs must reflect current view state (no silent SPA navigation)
+- Routes: `/dashboard`, `/kanban`, `/kanban/:project`, `/graph`, `/graph/:project`
+- `/kanban/project-tracker` → board pre-filtered to project-tracker tasks
+- `/graph/project-tracker` → graph filtered to project-tracker
+- Browser back/forward must work
+- Bookmarkable URLs (share a link, get the same view)
 
-### FR6: Task Detail View
+### FR7: Task Detail View
 - Click task card to expand full text
-- Show source file path and project name
-- Link to open TODO.md in editor (optional)
+- Show project name and timestamps
+- Edit task text inline
 
-### FR7: Dashboard Integration
+### FR8: Dashboard Integration
 - Add as new tab/view in existing project-tracker dashboard
 - Navigation: [Dashboard] [Kanban] [Graph]
+- Main dashboard reads task counts from Kanban DB
+
+### FR9: Migration Tool
+- One-time import from existing TODO.md files
+- Parse using migration mapping (see Data Model)
+- Archive TODO.md files after successful import
 
 ---
 
 ## Non-Functional Requirements
 
 ### NFR1: Performance
-- Load all tasks from 20+ projects in under 3 seconds
+- Load all tasks in under 1 second (SQLite is fast)
 - Drag-and-drop response under 200ms
-- Write-back to TODO.md under 500ms
+- Hook writes under 100ms
 
 ### NFR2: Reliability
-- Handle malformed TODO.md gracefully (skip unparseable tasks, log warning)
-- Handle concurrent edit conflicts (warn user, don't overwrite external changes)
+- SQLite with WAL mode for concurrent access
+- Graceful handling of missing/invalid project names
 
 ### NFR3: Maintainability
 - Follow existing project-tracker code patterns
@@ -140,21 +200,24 @@ TODO.md files (source of truth)
 
 ### Layout
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  project-tracker                         [Dashboard] [Kanban] [Graph] │
-├──────────┬──────────────────────────────────────────────────┤
-│ Projects │                                                   │
-│ ──────── │   Backlog    │   To Do    │ In Progress │  Done  │
-│ [Sort ▼] │              │            │             │        │
-│          │  ┌─────────┐ │ ┌────────┐ │ ┌─────────┐ │        │
-│ ☑ proj-1 │  │ Task A  │ │ │ Task B │ │ │ Task C  │ │        │
-│ ☑ proj-2 │  │ proj-1  │ │ │ proj-2 │ │ │ proj-1  │ │        │
-│ ☐ proj-3 │  └─────────┘ │ └────────┘ │ └─────────┘ │        │
-│ ...      │              │            │             │        │
-│          │              │            │             │        │
-│ [≡ Hide] │ 12 tasks     │ 8 tasks    │ 3 tasks     │ 47 done│
-└──────────┴──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│  project-tracker                                [Dashboard] [Kanban] [Graph] │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Backlog   │   To Do    │ In Progress │   Review   │      Done           │
+│            │            │             │            │                     │
+│ ┌────────┐ │ ┌────────┐ │ ┌─────────┐ │ ┌────────┐ │  ┌────────┐        │
+│ │ Task A │ │ │ Task B │ │ │ Task C  │ │ │ Task D │ │  │ Task E │        │
+│ │ proj-1 │ │ │ proj-2 │ │ │ proj-1  │ │ │ proj-2 │ │  │ proj-1 │        │
+│ └────────┘ │ └────────┘ │ └─────────┘ │ └────────┘ │  └────────┘        │
+│            │            │             │            │                     │
+│            │            │             │  ↑ Agent   │   ↑ Human          │
+│            │            │             │  moves here│   approves here    │
+│ 12 tasks   │ 8 tasks    │ 3 tasks     │ 2 tasks    │  47 done (7d keep) │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Review Column:** AI agents move completed work to Review. Humans verify and promote to Done.
+Tasks in Done for 7+ days are auto-archived (hidden but preserved).
 
 ### Design Requirements
 - **Dark theme only** - No light mode, no toggle
@@ -238,54 +301,70 @@ Inherit the established design system from `image-workflow/Documents/reference/W
 
 ## Success Metrics
 
-1. **Adoption:** Erik uses Kanban view instead of opening TODO.md files directly
-2. **Speed:** Full board loads in under 3 seconds with 20+ projects
-3. **Accuracy:** Status changes persist correctly to TODO.md files
-4. **Coverage:** Successfully parses 95%+ of tasks from existing TODO.md files
+1. **Adoption:** No more TODO.md files - all task management through Kanban
+2. **Speed:** Full board loads in under 1 second
+3. **Hook usage:** AI agents successfully create tasks via add_task hook
+4. **Migration:** 100% of existing TODO.md tasks imported
+5. **Productivity tracking:** Can view completion trends over time (weekly/monthly graphs)
 
 ---
 
 ## MVP Scope
 
-### MVP (Phase 1)
-- [ ] Parse TODO.md files from all projects
-- [ ] Display 4-column Kanban board
+### MVP (Phase 1) - Core Board ✅
+- [x] SQLite schema for tasks table
+- [x] Display 5-column Kanban board (Backlog, To Do, In Progress, Review, Done)
+- [x] Dark theme UI (design system from image-workflow)
+- [x] Basic task cards (text + project label)
+- [x] Drag-and-drop status updates
+- [x] 90% width layout for better screen utilization
 - [ ] Project sidebar with checkboxes to filter
 - [ ] Sort projects alphabetically
-- [ ] Dark theme UI
-- [ ] Basic task cards (text + project label)
 
-### Post-MVP (Phase 2)
-- [ ] Drag-and-drop with write-back to TODO.md
+### Phase 2 - Task Management ✅
+- [x] "Add Task" button in dashboard UI
+- [x] CLI: `./pt tasks` with create, update, start, done, show commands
+- [x] REST API: Full CRUD at `/api/tasks`
+- [x] Auto-detect project from current directory
+- [ ] Migration tool to import from TODO.md files
+
+### Phase 3 - Polish (In Progress)
+- [x] Task detail modal with inline edit
+- [x] Priority indicators (color-coded)
+- [x] Auto-archive: Done tasks > 7 days hidden automatically
+- [x] Prompt field for AI agent execution instructions
+- [x] History tracking for productivity graphs
 - [ ] Sort by task count
-- [ ] Task detail expansion
-- [ ] Priority indicators
-- [ ] Collapsible sidebar with state persistence
-
-### Future (Phase 3+)
 - [ ] Search/filter tasks by text
 - [ ] Keyboard shortcuts
+- [ ] Productivity graphs visualization
+
+### Future (Phase 4+)
+- [ ] **Vercel deployment** - Host online for access anywhere
 - [ ] Export view as markdown
+- [ ] Task templates / quick-add presets
+- [ ] Task linking/dependencies
 
 ---
 
 ## Constraints / Technical Stack
 
 ### Must Use
-- **Python** - Existing project-tracker is Python
-- **Existing dashboard framework** - Whatever project-tracker currently uses
-- **SQLite** - Can extend `tracker.db` if needed for caching
-- **No new major dependencies** - Prefer stdlib + existing deps
+- **React** - Frontend (consistent with other projects)
+- **FastAPI** - Backend API (existing project-tracker)
+- **SQLite** - Task storage (extend existing `tracker.db`)
+- **Vite** - Build tool (matches tax-organizer pattern)
 
 ### Must Follow
 - Existing project-tracker code patterns
-- TODO.md format already used across projects
-- Dark theme design language
+- Dark theme design language (image-workflow system)
+- SQLite as single source of truth
 
 ### Environment
-- Runs locally on macOS
+- Runs locally on macOS (Phase 1-3)
 - Accessed via browser (localhost)
 - Single user (no auth needed)
+- Future: Vercel deployment for online access
 
 ---
 
@@ -293,20 +372,35 @@ Inherit the established design system from `image-workflow/Documents/reference/W
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| TODO.md format inconsistency | High | Medium | Define canonical format, handle variations gracefully |
-| Write-back corrupts TODO.md | Medium | High | Backup before write, atomic updates, test thoroughly |
-| Performance with many tasks | Medium | Medium | Lazy loading, virtualized list if needed |
+| Migration data loss | Medium | High | Backup TODO.md files, verify import counts, manual review |
 | Dashboard framework limitations | Unknown | High | Explore current framework first, pivot if needed |
-| Concurrent edit conflicts | Low | Medium | Detect external changes, warn user, don't overwrite |
+| Hook adoption friction | Medium | Medium | Clear docs, examples in CLAUDE.md files |
+| SQLite locking under load | Low | Low | WAL mode, single-user so minimal concern |
 
 ---
+
+## Decisions Made
+
+1. **Frontend:** React with Vite (consistent with tax-organizer, flo-fi, portfolio-ai)
+2. **Drag-and-drop:** @dnd-kit/core - modern, accessible, well-maintained
+3. **5 columns:** Added Review column as agent governance gate (Jan 27, 2026)
+4. **Auto-archive:** Done tasks hidden after 7 days to keep board clean (Jan 27, 2026)
+5. **CLI-first for agents:** `./pt tasks` over MCP for simplicity and discoverability
+
+---
+
+## Resolved Questions
+
+1. **SQLite schema** - ✅ Tasks table with id, text, status, project_id, priority, prompt, timestamps, archived flag. Indexes on status, project_id, completed_at.
+2. **API endpoint design** - ✅ REST: GET/POST /api/tasks, GET/PATCH/DELETE /api/tasks/{id}
+3. **Drag-and-drop library** - ✅ @dnd-kit/core (modern, accessible, maintained)
+4. **Secret detection patterns** - ✅ Regex patterns for API keys, passwords, tokens in validation.py
 
 ## Open Questions
 
-1. **What framework does project-tracker dashboard currently use?** (Streamlit? Flask? Plain HTML?)
-2. **Is there an existing task parser?** Does project-tracker already extract individual tasks or just completion %?
-3. **Standard for "in progress"?** Need to pick/document the `[~]` or `🔄` convention.
+1. **Productivity graph implementation** - What metrics to track, how to visualize (chart library choice)
+2. **Project sidebar** - Implement filtering by project checkboxes
 
 ---
 
-*This is a Feature PRD following Erik's 13-section template. Scoped to the Kanban feature only - does not document existing project-tracker functionality.*
+*This is a Feature PRD following Erik's 13-section template. Kanban replaces TODO.md as the single source of truth for task management.*
