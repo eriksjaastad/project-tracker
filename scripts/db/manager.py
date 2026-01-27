@@ -1,9 +1,17 @@
-"""Database manager for project tracker operations."""
+"""Database manager for project tracker operations.
+
+SAFETY POLICY:
+==============
+All DELETE operations must create a backup BEFORE executing.
+This prevents data loss from accidental bulk deletions.
+Backups are stored in data/backups/ with timestamps.
+"""
 
 import sqlite3
-from datetime import datetime, timedelta
+import json
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from contextlib import contextmanager
 
 from .schema import get_db_path
@@ -15,6 +23,13 @@ from scripts.utils.validation import (
     contains_secret,
     sanitize_task_text
 )
+
+
+def _get_backup_dir(db_path: Path) -> Path:
+    """Get or create backup directory."""
+    backup_dir = db_path.parent / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    return backup_dir
 
 
 class DatabaseManager:
@@ -35,6 +50,63 @@ class DatabaseManager:
             yield conn
         finally:
             conn.close()
+    
+    def _backup_before_delete(
+        self,
+        table: str,
+        where_clause: str,
+        params: Tuple,
+        reason: str
+    ) -> Optional[Path]:
+        """Create backup before any DELETE operation.
+        
+        SAFETY: This method MUST be called before any DELETE FROM statement.
+        
+        Args:
+            table: Table name being deleted from
+            where_clause: WHERE clause of the DELETE (e.g., "project_id = ?")
+            params: Parameters for the WHERE clause
+            reason: Human-readable reason for deletion
+            
+        Returns:
+            Path to backup file if data was backed up, None if no data to backup
+        """
+        backup_dir = _get_backup_dir(self.db_path)
+        
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            
+            # Fetch rows that will be deleted
+            query = f"SELECT * FROM {table} WHERE {where_clause}"
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            if not rows:
+                return None  # Nothing to backup
+            
+            # Convert to list of dicts
+            data = [dict(row) for row in rows]
+            
+            # Create timestamped backup
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            backup_path = backup_dir / f"{table}_delete_backup_{timestamp}.json"
+            
+            export_data = {
+                "backup_type": "safety_auto_backup",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "table": table,
+                "operation": "DELETE",
+                "where_clause": where_clause,
+                "reason": reason,
+                "row_count": len(data),
+                "data": data
+            }
+            
+            with open(backup_path, 'w') as f:
+                json.dump(export_data, f, indent=2, default=str)
+            
+            print(f"🛡️  SAFETY: Backup created before delete: {backup_path.name} ({len(data)} rows)")
+            return backup_path
     
     # ==================== PROJECT OPERATIONS ====================
     
@@ -155,6 +227,19 @@ class DatabaseManager:
     
     def delete_project(self, project_id: str) -> None:
         """Delete a project and all related data."""
+        # 🛡️ SAFETY: Backup before delete
+        self._backup_before_delete(
+            table="projects",
+            where_clause="id = ?",
+            params=(project_id,),
+            reason=f"Deleting project: {project_id}"
+        )
+        # Also backup related data (cascading deletes)
+        self._backup_before_delete("tasks", "project_id = ?", (project_id,), f"Cascade from project delete: {project_id}")
+        self._backup_before_delete("cron_jobs", "project_id = ?", (project_id,), f"Cascade from project delete: {project_id}")
+        self._backup_before_delete("ai_agents", "project_id = ?", (project_id,), f"Cascade from project delete: {project_id}")
+        self._backup_before_delete("service_dependencies", "project_id = ?", (project_id,), f"Cascade from project delete: {project_id}")
+        
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
@@ -192,6 +277,13 @@ class DatabaseManager:
     
     def delete_cron_jobs(self, project_id: str) -> None:
         """Delete all cron jobs for a project."""
+        # 🛡️ SAFETY: Backup before delete
+        self._backup_before_delete(
+            table="cron_jobs",
+            where_clause="project_id = ?",
+            params=(project_id,),
+            reason=f"Deleting cron jobs for project: {project_id}"
+        )
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM cron_jobs WHERE project_id = ?", (project_id,))
@@ -229,6 +321,13 @@ class DatabaseManager:
     
     def delete_ai_agents(self, project_id: str) -> None:
         """Delete all AI agents for a project."""
+        # 🛡️ SAFETY: Backup before delete
+        self._backup_before_delete(
+            table="ai_agents",
+            where_clause="project_id = ?",
+            params=(project_id,),
+            reason=f"Deleting AI agents for project: {project_id}"
+        )
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM ai_agents WHERE project_id = ?", (project_id,))
@@ -266,6 +365,13 @@ class DatabaseManager:
     
     def delete_services(self, project_id: str) -> None:
         """Delete all services for a project."""
+        # 🛡️ SAFETY: Backup before delete
+        self._backup_before_delete(
+            table="service_dependencies",
+            where_clause="project_id = ?",
+            params=(project_id,),
+            reason=f"Deleting services for project: {project_id}"
+        )
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM service_dependencies WHERE project_id = ?", (project_id,))
@@ -506,6 +612,14 @@ class DatabaseManager:
         if not self.get_task(task_id):
             raise ValueError(f"Task with ID {task_id} not found")
 
+        # 🛡️ SAFETY: Backup before delete
+        self._backup_before_delete(
+            table="tasks",
+            where_clause="id = ?",
+            params=(task_id,),
+            reason=f"Deleting task: {task_id}"
+        )
+
         with self._get_conn() as conn:
             cursor = conn.cursor()
             # Foreign key cascade will delete related task_history entries
@@ -521,6 +635,22 @@ class DatabaseManager:
         Returns:
             Number of tasks deleted
         """
+        # 🛡️ SAFETY: Backup before bulk delete
+        if project_id:
+            self._backup_before_delete(
+                table="tasks",
+                where_clause="status = 'Done' AND project_id = ?",
+                params=(project_id,),
+                reason=f"Bulk delete Done tasks for project: {project_id}"
+            )
+        else:
+            self._backup_before_delete(
+                table="tasks",
+                where_clause="status = 'Done'",
+                params=(),
+                reason="Bulk delete ALL Done tasks across all projects"
+            )
+        
         with self._get_conn() as conn:
             cursor = conn.cursor()
             if project_id:
