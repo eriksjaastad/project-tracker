@@ -65,9 +65,16 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
         />
       )}
       <div className="task-card-content">
-        <p className="task-card-text">{truncatedText}</p>
+        <p className="task-card-text" title={task.title ? task.text : undefined}>
+          {task.title || truncatedText}
+        </p>
         <div className="task-card-meta">
           <span className="task-card-project">{task.project_id}</span>
+          {task.category && (
+            <span className="task-card-category" title="Category">
+              {task.category}
+            </span>
+          )}
           {task.prompt && (
             <span className="task-card-prompt-indicator" title="Has agent prompt">
               🤖

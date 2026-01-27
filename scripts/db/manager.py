@@ -591,3 +591,30 @@ class DatabaseManager:
                 })
             
             return result
+    def raw_import_tasks(self, tasks: list[dict[str, Any]]) -> int:
+        """Raw import tasks, preserving IDs. Use for disaster recovery."""
+        success_count = 0
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            for task in tasks:
+                try:
+                    # Check if project exists
+                    cursor.execute("SELECT 1 FROM projects WHERE id = ?", (task["project_id"],))
+                    if not cursor.fetchone():
+                        print(f"  ⚠️ Skipping task #{task['id']}: Project '{task['project_id']}' not found")
+                        continue
+                        
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO tasks 
+                        (id, text, status, project_id, priority, created_at, updated_at, completed_at, prompt)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        task["id"], task["text"], task["status"], task["project_id"],
+                        task.get("priority"), task["created_at"], task["updated_at"],
+                        task.get("completed_at"), task.get("prompt")
+                    ))
+                    success_count += 1
+                except Exception as e:
+                    print(f"  ❌ Failed to import task #{task.get('id')}: {e}")
+            conn.commit()
+        return success_count

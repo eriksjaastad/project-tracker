@@ -13,6 +13,10 @@ export interface Task {
   updated_at: string;
   completed_at: string | null;
   prompt: string | null;
+  title: string | null;
+  notes: string | null;
+  commit_sha: string | null;
+  category: string | null;
 }
 
 export interface Project {

@@ -1,10 +1,85 @@
-"""Database schema for project tracker."""
+"""Database schema for project tracker.
+
+SAFETY POLICY - READ BEFORE MODIFYING:
+======================================
+1. NEVER use DROP TABLE on tables that may contain data
+2. NEVER use DELETE FROM without explicit user confirmation
+3. All migrations must be ADDITIVE ONLY (ALTER TABLE ADD COLUMN)
+4. If schema is incompatible, REFUSE and print instructions - don't auto-fix
+5. Any destructive operation requires:
+   - Explicit backup first
+   - User confirmation
+   - Audit log entry
+
+This policy exists because we lost 94 tasks on 2026-01-27 due to an
+auto-migration that dropped tables without backup.
+"""
 
 import sqlite3
 import sys
+import json
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+class SafetyError(Exception):
+    """Raised when a destructive operation is blocked by safety policy."""
+    pass
+
+
+def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
+    """Create automatic backup before any schema operation that touches tasks table.
+
+    Returns the backup path if tasks were backed up, None if table was empty/missing.
+    This runs BEFORE any migration attempt - even if migration will refuse.
+    """
+    backup_dir = db_path.parent / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Check if tasks table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+        if not cursor.fetchone():
+            conn.close()
+            return None
+
+        # Get all tasks
+        cursor.execute("SELECT * FROM tasks")
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            return None
+
+        # Convert to list of dicts
+        tasks = [dict(row) for row in rows]
+
+        # Create timestamped backup
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        backup_path = backup_dir / f"tasks_safety_backup_{timestamp}.json"
+
+        export_data = {
+            "backup_type": "safety_auto_backup",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "reason": "Pre-migration safety backup",
+            "total_count": len(tasks),
+            "tasks": tasks
+        }
+
+        with open(backup_path, 'w') as f:
+            json.dump(export_data, f, indent=2)
+
+        print(f"🛡️  SAFETY: Auto-backup created: {backup_path} ({len(tasks)} tasks)")
+        return backup_path
+
+    except Exception as e:
+        print(f"⚠️  Warning: Could not create safety backup: {e}")
+        return None
 
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -92,6 +167,22 @@ def create_database(db_path: Optional[Path] = None) -> None:
     except sqlite3.OperationalError:
         pass
     
+    # Migration: add scaffolding version tracking columns
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN scaffolding_version TEXT")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN rules_version TEXT")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN scaffolding_applied_at TEXT")
+    except sqlite3.OperationalError:
+        pass
+    
     # Scheduled automation
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cron_jobs (
@@ -130,18 +221,37 @@ def create_database(db_path: Optional[Path] = None) -> None:
         )
     """)
     
-    # 2. Kanban tasks table migration check
-    # Check if tasks table exists and has TEXT id (old schema)
+    # 2. Kanban tasks table
+    # SAFETY: Always backup before ANY operation that might affect tasks
+    _safety_backup_tasks(db_path)
+
+    # SAFETY: Check if tasks table exists with data - NEVER drop automatically
     cursor.execute("PRAGMA table_info(tasks)")
     columns = cursor.fetchall()
     if columns:
+        # Check for incompatible schema (TEXT id instead of INTEGER)
         id_column = next((c for c in columns if c[1] == 'id'), None)
         if id_column and id_column[2].upper() == 'TEXT':
-            print("⚠️ Detected old tasks schema (TEXT id). Migrating to INTEGER PRIMARY KEY AUTOINCREMENT...")
-            # Drop history first due to foreign key
-            cursor.execute("DROP TABLE IF EXISTS task_history")
-            cursor.execute("DROP TABLE IF EXISTS tasks")
-    
+            # Count existing tasks before refusing
+            cursor.execute("SELECT COUNT(*) FROM tasks")
+            task_count = cursor.fetchone()[0]
+            if task_count > 0:
+                print(f"⚠️  SCHEMA INCOMPATIBILITY DETECTED")
+                print(f"    Tasks table has TEXT id (old schema) with {task_count} tasks.")
+                print(f"    REFUSING to drop table with data.")
+                print(f"    To migrate manually:")
+                print(f"    1. Export: ./pt tasks export")
+                print(f"    2. Backup: cp data/tracker.db data/tracker.db.backup")
+                print(f"    3. Run dedicated migration script")
+                print(f"    4. Restore from export if needed")
+                conn.close()
+                raise SafetyError(f"Cannot auto-migrate: {task_count} tasks would be lost. See instructions above.")
+            else:
+                # Table is empty, safe to recreate (but still log it)
+                print("ℹ️  Empty tasks table with old schema detected, will recreate.")
+                cursor.execute("DROP TABLE IF EXISTS task_history")
+                cursor.execute("DROP TABLE IF EXISTS tasks")
+
     # Kanban tasks table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
@@ -167,6 +277,30 @@ def create_database(db_path: Optional[Path] = None) -> None:
     # Migration: ensure tasks table has all columns
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN completed_at TEXT")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Migration: add title column for short task names
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN title TEXT")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Migration: add notes column for freeform text notes
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN notes TEXT")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Migration: add commit_sha column for linking to commits/PRs
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN commit_sha TEXT")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Migration: add category column for task categorization/tagging
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN category TEXT")
     except sqlite3.OperationalError:
         pass
     

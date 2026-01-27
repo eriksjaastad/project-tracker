@@ -25,7 +25,7 @@ export function KanbanBoard() {
   const { project } = useParams<{ project?: string }>();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [draggedTask, setDraggedTask] = useState<Task | null>(null);
+  const [_draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [searchTaskId, setSearchTaskId] = useState('');

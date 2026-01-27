@@ -55,6 +55,53 @@ app = typer.Typer(
 console = Console()
 
 
+def compare_versions(v1: str | None, v2: str | None) -> int:
+    """Compare semantic versions. Returns: -1 if v1 < v2, 0 if equal, 1 if v1 > v2.
+    
+    None is treated as oldest version (below any actual version).
+    """
+    if v1 is None and v2 is None:
+        return 0
+    if v1 is None:
+        return -1
+    if v2 is None:
+        return 1
+    
+    # Try semantic version parsing
+    try:
+        parts1 = [int(x) for x in v1.split('.')]
+        parts2 = [int(x) for x in v2.split('.')]
+        
+        # Pad to same length
+        while len(parts1) < len(parts2):
+            parts1.append(0)
+        while len(parts2) < len(parts1):
+            parts2.append(0)
+        
+        for p1, p2 in zip(parts1, parts2):
+            if p1 < p2:
+                return -1
+            elif p1 > p2:
+                return 1
+        return 0
+    except (ValueError, AttributeError):
+        # Fall back to string comparison
+        return -1 if v1 < v2 else (1 if v1 > v2 else 0)
+
+
+def get_current_scaffolding_version() -> tuple[str | None, str | None]:
+    """Get current scaffolding version from project-scaffolding/.scaffolding-version."""
+    import json
+    version_file = Path(PROJECTS_BASE_DIR) / "project-scaffolding" / ".scaffolding-version"
+    if not version_file.exists():
+        return None, None
+    try:
+        data = json.loads(version_file.read_text())
+        return data.get("scaffolding_version"), data.get("rules_version")
+    except Exception:
+        return None, None
+
+
 @app.command()
 def init():
     """Initialize the project tracker database."""
@@ -241,7 +288,9 @@ def scan(
 
 
 @app.command(name="list")
-def list_projects():
+def list_projects(
+    outdated: bool = typer.Option(False, "--outdated", help="Show only projects with outdated scaffolding")
+):
     """List all projects. AI-first: plain print(), no terminal width constraints."""
     db = DatabaseManager()
     projects = db.get_all_projects()
@@ -249,6 +298,23 @@ def list_projects():
     if not projects:
         print("No projects found. Run 'pt scan' first.")
         return
+    
+    # Filter for outdated if requested
+    if outdated:
+        current_scaffolding, current_rules = get_current_scaffolding_version()
+        filtered_projects = []
+        for p in projects:
+            project_version = p.get("scaffolding_version")
+            # Include if: no version (never scaffolded) OR version is older than current
+            if project_version is None:
+                filtered_projects.append(p)
+            elif current_scaffolding and compare_versions(project_version, current_scaffolding) < 0:
+                filtered_projects.append(p)
+        projects = filtered_projects
+        
+        if not projects:
+            print("No outdated projects found. All projects are up to date!")
+            return
 
     print("Projects\n")
     for project in projects:
@@ -256,8 +322,16 @@ def list_projects():
         idx = "✓" if project.get("has_index") and project.get("index_is_valid") else "!"
         phase = project.get("phase") or "-"
         pct = project.get("completion_pct", 0)
+        
+        # Add version info if available
+        version_info = ""
+        if "scaffolding_version" in project:
+            if project["scaffolding_version"]:
+                version_info = f" | v{project['scaffolding_version']}"
+            else:
+                version_info = " | no scaffolding"
 
-        print(f"{project['name']} | {project['status']} | {phase} | {pct}% | {idx}")
+        print(f"{project['name']} | {project['status']} | {phase} | {pct}% | {idx}{version_info}")
 
     print(f"\nTotal: {len(projects)} projects")
 
@@ -907,6 +981,104 @@ def tasks_next(project, json_output):
         print(f"#{task['id']} | {task['project_id']} | {task['status']} | {priority} | {task['text']}")
     
     sys.exit(0)
+
+
+@tasks_group.command(name="export")
+@click.option("-o", "--output", default="data/tasks_export.json", help="Output file path")
+def tasks_export(output):
+    """Export all tasks to JSON file for backup.
+    
+    \b
+    Exports all tasks with metadata (timestamp, count) to a JSON file.
+    Default output: data/tasks_export.json
+    
+    \b
+    Examples:
+        ./pt tasks export                           # Export to data/tasks_export.json
+        ./pt tasks export -o backup/tasks.json     # Export to custom path
+    """
+    import json as json_lib
+    from datetime import datetime, timezone
+    from pathlib import Path
+    
+    db = DatabaseManager()
+    
+    # Get all tasks (including Done)
+    all_tasks = db.get_tasks()
+    
+    # Add export metadata
+    export_data = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "total_count": len(all_tasks),
+        "tasks": all_tasks
+    }
+    
+    # Ensure output directory exists
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Write JSON
+    try:
+        with open(output_path, 'w') as f:
+            json_lib.dump(export_data, f, indent=2)
+        console.print(f"[green]✅ Exported {len(all_tasks)} tasks to {output}[/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to export tasks: {e}[/red]")
+
+
+@app.command(name="export-projects")
+def export_projects(output: str = "data/projects_export.json"):
+    """Export all projects to JSON file for backup."""
+    import json as json_lib
+    from datetime import datetime, timezone
+    from pathlib import Path
+    
+    db = DatabaseManager()
+    projects = db.get_all_projects()
+    
+    export_data = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "total_count": len(projects),
+        "projects": projects
+    }
+    
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        # Convert sqlite3.Row to dict for JSON serialization
+        projects_dict = [dict(p) for p in projects]
+        export_data["projects"] = projects_dict
+        
+        with open(output_path, 'w') as f:
+            json_lib.dump(export_data, f, indent=2)
+        console.print(f"[green]✅ Exported {len(projects)} projects to {output}[/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to export projects: {e}[/red]")
+
+
+@tasks_group.command(name="import")
+@click.argument("file", type=click.Path(exists=True))
+def tasks_import(file):
+    """Import tasks from JSON backup."""
+    import json as json_lib
+    
+    db = DatabaseManager()
+    
+    try:
+        with open(file, 'r') as f:
+            data = json_lib.load(f)
+        
+        tasks = data.get("tasks", [])
+        if not tasks:
+            console.print("[yellow]No tasks found in import file[/yellow]")
+            return
+            
+        console.print(f"Importing {len(tasks)} tasks...")
+        success_count = db.raw_import_tasks(tasks)
+        console.print(f"[green]✅ Successfully imported {success_count}/{len(tasks)} tasks[/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to import tasks: {e}[/red]")
 
 
 @tasks_group.command(name="clear-done")

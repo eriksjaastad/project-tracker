@@ -1,3 +1,4 @@
+
 <!-- SCAFFOLD:START - Do not edit between markers -->
 # Dependencies & Packages
 node_modules/
@@ -27,7 +28,6 @@ build/
 
 
 <!-- SCAFFOLD:END - Custom content below is preserved -->
-
 venv/
 __pycache__/
 *.db

@@ -278,6 +278,26 @@ async def dashboard(request: Request):
                     **review_data
                 })
     
+    # Calculate version status
+    from scripts.pt import get_current_scaffolding_version, compare_versions
+    current_scaffolding, current_rules = get_current_scaffolding_version()
+    
+    outdated_projects = []
+    unscaffolded_projects = []
+    
+    for project in enriched_projects:
+        project_version = project.get("scaffolding_version")
+        
+        # Determine version status
+        if project_version is None:
+            project["version_status"] = "unscaffolded"
+            unscaffolded_projects.append(project)
+        elif current_scaffolding and compare_versions(project_version, current_scaffolding) < 0:
+            project["version_status"] = "outdated"
+            outdated_projects.append(project)
+        else:
+            project["version_status"] = "current"
+    
     return templates.TemplateResponse("index.html", {
         "request": request,
         "projects": enriched_projects,
@@ -288,7 +308,12 @@ async def dashboard(request: Request):
         "compliance_pct": compliance_pct,
         "audit_available": audit_available,
         "agents": agents_data,
-        "backup_status": backup_status
+        "backup_status": backup_status,
+        "current_scaffolding_version": current_scaffolding,
+        "outdated_projects": outdated_projects,
+        "unscaffolded_projects": unscaffolded_projects,
+        "outdated_count": len(outdated_projects),
+        "unscaffolded_count": len(unscaffolded_projects)
     })
 
 
@@ -602,6 +627,10 @@ class TaskCreateRequest(BaseModel):
 
 class TaskUpdateRequest(BaseModel):
     text: Optional[str] = None
+    title: Optional[str] = None
+    notes: Optional[str] = None
+    commit_sha: Optional[str] = None
+    category: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
 
@@ -938,6 +967,14 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
         updates = {}
         if task_data.text is not None:
             updates["text"] = task_data.text
+        if task_data.title is not None:
+            updates["title"] = task_data.title
+        if task_data.notes is not None:
+            updates["notes"] = task_data.notes
+        if task_data.commit_sha is not None:
+            updates["commit_sha"] = task_data.commit_sha
+        if task_data.category is not None:
+            updates["category"] = task_data.category
         if task_data.status is not None:
             updates["status"] = task_data.status
         if task_data.priority is not None:
