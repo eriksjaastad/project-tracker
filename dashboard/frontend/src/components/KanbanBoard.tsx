@@ -25,9 +25,10 @@ export function KanbanBoard() {
   const { project } = useParams<{ project?: string }>();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [, setDraggedTask] = useState<Task | null>(null);
+  const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [searchTaskId, setSearchTaskId] = useState('');
   const [notification, setNotification] = useState<NotificationState>({
     message: '',
     type: 'success',
@@ -57,6 +58,21 @@ export function KanbanBoard() {
   useEffect(() => {
     loadTasks();
   }, [loadTasks]);
+
+  const handleSearchTask = () => {
+    const taskId = parseInt(searchTaskId.replace('#', ''));
+    if (isNaN(taskId)) {
+      showNotification('Please enter a valid task ID', 'error');
+      return;
+    }
+    const task = tasks.find(t => t.id === taskId);
+    if (task) {
+      setSelectedTask(task);
+      setSearchTaskId('');
+    } else {
+      showNotification(`Task #${taskId} not found`, 'error');
+    }
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     const task = tasks.find(t => t.id === event.active.id);
@@ -237,6 +253,19 @@ export function KanbanBoard() {
         <div className="kanban-board-header">
           <h1>Kanban Board{project ? ` - ${project}` : ''}</h1>
           <div className="kanban-board-header-actions">
+            <div className="task-search">
+              <input
+                type="text"
+                placeholder="Search by #ID..."
+                value={searchTaskId}
+                onChange={(e) => setSearchTaskId(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleSearchTask()}
+                className="task-search-input"
+              />
+              <button onClick={handleSearchTask} className="task-search-button">
+                🔍
+              </button>
+            </div>
             <AddTaskButton onClick={() => setShowTaskForm(true)} />
             <button onClick={handleDeleteDone} className="delete-done-button">
               Delete Done

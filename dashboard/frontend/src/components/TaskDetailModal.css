@@ -31,9 +31,36 @@
   padding-bottom: var(--space-sm);
 }
 
+.task-detail-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
 .task-detail-modal-header h2 {
   margin: 0;
   color: var(--accent);
+}
+
+.task-id-copy-button {
+  background: var(--surface-alt);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--accent);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.task-id-copy-button:hover {
+  background: rgba(79, 157, 255, 0.1);
+  border-color: var(--accent);
+}
+
+.task-id-copy-button:active {
+  transform: scale(0.95);
 }
 
 .task-detail-modal-close {

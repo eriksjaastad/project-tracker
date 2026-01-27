@@ -96,6 +96,44 @@
   border-color: rgba(229, 115, 115, 0.5);
 }
 
+.task-search {
+  display: flex;
+  gap: 4px;
+}
+
+.task-search-input {
+  background: var(--surface);
+  color: #e0e0e0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  width: 180px;
+  transition: all 0.2s ease;
+}
+
+.task-search-input:focus {
+  outline: none;
+  border-color: var(--accent-soft);
+  background: var(--surface-alt);
+}
+
+.task-search-button {
+  background: var(--surface);
+  color: #e0e0e0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.task-search-button:hover {
+  background: var(--surface-alt);
+  border-color: var(--accent-soft);
+}
+
 .kanban-board-content {
   display: flex;
   gap: var(--space-xl);

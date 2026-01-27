@@ -28,7 +28,8 @@ def kanban_add_task(
     project: str,
     text: str,
     status: str = "Backlog",
-    priority: Optional[str] = None
+    priority: Optional[str] = None,
+    prompt: Optional[str] = None
 ) -> Dict[str, Any]:
     """Create a new task in the Kanban board.
     
@@ -41,6 +42,7 @@ def kanban_add_task(
         text: Task description (1-1000 characters)
         status: Initial task status (default: "Backlog")
         priority: Task priority (optional: "Critical", "High", "Medium", "Low")
+        prompt: Structured execution instructions for agents (optional)
         
     Returns:
         Dictionary containing the created task with all fields including:
@@ -49,6 +51,7 @@ def kanban_add_task(
         - status: Task status
         - project_id: Project ID
         - priority: Task priority (if set)
+        - prompt: Agent execution instructions (if set)
         - created_at: ISO timestamp
         - updated_at: ISO timestamp
         - completed_at: ISO timestamp (if status is "Done")
@@ -69,7 +72,8 @@ def kanban_add_task(
             text=text,
             project_id=project,
             status=status,
-            priority=priority
+            priority=priority,
+            prompt=prompt
         )
         
         logger.info(f"Created task {task['id']} for project {project}: {text[:50]}...")
@@ -124,6 +128,10 @@ KANBAN_ADD_TASK_SCHEMA = {
                 "type": "string",
                 "enum": ["Critical", "High", "Medium", "Low"],
                 "description": "Task priority (optional)"
+            },
+            "prompt": {
+                "type": "string",
+                "description": "Agent prompt (execution instructions for AI)"
             }
         },
         "required": ["project", "text"]
@@ -145,6 +153,7 @@ if __name__ == "__main__":
     parser.add_argument("--text", help="Task text")
     parser.add_argument("--status", default="Backlog", help="Task status")
     parser.add_argument("--priority", help="Task priority")
+    parser.add_argument("--prompt", help="Agent prompt")
     
     args = parser.parse_args()
     
@@ -153,7 +162,8 @@ if __name__ == "__main__":
             project=args.project,
             text=args.text or "Test task from MCP server",
             status=args.status,
-            priority=args.priority
+            priority=args.priority,
+            prompt=args.prompt
         )
         print(json.dumps(result, indent=2))
     else:
