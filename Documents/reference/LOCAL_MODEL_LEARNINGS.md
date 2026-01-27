@@ -515,4 +515,4 @@ Things to try or investigate:
 - [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
 - [AI Team Orchestration](patterns/ai-team-orchestration.md) - orchestration
 - [Safety Systems](patterns/safety-systems.md) - security
-- [README](README) - Project Tracker
+- [project-tracker/README](../../../ai-model-scratch-build/README.md) - Project Tracker

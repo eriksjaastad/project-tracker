@@ -1,6 +1,6 @@
 # 🛡️ Ecosystem Governance & Review Protocol (v1.2)
 
-**Date:** 2026-01-07
+**Date:** 2026-01-24
 **Status:** ACTIVE
 **Goal:** Transition from "Rapid Experimentation" to "Industrial-Grade Hardening."
 
@@ -55,7 +55,15 @@ For projects that generate files:
 *   **Schema Enforcement:** Generated markdown must be validated against the project's frontmatter taxonomy.
 *   **Escape Verbatim:** Verbatim text (like transcripts) must be escaped or truncated to prevent breaking YAML parser logic.
 
-### 4. Placeholder Integrity (Gate 2)
+### 4. Test Fixture Integrity
+For projects with filesystem or external dependencies:
+*   **Isolation Mandate:** All tests must use temporary directories (`tmp_path`, `tempfile`). No tests should read/write to real project paths.
+*   **Realistic Structures:** Fixtures must create file structures that mirror production (not empty dirs or single files).
+*   **Mock External Calls:** `subprocess.run`, network calls, and system queries must be mocked to prevent flaky tests.
+*   **Composable Fixtures:** Build complex fixtures from simpler ones (e.g., `project_with_wikilinks` builds on `project_with_markdown`).
+*   **No Weak Assertions:** Tests must verify specific values and behaviors, not just types. `assert isinstance(result, list)` is insufficient; `assert len(result) > 0` and `assert result[0].field == expected` are required.
+
+### 5. Placeholder Integrity (Gate 2)
 Every scaffolded project must be validated for unfilled template placeholders:
 *   **The Check:** Run `scripts/validate_project.py` or `scripts/audit_all_projects.py`.
 *   **The Standard:** Zero results for `{{VAR}}` patterns in any `.md`, `.py`, or `.sh` files.
@@ -101,6 +109,9 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 | **P1** | **DNA** | Templates contain no machine-specific data | List files checked in `templates/` |
 | **P2** | **DNA** | `.cursorrules` is portable | Verify path placeholders used |
 | **T1** | **Tests** | Inverse Audit: What do tests MISS? | Map "Dark Territory" |
+| **T2** | **Tests** | No weak assertions (`isinstance`, `is not None` alone) | Grep for assertion patterns |
+| **T3** | **Tests** | Every public class/function has test coverage | Coverage report or file audit |
+| **T4** | **Tests** | External dependencies mocked (subprocess, network) | Verify `@patch` or mock usage |
 | **E1** | **Errors** | Exit codes are accurate (non-zero on fail) | Document manual test of failure path |
 | **D1** | **Deps** | Dependency versions are pinned/bounded | Paste `requirements.txt` snapshot |
 | **H1** | **Hardening**| Subprocess `check=True` and `timeout` used | List files/lines checked |
