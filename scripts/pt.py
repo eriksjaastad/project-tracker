@@ -1130,9 +1130,113 @@ def tasks_clear_done(project, yes):
         console.print(f"[red]Failed to delete tasks: {e}[/red]")
 
 
-# Register Click group with Typer app and create the combined CLI
+# --- INBOX COMMANDS - Simple JSON-based message board for project-less notes ---
+
+INBOX_FILE = Path(__file__).parent.parent / "data" / "inbox.json"
+
+
+def _load_inbox():
+    """Load inbox from JSON file."""
+    if not INBOX_FILE.exists():
+        return {"notes": [], "next_id": 1}
+    import json
+    with open(INBOX_FILE, "r") as f:
+        return json.load(f)
+
+
+def _save_inbox(data):
+    """Save inbox to JSON file."""
+    import json
+    INBOX_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(INBOX_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+@click.group(name="inbox", invoke_without_command=True)
+@click.pass_context
+def inbox_group(ctx):
+    """Quick capture notes not attached to any project.
+
+    \b
+    Examples:
+        ./pt inbox                    # List all notes
+        ./pt inbox add "Remember X"   # Add a note
+        ./pt inbox clear              # Clear all notes
+        ./pt inbox remove 1           # Remove note by ID
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+
+    # Default behavior: list notes
+    ctx.invoke(inbox_list)
+
+
+@inbox_group.command(name="list")
+def inbox_list():
+    """List all inbox notes."""
+    data = _load_inbox()
+    notes = data.get("notes", [])
+
+    if not notes:
+        console.print("[dim]Inbox is empty[/dim]")
+        return
+
+    console.print(f"\n[bold]📥 Inbox ({len(notes)} notes)[/bold]\n")
+    for note in notes:
+        console.print(f"  [cyan]#{note['id']}[/cyan] {note['text']}")
+    console.print()
+
+
+@inbox_group.command(name="add")
+@click.argument("text")
+def inbox_add(text: str):
+    """Add a note to the inbox."""
+    from datetime import datetime, timezone
+
+    data = _load_inbox()
+    note_id = data.get("next_id", 1)
+
+    note = {
+        "id": note_id,
+        "text": text,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    data["notes"].append(note)
+    data["next_id"] = note_id + 1
+
+    _save_inbox(data)
+    console.print(f"[green]Added note #{note_id}:[/green] {text}")
+
+
+@inbox_group.command(name="remove")
+@click.argument("note_id", type=int)
+def inbox_remove(note_id: int):
+    """Remove a note by ID."""
+    data = _load_inbox()
+    original_count = len(data["notes"])
+    data["notes"] = [n for n in data["notes"] if n["id"] != note_id]
+
+    if len(data["notes"]) == original_count:
+        console.print(f"[red]Note #{note_id} not found[/red]")
+        return
+
+    _save_inbox(data)
+    console.print(f"[green]Removed note #{note_id}[/green]")
+
+
+@inbox_group.command(name="clear")
+@click.confirmation_option(prompt="Clear all inbox notes?")
+def inbox_clear():
+    """Clear all inbox notes."""
+    data = {"notes": [], "next_id": 1}
+    _save_inbox(data)
+    console.print("[green]Inbox cleared[/green]")
+
+
+# Register Click groups with Typer app and create the combined CLI
 typer_click_object = typer.main.get_command(app)
 typer_click_object.add_command(tasks_group)
+typer_click_object.add_command(inbox_group)
 
 
 if __name__ == "__main__":
