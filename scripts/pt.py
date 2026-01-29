@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import PROJECTS_BASE_DIR
-from db.schema import init_db
+from db.schema import init_db, get_db_path
 from db.manager import DatabaseManager
 from discovery.project_scanner import discover_projects, scan_health_parallel
 from discovery.external_resources_parser import parse_external_resources
@@ -149,33 +149,65 @@ def rebuild_knowledge_graph():
         console.print(f"  [red]✗ Error rebuilding knowledge graph: {e}[/red]")
 
 
-@app.command()
 def scan(
-    no_graph: bool = typer.Option(False, "--no-graph", help="Skip rebuilding the knowledge graph")
+    no_graph: bool = False,
+    dry_run: bool = False,
+    force: bool = False
 ):
     """Scan projects directory and update database."""
     console.print(f"[bold blue]Scanning projects in {PROJECTS_BASE_DIR}...[/bold blue]")
-    
-    # Ensure database exists
-    init_db()
-    db = DatabaseManager()
-    
+
+    base_path = Path(PROJECTS_BASE_DIR)
+    if not base_path.exists() or not base_path.is_dir():
+        console.print("[red]PROJECTS_BASE_DIR is invalid or missing. Aborting scan.[/red]")
+        return
+
+    db_path = get_db_path()
+    db_exists = db_path.exists()
+    if not db_exists and not dry_run:
+        console.print("[red]Database not initialized. Run './pt init' first.[/red]")
+        return
+    if not db_exists and dry_run:
+        console.print("[yellow]Database not initialized. Dry-run will skip DB comparison.[/yellow]")
+
+    db = DatabaseManager() if db_exists else None
+
     # Discover projects
     with Progress() as progress:
         task = progress.add_task("[cyan]Discovering projects...", total=None)
-        projects = discover_projects(PROJECTS_BASE_DIR, sync_indexes=True)
+        projects = discover_projects(PROJECTS_BASE_DIR, sync_indexes=not dry_run)
         progress.update(task, completed=True)
-    
+
     console.print(f"\n[green]Found {len(projects)} projects[/green]\n")
-    
+
+    existing_projects = db.get_all_projects() if db_exists else []
+    existing_count = len(existing_projects)
+
+    # Warn on empty or steeply reduced results
+    if not force:
+        if len(projects) == 0:
+            subdir_count = len([p for p in base_path.iterdir() if p.is_dir() and not p.name.startswith(".")])
+            console.print("[red]Scan found 0 projects. Aborting to prevent accidental data loss.[/red]")
+            console.print(f"[yellow]Detected {subdir_count} subdirectories under PROJECTS_BASE_DIR.[/yellow]")
+            console.print("[yellow]Re-run with --force if this is expected.[/yellow]")
+            return
+        if existing_count > 0 and len(projects) < max(1, int(existing_count * 0.5)):
+            console.print("[red]Scan found far fewer projects than expected. Aborting to prevent data loss.[/red]")
+            console.print(f"[yellow]Previous count: {existing_count}, New count: {len(projects)}[/yellow]")
+            console.print("[yellow]Re-run with --force if this is expected.[/yellow]")
+            return
+
     # Run health checks in parallel
+    if dry_run:
+        console.print("[dim]Dry-run: skipping health checks and database writes.[/dim]")
+        return
+
     with Progress() as progress:
         task = progress.add_task("[cyan]Auditing project health...", total=len(projects))
         health_results = scan_health_parallel(projects)
         progress.update(task, advance=len(projects))
-    
+
     # Get current project IDs in database
-    existing_projects = db.get_all_projects()
     existing_ids = {p["id"] for p in existing_projects}
     discovered_ids = {p["id"] for p in projects}
     
@@ -186,6 +218,10 @@ def scan(
     stale_ids = existing_ids - discovered_ids
     if stale_ids:
         console.print(f"  [dim]ℹ {len(stale_ids)} projects not found in scan (preserved in DB)[/dim]")
+
+    # Parse services from EXTERNAL_RESOURCES.md
+    console.print(f"\n[bold blue]Loading services from EXTERNAL_RESOURCES.md...[/bold blue]")
+    services_by_project = parse_external_resources()
 
     # Update database
     hygiene_fixes = 0
@@ -200,83 +236,74 @@ def scan(
                 from discovery.project_scanner import extract_project_metadata
                 project.update(extract_project_metadata(Path(project["path"])))
 
-        # Add/update project
-        db.add_project(
-            project_id=project["id"],
-            name=project["name"],
-            path=project["path"],
-            status=project["status"],
-            description=project.get("description"),
-            phase=project.get("phase"),
-            last_modified=project["last_modified"],
-            completion_pct=project.get("completion_pct", 0),
-            is_infrastructure=project.get("is_infrastructure", False),
-            has_index=project.get("has_index", False),
-            index_is_valid=project.get("index_is_valid", False),
-            index_updated_at=project.get("index_updated_at"),
-            project_type=project.get("project_type", "standard"),
-            scaffolding_version=project.get("scaffolding_version"),
-            rules_version=project.get("rules_version"),
-            scaffolding_applied_at=project.get("scaffolding_applied_at")
-        )
-        
-        # Clear old AI agents, cron jobs, and services
-        db.delete_ai_agents(project["id"])
-        db.delete_cron_jobs(project["id"])
-        db.delete_services(project["id"])
-        # Services will be repopulated from EXTERNAL_RESOURCES.md below
-        
-        # Add AI agents
-        for agent in project.get("ai_agents", []):
-            db.add_ai_agent(
-                project_id=project["id"],
-                agent_name=agent["agent_name"],
-                role=agent.get("role")
-            )
-        
-        # Add cron jobs
-        for job in project.get("cron_jobs", []):
-            db.add_cron_job(
-                project_id=project["id"],
-                schedule=job["schedule"],
-                command=job["command"],
-                description=job.get("description")
-            )
-        
-        console.print(f"  ✓ {project['name']}")
-        
-        # Update health if available
-        health = health_results.get(project["id"])
-        if health:
-            db.update_health(
-                project_id=project["id"],
-                score=health["score"],
-                grade=health["grade"]
-            )
-    
-    # Parse and add services from EXTERNAL_RESOURCES.md
-    console.print(f"\n[bold blue]Loading services from EXTERNAL_RESOURCES.md...[/bold blue]")
-    services_by_project = parse_external_resources()
-    
-    services_added = 0
+        # Per-project transaction boundary
+        with db._get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("BEGIN")
+                db._add_project_with_cursor(
+                    cursor=cursor,
+                    project_id=project["id"],
+                    name=project["name"],
+                    path=project["path"],
+                    status=project["status"],
+                    description=project.get("description"),
+                    phase=project.get("phase"),
+                    last_modified=project["last_modified"],
+                    completion_pct=project.get("completion_pct", 0),
+                    is_infrastructure=project.get("is_infrastructure", False),
+                    has_index=project.get("has_index", False),
+                    index_is_valid=project.get("index_is_valid", False),
+                    index_updated_at=project.get("index_updated_at"),
+                    project_type=project.get("project_type", "standard"),
+                    scaffolding_version=project.get("scaffolding_version"),
+                    rules_version=project.get("rules_version"),
+                    scaffolding_applied_at=project.get("scaffolding_applied_at")
+                )
+
+                db._sync_ai_agents_with_cursor(
+                    cursor=cursor,
+                    project_id=project["id"],
+                    agents=project.get("ai_agents", [])
+                )
+
+                db._sync_cron_jobs_with_cursor(
+                    cursor=cursor,
+                    project_id=project["id"],
+                    cron_jobs=project.get("cron_jobs", [])
+                )
+
+                db._sync_services_with_cursor(
+                    cursor=cursor,
+                    project_id=project["id"],
+                    services=services_by_project.get(project["id"], [])
+                )
+
+                # Update health if available
+                health = health_results.get(project["id"])
+                if health:
+                    db._update_health_with_cursor(
+                        cursor=cursor,
+                        project_id=project["id"],
+                        score=health["score"],
+                        grade=health["grade"]
+                    )
+
+                conn.commit()
+                console.print(f"  ✓ {project['name']}")
+            except Exception as e:
+                conn.rollback()
+                console.print(f"  [red]✗ Failed to update {project['name']}: {e}[/red]")
+                continue
+
+    # Report skipped services for unknown projects
     services_skipped = 0
     known_project_ids = {p["id"] for p in db.get_all_projects()}
-    for project_id, services in services_by_project.items():
+    for project_id in services_by_project.keys():
         if project_id not in known_project_ids:
             services_skipped += 1
             console.print(f"  [yellow]! Skipping services for unknown project: {project_id}[/yellow]")
-            continue
-        for service in services:
-            db.add_service(
-                project_id=project_id,
-                service_name=service["service_name"],
-                purpose=service.get("purpose"),
-                cost_monthly=service.get("cost_monthly")
-            )
-            services_added += 1
-    
-    if services_added > 0:
-        console.print(f"  [green]✓ Added {services_added} services across {len(services_by_project)} projects[/green]")
+
     if services_skipped > 0:
         console.print(f"  [yellow]! Skipped services for {services_skipped} unknown projects[/yellow]")
     
@@ -569,6 +596,15 @@ def add_service(project: str, service_name: str, cost: float = 0, purpose: str =
 import click
 
 
+@click.command(name="scan")
+@click.option("--no-graph", is_flag=True, help="Skip rebuilding the knowledge graph")
+@click.option("--dry-run", is_flag=True, help="Show what would change without writing")
+@click.option("--force", is_flag=True, help="Proceed even if scan results look unsafe")
+def scan_cli(no_graph: bool, dry_run: bool, force: bool):
+    """Scan projects directory and update database (Click wrapper)."""
+    scan(no_graph=no_graph, dry_run=dry_run, force=force)
+
+
 def _has_complete_prompt(prompt: str | None) -> bool:
     """Check if a prompt has all three required sections."""
     if not prompt:
@@ -644,7 +680,7 @@ def _detect_project_from_cwd(db: DatabaseManager) -> str | None:
 @click.group(name="tasks", invoke_without_command=True)
 @click.pass_context
 @click.option("-p", "--project", default=None, help="Filter by project name or ID")
-@click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Done)")
+@click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Review, Done)")
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 def tasks_group(ctx, project, status, show_all, json_output):
@@ -664,11 +700,18 @@ def tasks_group(ctx, project, status, show_all, json_output):
 
     # Default behavior: list tasks
     db = DatabaseManager()
-    project_id = _resolve_project_id(db, project)
-
-    if project and not project_id:
-        console.print(f"[red]Project '{project}' not found[/red]")
-        return
+    if project:
+        project_id = _resolve_project_id(db, project)
+        project_label = project
+        if not project_id:
+            console.print(f"[red]Project '{project}' not found[/red]")
+            return
+    else:
+        project_id = _detect_project_from_cwd(db)
+        project_label = None
+        if project_id:
+            detected = db.get_project(project_id)
+            project_label = detected["name"] if detected else None
 
     task_list = db.get_tasks(project_id=project_id, status=status)
 
@@ -676,38 +719,47 @@ def tasks_group(ctx, project, status, show_all, json_output):
     if not show_all and not status:
         task_list = [t for t in task_list if t["status"] != "Done"]
 
-    _display_tasks(task_list, project, json_output=json_output)
+    _display_tasks(task_list, project_label, json_output=json_output)
 
 
 @tasks_group.command(name="list")
 @click.option("-p", "--project", default=None, help="Filter by project name or ID")
-@click.option("-s", "--status", default=None, help="Filter by status")
+@click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Review, Done)")
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 def tasks_list(project, status, show_all, json_output):
     """List tasks from the Kanban board."""
     db = DatabaseManager()
-    project_id = _resolve_project_id(db, project)
-
-    if project and not project_id:
-        console.print(f"[red]Project '{project}' not found[/red]")
-        return
+    if project:
+        project_id = _resolve_project_id(db, project)
+        project_label = project
+        if not project_id:
+            console.print(f"[red]Project '{project}' not found[/red]")
+            return
+    else:
+        project_id = _detect_project_from_cwd(db)
+        project_label = None
+        if project_id:
+            detected = db.get_project(project_id)
+            project_label = detected["name"] if detected else None
 
     task_list = db.get_tasks(project_id=project_id, status=status)
 
     if not show_all and not status:
         task_list = [t for t in task_list if t["status"] != "Done"]
 
-    _display_tasks(task_list, project, json_output=json_output)
+    _display_tasks(task_list, project_label, json_output=json_output)
 
 
 @tasks_group.command(name="create")
 @click.argument("text")
 @click.option("-p", "--project", default=None, help="Project ID or name (auto-detects from cwd)")
-@click.option("-s", "--status", default="Backlog", help="Initial status (default: Backlog)")
+@click.option("-s", "--status", default="Backlog", help="Initial status (default: Backlog; options: Backlog, To Do, In Progress, Review, Done)")
 @click.option("--priority", default=None, help="Priority: Critical, High, Medium, Low")
 @click.option("--prompt", default=None, help="Agent prompt (execution instructions for AI)")
-def tasks_create(text, project, status, priority, prompt):
+@click.option("--parent", type=int, default=None, help="Parent task ID (creates subtask)")
+@click.option("--blocked-by", default=None, help="Comma-separated task IDs that block this task")
+def tasks_create(text, project, status, priority, prompt, parent, blocked_by):
     """Create a new task. Auto-detects project from current directory.
 
     \b
@@ -715,7 +767,10 @@ def tasks_create(text, project, status, priority, prompt):
         ./pt tasks create "Fix login bug"
         ./pt tasks create "Add tests" -p myproject -s "To Do" --priority High
         ./pt tasks create "Refactor auth" --prompt "Overview: ... Execution: ... Done:"
+        ./pt tasks create "Subtask" --parent 4645
+        ./pt tasks create "Blocked task" --blocked-by "4646,4647"
     """
+    import json
     db = DatabaseManager()
 
     # Auto-detect project from cwd if not specified
@@ -742,17 +797,62 @@ def tasks_create(text, project, status, priority, prompt):
     if priority and priority not in valid_priorities:
         console.print(f"[red]Invalid priority '{priority}'. Must be one of: Critical, High, Medium, Low[/red]")
         return
+    
+    # Parse blocked_by
+    blocked_by_json = None
+    if blocked_by:
+        try:
+            ids = [int(tid.strip()) for tid in blocked_by.split(",")]
+            blocked_by_json = json.dumps(ids)
+        except ValueError:
+            console.print("[red]Error: blocked-by must be comma-separated task IDs (e.g., '4645,4646')[/red]")
+            return
+
+    # Workflow protocol footer - appended to all task prompts
+    WORKFLOW_FOOTER = """
+---
+
+## Workflow Protocol
+- [ ] Start: `./pt tasks start <id>`
+- [ ] Complete work
+- [ ] Report: "Work complete. Awaiting Conductor sign-off."
+- [ ] FORBIDDEN: `./pt tasks done` (Conductor only)"""
 
     try:
-        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=prompt)
-        console.print(f"[green]Created task #{task['id']}: {text[:50]}{'...' if len(text) > 50 else ''}[/green]")
+        # NOTE: parent_id and blocked_by not yet supported in manager
+        # TODO: Re-enable when Antigravity completes #4645/#4579
+        if parent:
+            console.print("[yellow]Warning: --parent not yet implemented, ignoring[/yellow]")
+        if blocked_by_json:
+            console.print("[yellow]Warning: --blocked-by not yet implemented, ignoring[/yellow]")
+
+        # Append workflow footer to prompt if prompt exists
+        final_prompt = prompt
+        if prompt:
+            final_prompt = prompt.rstrip() + WORKFLOW_FOOTER
+
+        task = db.add_task(
+            text=text,
+            project_id=project_id,
+            status=status,
+            priority=priority,
+            prompt=final_prompt
+        )
+        
+        # Show created task with parent/blocking info
+        msg = f"[green]Created task #{task['id']}: {text[:50]}{'...' if len(text) > 50 else ''}[/green]"
+        if parent:
+            msg += f" [dim](subtask of #{parent})[/dim]"
+        if blocked_by:
+            msg += f" [dim](blocked by {blocked_by})[/dim]"
+        console.print(msg)
     except Exception as e:
         console.print(f"[red]Failed to create task: {e}[/red]")
 
 
 @tasks_group.command(name="update")
 @click.argument("task_id", type=int)
-@click.option("-s", "--status", default=None, help="New status")
+@click.option("-s", "--status", default=None, help="New status (Backlog, To Do, In Progress, Review, Done)")
 @click.option("-t", "--text", default=None, help="New task text")
 @click.option("--priority", default=None, help="New priority")
 @click.option("--prompt", default=None, help="Agent prompt (execution instructions for AI)")
@@ -849,6 +949,21 @@ def tasks_start(task_ids):
             if not task:
                 print(f"Task #{task_id} not found")
                 continue
+
+            if not task.get("prompt"):
+                console.print(f"[red]❌ Cannot start #{task_id} - no prompt defined[/red]")
+                console.print("   [dim]Add a prompt with: pt tasks update <id> --prompt \"...\"[/dim]")
+                console.print("   [dim]Or use the Kanban UI to add execution instructions.[/dim]")
+                continue
+            
+            # Check if blocked (Task #4579)
+            is_blocked, blocking_ids = db.is_blocked(task_id)
+            if is_blocked:
+                blocking_str = ", ".join([f"#{bid}" for bid in blocking_ids])
+                console.print(f"[red]❌ Cannot start #{task_id} - blocked by: {blocking_str}[/red]")
+                console.print(f"   [dim]Complete those tasks first, then try again.[/dim]")
+                continue
+            
             db.update_task(task_id, status="In Progress")
             print(f"Started: #{task_id} - {task['text'][:50]}")
             success_count += 1
@@ -857,6 +972,35 @@ def tasks_start(task_ids):
     
     if len(task_ids) > 1:
         print(f"\nStarted {success_count}/{len(task_ids)} tasks")
+
+
+@tasks_group.command(name="review")
+@click.argument("task_ids", type=int, nargs=-1, required=True)
+def tasks_review(task_ids):
+    """Move one or more tasks to Review.
+
+    \b
+    Examples:
+        ./pt tasks review 42
+        ./pt tasks review 42 43 44
+    """
+    db = DatabaseManager()
+    
+    success_count = 0
+    for task_id in task_ids:
+        try:
+            task = db.get_task(task_id)
+            if not task:
+                print(f"Task #{task_id} not found")
+                continue
+            db.update_task(task_id, status="Review")
+            print(f"Review: #{task_id} - {task['text'][:50]}")
+            success_count += 1
+        except Exception as e:
+            print(f"Failed to review task #{task_id}: {e}")
+    
+    if len(task_ids) > 1:
+        print(f"\nReviewed {success_count}/{len(task_ids)} tasks")
 
 
 @tasks_group.command(name="show")
@@ -985,6 +1129,70 @@ def tasks_next(project, json_output):
         print(f"#{task['id']} | {task['project_id']} | {task['status']} | {priority} | {task['text']}")
     
     sys.exit(0)
+
+
+@tasks_group.command(name="tree")
+@click.argument("task_id", type=int)
+def tasks_tree(task_id):
+    """Show dependency tree for a parent task (AI-first: see execution plan).
+    
+    Displays subtasks in execution order with status indicators.
+    
+    \b
+    Status Indicators:
+        ✅ Done
+        ● In Progress (can continue)
+        ○ To Do / Backlog (ready)
+        🔒 Blocked by incomplete dependencies
+    
+    \b
+    Examples:
+        ./pt tasks tree 4645
+    """
+    import json
+    db = DatabaseManager()
+    
+    task = db.get_task(task_id)
+    if not task:
+        console.print(f"[red]Task #{task_id} not found[/red]")
+        return
+    
+    subtasks = db.get_subtasks(task_id)
+    if not subtasks:
+        console.print(f"Task #{task_id} has no subtasks")
+        return
+    
+    # Header
+    progress = db.get_subtask_progress(task_id)
+    print(f"\nExecution Tree for #{task_id}: {task['text']}\n")
+    print(f"Progress: {progress['done']}/{progress['total']} complete ({progress['percent']}%)\n")
+    
+    # Status emoji map
+    status_emoji = {
+        "Done": "✅",
+        "In Progress": "●",
+        "To Do": "○",
+        "Backlog": "○"
+    }
+    
+    for i, subtask in enumerate(subtasks):
+        is_last = (i == len(subtasks) - 1)
+        prefix = "└─" if is_last else "├─"
+        
+        # Status indicator
+        emoji = status_emoji.get(subtask["status"], "?")
+        
+        # Blocking indicator
+        is_blocked, blocking_ids = db.is_blocked(subtask["id"])
+        block_str = ""
+        if is_blocked:
+            block_str = f" 🔒 (blocked by {', '.join([f'#{bid}' for bid in blocking_ids])})"
+        elif subtask["status"] not in ["Done", "In Progress"]:
+            block_str = " ← READY NOW"
+        
+        print(f"{prefix} {emoji} #{subtask['id']} | {subtask['status']:12} | {subtask['text']}{block_str}")
+    
+    print("\nℹ️  Use 'pt tasks next' to see what you can start immediately\n")
 
 
 @tasks_group.command(name="export")
@@ -1117,8 +1325,9 @@ def tasks_clear_done(project, yes):
 
     # Confirm unless -y flag
     if not yes:
-        scope = f"for project '{project}'" if project else "across all projects"
-        confirm = click.confirm(f"Delete {count} Done task(s) {scope}?", default=False)
+        scope_label = f"project {project}" if project else "all projects"
+        console.print(f"[dim]Scope: {scope_label}[/dim]")
+        confirm = click.confirm(f"Delete {count} Done task(s)?", default=False)
         if not confirm:
             console.print("[dim]Cancelled[/dim]")
             return
@@ -1235,6 +1444,7 @@ def inbox_clear():
 
 # Register Click groups with Typer app and create the combined CLI
 typer_click_object = typer.main.get_command(app)
+typer_click_object.add_command(scan_cli)
 typer_click_object.add_command(tasks_group)
 typer_click_object.add_command(inbox_group)
 

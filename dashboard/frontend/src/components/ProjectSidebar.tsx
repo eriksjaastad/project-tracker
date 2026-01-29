@@ -45,7 +45,7 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
     const stored = localStorage.getItem(STORAGE_KEY_COLLAPSED);
     return stored ? JSON.parse(stored) : false;
   });
-  
+
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [loading, setLoading] = useState<boolean>(false);
   const [taskCounts, setTaskCounts] = useState<Record<string, number>>({});
@@ -94,7 +94,7 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
   useEffect(() => {
     const fetchTaskCounts = async () => {
       const counts: Record<string, number> = {};
-      
+
       // Fetch tasks for each project in parallel
       const promises = projects.map(async (project) => {
         try {
@@ -130,14 +130,14 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
     const sorted = [...projectsWithCounts];
 
     if (externalSortOrder === 'alphabetical') {
-      sorted.sort((a, b) => a.name.localeCompare(b.name));
+      sorted.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     } else if (externalSortOrder === 'task-count') {
       sorted.sort((a, b) => {
         // Sort by task count (descending), then alphabetically for ties
         if (b.task_count !== a.task_count) {
           return (b.task_count ?? 0) - (a.task_count ?? 0);
         }
-        return a.name.localeCompare(b.name);
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
       });
     }
 

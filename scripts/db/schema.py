@@ -1,7 +1,7 @@
 """Database schema for project tracker.
 
 SAFETY POLICY - READ BEFORE MODIFYING:
-======================================
+--------------------------------------
 1. NEVER use DROP TABLE on tables that may contain data
 2. NEVER use DELETE FROM without explicit user confirmation
 3. All migrations must be ADDITIVE ONLY (ALTER TABLE ADD COLUMN)
@@ -18,6 +18,7 @@ auto-migration that dropped tables without backup.
 import sqlite3
 import sys
 import json
+import os
 from pathlib import Path
 from typing import Optional
 from datetime import datetime, timezone
@@ -88,7 +89,8 @@ from config import DATABASE_PATH
 
 def get_db_path() -> Path:
     """Get the database file path."""
-    return DATABASE_PATH
+    env_path = os.getenv("PT_DB_PATH")
+    return Path(env_path) if env_path else DATABASE_PATH
 
 
 def create_database(db_path: Optional[Path] = None) -> None:
@@ -304,6 +306,24 @@ def create_database(db_path: Optional[Path] = None) -> None:
     except sqlite3.OperationalError:
         pass
     
+    # Migration: add parent_id column for subtask support (Task #4645)
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Migration: add blocked_by column for task dependencies (Task #4579)
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN blocked_by TEXT")  # JSON array of task IDs
+    except sqlite3.OperationalError:
+        pass
+    
+    # Migration: add sequence_order column for execution ordering (Task #4645)
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN sequence_order INTEGER")
+    except sqlite3.OperationalError:
+        pass
+    
     # Task history table for productivity graphs
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS task_history (
@@ -319,9 +339,17 @@ def create_database(db_path: Optional[Path] = None) -> None:
         )
     """)
     
-    # ==========================================================================
+    # Ideas table for pre-project thoughts (Task #4583)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ideas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    
     # SAFETY: Delete audit log - catches ALL deletions including raw SQL
-    # ==========================================================================
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS delete_audit_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -332,13 +360,35 @@ def create_database(db_path: Optional[Path] = None) -> None:
             source TEXT DEFAULT 'unknown'
         )
     """)
-    
-    # SAFETY TRIGGER: Log all task deletions (catches raw SQL too)
+
+    # SAFETY: Track blocked delete attempts
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS delete_attempt_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_name TEXT NOT NULL,
+            attempted_at TEXT NOT NULL,
+            reason TEXT NOT NULL
+        )
+    """)
+
+    # SAFETY: Delete permission flag table
+    # Application sets enabled=1 before delete, enabled=0 after
+    # Raw SQL cannot delete because enabled defaults to 0
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS _delete_permissions (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            enabled INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    # Ensure the single row exists
+    cursor.execute("INSERT OR IGNORE INTO _delete_permissions (id, enabled) VALUES (1, 0)")
+
+    # SAFETY TRIGGER: Log allowed task deletions
     cursor.execute("DROP TRIGGER IF EXISTS audit_task_delete")
     cursor.execute("""
         CREATE TRIGGER audit_task_delete
         BEFORE DELETE ON tasks
-        FOR EACH ROW
+        WHEN (SELECT enabled FROM _delete_permissions WHERE id = 1) = 1
         BEGIN
             INSERT INTO delete_audit_log (table_name, deleted_id, deleted_data, deleted_at, source)
             VALUES (
@@ -352,11 +402,28 @@ def create_database(db_path: Optional[Path] = None) -> None:
                     'priority', OLD.priority,
                     'created_at', OLD.created_at,
                     'updated_at', OLD.updated_at,
-                    'completed_at', OLD.completed_at
+                    'completed_at', OLD.completed_at,
+                    'parent_id', OLD.parent_id,
+                    'blocked_by', OLD.blocked_by,
+                    'sequence_order', OLD.sequence_order
                 ),
                 datetime('now'),
-                'trigger'
+                'application'
             );
+        END
+    """)
+
+    # SAFETY TRIGGER: Block task deletes unless permission flag is set
+    # Uses RAISE(FAIL) not RAISE(ABORT) so the log INSERT isn't rolled back
+    cursor.execute("DROP TRIGGER IF EXISTS block_task_delete")
+    cursor.execute("""
+        CREATE TRIGGER block_task_delete
+        BEFORE DELETE ON tasks
+        WHEN (SELECT enabled FROM _delete_permissions WHERE id = 1) = 0
+        BEGIN
+            INSERT INTO delete_attempt_log (table_name, attempted_at, reason)
+            VALUES ('tasks', datetime('now'), 'blocked: _delete_permissions.enabled = 0');
+            SELECT RAISE(FAIL, 'Task deletes are blocked. Set _delete_permissions.enabled=1 first (application only).');
         END
     """)
     
@@ -398,6 +465,8 @@ def create_database(db_path: Optional[Path] = None) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_event ON task_history(event_type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_delete_audit_table ON delete_audit_log(table_name)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_delete_audit_time ON delete_audit_log(deleted_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id) WHERE parent_id IS NOT NULL")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_blocked ON tasks(blocked_by) WHERE blocked_by IS NOT NULL")
     
     # Update schema version (current version: 3 - added delete audit triggers)
     cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (3, ?)", (datetime.now().isoformat(),))

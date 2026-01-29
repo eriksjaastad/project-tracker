@@ -29,12 +29,44 @@ def discover_projects(
     """Scan directory for projects."""
     if base_path is None:
         base_path = PROJECTS_BASE_DIR
+    if isinstance(base_path, str) and not base_path.strip():
+        logger.warning("PROJECTS_BASE_DIR is empty; cannot scan for projects.")
+        return []
     base = Path(base_path)
     
     if not base.exists():
+        logger.warning(f"Projects base path does not exist: {base}")
+        return []
+    
+    if not base.is_dir():
+        logger.warning(f"Projects base path is not a directory: {base}")
         return []
     
     projects = []
+    
+    # Check if directory is empty (no subdirectories)
+    subdirs = [item for item in base.iterdir() if item.is_dir()]
+    if not subdirs:
+        logger.info(f"Projects base path is empty (no subdirectories found): {base}")
+        return []
+
+    marker_files = [
+        ".git",
+        "README.md",
+        "TODO.md",
+        "pyproject.toml",
+        "requirements.txt",
+        "Pipfile",
+        "package.json",
+        "tsconfig.json",
+        "Cargo.toml",
+        "go.mod",
+        "Gemfile",
+        "composer.json",
+        "Makefile"
+    ]
+    code_dirs = ["src", "lib", "app", "apps", "packages", "backend", "frontend", "server", "client"]
+    code_exts = [".py", ".js", ".ts"]
     
     for item in base.iterdir():
         if not item.is_dir():
@@ -44,15 +76,27 @@ def discover_projects(
         if should_skip_directory(item):
             continue
         
-        # Check for indicators of a project
-        has_git = (item / ".git").exists()
-        has_readme = (item / "README.md").exists()
-        has_todo = (item / "TODO.md").exists()
-        has_python = any(item.glob("**/*.py"))
-        has_js = any(item.glob("**/*.js")) or any(item.glob("**/*.ts"))
-        
+        # Check for indicators of a project (fast path)
+        has_index = any(item.glob("00_Index_*.md"))
+        has_marker = has_index or any((item / marker).exists() for marker in marker_files)
+
+        # If no markers, do limited code file checks in common code dirs
+        has_code = False
+        if not has_marker:
+            for code_dir in code_dirs:
+                candidate = item / code_dir
+                if not candidate.is_dir():
+                    continue
+                for ext in code_exts:
+                    # Fast shallow check - only look at top level, not recursive
+                    if any(candidate.glob(f"*{ext}")):
+                        has_code = True
+                        break
+                if has_code:
+                    break
+
         # If it looks like a project, extract metadata
-        if has_git or has_readme or has_todo or has_python or has_js:
+        if has_marker or has_code:
             project = extract_project_metadata(item)
             if project:
                 if sync_indexes:
@@ -406,8 +450,37 @@ def extract_readme_description(readme_path: Path) -> str:
         return ""
 
 
+def _load_ptignore() -> set:
+    """Load directory names to skip from .ptignore file."""
+    ptignore_path = Path(PROJECTS_BASE_DIR) / ".ptignore"
+    ignore_names = set()
+
+    if ptignore_path.exists():
+        try:
+            for line in ptignore_path.read_text().splitlines():
+                line = line.strip()
+                # Skip empty lines and comments
+                if line and not line.startswith('#'):
+                    ignore_names.add(line)
+        except Exception as e:
+            logger.warning(f"Failed to read .ptignore: {e}")
+
+    return ignore_names
+
+
+# Cache the ptignore contents (loaded once per process)
+_ptignore_cache = None
+
+
 def should_skip_directory(dir_path: Path) -> bool:
     """Determine if a directory should be skipped."""
+    global _ptignore_cache
+
+    # Load .ptignore on first call
+    if _ptignore_cache is None:
+        _ptignore_cache = _load_ptignore()
+
+    # Built-in skip list (common non-project directories)
     skip_names = {
         "node_modules",
         ".git",
@@ -421,7 +494,6 @@ def should_skip_directory(dir_path: Path) -> bool:
         ".idea",
         ".vscode",
         "_trash",
-        "_inbox",
         "trash",
         "archives",
         "logs",
@@ -429,6 +501,9 @@ def should_skip_directory(dir_path: Path) -> bool:
         "plugin-duplicate-detection",
         "plugin-find-names-chrome"
     }
-    
-    return dir_path.name in skip_names or dir_path.name.startswith('.')
+
+    # Combine built-in skip list with .ptignore
+    all_skip_names = skip_names | _ptignore_cache
+
+    return dir_path.name in all_skip_names or dir_path.name.startswith('.')
 
