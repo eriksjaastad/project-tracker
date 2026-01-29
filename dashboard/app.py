@@ -44,6 +44,9 @@ from pydantic import BaseModel
 # Import config
 from config import REINDEX_SCRIPT_PATH
 
+# Import scaffolding version helpers
+from scripts.pt import get_current_scaffolding_version, compare_versions
+
 logger = get_logger(__name__)
 
 app = FastAPI(title="Project Tracker Dashboard")
@@ -177,7 +180,7 @@ def categorize_services(services):
     return {k: v for k, v in categories.items() if v}
 
 
-def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
+def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_version: Optional[str] = None) -> dict:
     """Add related data to project."""
     # Get AI agents
     agents = db.get_ai_agents(project["id"])
@@ -214,6 +217,15 @@ def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
     if project.get("index_updated_at"):
         project["index_updated_human"] = format_time_ago(project["index_updated_at"])
     
+    # Calculate version status
+    project_version = project.get("scaffolding_version")
+    if project_version is None:
+        project["version_status"] = "unscaffolded"
+    elif current_scaffolding_version and compare_versions(project_version, current_scaffolding_version) < 0:
+        project["version_status"] = "outdated"
+    else:
+        project["version_status"] = "current"
+    
     return project
 
 
@@ -236,8 +248,11 @@ async def dashboard(request: Request):
     db = DatabaseManager()
     projects = db.get_all_projects(order_by="last_modified DESC")
     
+    # Get current scaffolding version
+    current_scaffolding, _ = get_current_scaffolding_version()
+    
     # Enrich with related data
-    enriched_projects = [enrich_project_data(p, db) for p in projects]
+    enriched_projects = [enrich_project_data(p, db, current_scaffolding) for p in projects]
     
     # Get alerts
     alerts = get_all_alerts(enriched_projects)
@@ -278,25 +293,9 @@ async def dashboard(request: Request):
                     **review_data
                 })
     
-    # Calculate version status
-    from scripts.pt import get_current_scaffolding_version, compare_versions
-    current_scaffolding, current_rules = get_current_scaffolding_version()
-    
-    outdated_projects = []
-    unscaffolded_projects = []
-    
-    for project in enriched_projects:
-        project_version = project.get("scaffolding_version")
-        
-        # Determine version status
-        if project_version is None:
-            project["version_status"] = "unscaffolded"
-            unscaffolded_projects.append(project)
-        elif current_scaffolding and compare_versions(project_version, current_scaffolding) < 0:
-            project["version_status"] = "outdated"
-            outdated_projects.append(project)
-        else:
-            project["version_status"] = "current"
+    # Calculate version status counts
+    outdated_projects = [p for p in enriched_projects if p.get("version_status") == "outdated"]
+    unscaffolded_projects = [p for p in enriched_projects if p.get("version_status") == "unscaffolded"]
     
     return templates.TemplateResponse("index.html", {
         "request": request,
@@ -326,8 +325,11 @@ async def project_detail(request: Request, project_id: str):
     if not project:
         return HTMLResponse(content="<h1>Project not found</h1>", status_code=404)
     
+    # Get current scaffolding version
+    current_scaffolding, _ = get_current_scaffolding_version()
+    
     # Enrich with related data
-    project = enrich_project_data(project, db)
+    project = enrich_project_data(project, db, current_scaffolding)
     
     return templates.TemplateResponse("project_detail.html", {
         "request": request,
@@ -482,8 +484,11 @@ async def api_projects():
     db = DatabaseManager()
     projects = db.get_all_projects(order_by="last_modified DESC")
     
+    # Get current scaffolding version
+    current_scaffolding, _ = get_current_scaffolding_version()
+    
     # Enrich with related data
-    enriched_projects = [enrich_project_data(p, db) for p in projects]
+    enriched_projects = [enrich_project_data(p, db, current_scaffolding) for p in projects]
     
     return {"projects": enriched_projects}
 
@@ -493,7 +498,11 @@ async def api_alerts():
     """Get all alerts."""
     db = DatabaseManager()
     projects = db.get_all_projects()
-    enriched_projects = [enrich_project_data(p, db) for p in projects]
+    
+    # Get current scaffolding version
+    current_scaffolding, _ = get_current_scaffolding_version()
+    
+    enriched_projects = [enrich_project_data(p, db, current_scaffolding) for p in projects]
     alerts = get_all_alerts(enriched_projects)
     return {"alerts": alerts}
 
@@ -525,7 +534,10 @@ async def api_stats():
             projects_with_ai += 1
     
     # Get alert counts
-    enriched_projects = [enrich_project_data(p, db) for p in projects]
+    # Get current scaffolding version
+    current_scaffolding, _ = get_current_scaffolding_version()
+    
+    enriched_projects = [enrich_project_data(p, db, current_scaffolding) for p in projects]
     alerts = get_all_alerts(enriched_projects)
     alert_counts = {
         "critical": len([a for a in alerts if a["severity"] == "critical"]),
@@ -623,6 +635,8 @@ class TaskCreateRequest(BaseModel):
     project_id: str
     status: Optional[str] = "Backlog"
     priority: Optional[str] = None
+    parent_id: Optional[int] = None  # Task #4645
+    blocked_by: Optional[List[int]] = None  # Task #4579
 
 
 class TaskUpdateRequest(BaseModel):
@@ -633,6 +647,8 @@ class TaskUpdateRequest(BaseModel):
     category: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
+    parent_id: Optional[int] = None  # Task #4645
+    blocked_by: Optional[List[int]] = None  # Task #4579
 
 
 # GET /api/agents - List all agents
@@ -839,11 +855,20 @@ async def create_task(task_data: TaskCreateRequest):
     """
     try:
         db = DatabaseManager()
+        
+        # Convert blocked_by list to JSON string if provided
+        blocked_by_json = None
+        if task_data.blocked_by:
+            import json
+            blocked_by_json = json.dumps(task_data.blocked_by)
+        
         task = db.add_task(
             text=task_data.text,
             project_id=task_data.project_id,
             status=task_data.status or "Backlog",
-            priority=task_data.priority
+            priority=task_data.priority,
+            parent_id=task_data.parent_id,
+            blocked_by=blocked_by_json
         )
         return task
     except ValueError as e:
@@ -860,23 +885,64 @@ async def create_task(task_data: TaskCreateRequest):
 @app.get("/api/tasks")
 async def list_tasks(
     project_id: Optional[str] = None,
-    status: Optional[str] = None
+    task_status: Optional[str] = None,
+    include_subtasks: bool = True,
+    parent_id: Optional[int] = None
 ):
     """List tasks with optional filtering.
 
     Args:
         project_id: Filter by project ID (optional)
-        status: Filter by status (optional)
+        task_status: Filter by status (optional)
+        include_subtasks: Include subtasks in results (default: True)
+        parent_id: Filter to subtasks of specific parent (optional)
 
     Returns:
-        Dictionary with tasks list and total count
+        Dictionary with enriched tasks list and total count
     """
     try:
+        import json
         db = DatabaseManager()
-        tasks = db.get_tasks(project_id=project_id, status=status)
+        tasks = db.get_tasks(project_id=project_id, status=task_status)
+
+        # Filter by parent_id if specified
+        if parent_id is not None:
+            tasks = [t for t in tasks if t.get("parent_id") == parent_id]
+
+        # Filter out subtasks if include_subtasks is False
+        if not include_subtasks:
+            tasks = [t for t in tasks if t.get("parent_id") is None]
+
+        # Enrich each task with subtask info and blocking status
+        # NOTE: Subtasks feature (#4645) is incomplete - methods not yet implemented
+        enriched_tasks = []
+        for task in tasks:
+            task_dict = dict(task)
+
+            # Add subtask progress if task is a parent (when implemented)
+            if hasattr(db, 'get_subtasks'):
+                subtasks = db.get_subtasks(task["id"])
+                if subtasks:
+                    task_dict["subtasks"] = subtasks
+                    task_dict["subtask_progress"] = db.get_subtask_progress(task["id"])
+
+            # Add blocking info if task has blocked_by (when implemented)
+            if task.get("blocked_by") and hasattr(db, 'get_blocking_tasks'):
+                try:
+                    blocked_by_ids = json.loads(task["blocked_by"])
+                    task_dict["blocked_by_ids"] = blocked_by_ids
+                    task_dict["blocking_tasks"] = db.get_blocking_tasks(task["id"])
+                    is_blocked, blocking_ids = db.is_blocked(task["id"])
+                    task_dict["is_blocked"] = is_blocked
+                    task_dict["incomplete_blocking_ids"] = blocking_ids
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            enriched_tasks.append(task_dict)
+
         return {
-            "tasks": tasks,
-            "total": len(tasks)
+            "tasks": enriched_tasks,
+            "total": len(enriched_tasks)
         }
     except Exception as e:
         logger.error(f"Error listing tasks: {e}", exc_info=True)
@@ -913,25 +979,52 @@ async def delete_done_tasks(project_id: Optional[str] = None):
 
 @app.get("/api/tasks/{task_id}")
 async def get_task(task_id: int):
-    """Get a single task by ID.
+    """Get a single task by ID with full enriched data.
     
     Args:
         task_id: Task ID
         
     Returns:
-        Task object
+        Enriched task object with subtasks, parent, and blocking info
         
     Raises:
         HTTPException: 404 if task not found
     """
     try:
+        import json
         db = DatabaseManager()
         task = db.get_task(task_id)
         
         if not task:
             raise ValueError(f"Task with ID {task_id} not found")
         
-        return task
+        task_dict = dict(task)
+        
+        # Add subtasks if this is a parent
+        subtasks = db.get_subtasks(task_id)
+        if subtasks:
+            task_dict["subtasks"] = subtasks
+            task_dict["subtask_progress"] = db.get_subtask_progress(task_id)
+        
+        # Add parent info if this is a subtask
+        if task.get("parent_id"):
+            parent = db.get_task(task["parent_id"])
+            if parent:
+                task_dict["parent"] = parent
+        
+        # Add blocking info if task has blocked_by
+        if task.get("blocked_by"):
+            try:
+                blocked_by_ids = json.loads(task["blocked_by"])
+                task_dict["blocked_by_ids"] = blocked_by_ids
+                task_dict["blocking_tasks"] = db.get_blocking_tasks(task_id)
+                is_blocked, blocking_ids = db.is_blocked(task_id)
+                task_dict["is_blocked"] = is_blocked
+                task_dict["incomplete_blocking_ids"] = blocking_ids
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        return task_dict
     except ValueError as e:
         # Re-raise to be caught by error handler
         raise
@@ -979,6 +1072,11 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
             updates["status"] = task_data.status
         if task_data.priority is not None:
             updates["priority"] = task_data.priority
+        if task_data.parent_id is not None:
+            updates["parent_id"] = task_data.parent_id
+        if task_data.blocked_by is not None:
+            import json
+            updates["blocked_by"] = json.dumps(task_data.blocked_by)
         
         if not updates:
             # No updates provided, return current task
