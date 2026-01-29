@@ -58,6 +58,36 @@
   color: #e0e0e0;
 }
 
+.kanban-board-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.project-filter-button {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--accent);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.project-filter-button:hover {
+  background: rgba(79, 157, 255, 0.1);
+  border-color: var(--accent);
+}
+
+.project-filter-caret {
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
 .kanban-board-header-actions {
   display: flex;
   align-items: center;
