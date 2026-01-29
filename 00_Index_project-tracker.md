@@ -106,7 +106,7 @@ This document serves as the index for the Project Tracker, providing a high-leve
 
 | Directory | Files | Description |
 | :--- | :---: | :--- |
-| [Documents/](Documents/README.md) | 9 | *Auto-generated index. Last updated: 2026-01-24* |
+| [Documents/](Documents/README.md) | 8 | *Auto-generated index. Last updated: 2026-01-24* |
 | [dashboard/](dashboard/) | 2 | No description available. |
 | [patterns/](patterns/) | 0 | No description available. |
 | [project-tracker/](project-tracker/) | 0 | No description available. |
@@ -129,6 +129,7 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [Documents/SCAFFOLDING_TRANSFER_GUIDE.md](Documents/SCAFFOLDING_TRANSFER_GUIDE.md) | Scaffolding Transfer Guide: project-tracker |
 | [Documents/patterns/code-review-standard.md](Documents/patterns/code-review-standard.md) | Code Review Standardization |
 | [Documents/patterns/learning-loop-pattern.md](Documents/patterns/learning-loop-pattern.md) | Learning Loop Pattern |
+| [Documents/reference/AI_JOURNAL.md](Documents/reference/AI_JOURNAL.md) | Strategic decisions, significant events, and reflections for future context. |
 | [Documents/reference/LEARNINGS.md](Documents/reference/LEARNINGS.md) | Project Tracker Learning Loop |
 | [Documents/reference/LOCAL_MODEL_LEARNINGS.md](Documents/reference/LOCAL_MODEL_LEARNINGS.md) | Local Model Learnings: project-tracker |
 | [Documents/reference/MODEL_LEARNINGS.md](Documents/reference/MODEL_LEARNINGS.md) | Local Model Learnings: project-tracker |
@@ -136,6 +137,8 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [QUICKSTART.md](QUICKSTART.md) | 🚀 project-tracker - Quick Start |
 | [README.md](README.md) | project-tracker |
 | [REVIEW.md](REVIEW.md) | This document outlines the code review process for the Project Tracker application. It aims to ensur... |
+| [SECURITY_EVOLUTION.md](SECURITY_EVOLUTION.md) | **Started:** 2026-01-28 |
+| [TASK_4645_DEPENDENCY_ADDITION.md](TASK_4645_DEPENDENCY_ADDITION.md) | **Added:** 2026-01-28 22:30 - Sequential dependency support for AI-first workflow |
 | [TODO.md](TODO.md) | **Last Updated:** January 14, 2026 |
 | [USAGE.md](USAGE.md) | > **Quick Start:** `./pt launch` to open the dashboard |
 | [config.py](config.py) | Configuration for project tracker. |
