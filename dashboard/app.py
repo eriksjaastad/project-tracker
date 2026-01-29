@@ -954,27 +954,12 @@ async def list_tasks(
 
 @app.delete("/api/tasks/done")
 async def delete_done_tasks(project_id: Optional[str] = None):
-    """Delete all tasks in Done status.
-
-    Args:
-        project_id: Filter by project ID (optional). If None, deletes Done tasks from all projects.
-
-    Returns:
-        Dictionary with count of deleted tasks
-    """
-    try:
-        db = DatabaseManager()
-        deleted_count = db.delete_done_tasks(project_id=project_id)
-        return {
-            "deleted": deleted_count,
-            "message": f"Deleted {deleted_count} done task(s)"
-        }
-    except Exception as e:
-        logger.error(f"Error deleting done tasks: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete done tasks"
-        )
+    """Delete all tasks in Done status (disabled)."""
+    logger.warning("Blocked API delete_done_tasks attempt")
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Task deletions are disabled. Use manual DBA operations if needed."
+    )
 
 
 @app.get("/api/tasks/{task_id}")
@@ -1078,6 +1063,20 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
             import json
             updates["blocked_by"] = json.dumps(task_data.blocked_by)
         
+        # Explicit API guard for promptless In Progress
+        if updates.get("status") == "In Progress":
+            current = db.get_task(task_id)
+            if not current:
+                raise ValueError(f"Task with ID {task_id} not found")
+            prompt_value = updates.get("prompt")
+            if prompt_value is None:
+                prompt_value = current.get("prompt")
+            if not prompt_value:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot start task without a prompt. Add execution instructions first."
+                )
+
         if not updates:
             # No updates provided, return current task
             task = db.get_task(task_id)
@@ -1101,30 +1100,126 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
 
 @app.delete("/api/tasks/{task_id}", status_code=status.HTTP_200_OK)
 async def delete_task(task_id: int):
-    """Delete a task.
+    """Delete a task (disabled)."""
+    logger.warning("Blocked API delete_task attempt: %s", task_id)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Task deletions are disabled. Use manual DBA operations if needed."
+    )
+
+
+# ==================== IDEAS API ENDPOINTS (Task #4583) ====================
+
+class IdeaCreateRequest(BaseModel):
+    text: str
+
+
+class IdeaUpdateRequest(BaseModel):
+    text: str
+
+
+@app.get("/api/ideas")
+async def get_ideas():
+    """Get all ideas.
+    
+    Returns:
+        List of all ideas ordered by creation date (newest first)
+    """
+    try:
+        db = DatabaseManager()
+        ideas = db.get_all_ideas()
+        return {"ideas": ideas}
+    except Exception as e:
+        logger.error(f"Error fetching ideas: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch ideas"
+        )
+
+
+@app.post("/api/ideas", status_code=status.HTTP_201_CREATED)
+async def create_idea(idea_data: IdeaCreateRequest):
+    """Create a new idea.
     
     Args:
-        task_id: Task ID
+        idea_data: Idea creation data (text)
+        
+    Returns:
+        Created idea with id and timestamps
+        
+    Raises:
+        HTTPException: 400 if validation fails
+    """
+    try:
+        db = DatabaseManager()
+        idea = db.add_idea(idea_data.text)
+        return idea
+    except ValueError as e:
+        # Re-raise to be caught by error handler
+        raise
+    except Exception as e:
+        logger.error(f"Error creating idea: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create idea"
+        )
+
+
+@app.patch("/api/ideas/{idea_id}")
+async def update_idea(idea_id: int, idea_data: IdeaUpdateRequest):
+    """Update an idea's text.
+    
+    Args:
+        idea_id: Idea ID
+        idea_data: Updated text
+        
+    Returns:
+        Updated idea
+        
+    Raises:
+        HTTPException: 400 if validation fails, 404 if idea not found
+    """
+    try:
+        db = DatabaseManager()
+        idea = db.update_idea(idea_id, idea_data.text)
+        return idea
+    except ValueError as e:
+        # Re-raise to be caught by error handler
+        raise
+    except Exception as e:
+        logger.error(f"Error updating idea {idea_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update idea"
+        )
+
+
+@app.delete("/api/ideas/{idea_id}", status_code=status.HTTP_200_OK)
+async def delete_idea(idea_id: int):
+    """Delete an idea.
+    
+    Args:
+        idea_id: Idea ID
         
     Returns:
         Success confirmation
         
     Raises:
-        HTTPException: 404 if task not found
+        HTTPException: 404 if idea not found
     """
     try:
         db = DatabaseManager()
-        db.delete_task(task_id)
+        db.delete_idea(idea_id)
         return {
             "success": True,
-            "message": f"Task {task_id} deleted successfully"
+            "message": f"Idea {idea_id} deleted successfully"
         }
     except ValueError as e:
         # Re-raise to be caught by error handler
         raise
     except Exception as e:
-        logger.error(f"Error deleting task {task_id}: {e}", exc_info=True)
+        logger.error(f"Error deleting idea {idea_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete task"
+            detail="Failed to delete idea"
         )

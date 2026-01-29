@@ -139,7 +139,7 @@ $PROJECTS_ROOT/project-tracker/pt tasks done <task-id>
 - Check `./pt tasks -p <your-project>` before starting work to see pending tasks
 - Use `./pt tasks start <id>` when beginning work on a task
 - Use `./pt tasks done <id>` when completing a task
-- Tasks are tracked in a Kanban board (Backlog → To Do → In Progress → Done)
+- Tasks are tracked in a Kanban board (Backlog → To Do → In Progress → Review → Done)
 - The web dashboard at `localhost:8000/kanban` provides a visual interface
 - Task IDs are unique integers that can be referenced in commits
 

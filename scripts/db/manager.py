@@ -9,6 +9,8 @@ Backups are stored in data/backups/ with timestamps.
 
 import sqlite3
 import json
+import os
+import traceback
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
@@ -23,6 +25,9 @@ from scripts.utils.validation import (
     contains_secret,
     sanitize_task_text
 )
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _get_backup_dir(db_path: Path) -> Path:
@@ -134,28 +139,94 @@ class DatabaseManager:
         """Add or update a project."""
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            
-            # 🛡️ Preserve created_at, health_score, and health_grade on update
-            cursor.execute("SELECT created_at, health_score, health_grade FROM projects WHERE id = ?", (project_id,))
-            existing = cursor.fetchone()
-            
-            created_at = existing["created_at"] if existing else datetime.now().isoformat()
-            
-            # Use provided health data or preserve existing
-            final_health_score = health_score if health_score is not None else (existing["health_score"] if existing else None)
-            final_health_grade = health_grade if health_grade is not None else (existing["health_grade"] if existing else None)
-            
-            cursor.execute("""
-                INSERT OR REPLACE INTO projects 
-                (id, name, path, status, description, phase, last_modified, created_at, completion_pct, 
-                 is_infrastructure, has_index, index_is_valid, index_updated_at, health_score, health_grade, project_type,
-                 scaffolding_version, rules_version, scaffolding_applied_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (project_id, name, path, status, description, phase, last_modified, created_at, completion_pct, 
-                  is_infrastructure, has_index, index_is_valid, index_updated_at, final_health_score, final_health_grade, project_type,
-                  scaffolding_version, rules_version, scaffolding_applied_at))
-            
+
+            self._add_project_with_cursor(
+                cursor=cursor,
+                project_id=project_id,
+                name=name,
+                path=path,
+                status=status,
+                description=description,
+                phase=phase,
+                last_modified=last_modified,
+                completion_pct=completion_pct,
+                is_infrastructure=is_infrastructure,
+                has_index=has_index,
+                index_is_valid=index_is_valid,
+                index_updated_at=index_updated_at,
+                health_score=health_score,
+                health_grade=health_grade,
+                project_type=project_type,
+                scaffolding_version=scaffolding_version,
+                rules_version=rules_version,
+                scaffolding_applied_at=scaffolding_applied_at
+            )
+
             conn.commit()
+
+    def _add_project_with_cursor(
+        self,
+        cursor: sqlite3.Cursor,
+        project_id: str,
+        name: str,
+        path: str,
+        status: str,
+        description: Optional[str] = None,
+        phase: Optional[str] = None,
+        last_modified: Optional[str] = None,
+        completion_pct: int = 0,
+        is_infrastructure: bool = False,
+        has_index: bool = False,
+        index_is_valid: bool = False,
+        index_updated_at: Optional[str] = None,
+        health_score: Optional[int] = None,
+        health_grade: Optional[str] = None,
+        project_type: str = 'standard',
+        scaffolding_version: Optional[str] = None,
+        rules_version: Optional[str] = None,
+        scaffolding_applied_at: Optional[str] = None
+    ) -> None:
+        """Add or update a project using an existing cursor."""
+        # 🛡️ Preserve created_at, health_score, and health_grade on update
+        cursor.execute("SELECT created_at, health_score, health_grade FROM projects WHERE id = ?", (project_id,))
+        existing = cursor.fetchone()
+
+        created_at = existing["created_at"] if existing else datetime.now().isoformat()
+
+        # Use provided health data or preserve existing
+        final_health_score = health_score if health_score is not None else (existing["health_score"] if existing else None)
+        final_health_grade = health_grade if health_grade is not None else (existing["health_grade"] if existing else None)
+
+        # CRITICAL FIX: Use ON CONFLICT instead of INSERT OR REPLACE
+        # INSERT OR REPLACE does DELETE + INSERT, which triggers ON DELETE CASCADE
+        # and wipes all tasks. ON CONFLICT DO UPDATE modifies in-place, no cascade.
+        cursor.execute("""
+            INSERT INTO projects
+            (id, name, path, status, description, phase, last_modified, created_at, completion_pct,
+             is_infrastructure, has_index, index_is_valid, index_updated_at, health_score, health_grade, project_type,
+             scaffolding_version, rules_version, scaffolding_applied_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                path = excluded.path,
+                status = excluded.status,
+                description = excluded.description,
+                phase = excluded.phase,
+                last_modified = excluded.last_modified,
+                completion_pct = excluded.completion_pct,
+                is_infrastructure = excluded.is_infrastructure,
+                has_index = excluded.has_index,
+                index_is_valid = excluded.index_is_valid,
+                index_updated_at = excluded.index_updated_at,
+                health_score = excluded.health_score,
+                health_grade = excluded.health_grade,
+                project_type = excluded.project_type,
+                scaffolding_version = excluded.scaffolding_version,
+                rules_version = excluded.rules_version,
+                scaffolding_applied_at = excluded.scaffolding_applied_at
+        """, (project_id, name, path, status, description, phase, last_modified, created_at, completion_pct,
+              is_infrastructure, has_index, index_is_valid, index_updated_at, final_health_score, final_health_grade, project_type,
+              scaffolding_version, rules_version, scaffolding_applied_at))
     
     def get_project(self, project_id: str) -> Optional[Dict[str, Any]]:
         """Get a single project by ID."""
@@ -223,12 +294,16 @@ class DatabaseManager:
             
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE projects 
-                SET health_score = ?, health_grade = ?
-                WHERE id = ?
-            """, (score, grade, project_id))
+            self._update_health_with_cursor(cursor, project_id, score, grade)
             conn.commit()
+
+    def _update_health_with_cursor(self, cursor: sqlite3.Cursor, project_id: str, score: int, grade: str) -> None:
+        """Update health_score and health_grade using an existing cursor."""
+        cursor.execute("""
+            UPDATE projects 
+            SET health_score = ?, health_grade = ?
+            WHERE id = ?
+        """, (score, grade, project_id))
     
     def delete_project(self, project_id: str) -> None:
         """Delete a project and all related data."""
@@ -247,9 +322,16 @@ class DatabaseManager:
         
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-            conn.commit()
-    
+            try:
+                # Enable delete permission (project delete cascades to tasks)
+                cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
+                cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+                conn.commit()
+            finally:
+                # Always disable delete permission after
+                cursor.execute("UPDATE _delete_permissions SET enabled = 0 WHERE id = 1")
+                conn.commit()
+
     # ==================== CRON JOB OPERATIONS ====================
     
     def add_cron_job(
@@ -293,6 +375,65 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM cron_jobs WHERE project_id = ?", (project_id,))
             conn.commit()
+
+    def _sync_cron_jobs_with_cursor(
+        self,
+        cursor: sqlite3.Cursor,
+        project_id: str,
+        cron_jobs: List[Dict[str, Any]],
+        allow_deletes: bool = True
+    ) -> Dict[str, int]:
+        """Sync cron jobs for a project using an existing cursor."""
+        existing = cursor.execute(
+            "SELECT id, schedule, command, description FROM cron_jobs WHERE project_id = ?",
+            (project_id,)
+        ).fetchall()
+
+        existing_by_key = {(row["schedule"], row["command"]): row for row in existing}
+        desired_keys = set()
+        added = updated = deleted = 0
+
+        for job in cron_jobs or []:
+            schedule = (job.get("schedule") or "").strip()
+            command = (job.get("command") or "").strip()
+            if not schedule or not command:
+                continue
+            description = job.get("description")
+            key = (schedule, command)
+            desired_keys.add(key)
+
+            existing_row = existing_by_key.get(key)
+            if existing_row:
+                if existing_row["description"] != description:
+                    cursor.execute(
+                        "UPDATE cron_jobs SET description = ? WHERE id = ?",
+                        (description, existing_row["id"])
+                    )
+                    updated += 1
+            else:
+                cursor.execute(
+                    "INSERT INTO cron_jobs (project_id, schedule, command, description) VALUES (?, ?, ?, ?)",
+                    (project_id, schedule, command, description)
+                )
+                added += 1
+
+        if allow_deletes:
+            delete_ids = [row["id"] for row in existing if (row["schedule"], row["command"]) not in desired_keys]
+            if delete_ids:
+                # 🛡️ SAFETY: Backup before delete
+                self._backup_before_delete(
+                    table="cron_jobs",
+                    where_clause="project_id = ?",
+                    params=(project_id,),
+                    reason=f"Sync cron jobs - prune stale ({project_id})"
+                )
+                cursor.execute(
+                    f"DELETE FROM cron_jobs WHERE id IN ({','.join('?' for _ in delete_ids)})",
+                    delete_ids
+                )
+                deleted = cursor.rowcount or 0
+
+        return {"added": added, "updated": updated, "deleted": deleted}
     
     # ==================== AI AGENT OPERATIONS ====================
     
@@ -337,6 +478,63 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM ai_agents WHERE project_id = ?", (project_id,))
             conn.commit()
+
+    def _sync_ai_agents_with_cursor(
+        self,
+        cursor: sqlite3.Cursor,
+        project_id: str,
+        agents: List[Dict[str, Any]],
+        allow_deletes: bool = True
+    ) -> Dict[str, int]:
+        """Sync AI agents for a project using an existing cursor."""
+        existing = cursor.execute(
+            "SELECT id, agent_name, role, notes FROM ai_agents WHERE project_id = ?",
+            (project_id,)
+        ).fetchall()
+
+        existing_by_name = {row["agent_name"]: row for row in existing}
+        desired_names = set()
+        added = updated = deleted = 0
+
+        for agent in agents or []:
+            agent_name = (agent.get("agent_name") or "").strip()
+            if not agent_name:
+                continue
+            desired_names.add(agent_name)
+            role = agent.get("role")
+
+            existing_row = existing_by_name.get(agent_name)
+            if existing_row:
+                if existing_row["role"] != role:
+                    cursor.execute(
+                        "UPDATE ai_agents SET role = ? WHERE id = ?",
+                        (role, existing_row["id"])
+                    )
+                    updated += 1
+            else:
+                cursor.execute(
+                    "INSERT INTO ai_agents (project_id, agent_name, role) VALUES (?, ?, ?)",
+                    (project_id, agent_name, role)
+                )
+                added += 1
+
+        if allow_deletes:
+            delete_ids = [row["id"] for row in existing if row["agent_name"] not in desired_names]
+            if delete_ids:
+                # 🛡️ SAFETY: Backup before delete
+                self._backup_before_delete(
+                    table="ai_agents",
+                    where_clause="project_id = ?",
+                    params=(project_id,),
+                    reason=f"Sync AI agents - prune stale ({project_id})"
+                )
+                cursor.execute(
+                    f"DELETE FROM ai_agents WHERE id IN ({','.join('?' for _ in delete_ids)})",
+                    delete_ids
+                )
+                deleted = cursor.rowcount or 0
+
+        return {"added": added, "updated": updated, "deleted": deleted}
     
     # ==================== SERVICE OPERATIONS ====================
     
@@ -381,6 +579,64 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM service_dependencies WHERE project_id = ?", (project_id,))
             conn.commit()
+
+    def _sync_services_with_cursor(
+        self,
+        cursor: sqlite3.Cursor,
+        project_id: str,
+        services: List[Dict[str, Any]],
+        allow_deletes: bool = True
+    ) -> Dict[str, int]:
+        """Sync services for a project using an existing cursor."""
+        existing = cursor.execute(
+            "SELECT id, service_name, purpose, cost_monthly FROM service_dependencies WHERE project_id = ?",
+            (project_id,)
+        ).fetchall()
+
+        existing_by_name = {row["service_name"]: row for row in existing}
+        desired_names = set()
+        added = updated = deleted = 0
+
+        for service in services or []:
+            service_name = (service.get("service_name") or "").strip()
+            if not service_name:
+                continue
+            desired_names.add(service_name)
+            purpose = service.get("purpose")
+            cost_monthly = service.get("cost_monthly")
+
+            existing_row = existing_by_name.get(service_name)
+            if existing_row:
+                if existing_row["purpose"] != purpose or existing_row["cost_monthly"] != cost_monthly:
+                    cursor.execute(
+                        "UPDATE service_dependencies SET purpose = ?, cost_monthly = ? WHERE id = ?",
+                        (purpose, cost_monthly, existing_row["id"])
+                    )
+                    updated += 1
+            else:
+                cursor.execute(
+                    "INSERT INTO service_dependencies (project_id, service_name, purpose, cost_monthly) VALUES (?, ?, ?, ?)",
+                    (project_id, service_name, purpose, cost_monthly)
+                )
+                added += 1
+
+        if allow_deletes:
+            delete_ids = [row["id"] for row in existing if row["service_name"] not in desired_names]
+            if delete_ids:
+                # 🛡️ SAFETY: Backup before delete
+                self._backup_before_delete(
+                    table="service_dependencies",
+                    where_clause="project_id = ?",
+                    params=(project_id,),
+                    reason=f"Sync services - prune stale ({project_id})"
+                )
+                cursor.execute(
+                    f"DELETE FROM service_dependencies WHERE id IN ({','.join('?' for _ in delete_ids)})",
+                    delete_ids
+                )
+                deleted = cursor.rowcount or 0
+
+        return {"added": added, "updated": updated, "deleted": deleted}
     
     # ==================== ACTIVITY FEED ====================
     
@@ -561,6 +817,14 @@ class DatabaseManager:
         now = datetime.now().isoformat()
         old_status = existing_task["status"]
         new_status = updates.get("status", old_status)
+
+        # Require prompt before moving to In Progress
+        if new_status == "In Progress":
+            prompt_value = updates.get("prompt")
+            if prompt_value is None:
+                prompt_value = existing_task.get("prompt")
+            if not prompt_value:
+                raise ValueError("Cannot start task without a prompt. Add execution instructions first.")
         
         with self._get_conn() as conn:
             cursor = conn.cursor()
@@ -603,6 +867,73 @@ class DatabaseManager:
             
             # Return updated task
             return self.get_task(task_id)
+
+    def get_subtasks(self, parent_id: int) -> List[Dict[str, Any]]:
+        """Get all subtasks of a parent task."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM tasks
+                WHERE parent_id = ?
+                ORDER BY sequence_order ASC, created_at ASC
+            """, (parent_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_subtask_progress(self, parent_id: int) -> Dict[str, Any]:
+        """Get completion progress for a parent task's subtasks."""
+        subtasks = self.get_subtasks(parent_id)
+        total = len(subtasks)
+        done = len([t for t in subtasks if t["status"] == "Done"])
+        return {
+            "total": total,
+            "done": done,
+            "percent": int(done / total * 100) if total > 0 else 0
+        }
+
+    def get_blocking_tasks(self, task_id: int) -> List[Dict[str, Any]]:
+        """Get tasks that are blocking this task from starting."""
+        task = self.get_task(task_id)
+        if not task or not task.get("blocked_by"):
+            return []
+
+        try:
+            blocked_by_ids = json.loads(task["blocked_by"])
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+        results = []
+        for tid in blocked_by_ids:
+            blocking_task = self.get_task(tid)
+            if blocking_task:
+                results.append(blocking_task)
+        return results
+
+    def get_blocked_tasks(self, task_id: int) -> List[Dict[str, Any]]:
+        """Get tasks that are blocked by this task (reverse lookup)."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM tasks
+                WHERE blocked_by IS NOT NULL
+            """)
+
+            results = []
+            for row in cursor.fetchall():
+                task = dict(row)
+                if task.get("blocked_by"):
+                    try:
+                        blocked_by = json.loads(task["blocked_by"])
+                        if task_id in blocked_by:
+                            results.append(task)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+            return results
+
+    def is_blocked(self, task_id: int) -> Tuple[bool, List[int]]:
+        """Check if task is blocked by incomplete tasks."""
+        blocking = self.get_blocking_tasks(task_id)
+        incomplete = [t["id"] for t in blocking if t["status"] != "Done"]
+        return (len(incomplete) > 0, incomplete)
     
     def delete_task(self, task_id: int) -> None:
         """Delete a task.
@@ -617,6 +948,8 @@ class DatabaseManager:
         if not self.get_task(task_id):
             raise ValueError(f"Task with ID {task_id} not found")
 
+        self._ensure_delete_allowed(operation=f"delete_task:{task_id}")
+
         # 🛡️ SAFETY: Backup before delete
         self._backup_before_delete(
             table="tasks",
@@ -627,9 +960,16 @@ class DatabaseManager:
 
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            # Foreign key cascade will delete related task_history entries
-            cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-            conn.commit()
+            try:
+                # Enable delete permission (triggers check this flag)
+                cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
+                # Foreign key cascade will delete related task_history entries
+                cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+                conn.commit()
+            finally:
+                # Always disable delete permission after
+                cursor.execute("UPDATE _delete_permissions SET enabled = 0 WHERE id = 1")
+                conn.commit()
 
     def delete_done_tasks(self, project_id: Optional[str] = None) -> int:
         """Delete all tasks in Done status.
@@ -640,6 +980,8 @@ class DatabaseManager:
         Returns:
             Number of tasks deleted
         """
+        self._ensure_delete_allowed(operation="delete_done_tasks")
+
         # 🛡️ SAFETY: Backup before bulk delete
         if project_id:
             self._backup_before_delete(
@@ -658,13 +1000,20 @@ class DatabaseManager:
         
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            if project_id:
-                cursor.execute("DELETE FROM tasks WHERE status = 'Done' AND project_id = ?", (project_id,))
-            else:
-                cursor.execute("DELETE FROM tasks WHERE status = 'Done'")
-            deleted_count = cursor.rowcount
-            conn.commit()
-            return deleted_count
+            try:
+                # Enable delete permission (triggers check this flag)
+                cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
+                if project_id:
+                    cursor.execute("DELETE FROM tasks WHERE status = 'Done' AND project_id = ?", (project_id,))
+                else:
+                    cursor.execute("DELETE FROM tasks WHERE status = 'Done'")
+                deleted_count = cursor.rowcount
+                conn.commit()
+                return deleted_count
+            finally:
+                # Always disable delete permission after
+                cursor.execute("UPDATE _delete_permissions SET enabled = 0 WHERE id = 1")
+                conn.commit()
 
     def get_task_history(
         self,
@@ -753,3 +1102,136 @@ class DatabaseManager:
                     print(f"  ❌ Failed to import task #{task.get('id')}: {e}")
             conn.commit()
         return success_count
+
+    def _ensure_delete_allowed(self, operation: str) -> None:
+        """Enforce SAFE_MODE before any delete operation."""
+        if os.getenv("SAFE_MODE", "1") == "1":
+            logger.error(
+                "Blocked delete attempt due to SAFE_MODE: %s\n%s",
+                operation,
+                "".join(traceback.format_stack())
+            )
+            raise ValueError("SAFE_MODE=1 - deletes are disabled")
+
+    
+    # ==================== IDEAS OPERATIONS (Task #4583) ====================
+    
+    def add_idea(self, text: str) -> Dict[str, Any]:
+        """Create a new idea.
+        
+        Args:
+            text: Idea text content
+            
+        Returns:
+            Idea dictionary with all fields including generated id and timestamps
+            
+        Raises:
+            ValueError: If validation fails
+        """
+        if not text or not text.strip():
+            raise ValueError("Idea text cannot be empty")
+        
+        if len(text) > 5000:
+            raise ValueError("Idea text too long (max 5000 characters)")
+        
+        now = datetime.now().isoformat()
+        
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO ideas (text, created_at, updated_at)
+                VALUES (?, ?, ?)
+            """, (text.strip(), now, now))
+            
+            idea_id = cursor.lastrowid
+            conn.commit()
+            
+            return self.get_idea(idea_id)
+    
+    def get_idea(self, idea_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single idea by ID.
+        
+        Args:
+            idea_id: Idea ID
+            
+        Returns:
+            Idea dictionary or None if not found
+        """
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def get_all_ideas(self) -> List[Dict[str, Any]]:
+        """Get all ideas, ordered by creation date (newest first).
+        
+        Returns:
+            List of idea dictionaries
+        """
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM ideas ORDER BY created_at DESC")
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    def update_idea(self, idea_id: int, text: str) -> Dict[str, Any]:
+        """Update an idea's text.
+        
+        Args:
+            idea_id: Idea ID
+            text: New text content
+            
+        Returns:
+            Updated idea dictionary
+            
+        Raises:
+            ValueError: If idea not found or invalid text
+        """
+        if not text or not text.strip():
+            raise ValueError("Idea text cannot be empty")
+        
+        if len(text) > 5000:
+            raise ValueError("Idea text too long (max 5000 characters)")
+        
+        existing_idea = self.get_idea(idea_id)
+        if not existing_idea:
+            raise ValueError(f"Idea with ID {idea_id} not found")
+        
+        now = datetime.now().isoformat()
+        
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE ideas 
+                SET text = ?, updated_at = ?
+                WHERE id = ?
+            """, (text.strip(), now, idea_id))
+            conn.commit()
+            
+            return self.get_idea(idea_id)
+    
+    def delete_idea(self, idea_id: int) -> None:
+        """Delete an idea.
+        
+        Args:
+            idea_id: Idea ID
+            
+        Raises:
+            ValueError: If idea not found
+        """
+        if not self.get_idea(idea_id):
+            raise ValueError(f"Idea with ID {idea_id} not found")
+        
+        # 🛡️ SAFETY: Backup before delete
+        self._backup_before_delete(
+            table="ideas",
+            where_clause="id = ?",
+            params=(idea_id,),
+            reason=f"Deleting idea: {idea_id}"
+        )
+        
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM ideas WHERE id = ?", (idea_id,))
+            conn.commit()
