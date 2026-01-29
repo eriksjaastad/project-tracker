@@ -61,7 +61,17 @@ export async function fetchTasks(projectId?: string, status?: TaskStatus): Promi
 
 export async function updateTask(
   taskId: number,
-  updates: { text?: string; title?: string | null; notes?: string | null; commit_sha?: string | null; category?: string | null; status?: TaskStatus; priority?: TaskPriority | null }
+  updates: {
+    text?: string;
+    title?: string | null;
+    notes?: string | null;
+    commit_sha?: string | null;
+    category?: string | null;
+    status?: TaskStatus;
+    priority?: TaskPriority | null;
+    parent_id?: number | null;
+    blocked_by?: number[] | null;
+  }
 ): Promise<Task> {
   try {
     const response = await fetchWithErrorHandling(`${API_BASE}/tasks/${taskId}`, {
@@ -90,7 +100,9 @@ export async function createTask(
   text: string,
   projectId: string,
   status: TaskStatus = 'Backlog',
-  priority?: TaskPriority | null
+  priority?: TaskPriority | null,
+  parentId?: number | null,
+  blockedBy?: number[] | null
 ): Promise<Task> {
   try {
     const response = await fetchWithErrorHandling(`${API_BASE}/tasks`, {
@@ -103,6 +115,8 @@ export async function createTask(
         project_id: projectId,
         status,
         priority,
+        parent_id: parentId,
+        blocked_by: blockedBy,
       }),
     });
 
@@ -203,5 +217,94 @@ export async function fetchTaskHistory(days: number = 30, projectId?: string): P
       throw error;
     }
     throw new Error('Failed to fetch task history');
+  }
+}
+
+// ==================== IDEAS API (Task #4583) ====================
+
+import type { Idea } from './types';
+
+export async function fetchIdeas(): Promise<Idea[]> {
+  try {
+    const response = await fetchWithErrorHandling(`${API_BASE}/ideas`);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || errorData.detail || `Failed to fetch ideas: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.ideas || [];
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to fetch ideas');
+  }
+}
+
+export async function createIdea(text: string): Promise<Idea> {
+  try {
+    const response = await fetchWithErrorHandling(`${API_BASE}/ideas`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || errorData.detail || `Failed to create idea: ${response.statusText}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to create idea');
+  }
+}
+
+export async function updateIdea(ideaId: number, text: string): Promise<Idea> {
+  try {
+    const response = await fetchWithErrorHandling(`${API_BASE}/ideas/${ideaId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || errorData.detail || `Failed to update idea: ${response.statusText}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to update idea');
+  }
+}
+
+export async function deleteIdea(ideaId: number): Promise<void> {
+  try {
+    const response = await fetchWithErrorHandling(`${API_BASE}/ideas/${ideaId}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || errorData.detail || `Failed to delete idea: ${response.statusText}`);
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to delete idea');
   }
 }

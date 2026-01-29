@@ -45,17 +45,29 @@ def get_last_commit_date(project_path: Path) -> Optional[str]:
 
 
 def get_last_modified_fallback(project_path: Path) -> str:
-    """Fallback to file modification times if git fails."""
+    """Fallback to file modification times if git fails.
+    
+    PERFORMANCE: Uses shallow checks instead of recursive rglob to avoid
+    walking entire directory trees. Only checks top-level files and common
+    code directories (src, lib, app, scripts).
+    """
     try:
-        # Get all files (excluding common directories)
+        # Fast path: Check top-level files only
         files = []
-        for item in project_path.rglob("*"):
+        
+        # Check top-level directory
+        for item in project_path.iterdir():
             if item.is_file():
-                # Skip common non-project directories
-                if any(part in [".git", "node_modules", "__pycache__", "venv", ".DS_Store"] 
-                       for part in item.parts):
-                    continue
                 files.append(item)
+        
+        # Check common code directories (shallow, not recursive)
+        code_dirs = ["src", "lib", "app", "scripts", "backend", "frontend"]
+        for code_dir in code_dirs:
+            candidate = project_path / code_dir
+            if candidate.is_dir():
+                for item in candidate.iterdir():
+                    if item.is_file():
+                        files.append(item)
         
         if files:
             most_recent = max(f.stat().st_mtime for f in files)

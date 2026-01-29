@@ -11,6 +11,7 @@ import { TaskForm } from './TaskForm';
 import { TaskDetailModal } from './TaskDetailModal';
 import { Spinner } from './Spinner';
 import { SkeletonCard } from './SkeletonCard';
+import { IdeasSection } from './IdeasSection';
 import './KanbanBoard.css';
 
 const STATUSES: TaskStatus[] = ['Backlog', 'To Do', 'In Progress', 'Review', 'Done'];
@@ -144,13 +145,17 @@ export function KanbanBoard() {
     projectId: string;
     status: TaskStatus;
     priority: TaskPriority | null;
+    parentId?: number | null;
+    blockedBy?: number[] | null;
   }) => {
     try {
       const newTask = await createTask(
         data.text,
         data.projectId,
         data.status,
-        data.priority
+        data.priority,
+        data.parentId,
+        data.blockedBy
       );
       setTasks(prev => [...prev, newTask]);
       setShowTaskForm(false);
@@ -160,7 +165,7 @@ export function KanbanBoard() {
       showNotification(errorMessage, 'error');
       throw error; // Let TaskForm handle the error display
     }
-  }, []);
+  }, [showNotification]);
 
   const handleTaskClick = (task: Task) => {
     setSelectedTask(task);
@@ -275,6 +280,7 @@ export function KanbanBoard() {
             </button>
           </div>
         </div>
+        <IdeasSection />
         <div className="kanban-board-content">
           {STATUSES.map((status) => (
             <Column

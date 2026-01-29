@@ -643,7 +643,7 @@ grep -rn "except.*:" scripts/ --include="*.py" -A1 | grep -E "(pass$|return None
 
 ## Related Documentation
 
-- [Project Workflow](../Project-workflow.md) - master workflow at projects root
+- [Project Workflow](../../Project-workflow.md) - master workflow at projects root
 - [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
 - [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
 - [Automation Reliability](patterns/automation-reliability.md) - automation

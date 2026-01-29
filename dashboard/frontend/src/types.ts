@@ -17,6 +17,24 @@ export interface Task {
   notes: string | null;
   commit_sha: string | null;
   category: string | null;
+
+  // Parent-child relationships (Task #4645)
+  parent_id: number | null;
+  subtasks?: Task[];
+  subtask_progress?: {
+    total: number;
+    done: number;
+    percent: number;
+  };
+  parent?: Task;
+
+  // Task dependencies (Task #4579)
+  blocked_by: string | null;  // JSON array as string
+  blocked_by_ids?: number[];
+  blocking_tasks?: Task[];
+  is_blocked?: boolean;
+  incomplete_blocking_ids?: number[];
+  sequence_order: number | null;
 }
 
 export interface Project {
@@ -39,4 +57,12 @@ export interface TaskHistoryResponse {
     start: string;
     end: string;
   };
+}
+
+// Ideas (Task #4583)
+export interface Idea {
+  id: number;
+  text: string;
+  created_at: string;
+  updated_at: string;
 }

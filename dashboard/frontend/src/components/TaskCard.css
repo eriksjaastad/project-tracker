@@ -45,6 +45,15 @@
   margin-left: 0;
 }
 
+.task-card-id {
+  font-size: 0.875rem;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: var(--space-xs);
+  font-family: 'JetBrains Mono', 'Monaco', 'Courier New', monospace;
+  opacity: 0.9;
+}
+
 .task-card-text {
   margin: 0 0 var(--space-sm) 0;
   color: #e0e0e0;
@@ -89,4 +98,34 @@
 
 .task-card-prompt-indicator:hover {
   opacity: 1;
+}
+
+/* Task relationship badges (Tasks #4645, #4579) */
+.task-card-subtask-badge {
+  font-size: 0.75rem;
+  color: var(--accent);
+  background: rgba(79, 157, 255, 0.1);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 4px;
+  font-weight: 500;
+  border: 1px solid rgba(79, 157, 255, 0.2);
+}
+
+.task-card-blocked-badge {
+  font-size: 0.75rem;
+  color: var(--danger);
+  background: rgba(255, 107, 107, 0.1);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 4px;
+  font-weight: 500;
+  border: 1px solid rgba(255, 107, 107, 0.2);
+}
+
+.task-card-parent-badge {
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--surface-alt);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 4px;
+  font-weight: 500;
 }

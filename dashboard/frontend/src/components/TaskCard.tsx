@@ -65,6 +65,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
         />
       )}
       <div className="task-card-content">
+        <div className="task-card-id">#{task.id}</div>
         <p className="task-card-text" title={task.title ? task.text : undefined}>
           {task.title || truncatedText}
         </p>
@@ -78,6 +79,24 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
           {task.prompt && (
             <span className="task-card-prompt-indicator" title="Has agent prompt">
               🤖
+            </span>
+          )}
+          {/* Subtask progress badge (Task #4645) */}
+          {task.subtask_progress && (
+            <span className="task-card-subtask-badge" title={`${task.subtask_progress.done} of ${task.subtask_progress.total} subtasks complete`}>
+              📋 {task.subtask_progress.done}/{task.subtask_progress.total}
+            </span>
+          )}
+          {/* Blocked indicator (Task #4579) */}
+          {task.is_blocked && (
+            <span className="task-card-blocked-badge" title="Blocked by incomplete tasks">
+              🔒 Blocked
+            </span>
+          )}
+          {/* Parent indicator (Task #4645) */}
+          {task.parent_id && (
+            <span className="task-card-parent-badge" title={`Subtask of #${task.parent_id}`}>
+              ↳ #{task.parent_id}
             </span>
           )}
         </div>

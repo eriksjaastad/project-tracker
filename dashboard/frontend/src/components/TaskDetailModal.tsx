@@ -71,10 +71,6 @@ export function TaskDetailModal({
       return;
     }
 
-    if (editedText.length > 1000) {
-      setError('Task text must be 1000 characters or less');
-      return;
-    }
 
     setLoading(true);
     setError(null);
@@ -209,11 +205,10 @@ export function TaskDetailModal({
                   value={editedText}
                   onChange={(e) => setEditedText(e.target.value)}
                   rows={6}
-                  maxLength={1000}
                   disabled={loading}
                 />
                 <div className="task-detail-char-count">
-                  {editedText.length} / 1000 characters
+                  {editedText.length} characters
                 </div>
               </div>
 
@@ -383,74 +378,121 @@ export function TaskDetailModal({
               </div>
 
               {task.updated_at !== task.created_at && (
-            <div className="task-detail-field">
-              <label className="task-detail-label">Last Updated</label>
-              <div className="task-detail-value">
-                {formatDate(task.updated_at)}
-              </div>
-            </div>
-          )}
+                <div className="task-detail-field">
+                  <label className="task-detail-label">Last Updated</label>
+                  <div className="task-detail-value">
+                    {formatDate(task.updated_at)}
+                  </div>
+                </div>
+              )}
 
-          {task.completed_at && (
-            <div className="task-detail-field">
-              <label className="task-detail-label">Completed</label>
-              <div className="task-detail-value">
-                {formatDate(task.completed_at)}
-              </div>
-            </div>
-          )}
+              {task.completed_at && (
+                <div className="task-detail-field">
+                  <label className="task-detail-label">Completed</label>
+                  <div className="task-detail-value">
+                    {formatDate(task.completed_at)}
+                  </div>
+                </div>
+              )}
 
-          {task.commit_sha && (
-            <div className="task-detail-field">
-              <label className="task-detail-label">Commit/PR</label>
-              <div className="task-detail-value" style={{ fontFamily: 'monospace' }} title={task.commit_sha}>
-                {task.commit_sha.substring(0, 12)}
-              </div>
-            </div>
-          )}
-        </>
-          )}
-      </div>
+              {task.commit_sha && (
+                <div className="task-detail-field">
+                  <label className="task-detail-label">Commit/PR</label>
+                  <div className="task-detail-value" style={{ fontFamily: 'monospace' }} title={task.commit_sha}>
+                    {task.commit_sha.substring(0, 12)}
+                  </div>
+                </div>
+              )}
 
-      <div className="task-detail-modal-actions">
-        {isEditing ? (
-          <>
-            <button
-              className="task-detail-button task-detail-button-cancel"
-              onClick={handleCancel}
-              disabled={loading}
-            >
-              Cancel
-            </button>
-            <button
-              className="task-detail-button task-detail-button-save"
-              onClick={handleSave}
-              disabled={loading || !editedText.trim()}
-            >
-              {loading ? 'Saving...' : 'Save Changes'}
-            </button>
-          </>
-        ) : (
-          <>
-            {onDelete && (
+              {/* Parent task indicator (Task #4645) */}
+              {task.parent_id && (
+                <div className="task-detail-field">
+                  <label className="task-detail-label">Parent Task</label>
+                  <div className="task-detail-value">
+                    <span className="task-detail-link">#{task.parent_id}</span>
+                    {task.parent && <span className="task-detail-muted"> - {task.parent.text.substring(0, 50)}</span>}
+                  </div>
+                </div>
+              )}
+
+              {/* Subtasks list (Task #4645) */}
+              {task.subtasks && task.subtasks.length > 0 && (
+                <div className="task-detail-field">
+                  <label className="task-detail-label">
+                    Subtasks ({task.subtask_progress?.done}/{task.subtask_progress?.total})
+                  </label>
+                  <div className="task-detail-subtasks">
+                    {task.subtasks.map((subtask) => (
+                      <div key={subtask.id} className="task-detail-subtask-item">
+                        <span className={`subtask-status-${subtask.status.toLowerCase().replace(' ', '-')}`}>
+                          {subtask.status === 'Done' ? '✅' : subtask.status === 'In Progress' ? '●' : '○'}
+                        </span>
+                        <span>#{subtask.id} - {subtask.text.substring(0, 60)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Blocking tasks (Task #4579) */}
+              {task.blocking_tasks && task.blocking_tasks.length > 0 && (
+                <div className="task-detail-field">
+                  <label className="task-detail-label">
+                    {task.is_blocked ? '🔒 Blocked By (incomplete)' : 'Blocked By'}
+                  </label>
+                  <div className="task-detail-blocking-tasks">
+                    {task.blocking_tasks.map((blocker) => (
+                      <div key={blocker.id} className={`task-detail-blocker-item ${blocker.status !== 'Done' ? 'blocker-incomplete' : ''}`}>
+                        <span>#{blocker.id} - {blocker.text.substring(0, 60)}</span>
+                        <span className="blocker-status">[{blocker.status}]</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="task-detail-modal-actions">
+          {isEditing ? (
+            <>
               <button
-                className="task-detail-button task-detail-button-delete"
-                onClick={handleDelete}
-                disabled={deleting}
+                className="task-detail-button task-detail-button-cancel"
+                onClick={handleCancel}
+                disabled={loading}
               >
-                {deleting ? 'Deleting...' : 'Delete Task'}
+                Cancel
               </button>
-            )}
-            <button
-              className="task-detail-button task-detail-button-edit"
-              onClick={() => setIsEditing(true)}
-            >
-              Edit Task
-            </button>
-          </>
-        )}
-      </div>
-    </div >
+              <button
+                className="task-detail-button task-detail-button-save"
+                onClick={handleSave}
+                disabled={loading || !editedText.trim()}
+              >
+                {loading ? 'Saving...' : 'Save Changes'}
+              </button>
+            </>
+          ) : (
+            <>
+              {onDelete && (
+                <button
+                  className="task-detail-button task-detail-button-delete"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                >
+                  {deleting ? 'Deleting...' : 'Delete Task'}
+                </button>
+              )}
+              <button
+                className="task-detail-button task-detail-button-edit"
+                onClick={() => setIsEditing(true)}
+              >
+                Edit Task
+              </button>
+            </>
+          )}
+        </div>
+      </div >
     </div >
   );
 }
