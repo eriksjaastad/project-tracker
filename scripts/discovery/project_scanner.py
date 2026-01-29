@@ -22,6 +22,18 @@ from logger import get_logger
 logger = get_logger(__name__)
 
 
+def _safe_iterdir(path: Path) -> List[Path]:
+    """Return directory contents, logging and continuing on errors."""
+    try:
+        return list(path.iterdir())
+    except PermissionError as e:
+        logger.warning(f"Permission denied scanning {path}: {e}")
+        return []
+    except OSError as e:
+        logger.warning(f"Filesystem error scanning {path}: {e}")
+        return []
+
+
 def discover_projects(
     base_path: Optional[Union[str, Path]] = None,
     sync_indexes: bool = False
@@ -45,7 +57,7 @@ def discover_projects(
     projects = []
     
     # Check if directory is empty (no subdirectories)
-    subdirs = [item for item in base.iterdir() if item.is_dir()]
+    subdirs = [item for item in _safe_iterdir(base) if item.is_dir()]
     if not subdirs:
         logger.info(f"Projects base path is empty (no subdirectories found): {base}")
         return []
@@ -68,7 +80,7 @@ def discover_projects(
     code_dirs = ["src", "lib", "app", "apps", "packages", "backend", "frontend", "server", "client"]
     code_exts = [".py", ".js", ".ts"]
     
-    for item in base.iterdir():
+    for item in _safe_iterdir(base):
         if not item.is_dir():
             continue
         
