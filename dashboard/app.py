@@ -441,7 +441,10 @@ async def refresh_data():
                 has_index=project.get("has_index", False),
                 index_is_valid=project.get("index_is_valid", False),
                 index_updated_at=project.get("index_updated_at"),
-                project_type=project.get("project_type", "standard")
+                project_type=project.get("project_type", "standard"),
+                scaffolding_version=project.get("scaffolding_version"),
+                rules_version=project.get("rules_version"),
+                scaffolding_applied_at=project.get("scaffolding_applied_at")
             )
         
         return JSONResponse({

@@ -134,11 +134,10 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [Documents/reference/LOCAL_MODEL_LEARNINGS.md](Documents/reference/LOCAL_MODEL_LEARNINGS.md) | Local Model Learnings: project-tracker |
 | [Documents/reference/MODEL_LEARNINGS.md](Documents/reference/MODEL_LEARNINGS.md) | Local Model Learnings: project-tracker |
 | [PRD_KANBAN.md](PRD_KANBAN.md) | > **Type:** Feature PRD (adding to existing project) |
+| [PROPOSED_CHANGE_SCAN_REWRITE.md](PROPOSED_CHANGE_SCAN_REWRITE.md) | **Date:** 2026-01-29 |
 | [QUICKSTART.md](QUICKSTART.md) | 🚀 project-tracker - Quick Start |
 | [README.md](README.md) | project-tracker |
 | [REVIEW.md](REVIEW.md) | This document outlines the code review process for the Project Tracker application. It aims to ensur... |
-| [SECURITY_EVOLUTION.md](SECURITY_EVOLUTION.md) | **Started:** 2026-01-28 |
-| [TASK_4645_DEPENDENCY_ADDITION.md](TASK_4645_DEPENDENCY_ADDITION.md) | **Added:** 2026-01-28 22:30 - Sequential dependency support for AI-first workflow |
 | [TODO.md](TODO.md) | **Last Updated:** January 14, 2026 |
 | [USAGE.md](USAGE.md) | > **Quick Start:** `./pt launch` to open the dashboard |
 | [config.py](config.py) | Configuration for project tracker. |
