@@ -1,0 +1,53 @@
+.warning-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: 6px;
+  margin-bottom: var(--space-lg);
+  color: #ffffff;
+}
+
+.warning-banner-error {
+  background: #d32f2f;
+}
+
+.warning-banner-warning {
+  background: #f57c00;
+}
+
+.warning-banner-info {
+  background: #1976d2;
+}
+
+.warning-banner-message {
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.warning-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.warning-banner-action {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.warning-banner-action:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.warning-banner-dismiss {
+  background: transparent;
+  color: #ffffff;
+  border: none;
+  font-size: 1.2rem;
+  line-height: 1;
+}

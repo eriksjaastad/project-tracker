@@ -1,19 +1,38 @@
 .navigation {
-  background: var(--surface-alt);
+  background: var(--surface);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding: 0 var(--space-lg);
 }
 
 .navigation-container {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: var(--space-md);
   max-width: 1400px;
   margin: 0 auto;
 }
 
+.navigation-brand {
+  display: flex;
+  align-items: center;
+}
+
+.navigation-title {
+  color: #e0e0e0;
+  font-weight: 600;
+  font-size: 1rem;
+  text-decoration: none;
+}
+
+.navigation-links {
+  display: flex;
+  gap: var(--space-md);
+}
+
 .nav-link {
   display: inline-block;
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-md) var(--space-md);
   color: var(--muted);
   text-decoration: none;
   font-size: 0.875rem;

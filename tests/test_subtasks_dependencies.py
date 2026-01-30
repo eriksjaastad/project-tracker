@@ -1,0 +1,145 @@
+"""Tests for subtasks and dependencies (Task #4645, #4579)."""
+
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+from click.testing import CliRunner
+
+# Add scripts to path
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+
+from db.manager import DatabaseManager
+from db.schema import create_database
+from pt import tasks_group
+
+
+def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, str]:
+    db_path = tmp_path / "test.db"
+    create_database(db_path)
+    db = DatabaseManager(db_path=db_path)
+    db.add_project(
+        project_id="project-tracker",
+        name="Project Tracker",
+        path="/tmp/project-tracker",
+        status="active"
+    )
+    return db_path, db, "project-tracker"
+
+
+def test_manager_subtasks_and_progress(tmp_path: Path):
+    db_path, db, project_id = _setup_db(tmp_path)
+
+    parent = db.add_task(text="Parent task", project_id=project_id)
+    db.add_task(text="Child one", project_id=project_id, parent_id=parent["id"], status="Done")
+    db.add_task(text="Child two", project_id=project_id, parent_id=parent["id"], status="Backlog")
+
+    subtasks = db.get_subtasks(parent["id"])
+    assert len(subtasks) == 2
+    assert all(t["parent_id"] == parent["id"] for t in subtasks)
+
+    progress = db.get_subtask_progress(parent["id"])
+    assert progress["total"] == 2
+    assert progress["done"] == 1
+    assert progress["percent"] == 50
+
+
+def test_manager_blocking_relationships(tmp_path: Path):
+    db_path, db, project_id = _setup_db(tmp_path)
+
+    blocker_done = db.add_task(text="Blocker done", project_id=project_id, status="Done")
+    blocker_open = db.add_task(text="Blocker open", project_id=project_id, status="Backlog")
+    blocked = db.add_task(
+        text="Blocked task",
+        project_id=project_id,
+        blocked_by=[blocker_done["id"], blocker_open["id"]]
+    )
+
+    blocking_tasks = db.get_blocking_tasks(blocked["id"])
+    assert {t["id"] for t in blocking_tasks} == {blocker_done["id"], blocker_open["id"]}
+
+    blocked_tasks = db.get_blocked_tasks(blocker_open["id"])
+    assert {t["id"] for t in blocked_tasks} == {blocked["id"]}
+
+    is_blocked, blocking_ids = db.is_blocked(blocked["id"])
+    assert is_blocked is True
+    assert blocking_ids == [blocker_open["id"]]
+
+
+def test_cli_create_subtask_and_blocked_by(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    db_path, db, project_id = _setup_db(tmp_path)
+    monkeypatch.setenv("PT_DB_PATH", str(db_path))
+
+    parent = db.add_task(text="Parent task", project_id=project_id)
+    blocker = db.add_task(text="Blocker task", project_id=project_id)
+
+    runner = CliRunner()
+    subtask_result = runner.invoke(
+        tasks_group,
+        ["create", "CLI subtask", "-p", project_id, "--parent", str(parent["id"])]
+    )
+    assert subtask_result.exit_code == 0
+
+    subtasks = db.get_subtasks(parent["id"])
+    assert any(t["text"] == "CLI subtask" for t in subtasks)
+
+    blocked_result = runner.invoke(
+        tasks_group,
+        ["create", "CLI blocked", "-p", project_id, "--blocked-by", str(blocker["id"])]
+    )
+    assert blocked_result.exit_code == 0
+
+    blocked_task = next(t for t in db.get_tasks(project_id=project_id) if t["text"] == "CLI blocked")
+    assert json.loads(blocked_task["blocked_by"]) == [blocker["id"]]
+
+
+def test_api_subtasks_and_blocking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    db_path, db, project_id = _setup_db(tmp_path)
+    monkeypatch.setenv("PT_DB_PATH", str(db_path))
+
+    from dashboard.app import app
+
+    parent = db.add_task(text="API parent", project_id=project_id)
+    db.add_task(text="API child", project_id=project_id, parent_id=parent["id"], status="Done")
+
+    blocker = db.add_task(text="API blocker", project_id=project_id)
+    blocked = db.add_task(
+        text="API blocked",
+        project_id=project_id,
+        blocked_by=[blocker["id"]],
+        prompt="Do work"
+    )
+
+    client = TestClient(app)
+
+    parent_response = client.get(f"/api/tasks/{parent['id']}")
+    assert parent_response.status_code == 200
+    parent_payload = parent_response.json()
+    assert parent_payload["subtasks"]
+    assert parent_payload["subtask_progress"]["done"] == 1
+
+    blocked_response = client.get(f"/api/tasks/{blocked['id']}")
+    assert blocked_response.status_code == 200
+    blocked_payload = blocked_response.json()
+    assert blocked_payload["blocking_tasks"]
+    assert blocked_payload["is_blocked"] is True
+
+    update_response = client.patch(
+        f"/api/tasks/{blocked['id']}",
+        json={"blocked_by": [blocker["id"]], "parent_id": parent["id"]}
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["parent_id"] == parent["id"]
+    assert json.loads(updated["blocked_by"]) == [blocker["id"]]
+
+    start_response = client.patch(
+        f"/api/tasks/{blocked['id']}",
+        json={"status": "In Progress"}
+    )
+    assert start_response.status_code == 400
+    assert "blocked by" in start_response.json().get("detail", "").lower()

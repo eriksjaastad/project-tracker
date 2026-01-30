@@ -235,7 +235,7 @@ See: `agent-skills-library/playbooks/staged-prompt-engineering/` for templates.
 - NEVER modify `.env` or `venv/`
 - NEVER install dependencies globally. Use a project-local virtual environment or tool-managed environment (e.g., `venv`, `uv`, `pipx`, `poetry`).
 - NEVER hard-code API keys, secrets, or credentials in script files. Use `.env` and `os.getenv()`
-- NEVER use absolute paths (e.g., `/Users/erik/...`). Use relative paths or environment variables
+- NEVER use absolute paths (e.g., `$HOME/...`). Use relative paths or environment variables
 - NEVER use `--no-verify` or `-n` with git commit/push. Pre-commit hooks exist to catch problems. Fix the issue, don't bypass the hook.
 - ALWAYS update `EXTERNAL_RESOURCES.yaml` when adding external services
 - ALWAYS use retry logic and cost tracking for API calls

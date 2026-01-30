@@ -20,6 +20,7 @@ export function TaskDetailModal({
   const [editedText, setEditedText] = useState('');
   const [editedTitle, setEditedTitle] = useState('');
   const [editedNotes, setEditedNotes] = useState('');
+  const [editedReviewComment, setEditedReviewComment] = useState('');
   const [editedCommitSha, setEditedCommitSha] = useState('');
   const [editedCategory, setEditedCategory] = useState('');
   const [editedStatus, setEditedStatus] = useState<TaskStatus>('Backlog');
@@ -37,6 +38,7 @@ export function TaskDetailModal({
       setEditedText(task.text);
       setEditedTitle(task.title || '');
       setEditedNotes(task.notes || '');
+      setEditedReviewComment(task.review_comment || '');
       setEditedCommitSha(task.commit_sha || '');
       setEditedCategory(task.category || '');
       setEditedStatus(task.status);
@@ -80,6 +82,7 @@ export function TaskDetailModal({
         text: editedText.trim(),
         title: editedTitle.trim() || null,
         notes: editedNotes.trim() || null,
+        review_comment: editedReviewComment.trim() || null,
         commit_sha: editedCommitSha.trim() || null,
         category: editedCategory.trim() || null,
         status: editedStatus,
@@ -98,6 +101,7 @@ export function TaskDetailModal({
     setEditedText(task.text);
     setEditedTitle(task.title || '');
     setEditedNotes(task.notes || '');
+    setEditedReviewComment(task.review_comment || '');
     setEditedCommitSha(task.commit_sha || '');
     setEditedCategory(task.category || '');
     setEditedStatus(task.status);
@@ -228,6 +232,20 @@ export function TaskDetailModal({
 
               <div className="task-detail-field">
                 <label className="task-detail-label">
+                  Review Comment
+                </label>
+                <textarea
+                  className="task-detail-textarea"
+                  value={editedReviewComment}
+                  onChange={(e) => setEditedReviewComment(e.target.value)}
+                  rows={3}
+                  placeholder="Feedback when sending back from Review..."
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="task-detail-field">
+                <label className="task-detail-label">
                   Commit SHA / PR Link
                 </label>
                 <input
@@ -314,6 +332,13 @@ export function TaskDetailModal({
                 <div className="task-detail-field">
                   <label className="task-detail-label">Notes</label>
                   <div className="task-detail-text">{task.notes}</div>
+                </div>
+              )}
+
+              {task.review_comment && (
+                <div className="task-detail-field">
+                  <label className="task-detail-label">Review Comment</label>
+                  <div className="task-detail-review-comment">{task.review_comment}</div>
                 </div>
               )}
 

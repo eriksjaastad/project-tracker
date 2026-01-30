@@ -79,8 +79,7 @@ def parse_todo(todo_path: Path) -> Dict[str, Any]:
     # Calculate completion percentage
     data["completion_pct"] = calculate_completion(content)
     
-    # Extract description (first paragraph after title)
-    data["description"] = extract_description(content)
+    # Description extraction removed; README.md is the source of truth
     
     return data
 
@@ -208,40 +207,4 @@ def calculate_completion(content: str) -> int:
     return int((completed_tasks / total_tasks) * 100)
 
 
-def extract_description(content: str) -> Optional[str]:
-    """Extract project description (first paragraph)."""
-    lines = content.split('\n')
-    
-    # Skip title and metadata
-    in_content = False
-    description_lines = []
-    
-    for line in lines:
-        # Start collecting after we pass the header
-        if line.startswith('#'):
-            in_content = True
-            continue
-        
-        # Skip empty lines at start
-        if not in_content or (not description_lines and not line.strip()):
-            continue
-        
-        # Stop at next heading or section marker
-        if line.startswith('#') or line.startswith('---'):
-            break
-        
-        # Stop at blank line after we've collected something
-        if not line.strip() and description_lines:
-            break
-        
-        if line.strip() and not line.startswith('**'):
-            description_lines.append(line.strip())
-    
-    description = ' '.join(description_lines)
-    
-    # Limit length
-    if len(description) > 200:
-        description = description[:197] + "..."
-    
-    return description if description else None
 

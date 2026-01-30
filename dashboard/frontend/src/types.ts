@@ -17,6 +17,7 @@ export interface Task {
   notes: string | null;
   commit_sha: string | null;
   category: string | null;
+  review_comment: string | null;
 
   // Parent-child relationships (Task #4645)
   parent_id: number | null;

@@ -22,6 +22,13 @@
 
     --accent-primary: #2196f3;
     --accent-secondary: #666;
+
+    --bg: var(--bg-primary);
+    --surface: var(--bg-secondary);
+    --surface-alt: var(--bg-tertiary);
+    --accent: var(--accent-primary);
+    --accent-soft: rgba(33, 150, 243, 0.2);
+    --muted: var(--text-secondary);
 }
 
 body {
@@ -111,22 +118,41 @@ header h1 {
 /* Navigation Bar (matches React component) */
 
 .navigation {
-    background: var(--bg-secondary);
+    background: var(--surface);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     padding: 0 2rem;
 }
 
 .navigation-container {
     display: flex;
+    justify-content: space-between;
+    align-items: center;
     gap: 1.5rem;
     max-width: 1400px;
     margin: 0 auto;
 }
 
+.navigation-brand {
+    display: flex;
+    align-items: center;
+}
+
+.navigation-title {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 1rem;
+    text-decoration: none;
+}
+
+.navigation-links {
+    display: flex;
+    gap: 1.5rem;
+}
+
 .nav-link {
     display: inline-block;
-    padding: 1rem 1.5rem;
-    color: var(--text-secondary);
+    padding: 1rem 1.25rem;
+    color: var(--muted);
     text-decoration: none;
     font-size: 0.875rem;
     font-weight: 500;
@@ -137,12 +163,12 @@ header h1 {
 }
 
 .nav-link:hover {
-    color: var(--accent-primary);
+    color: var(--accent);
 }
 
 .nav-link.active {
-    color: var(--accent-primary);
-    border-bottom-color: var(--accent-primary);
+    color: var(--accent);
+    border-bottom-color: var(--accent);
 }
 
 /* Main Content */
