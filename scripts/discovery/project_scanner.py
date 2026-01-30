@@ -5,6 +5,7 @@ import yaml
 import subprocess
 import tempfile
 import os
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
@@ -20,6 +21,35 @@ from config import PROJECTS_BASE_DIR
 from logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def clean_phase(phase: Optional[str]) -> Optional[str]:
+    """Normalize phase value and drop template placeholders."""
+    if not phase:
+        return None
+    if "{{" in phase or "}}" in phase:
+        return None
+    if "Foundation/MVP/Production" in phase:
+        return None
+    cleaned = phase.strip()
+    return cleaned or None
+
+
+def clean_description(text: Optional[str]) -> str:
+    """Remove placeholders and malformed wiki-style links from descriptions."""
+    if not text:
+        return ""
+    cleaned = re.sub(
+        r"<!--\s*SCAFFOLD:START.*?SCAFFOLD:END.*?-->",
+        "",
+        text,
+        flags=re.DOTALL | re.IGNORECASE
+    )
+    cleaned = re.sub(r"<!--.*?-->", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"\{\{[^}]+\}\}", "", cleaned)
+    cleaned = re.sub(r"\[([^\]|]+)\|([^\]]+)\]\([^)]+\)", r"\2", cleaned)
+    cleaned = " ".join(cleaned.split())
+    return cleaned.strip()
 
 
 def _safe_iterdir(path: Path) -> List[Path]:
@@ -263,7 +293,7 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
 
     metadata.update({
         "status": current_status,
-        "phase": todo_data.get("phase"),
+        "phase": clean_phase(todo_data.get("phase")),
         "completion_pct": todo_data.get("completion_pct", 0),
         "ai_agents": todo_data.get("ai_agents", []),
         "cron_jobs": todo_data.get("cron_jobs", [])
@@ -276,8 +306,7 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
             logger.warning(f"Failed to read TODO.md for {project_path.name}: {e}")
         
         # Use TODO description if available
-        if todo_data.get("description"):
-            metadata["description"] = todo_data["description"]
+        # TODO.md descriptions are deprecated; use README.md only.
     
     # Detect infrastructure projects
     metadata["is_infrastructure"] = is_infrastructure_project(metadata["name"], todo_content)
@@ -286,7 +315,7 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
     if not metadata["description"]:
         readme_path = project_path / "README.md"
         if readme_path.exists():
-            metadata["description"] = extract_readme_description(readme_path)
+            metadata["description"] = clean_description(extract_readme_description(readme_path))
     
     return metadata
 

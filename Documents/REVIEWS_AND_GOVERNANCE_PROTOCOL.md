@@ -118,8 +118,8 @@ grep -rn "\.delete_" scripts/ --include="*.py"
 # === EXISTING CHECKS (keep these) ===
 
 # 7. Hardcoded paths
-grep -rn "/Users/" . --include="*.py" --include="*.sh" --include="*.md"
-grep -rn "/home/" . --include="*.py" --include="*.sh" --exclude-dir=venv
+grep -rn "$HOME/" . --include="*.py" --include="*.sh" --include="*.md"
+grep -rn "$HOME/" . --include="*.py" --include="*.sh" --exclude-dir=venv
 
 # 8. API keys and secrets
 grep -rn "sk-" . --include="*.py" --include="*.md" --include="*.yaml"
@@ -566,7 +566,7 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 ### Standard Checks (Previously Existing)
 | ID | Category | Check Item | Evidence Requirement |
 |----|----------|------------|----------------------|
-| **M1** | **Robot** | No hardcoded `/Users/` or `/home/` paths | Paste `grep` output (all files) |
+| **M1** | **Robot** | No hardcoded home-directory paths (use `$HOME`) | Paste `grep` output (all files) |
 | **M2** | **Robot** | No silent `except: pass` patterns | Paste `grep` output (Python files) |
 | **M3** | **Robot** | No API keys (`sk-...`) in code/templates | Paste `grep` output |
 | **M4** | **Robot** | Zero unfilled `{{VAR}}` placeholders | Paste `validate_project.py` output |

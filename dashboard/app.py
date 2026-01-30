@@ -478,6 +478,16 @@ async def api_backup():
         return {"error": str(e), "status": "error"}
 
 
+@app.get("/api/scaffolding/version")
+async def api_scaffolding_version():
+    """Get current scaffolding and rules versions."""
+    scaffolding_version, rules_version = get_current_scaffolding_version()
+    return {
+        "scaffolding_version": scaffolding_version,
+        "rules_version": rules_version
+    }
+
+
 @app.get("/api/projects")
 async def api_projects():
     """JSON API for projects."""
@@ -645,6 +655,7 @@ class TaskUpdateRequest(BaseModel):
     notes: Optional[str] = None
     commit_sha: Optional[str] = None
     category: Optional[str] = None
+    review_comment: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
     parent_id: Optional[int] = None  # Task #4645
@@ -1053,6 +1064,8 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
             updates["commit_sha"] = task_data.commit_sha
         if task_data.category is not None:
             updates["category"] = task_data.category
+        if task_data.review_comment is not None:
+            updates["review_comment"] = task_data.review_comment
         if task_data.status is not None:
             updates["status"] = task_data.status
         if task_data.priority is not None:
@@ -1076,6 +1089,13 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Cannot start task without a prompt. Add execution instructions first."
                 )
+            is_blocked, blocking_ids = db.is_blocked(task_id)
+            if is_blocked:
+                blocking_str = ", ".join([f"#{bid}" for bid in blocking_ids])
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot start task while blocked by: {blocking_str}"
+                )
 
         if not updates:
             # No updates provided, return current task
@@ -1089,6 +1109,8 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
         return task
     except ValueError as e:
         # Re-raise to be caught by error handler
+        raise
+    except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error updating task {task_id}: {e}", exc_info=True)

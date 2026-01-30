@@ -266,6 +266,7 @@ def create_database(db_path: Optional[Path] = None) -> None:
             updated_at TEXT NOT NULL,
             completed_at TEXT,
             prompt TEXT,
+            review_comment TEXT,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )
     """)
@@ -273,6 +274,12 @@ def create_database(db_path: Optional[Path] = None) -> None:
     # Migration: add prompt column if it doesn't exist
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN prompt TEXT")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Migration: add review_comment column if it doesn't exist
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN review_comment TEXT")
     except sqlite3.OperationalError:
         pass
 

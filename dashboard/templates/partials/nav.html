@@ -1,8 +1,13 @@
 <!-- Navigation bar partial for Jinja pages -->
 <nav class="navigation">
     <div class="navigation-container">
-        <a href="/" class="nav-link {{ 'active' if request.path == '/' else '' }}">Dashboard</a>
-        <a href="/kanban" class="nav-link {{ 'active' if '/kanban' in request.path else '' }}">Kanban</a>
-        <a href="/graph" class="nav-link {{ 'active' if request.path == '/graph' else '' }}">Graph</a>
+        <div class="navigation-brand">
+            <a href="/" class="navigation-title">Project Tracker</a>
+        </div>
+        <div class="navigation-links">
+            <a href="/" class="nav-link {{ 'active' if request.path == '/' else '' }}">Dashboard</a>
+            <a href="/kanban" class="nav-link {{ 'active' if '/kanban' in request.path else '' }}">Kanban</a>
+            <a href="/graph" class="nav-link {{ 'active' if request.path == '/graph' else '' }}">Graph</a>
+        </div>
     </div>
 </nav>

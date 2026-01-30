@@ -67,6 +67,7 @@ export async function updateTask(
     notes?: string | null;
     commit_sha?: string | null;
     category?: string | null;
+    review_comment?: string | null;
     status?: TaskStatus;
     priority?: TaskPriority | null;
     parent_id?: number | null;

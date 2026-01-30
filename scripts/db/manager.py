@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from contextlib import contextmanager
 
-from .schema import get_db_path
+from .schema import get_db_path, create_database
 from scripts.utils.validation import (
     validate_task_input,
     validate_task_text,
@@ -29,6 +29,13 @@ from logger import get_logger
 
 logger = get_logger(__name__)
 
+VALID_STATUS_TRANSITIONS = {
+    "Backlog": ["To Do"],
+    "To Do": ["Backlog", "In Progress"],
+    "In Progress": ["To Do", "Review"],
+    "Review": ["In Progress", "Done"],
+    "Done": ["Review"]
+}
 
 def _get_backup_dir(db_path: Path) -> Path:
     """Get or create backup directory."""
@@ -43,6 +50,7 @@ class DatabaseManager:
     def __init__(self, db_path: Optional[Path] = None):
         """Initialize database manager."""
         self.db_path = db_path or get_db_path()
+        create_database(self.db_path)
         
     @contextmanager
     def _get_conn(self):
@@ -653,7 +661,11 @@ class DatabaseManager:
         project_id: str,
         status: str = "Backlog",
         priority: Optional[str] = None,
-        prompt: Optional[str] = None
+        prompt: Optional[str] = None,
+        review_comment: Optional[str] = None,
+        parent_id: Optional[int] = None,
+        blocked_by: Optional[Any] = None,
+        sequence_order: Optional[int] = None
     ) -> Dict[str, Any]:
         """Create a new task.
         
@@ -663,6 +675,10 @@ class DatabaseManager:
             status: Task status (default: "Backlog")
             priority: Task priority (optional)
             prompt: Structured execution instructions for agents (optional)
+            review_comment: Reviewer feedback when task is sent back (optional)
+            parent_id: Parent task ID for subtasks (optional)
+            blocked_by: JSON string or list of blocking task IDs (optional)
+            sequence_order: Ordering hint for subtasks (optional)
             
         Returns:
             Task dictionary with all fields including generated id and timestamps
@@ -684,6 +700,15 @@ class DatabaseManager:
         # Sanitize text to prevent XSS attacks
         sanitized_text = sanitize_task_text(text)
         
+        blocked_by_value = None
+        if blocked_by is not None:
+            if isinstance(blocked_by, str):
+                blocked_by_value = blocked_by
+            elif isinstance(blocked_by, list):
+                blocked_by_value = json.dumps(blocked_by)
+            else:
+                raise ValueError("blocked_by must be a JSON string or list of task IDs")
+        
         now = datetime.now().isoformat()
         
         with self._get_conn() as conn:
@@ -691,9 +716,35 @@ class DatabaseManager:
             
             # Insert task with sanitized text
             cursor.execute("""
-                INSERT INTO tasks (text, status, project_id, priority, created_at, updated_at, completed_at, prompt)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (sanitized_text, status, project_id, priority, now, now, None if status != "Done" else now, prompt))
+                INSERT INTO tasks (
+                    text,
+                    status,
+                    project_id,
+                    priority,
+                    created_at,
+                    updated_at,
+                    completed_at,
+                    prompt,
+                    review_comment,
+                    parent_id,
+                    blocked_by,
+                    sequence_order
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                sanitized_text,
+                status,
+                project_id,
+                priority,
+                now,
+                now,
+                None if status != "Done" else now,
+                prompt,
+                review_comment,
+                parent_id,
+                blocked_by_value,
+                sequence_order
+            ))
             
             task_id = cursor.lastrowid
             
@@ -778,7 +829,20 @@ class DatabaseManager:
             return self.get_task(task_id)
         
         # Whitelist allowed fields
-        allowed_fields = {"text", "status", "priority", "prompt"}
+        allowed_fields = {
+            "text",
+            "status",
+            "priority",
+            "prompt",
+            "review_comment",
+            "title",
+            "notes",
+            "commit_sha",
+            "category",
+            "parent_id",
+            "blocked_by",
+            "sequence_order"
+        }
         for key in updates.keys():
             if key not in allowed_fields:
                 raise ValueError(f"Invalid field name: {key}. Allowed: {allowed_fields}")
@@ -802,6 +866,10 @@ class DatabaseManager:
             # Sanitize text to prevent XSS attacks
             updates["text"] = sanitize_task_text(text)
         
+        # Normalize blocked_by if provided
+        if "blocked_by" in updates and isinstance(updates["blocked_by"], list):
+            updates["blocked_by"] = json.dumps(updates["blocked_by"])
+
         # Validate status if provided
         if "status" in updates:
             is_valid, error_message = validate_status(updates["status"])
@@ -817,6 +885,21 @@ class DatabaseManager:
         now = datetime.now().isoformat()
         old_status = existing_task["status"]
         new_status = updates.get("status", old_status)
+
+        if "review_comment" in updates and updates["review_comment"] is not None:
+            updates["review_comment"] = updates["review_comment"].strip() or None
+
+        if new_status != old_status:
+            allowed = VALID_STATUS_TRANSITIONS.get(old_status, [])
+            if new_status not in allowed:
+                raise ValueError(
+                    f"Cannot move from {old_status} to {new_status}. "
+                    f"Valid next: {', '.join(allowed) if allowed else 'none'}."
+                )
+
+        if old_status == "Review" and new_status != "Review":
+            if updates.get("review_comment") is None and not existing_task.get("review_comment"):
+                updates["review_comment"] = "Returned from Review"
 
         # Require prompt before moving to In Progress
         if new_status == "In Progress":

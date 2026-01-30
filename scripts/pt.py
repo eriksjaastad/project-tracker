@@ -726,8 +726,9 @@ def tasks_group(ctx, project, status, show_all, json_output):
 @click.option("-p", "--project", default=None, help="Filter by project name or ID")
 @click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Review, Done)")
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
+@click.option("--board", is_flag=True, help="Show columnar Kanban board view")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def tasks_list(project, status, show_all, json_output):
+def tasks_list(project, status, show_all, board, json_output):
     """List tasks from the Kanban board."""
     db = DatabaseManager()
     if project:
@@ -747,6 +748,43 @@ def tasks_list(project, status, show_all, json_output):
 
     if not show_all and not status:
         task_list = [t for t in task_list if t["status"] != "Done"]
+
+    if board and not json_output:
+        statuses = ["Backlog", "To Do", "In Progress", "Review", "Done"]
+        table = Table(show_header=True, header_style="bold")
+        for col in statuses:
+            table.add_column(col, width=20)
+
+        def format_task(task):
+            text = task["text"]
+            if len(text) > 18:
+                text = text[:17] + "..."
+            label = f"#{task['id']} {text}"
+            priority = task.get("priority")
+            color = {
+                "Critical": "red",
+                "High": "red",
+                "Medium": "yellow",
+                "Low": "green"
+            }.get(priority)
+            return f"[{color}]{label}[/]" if color else label
+
+        by_status = {s: [] for s in statuses}
+        for task in task_list:
+            by_status.get(task["status"], []).append(task)
+
+        max_rows = max((len(by_status[s]) for s in statuses), default=0)
+        max_rows = min(max_rows, 10)
+
+        for i in range(max_rows):
+            row = []
+            for status_name in statuses:
+                tasks = by_status[status_name]
+                row.append(format_task(tasks[i]) if i < len(tasks) else "")
+            table.add_row(*row)
+
+        console.print(table)
+        return
 
     _display_tasks(task_list, project_label, json_output=json_output)
 
@@ -819,13 +857,6 @@ def tasks_create(text, project, status, priority, prompt, parent, blocked_by):
 - [ ] FORBIDDEN: `./pt tasks done` (Conductor only)"""
 
     try:
-        # NOTE: parent_id and blocked_by not yet supported in manager
-        # TODO: Re-enable when Antigravity completes #4645/#4579
-        if parent:
-            console.print("[yellow]Warning: --parent not yet implemented, ignoring[/yellow]")
-        if blocked_by_json:
-            console.print("[yellow]Warning: --blocked-by not yet implemented, ignoring[/yellow]")
-
         # Append workflow footer to prompt if prompt exists
         final_prompt = prompt
         if prompt:
@@ -836,7 +867,9 @@ def tasks_create(text, project, status, priority, prompt, parent, blocked_by):
             project_id=project_id,
             status=status,
             priority=priority,
-            prompt=final_prompt
+            prompt=final_prompt,
+            parent_id=parent,
+            blocked_by=blocked_by_json
         )
         
         # Show created task with parent/blocking info
@@ -856,7 +889,9 @@ def tasks_create(text, project, status, priority, prompt, parent, blocked_by):
 @click.option("-t", "--text", default=None, help="New task text")
 @click.option("--priority", default=None, help="New priority")
 @click.option("--prompt", default=None, help="Agent prompt (execution instructions for AI)")
-def tasks_update(task_id, status, text, priority, prompt):
+@click.option("--review-comment", default=None, help="Reviewer feedback when sending back from Review")
+@click.option("--notes", default=None, help="Internal notes/comments for the task")
+def tasks_update(task_id, status, text, priority, prompt, review_comment, notes):
     """Update an existing task.
 
     \b
@@ -864,6 +899,7 @@ def tasks_update(task_id, status, text, priority, prompt):
         ./pt tasks update 42 -s "In Progress"
         ./pt tasks update 42 -t "Updated description" --priority High
         ./pt tasks update 42 --prompt "Overview: ... Execution: ... Done:"
+        ./pt tasks update 42 --notes "Blocked waiting for API changes"
     """
     db = DatabaseManager()
 
@@ -885,9 +921,13 @@ def tasks_update(task_id, status, text, priority, prompt):
         updates["priority"] = priority
     if prompt:
         updates["prompt"] = prompt
+    if review_comment is not None:
+        updates["review_comment"] = review_comment
+    if notes is not None:
+        updates["notes"] = notes
 
     if not updates:
-        console.print("[yellow]No updates specified. Use -s, -t, --priority, or --prompt.[/yellow]")
+        console.print("[yellow]No updates specified. Use -s, -t, --priority, --prompt, or --notes.[/yellow]")
         return
 
     try:
@@ -1044,10 +1084,20 @@ def tasks_show(task_ids, json_output):
                 print("Description:")
                 print(task['text'])
 
+                if task.get('notes'):
+                    print()
+                    print("Notes:")
+                    print(task['notes'])
+
                 if task.get('prompt'):
                     print()
                     print("Agent Prompt:")
                     print(task['prompt'])
+                
+                if task.get('review_comment'):
+                    print()
+                    print("Review Comment:")
+                    print(task['review_comment'])
         except Exception as e:
             if not json_output:
                 console.print(f"[red]Failed to get task #{task_id}: {e}[/red]")
@@ -1058,6 +1108,39 @@ def tasks_show(task_ids, json_output):
             print(json_lib.dumps(tasks[0], indent=2))
         else:
             print(json_lib.dumps(tasks, indent=2))
+
+
+@tasks_group.command(name="prompt-validate")
+@click.argument("task_id", type=int)
+def tasks_prompt_validate(task_id):
+    """Check task prompt for required sections."""
+    import sys
+
+    db = DatabaseManager()
+    task = db.get_task(task_id)
+    if not task:
+        print(f"Task #{task_id} not found")
+        sys.exit(1)
+
+    prompt = (task.get("prompt") or "").strip()
+    prompt_lower = prompt.lower()
+
+    has_overview = "## overview" in prompt_lower
+    has_execution = "## execution" in prompt_lower
+    has_done = "## done criteria" in prompt_lower or "## acceptance criteria" in prompt_lower
+
+    print(f"Task #{task_id} prompt validation:")
+    print(f"{'✓' if has_overview else '✗'} Overview section {'found' if has_overview else 'MISSING'}")
+    print(f"{'✓' if has_execution else '✗'} Execution section {'found' if has_execution else 'MISSING'}")
+    print(f"{'✓' if has_done else '✗'} Done Criteria section {'found' if has_done else 'MISSING'}")
+
+    missing = sum([not has_overview, not has_execution, not has_done])
+    if missing:
+        print(f"\nStatus: INCOMPLETE ({missing} section{'s' if missing != 1 else ''} missing)")
+        sys.exit(1)
+
+    print("\nStatus: COMPLETE")
+    sys.exit(0)
 
 
 @tasks_group.command(name="next")
