@@ -1,9 +1,11 @@
 """Alert detection for project tracker."""
 
+import json
+import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .cron_monitor import check_cron_health
@@ -19,6 +21,68 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def get_current_scaffolding_version() -> Optional[str]:
+    """Get the current scaffolding version from the source of truth."""
+    projects_root = os.environ.get("PROJECTS_ROOT", str(Path.home() / "projects"))
+    version_file = Path(projects_root) / "project-scaffolding" / "templates" / ".agentsync" / "RULES_VERSION"
+
+    if version_file.exists():
+        return version_file.read_text().strip()
+    return None
+
+
+def detect_scaffolding_drift(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Detect projects with outdated scaffolding versions.
+
+    Compares each project's .scaffolding-version against the current
+    template version. Alerts when a project is behind.
+    """
+    alerts = []
+    current_version = get_current_scaffolding_version()
+
+    if not current_version:
+        logger.warning("Could not determine current scaffolding version")
+        return alerts
+
+    for project in projects:
+        project_path = Path(project["path"])
+        version_file = project_path / ".scaffolding-version"
+
+        if not version_file.exists():
+            # No scaffolding - not an error, just not scaffolded
+            continue
+
+        try:
+            version_data = json.loads(version_file.read_text())
+            project_version = version_data.get("scaffolding_version", "unknown")
+            rules_version = version_data.get("rules_version", "unknown")
+
+            # Check scaffolding version
+            if project_version != current_version:
+                alerts.append({
+                    "project_id": project["id"],
+                    "project_name": project["name"],
+                    "type": "scaffolding_drift",
+                    "severity": "warning",
+                    "message": f"Scaffolding outdated: {project_version} → {current_version}",
+                    "details": f"Run: uv run $PROJECTS_ROOT/project-scaffolding/scaffold/cli.py {project['name']}"
+                })
+            # Check rules version separately
+            elif rules_version != current_version:
+                alerts.append({
+                    "project_id": project["id"],
+                    "project_name": project["name"],
+                    "type": "rules_drift",
+                    "severity": "warning",
+                    "message": f"Rules outdated: {rules_version} → {current_version}",
+                    "details": f"Run: uv run $PROJECTS_ROOT/project-scaffolding/agentsync/sync_rules.py {project['name']}"
+                })
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.debug(f"Could not parse scaffolding version for {project['name']}: {e}")
+
+    return alerts
 
 
 
@@ -116,27 +180,7 @@ def detect_blocked_projects(projects: List[Dict[str, Any]]) -> List[Dict[str, An
                             found_critical = True
                             break
                 
-                # 2. Look for Missing Features (Roadmap gaps)
-                # Only flag these if not already blocked, and at a lower severity
-                if not found_critical:
-                    roadmap_sections = ["### What's Missing", "## What's Missing"]
-                    for section in roadmap_sections:
-                        if section in content:
-                            section_content = _extract_section(content, section)
-                            lines = _get_clean_lines(section_content)
-                            
-                            # Only flag if there are actual gaps and the project isn't complete
-                            if len(lines) > 0 and not any(l.lower() == "none" for l in lines):
-                                if project.get("status") != "complete":
-                                    alerts.append({
-                                        "project_id": project["id"],
-                                        "project_name": project["name"],
-                                        "type": "gaps",
-                                        "severity": "info",
-                                        "message": "Roadmap gaps",
-                                        "details": f"{len(lines)} items in backlog"
-                                    })
-                                break
+                # Removed: "Roadmap gaps" alerts - every project has a backlog, not useful
                                 
             except Exception as e:
                 logger.warning(f"Failed to detect blockers for {project.get('name', 'unknown')}: {e}")
@@ -159,9 +203,24 @@ def _extract_section(content: str, section_title: str) -> str:
 
 def _get_clean_lines(section_content: str) -> List[str]:
     """Helper to get non-empty, non-header lines from section content."""
-    return [line.strip().lstrip('- ').lstrip('* ').strip() 
-            for line in section_content.split('\n') 
-            if line.strip() and not line.strip().startswith('#')]
+    clean_lines = []
+    for line in section_content.split('\n'):
+        stripped = line.strip().lstrip('- ').lstrip('* ').strip()
+        if not stripped:
+            continue
+        # Skip headers
+        if stripped.startswith('#'):
+            continue
+        # Skip HTML comments
+        if stripped.startswith('<!--') or stripped.endswith('-->'):
+            continue
+        # Skip template placeholders (scaffold examples)
+        if 'Clear description' in stripped or 'What you\'re waiting for' in stripped:
+            continue
+        if 'External service, API key' in stripped:
+            continue
+        clean_lines.append(stripped)
+    return clean_lines
 
 
 def detect_cron_failures(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -255,10 +314,24 @@ def detect_code_reviews(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def detect_missing_index(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Detect projects missing mandatory 00_Index_*.md file."""
+    """Detect projects missing mandatory 00_Index_*.md file.
+
+    Note: Only alerts for MISSING index files, not incomplete ones.
+    Having an index file (even imperfect) is good enough - we don't
+    want to nag about tag compliance.
+    """
     alerts = []
-    
+
+    # Exclude certain projects from index compliance checks
+    excluded_from_index_checks = {
+        'writing', 'ai-journal', '_configs', '__knowledge', '_tools', 'fci-plugins'
+    }
+
     for project in projects:
+        # Skip excluded projects
+        if project.get("id") in excluded_from_index_checks:
+            continue
+
         if not project.get("has_index"):
             alerts.append({
                 "project_id": project["id"],
@@ -268,16 +341,8 @@ def detect_missing_index(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                 "message": "Missing project index",
                 "details": "Required by Critical Rule #0: Every project must have an index file"
             })
-        elif not project.get("index_is_valid"):
-            alerts.append({
-                "project_id": project["id"],
-                "project_name": project["name"],
-                "type": "invalid_index",
-                "severity": "warning",
-                "message": "Incomplete project index",
-                "details": "Index exists but is missing required sections or YAML tags"
-            })
-            
+        # Removed: invalid_index alerts - too noisy, compliance nagging
+
     return alerts
 
 
@@ -349,13 +414,14 @@ def get_all_alerts(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     # Detect different types of issues
     all_alerts.extend(detect_telemetry_errors())
     all_alerts.extend(detect_stale_cron_heartbeats())
+    all_alerts.extend(detect_scaffolding_drift(projects))  # Version sync check
     all_alerts.extend(detect_blocked_projects(projects))
-    all_alerts.extend(detect_code_reviews(projects))  # Add code review detection
+    all_alerts.extend(detect_code_reviews(projects))
     all_alerts.extend(detect_cron_failures(projects))
     all_alerts.extend(detect_stalled_projects(projects))
-    all_alerts.extend(detect_missing_index(projects))  # Add index monitoring
-    all_alerts.extend(detect_invalid_frontmatter(projects))
-    all_alerts.extend(detect_missing_todo(projects))
+    all_alerts.extend(detect_missing_index(projects))  # Only missing, not incomplete
+    # Removed: detect_invalid_frontmatter - redundant with index check, too noisy
+    # Removed: detect_missing_todo - suggestions, not problems
     
     # Sort by severity (critical first, then warning, then info)
     severity_order = {"critical": 0, "warning": 1, "info": 2}

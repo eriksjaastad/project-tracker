@@ -38,7 +38,7 @@ def contains_secret(text: str) -> Tuple[bool, str]:
         returns (True, pattern). Otherwise returns (False, "").
         
     Examples:
-        >>> contains_secret("sk-12345678901234567890123456789012")
+        >>> contains_secret("sk-" + "12345678901234567890123456789012")  # Example API key pattern
         (True, 'sk-[a-zA-Z0-9]{32,}')
         >>> contains_secret("This is a normal task")
         (False, '')

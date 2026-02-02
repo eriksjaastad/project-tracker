@@ -615,8 +615,8 @@ def test_property_19_database_lock_retry(text, project_id, status, priority):
                     try:
                         lock_conn.rollback()
                         lock_conn.close()
-                    except:
-                        pass
+                    except (sqlite3.Error, OSError) as e:
+                        logger.debug(f"Failed to cleanup lock connection: {e}")
             
             release_thread = threading.Thread(target=release_lock_after_delay)
             release_thread.start()
@@ -656,8 +656,8 @@ def test_property_19_database_lock_retry(text, project_id, status, priority):
                 try:
                     lock_conn.rollback()
                     lock_conn.close()
-                except:
-                    pass
+                except (sqlite3.Error, OSError) as e:
+                    logger.debug(f"Failed to cleanup lock connection: {e}")
             
             # Wait for release thread to finish
             if release_thread:

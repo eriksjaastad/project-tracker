@@ -299,7 +299,8 @@ def validate_project(project_path: Path, verbose: bool = True) -> bool:
                                     continue
                                 
                                 errors.append(f"Placeholder Defect: {reason} found in {rel_file_path}:{i+1} - {match.group(0)}")
-            except Exception:
+            except (OSError, UnicodeDecodeError) as e:
+                # Silently skip unreadable files during placeholder scan
                 pass
 
     if errors:

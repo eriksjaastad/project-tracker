@@ -8,7 +8,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/eriksjaastad/projects/project-tracker/scripts/maintenance.sh</string>
+        <string>~/projects/project-tracker/scripts/maintenance.sh</string>
     </array>
     
     <!-- Run daily at 6:00 AM -->
@@ -21,13 +21,13 @@
     </dict>
     
     <key>StandardOutPath</key>
-    <string>/Users/eriksjaastad/projects/project-tracker/logs/maintenance.log</string>
+    <string>~/projects/project-tracker/logs/maintenance.log</string>
     
     <key>StandardErrorPath</key>
-    <string>/Users/eriksjaastad/projects/project-tracker/logs/maintenance_error.log</string>
+    <string>~/projects/project-tracker/logs/maintenance_error.log</string>
     
     <key>WorkingDirectory</key>
-    <string>/Users/eriksjaastad/projects/project-tracker</string>
+    <string>~/projects/project-tracker</string>
     
     <key>RunAtLoad</key>
     <false/>

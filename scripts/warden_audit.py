@@ -82,8 +82,8 @@ def check_doc_ratio(project_root: pathlib.Path) -> tuple:
             try:
                 with file_path.open('r', errors='ignore') as f:
                     code_lines += sum(1 for _ in f)
-            except Exception:
-                pass
+            except (OSError, UnicodeDecodeError) as e:
+                logger.debug(f"Could not read file {file_path}: {e}")
 
     # Count doc lines
     for file_path in project_root.rglob('*.md'):
@@ -92,8 +92,8 @@ def check_doc_ratio(project_root: pathlib.Path) -> tuple:
         try:
             with file_path.open('r', errors='ignore') as f:
                 doc_lines += sum(1 for _ in f)
-        except Exception:
-            pass
+        except (OSError, UnicodeDecodeError) as e:
+            logger.debug(f"Could not read file {file_path}: {e}")
 
     # Avoid division by zero - if no code, docs are fine
     if code_lines == 0:

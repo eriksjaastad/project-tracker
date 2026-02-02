@@ -7,7 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/eriksjaastad/projects/project-tracker/scripts/doc_audit_daily.sh</string>
+        <string>~/projects/project-tracker/scripts/doc_audit_daily.sh</string>
     </array>
 
     <key>StartCalendarInterval</key>
@@ -19,13 +19,13 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/eriksjaastad/projects/project-tracker/logs/doc_audit.log</string>
+    <string>~/projects/project-tracker/logs/doc_audit.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/eriksjaastad/projects/project-tracker/logs/doc_audit_error.log</string>
+    <string>~/projects/project-tracker/logs/doc_audit_error.log</string>
 
     <key>WorkingDirectory</key>
-    <string>/Users/eriksjaastad/projects/project-tracker</string>
+    <string>~/projects/project-tracker</string>
 
     <key>EnvironmentVariables</key>
     <dict>

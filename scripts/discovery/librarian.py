@@ -302,8 +302,8 @@ def extract_description(file_path: Path) -> str:
                     if desc: return desc
             return "Shell script."
 
-    except Exception:
-        pass
+    except (OSError, UnicodeDecodeError) as e:
+        logger.debug(f"Could not extract description from {file_path}: {e}")
     
     return "No description available."
 
