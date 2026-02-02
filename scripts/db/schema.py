@@ -34,9 +34,17 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
 
     Returns the backup path if tasks were backed up, None if table was empty/missing.
     This runs BEFORE any migration attempt - even if migration will refuse.
+    
+    SAFETY: Writes to TWO locations:
+    1. data/backups/ - local to project
+    2. ~/.project-tracker/backups/ - external, survives project directory accidents
     """
     backup_dir = db_path.parent / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
+    
+    # External backup location - survives project directory accidents
+    external_backup_dir = Path.home() / ".project-tracker" / "backups"
+    external_backup_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         conn = sqlite3.connect(db_path)
@@ -62,7 +70,8 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
 
         # Create timestamped backup
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        backup_path = backup_dir / f"tasks_safety_backup_{timestamp}.json"
+        backup_filename = f"tasks_safety_backup_{timestamp}.json"
+        backup_path = backup_dir / backup_filename
 
         export_data = {
             "backup_type": "safety_auto_backup",
@@ -72,8 +81,17 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
             "tasks": tasks
         }
 
+        # Write to local backup
         with open(backup_path, 'w') as f:
             json.dump(export_data, f, indent=2)
+
+        # Write to external backup (survives project directory accidents)
+        try:
+            external_backup_path = external_backup_dir / backup_filename
+            with open(external_backup_path, 'w') as f:
+                json.dump(export_data, f, indent=2)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not write external backup: {e}")
 
         print(f"🛡️  SAFETY: Auto-backup created: {backup_path} ({len(tasks)} tasks)")
         return backup_path
@@ -84,7 +102,132 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
 
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from config import DATABASE_PATH
+from config import DATABASE_PATH, DB_FINGERPRINT_PATH
+import uuid
+
+
+class FreshDatabaseError(Exception):
+    """Raised when we detect a fresh database where we expected data."""
+    pass
+
+
+class FingerprintMismatchError(Exception):
+    """Raised when the database fingerprint doesn't match the expected value."""
+    pass
+
+
+def _get_or_create_fingerprint(db_path: Path) -> str:
+    """Get or create a unique fingerprint for this database.
+    
+    The fingerprint is stored in both:
+    1. A file: data/.db-fingerprint
+    2. A _metadata table in the database
+    
+    If both exist and don't match, we have a problem (database was replaced).
+    """
+    fingerprint_path = db_path.parent / ".db-fingerprint"
+    
+    # Check if fingerprint file exists
+    file_fingerprint = None
+    if fingerprint_path.exists():
+        file_fingerprint = fingerprint_path.read_text().strip()
+    
+    # Check if database has fingerprint in _metadata table
+    db_fingerprint = None
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_metadata'")
+        if cursor.fetchone():
+            cursor.execute("SELECT value FROM _metadata WHERE key='fingerprint'")
+            row = cursor.fetchone()
+            if row:
+                db_fingerprint = row[0]
+        conn.close()
+    except Exception:
+        pass
+    
+    # If both exist and don't match - ERROR!
+    if file_fingerprint and db_fingerprint and file_fingerprint != db_fingerprint:
+        raise FingerprintMismatchError(
+            f"⛔ DATABASE FINGERPRINT MISMATCH!\n"
+            f"   File fingerprint:     {file_fingerprint}\n"
+            f"   Database fingerprint: {db_fingerprint}\n"
+            f"   This means the database file was replaced with a different database.\n"
+            f"   To fix:\n"
+            f"   - If the current DB is correct: delete {fingerprint_path} and restart\n"
+            f"   - If wrong DB: restore from backup in data/backups/ or ~/.project-tracker/backups/"
+        )
+    
+    # If we have a file fingerprint but no DB fingerprint, write it to DB
+    if file_fingerprint and not db_fingerprint:
+        return file_fingerprint
+    
+    # If we have a DB fingerprint but no file, write it to file
+    if db_fingerprint and not file_fingerprint:
+        fingerprint_path.write_text(db_fingerprint)
+        return db_fingerprint
+    
+    # If neither exists, create new fingerprint
+    if not file_fingerprint and not db_fingerprint:
+        new_fingerprint = str(uuid.uuid4())
+        fingerprint_path.write_text(new_fingerprint)
+        return new_fingerprint
+    
+    # Both exist and match
+    return file_fingerprint
+
+
+def _check_fresh_database(db_path: Path) -> None:
+    """Check if database looks unexpectedly fresh.
+    
+    If tasks table exists but is empty, and we're not in test mode,
+    this is suspicious - the database may have been replaced.
+    """
+    # Skip check in test environments
+    if os.getenv("PT_TEST_MODE") == "1" or os.getenv("PT_ALLOW_FRESH_DB") == "1":
+        return
+    
+    # Skip check if pytest is running
+    if "pytest" in sys.modules:
+        return
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if tasks table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+        if not cursor.fetchone():
+            conn.close()
+            return  # No tasks table yet - this is a truly new database
+        
+        # Check task count
+        cursor.execute("SELECT COUNT(*) FROM tasks")
+        task_count = cursor.fetchone()[0]
+        conn.close()
+        
+        if task_count == 0:
+            # Check if fingerprint file exists - if so, we expected data!
+            fingerprint_path = db_path.parent / ".db-fingerprint"
+            if fingerprint_path.exists():
+                raise FreshDatabaseError(
+                    f"⛔ UNEXPECTED FRESH DATABASE DETECTED!\n"
+                    f"   Database has tasks table but 0 tasks.\n"
+                    f"   Fingerprint file exists - we expected existing data.\n"
+                    f"   This suggests the database file was replaced.\n"
+                    f"\n"
+                    f"   To proceed anyway: PT_ALLOW_FRESH_DB=1 ./pt <command>\n"
+                    f"   To restore: check data/backups/ or ~/.project-tracker/backups/\n"
+                    f"\n"
+                    f"   If this IS intentional (first run after clean install):\n"
+                    f"   Delete {fingerprint_path} and try again."
+                )
+    except FreshDatabaseError:
+        raise
+    except Exception as e:
+        # Don't block startup for check errors - just warn
+        print(f"⚠️  Warning: Could not check database freshness: {e}")
 
 
 def get_db_path() -> Path:
@@ -97,6 +240,10 @@ def create_database(db_path: Optional[Path] = None) -> None:
     """Create database with all tables and indexes."""
     if db_path is None:
         db_path = get_db_path()
+    
+    # SAFETY: Check for unexpected fresh database
+    if db_path.exists():
+        _check_fresh_database(db_path)
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -475,8 +622,24 @@ def create_database(db_path: Optional[Path] = None) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id) WHERE parent_id IS NOT NULL")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_blocked ON tasks(blocked_by) WHERE blocked_by IS NOT NULL")
     
-    # Update schema version (current version: 3 - added delete audit triggers)
-    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (3, ?)", (datetime.now().isoformat(),))
+    # SAFETY: Metadata table for database fingerprinting
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS _metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    
+    # Store or validate fingerprint
+    fingerprint = _get_or_create_fingerprint(db_path)
+    cursor.execute("""
+        INSERT OR REPLACE INTO _metadata (key, value, created_at)
+        VALUES ('fingerprint', ?, ?)
+    """, (fingerprint, datetime.now(timezone.utc).isoformat()))
+    
+    # Update schema version (current version: 4 - added database fingerprinting)
+    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (4, ?)", (datetime.now().isoformat(),))
     
     conn.commit()
     conn.close()

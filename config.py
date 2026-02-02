@@ -1,6 +1,13 @@
-"""Configuration for project tracker."""
+"""Configuration for project tracker.
+
+SAFETY NOTES:
+- Database location should ALWAYS be data/tracker.db (the canonical path)
+- PT_DB_PATH override is allowed but triggers loud warnings
+- See Task #4692 for the history of database location confusion
+"""
 
 import os
+import sys
 from pathlib import Path
 
 # Base directory for projects (can be overridden by PT_PROJECTS_DIR or PROJECTS_ROOT env vars)
@@ -19,8 +26,28 @@ if not PROJECTS_BASE_DIR.exists():
         f"Please set PROJECTS_ROOT environment variable to a valid directory path."
     )
 
-# Database location (can be overridden by PT_DB_PATH env var)
-DATABASE_PATH = Path(os.getenv("PT_DB_PATH", Path(__file__).parent / "data" / "tracker.db"))
+# CANONICAL database location - this is the ONLY correct path
+_CANONICAL_DB_PATH = Path(__file__).parent / "data" / "tracker.db"
+
+# Database location (can be overridden by PT_DB_PATH env var - but we warn loudly!)
+_db_path_override = os.getenv("PT_DB_PATH")
+if _db_path_override:
+    DATABASE_PATH = Path(_db_path_override)
+    # LOUD WARNING: Non-canonical database path
+    if DATABASE_PATH.resolve() != _CANONICAL_DB_PATH.resolve():
+        print(f"⚠️  WARNING: PT_DB_PATH is set to non-canonical location!", file=sys.stderr)
+        print(f"   Current:   {DATABASE_PATH}", file=sys.stderr)
+        print(f"   Canonical: {_CANONICAL_DB_PATH}", file=sys.stderr)
+        print(f"   This can cause data to be written to the wrong database!", file=sys.stderr)
+        print(f"   To fix: unset PT_DB_PATH or set it to the canonical path.", file=sys.stderr)
+else:
+    DATABASE_PATH = _CANONICAL_DB_PATH
+
+# Database fingerprint file - used to detect database replacement
+DB_FINGERPRINT_PATH = DATABASE_PATH.parent / ".db-fingerprint"
+
+# External backup directory - survives project directory accidents
+EXTERNAL_BACKUP_DIR = Path.home() / ".project-tracker" / "backups"
 
 # External resources file (can be overridden by PT_RESOURCES_FILE env var)
 EXTERNAL_RESOURCES_FILE = Path(
