@@ -73,16 +73,16 @@ This document serves as the index for the Project Tracker, providing a high-leve
 
 ## Recent Activity
 
-- 2026-01-25: Update documentation and sync agent rules across project
-- 2026-01-23: Fix: Downgrade doc ratio check from blocking error to warning
-- 2026-01-23: Fix: Stop generating Obsidian wikilinks in librarian and cleanup scripts
-- 2026-01-23: fix: Replace hardcoded absolute paths with environment variables
-- 2026-01-23: chore: Synchronize agentsync rules and clean up backup files
-- 2026-01-20: feat: Achieve 0% orphan rate and enhance Knowledge Graph UI
-- 2026-01-18: chore: stabilize knowledge graph and fix portability issues
-- 2026-01-15: feat: Implement interactive D3 Knowledge Graph and intelligent indexing
-- 2026-01-15: docs: finalize project-tracker hardening and update scaffolding templates
-- 2026-01-13: Merge pull request #3 from eriksjaastad/claude/code-review-session-72x3V
+- 2026-02-01: feat: Add learning measurement dashboard and fix validation issues (#4686, #4689)
+- 2026-01-30: docs: Update index and add graph garbage nodes review report
+- 2026-01-29: feat: Major session - 11 tasks completed
+- 2026-01-29: feat: Project filter modal and iterdir exception handling
+- 2026-01-29: feat: Ideas section UI components and cleanup
+- 2026-01-29: feat: Database safety, validation improvements, and scan optimizations
+- 2026-01-29: fix: Guard incomplete subtasks methods to prevent dashboard crash
+- 2026-01-28: Merge remote-tracking branch 'origin/claude/fix-database-scanning-bugs-s6YJY'
+- 2026-01-28: docs: Document agent deletion safety bypass and fixes
+- 2026-01-28: Merge branch 'main' into claude/fix-database-scanning-bugs-s6YJY
 ## Related Documentation
 
 - [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
@@ -134,7 +134,6 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [Documents/reference/LOCAL_MODEL_LEARNINGS.md](Documents/reference/LOCAL_MODEL_LEARNINGS.md) | Local Model Learnings: project-tracker |
 | [Documents/reference/MODEL_LEARNINGS.md](Documents/reference/MODEL_LEARNINGS.md) | Local Model Learnings: project-tracker |
 | [PRD_KANBAN.md](PRD_KANBAN.md) | > **Type:** Feature PRD (adding to existing project) |
-| [PROPOSED_CHANGE_SCAN_REWRITE.md](PROPOSED_CHANGE_SCAN_REWRITE.md) | **Date:** 2026-01-29 |
 | [QUICKSTART.md](QUICKSTART.md) | 🚀 project-tracker - Quick Start |
 | [README.md](README.md) | project-tracker |
 | [REVIEW.md](REVIEW.md) | This document outlines the code review process for the Project Tracker application. It aims to ensur... |
