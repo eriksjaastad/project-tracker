@@ -288,8 +288,8 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
                         if status_tag:
                             current_status = status_tag
                             break
-        except Exception:
-            pass
+        except (OSError, yaml.YAMLError) as e:
+            logger.debug(f"Could not extract status from index file: {e}")
 
     metadata.update({
         "status": current_status,

@@ -313,8 +313,8 @@ class GraphBuilder:
                 if target_id in self.node_map:
                     self._add_edge(source_id, target_id, "file_reference", f"See: {path_str}")
                     continue
-            except Exception:
-                pass
+            except (OSError, ValueError) as e:
+                logger.debug(f"Could not resolve file reference {path_str} from {source_id}: {e}")
             
             # Try as absolute path from root
             target_id = path_str.lstrip('/')

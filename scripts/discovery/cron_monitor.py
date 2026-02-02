@@ -18,20 +18,29 @@ logger = get_logger(__name__)
 def check_cron_health(project_id: str, cron_jobs: List[Dict[str, str]], project_path: str) -> List[Dict[str, str]]:
     """
     Check health of cron jobs for a project.
-    
+
     Returns list of issues found (empty if all healthy).
+
+    Note: Only alerts for ACTUAL problems (execution errors, missed runs).
+    Does NOT alert for:
+    - Template placeholders ({{...}}) - these are unfilled scaffolding
+    - Jobs not in crontab - these might just be dormant/planned
     """
     issues = []
-    
+
     for job in cron_jobs:
         schedule = job.get("schedule", "")
         command = job.get("command", "")
         description = job.get("description", "")
-        
+
         if not schedule or not command:
             continue
-        
-        # Check if cron expression is valid
+
+        # Skip template placeholders - these are scaffolding, not real configs
+        if "{{" in schedule or "}}" in schedule:
+            continue
+
+        # Check if cron expression is valid (only for non-template schedules)
         if not is_valid_cron(schedule):
             issues.append({
                 "type": "invalid_schedule",
@@ -41,17 +50,12 @@ def check_cron_health(project_id: str, cron_jobs: List[Dict[str, str]], project_
                 "message": f"Invalid cron schedule: {schedule}"
             })
             continue
-        
-        # Check if job is in user's crontab
+
+        # Skip "not installed" check - too noisy for dormant/planned crons
+        # Only check for execution issues on crons we can verify are running
         is_installed, crontab_entry = check_crontab_installed(command)
         if not is_installed:
-            issues.append({
-                "type": "not_installed",
-                "schedule": schedule,
-                "command": command,
-                "description": description,
-                "message": f"Cron job not found in crontab"
-            })
+            # Don't alert - might just be planned/dormant
             continue
         
         # Check for log file

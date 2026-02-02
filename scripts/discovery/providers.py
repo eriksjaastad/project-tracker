@@ -167,8 +167,8 @@ def get_provider() -> MetadataProvider:
                 if "Go-based CLI tool" in result.stdout:
                     logger.info(f"Using AuditProvider with verified binary at: {AUDIT_BIN_PATH}")
                     return AuditProvider(str(AUDIT_BIN_PATH))
-            except Exception:
-                pass
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
+                logger.debug(f"Binary verification failed for {AUDIT_BIN_PATH}: {e}")
     
     # 2. Check shutil.which
     bin_name = AUDIT_BIN_PATH if AUDIT_BIN_PATH else "audit"
@@ -181,8 +181,8 @@ def get_provider() -> MetadataProvider:
             if "Go-based CLI tool" in result.stdout:
                 logger.info(f"Using AuditProvider with verified binary found in PATH: {which_path}")
                 return AuditProvider(which_path)
-        except Exception:
-            pass
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
+            logger.debug(f"Binary verification failed for {which_path}: {e}")
     
     # 3. Fallback to Legacy
     logger.info("audit-agent binary not found or invalid. Falling back to LegacyProvider.")

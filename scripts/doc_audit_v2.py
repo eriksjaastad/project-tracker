@@ -344,8 +344,8 @@ def _auto_process_batches(batches: list[list[dict]]):
                 capture_output=True, text=True
             )
             api_key = result.stdout.strip()
-        except:
-            pass
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            print(f"Could not fetch API key from Doppler: {e}", flush=True)
 
     if not api_key:
         print("Error: GOOGLE_API_KEY not found in environment or Doppler", flush=True)
@@ -511,8 +511,8 @@ def cmd_embeddings_generate():
                 capture_output=True, text=True
             )
             api_key = result.stdout.strip()
-        except:
-            pass
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            print(f"Could not fetch API key from Doppler: {e}", flush=True)
 
     if not api_key:
         print("Error: GOOGLE_API_KEY not found", flush=True)
@@ -834,8 +834,8 @@ def cmd_audit(project: Optional[str] = None, projects_list: Optional[str] = None
                     capture_output=True, text=True
                 )
                 api_key = result.stdout.strip()
-            except:
-                pass
+            except (subprocess.SubprocessError, FileNotFoundError) as e:
+                print(f"Could not fetch API key from Doppler: {e}", flush=True)
 
         if not api_key:
             print("Error: GOOGLE_API_KEY not found", flush=True)
@@ -1014,8 +1014,8 @@ def load_all_audit_decisions() -> list[dict]:
             raw = json.loads(f.read_text())
             for d in raw:
                 all_decisions.append(normalize_decision(d))
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"Warning: Could not load decision file {f}: {e}")
     return all_decisions
 
 

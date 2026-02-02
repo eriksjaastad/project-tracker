@@ -218,13 +218,28 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
         project["index_updated_human"] = format_time_ago(project["index_updated_at"])
     
     # Calculate version status
-    project_version = project.get("scaffolding_version")
-    if project_version is None:
-        project["version_status"] = "unscaffolded"
-    elif current_scaffolding_version and compare_versions(project_version, current_scaffolding_version) < 0:
-        project["version_status"] = "outdated"
-    else:
+    # Exclude certain projects from scaffolding checks
+    excluded_from_scaffolding = {
+        'writing',           # Book/writing project - no code
+        'ai-journal',        # Journal entries - has some code but shouldn't be scaffolded
+        '_configs',          # Configuration files only
+        '__knowledge',       # Knowledge base - no code
+        '_tools',            # Tools directory - no code
+        'fci-plugins'        # FCI plugins - don't scaffold
+    }
+    
+    project_id = project.get("id", "")
+    if project_id in excluded_from_scaffolding:
+        # Mark as current to hide from scaffolding alerts
         project["version_status"] = "current"
+    else:
+        project_version = project.get("scaffolding_version")
+        if project_version is None:
+            project["version_status"] = "unscaffolded"
+        elif current_scaffolding_version and compare_versions(project_version, current_scaffolding_version) < 0:
+            project["version_status"] = "outdated"
+        else:
+            project["version_status"] = "current"
     
     return project
 
@@ -567,6 +582,44 @@ async def api_stats():
     }
 
 
+@app.get("/api/learning")
+async def api_learning_stats():
+    """Get learning activity statistics for all projects."""
+    from learning_stats import get_all_learning_stats
+    
+    try:
+        stats = get_all_learning_stats()
+        
+        # Calculate summary statistics
+        total_with_learnings = sum(1 for s in stats if s['has_learnings'])
+        total_entries = sum(s['total_entries'] for s in stats)
+        stale_projects = sum(1 for s in stats if s['has_learnings'] and s['days_since_last_entry'] and s['days_since_last_entry'] > 30)
+        
+        # Get projects with recent activity (last 7 days)
+        active_projects = [s for s in stats if s['has_learnings'] and s['days_since_last_entry'] is not None and s['days_since_last_entry'] <= 7]
+        
+        return {
+            "summary": {
+                "total_projects_with_learnings": total_with_learnings,
+                "total_learning_entries": total_entries,
+                "stale_projects": stale_projects,
+                "active_projects_this_week": len(active_projects)
+            },
+            "projects": stats
+        }
+    except Exception as e:
+        logger.error(f"Failed to get learning stats: {e}")
+        return {
+            "summary": {
+                "total_projects_with_learnings": 0,
+                "total_learning_entries": 0,
+                "stale_projects": 0,
+                "active_projects_this_week": 0
+            },
+            "projects": []
+        }
+
+
 @app.get("/graph", response_class=HTMLResponse)
 async def graph_view(request: Request):
     """Render the graph visualization page."""
@@ -766,8 +819,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         body = await request.body()
         logger.error(f"Validation error for {request.method} {request.url.path}: {body.decode()}")
         logger.error(f"Errors: {errors}")
-    except Exception:
-        pass
+    except (UnicodeDecodeError, RuntimeError) as e:
+        logger.debug(f"Could not read request body for logging: {e}")
 
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,

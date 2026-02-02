@@ -4,8 +4,8 @@ import os
 from pathlib import Path
 
 # Base directory for projects (can be overridden by PT_PROJECTS_DIR or PROJECTS_ROOT env vars)
-_projects_root_env = os.getenv("PROJECTS_ROOT", "").strip()
-if _projects_root_env:
+_projects_root_env = os.getenv("PROJECTS_ROOT")
+if _projects_root_env and _projects_root_env.strip():
     # Environment variable is set and non-empty
     PROJECTS_BASE_DIR = Path(_projects_root_env).resolve()
 else:

@@ -212,6 +212,38 @@
                     {% endif %}
                 </div>
             </div>
+
+            <!-- Learning Loop Card -->
+            <div class="stats-card learning-loop" id="learning-card">
+                <h3>📚 Learning Loop</h3>
+                <div id="learning-stats" class="stats-content">
+                    <div class="row mb-2">
+                        <div class="col-6">
+                            <small class="text-muted">Projects w/ Learnings</small><br>
+                            <strong id="learning-total-projects">--</strong>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Total Entries</small><br>
+                            <strong id="learning-total-entries">--</strong>
+                        </div>
+                    </div>
+                    <div class="row mb-2">
+                        <div class="col-6">
+                            <small class="text-muted">Active (7d)</small><br>
+                            <strong id="learning-active-week">--</strong>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Stale (>30d)</small><br>
+                            <span id="learning-stale" class="text-muted">--</span>
+                            <span id="learning-stale-indicator"></span>
+                        </div>
+                    </div>
+                    <div id="learning-top-projects" class="mt-2">
+                        <small class="text-muted">Recent Activity:</small>
+                        <div id="learning-project-list" class="model-list-compact"></div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="projects-grid">
@@ -663,6 +695,48 @@
             .catch(err => {
                 console.error('Failed to load telemetry:', err);
                 document.getElementById('telemetry-stats').innerHTML = '<em>Telemetry unavailable</em>';
+            });
+    </script>
+    <script>
+        // Load Learning Loop statistics
+        fetch('/api/learning')
+            .then(response => response.json())
+            .then(data => {
+                const summary = data.summary || {};
+                const projects = data.projects || [];
+
+                // Update summary stats
+                document.getElementById('learning-total-projects').textContent = summary.total_projects_with_learnings || 0;
+                document.getElementById('learning-total-entries').textContent = summary.total_learning_entries || 0;
+                document.getElementById('learning-active-week').textContent = summary.active_projects_this_week || 0;
+                document.getElementById('learning-stale').textContent = summary.stale_projects || 0;
+
+                // Stale project indicator
+                const staleIndicator = document.getElementById('learning-stale-indicator');
+                if (summary.stale_projects > 0) {
+                    staleIndicator.innerHTML = '<span class="badge bg-warning">⚠️</span>';
+                } else if (summary.total_projects_with_learnings > 0) {
+                    staleIndicator.innerHTML = '<span class="badge bg-success">✓</span>';
+                }
+
+                // Show top projects with recent learning activity
+                const projectsWithLearnings = projects
+                    .filter(p => p.has_learnings && p.debt_tracker_entries > 0)
+                    .slice(0, 5);
+
+                if (projectsWithLearnings.length > 0) {
+                    const projectHtml = projectsWithLearnings.map(p => {
+                        const compileIcon = p.compile_rate === 100 ? '✅' : p.compile_rate > 50 ? '⚠️' : '❌';
+                        return `<div class="model-item">${p.project_id}: ${p.debt_tracker_entries} entries (${p.compile_rate}% ${compileIcon})</div>`;
+                    }).join('');
+                    document.getElementById('learning-project-list').innerHTML = projectHtml;
+                } else {
+                    document.getElementById('learning-project-list').innerHTML = '<em>No learning data yet</em>';
+                }
+            })
+            .catch(err => {
+                console.error('Failed to load learning stats:', err);
+                document.getElementById('learning-stats').innerHTML = '<em>Learning stats unavailable</em>';
             });
     </script>
 </body>
