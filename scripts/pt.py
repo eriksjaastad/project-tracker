@@ -22,6 +22,7 @@ Common Commands:
 import sys
 import webbrowser
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Annotated
 import subprocess
@@ -939,6 +940,62 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes)
             console.print(f"  {key}: {value}")
     except Exception as e:
         console.print(f"[red]Failed to update task #{task_id}: {e}[/red]")
+
+
+@tasks_group.command(name="move")
+@click.argument("project", type=str)
+@click.argument("task_ids", type=int, nargs=-1, required=True)
+def tasks_move(project, task_ids):
+    """Reassign one or more tasks to a different project.
+
+    \b
+    Examples:
+        ./pt tasks move ai-memory 4694
+        ./pt tasks move project-tracker 4694 4695 4696
+    """
+    db = DatabaseManager()
+    
+    # Validate target project exists
+    target_project_id = _resolve_project_id(db, project)
+    if not target_project_id:
+        console.print(f"[red]Project '{project}' not found[/red]")
+        return
+    
+    target_project = db.get_project(target_project_id)
+    target_name = target_project["name"] if target_project else target_project_id
+    
+    success_count = 0
+    for task_id in task_ids:
+        try:
+            task = db.get_task(task_id)
+            if not task:
+                print(f"Task #{task_id} not found")
+                continue
+            
+            old_project = task["project_id"]
+            if old_project == target_project_id:
+                print(f"Task #{task_id} already in project '{target_name}'")
+                continue
+            
+            # Raw SQL is required because DatabaseManager.update_task() has a field
+            # whitelist that doesn't include project_id (by design - project moves
+            # are a distinct operation from task updates). Consider adding a dedicated
+            # move_task() method if this pattern becomes common.
+            with db._get_conn() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE tasks SET project_id = ?, updated_at = ? WHERE id = ?",
+                    (target_project_id, datetime.now().isoformat(), task_id)
+                )
+                conn.commit()
+            
+            print(f"Moved: #{task_id} from '{old_project}' to '{target_name}'")
+            success_count += 1
+        except Exception as e:
+            print(f"Failed to move task #{task_id}: {e}")
+    
+    if len(task_ids) > 1:
+        print(f"\nMoved {success_count}/{len(task_ids)} tasks to '{target_name}'")
 
 
 @tasks_group.command(name="done")
