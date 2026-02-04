@@ -2,6 +2,8 @@
 
 import subprocess
 import os
+import time
+import sys
 from pathlib import Path
 from typing import Dict, Any
 from logger import get_logger
@@ -60,14 +62,75 @@ def trigger_review_agent(task_id: int, project_id: str, task_text: str, done_cri
     Please provide a PASS/FAIL verdict and detailed comments.
     """
 
-    # 3. Spawn a reviewer agent (placeholder for actual agent-hub/MCP call)
-    # For now, we use a script that would interface with agent-hub
+    # 3. Spawn a reviewer agent
     review_script = Path(os.getenv("PROJECTS_ROOT", "")) / "_tools" / "agent-hub" / "scripts" / "dispatch_task.py"
     
     if review_script.exists():
-        # This would be the actual trigger to the agent hub
-        # subprocess.run([sys.executable, str(review_script), "--task", review_prompt, ...])
-        logger.info(f"Review agent would be dispatched via {review_script}")
+        # Create a temporary task file for the agent hub
+        temp_dir = Path(os.getenv("PROJECTS_ROOT", "")) / "project-tracker" / "data" / "temp_reviews"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        review_file = temp_dir / f"review_{task_id}_{int(time.time())}.md"
+        with open(review_file, 'w') as f:
+            f.write(review_prompt)
+        
+        logger.info(f"Dispatching review task to agent-hub: {review_file}")
+        
+        # Dispatch in background to avoid blocking the DB transition
+        # We use a wrapper or nohup to ensure it keeps running
+        try:
+            # Using 'fast' model as a default for reviews, or could be configurable
+            model = "deepseek-r1:32b" # Preferred local model for logic
+            
+            # We'll run it and capture the output to update the task later
+            # For a truly non-blocking flow, this should be a separate process
+            cmd = [sys.executable, str(review_script), str(review_file), model]
+            
+            # Start the process
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True # Detach
+            )
+            
+            logger.info(f"Review agent dispatched (PID: {proc.pid})")
+            
+            # 4. Handle the response and update the task
+            # We'll spawn a small thread or separate process to wait for the result
+            # and then update the task via the pt CLI.
+            import threading
+            def update_task_after_review(p, tid, rfile):
+                stdout, stderr = p.communicate()
+                
+                # Extract PASS/FAIL from agent output
+                verdict = "FAIL"
+                if "PASS" in stdout.upper():
+                    verdict = "PASS"
+                
+                # Prepare review notes
+                review_notes = f"AUTO-REVIEW: {verdict}\n\n{stdout[:2000]}"
+                
+                # Update task status and notes via CLI
+                # If PASS, we could move to Done, but usually we just add the comment
+                # and let the user decide, or move back to 'In Progress' if FAIL.
+                new_status = "Review" # Keep in review for user verification
+                if verdict == "FAIL":
+                    new_status = "In Progress"
+                
+                cli_path = Path(os.getenv("PROJECTS_ROOT", "")) / "project-tracker" / "pt"
+                subprocess.run([
+                    sys.executable, str(cli_path), "tasks", "update", str(tid),
+                    "--status", new_status,
+                    "--notes", review_notes
+                ])
+                logger.info(f"Task #{tid} updated with review results.")
+
+            threading.Thread(target=update_task_after_review, args=(proc, task_id, review_file)).start()
+            
+        except Exception as e:
+            logger.error(f"Failed to dispatch review agent: {e}")
     else:
         logger.warning(f"Review dispatch script not found at {review_script}")
 
