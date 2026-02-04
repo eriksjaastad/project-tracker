@@ -45,7 +45,7 @@ from pydantic import BaseModel
 from scripts.config import REINDEX_SCRIPT_PATH
 
 # Import scaffolding version helpers
-from scripts.pt import get_current_scaffolding_version, compare_versions
+from scripts.pt import get_current_scaffolding_version, compare_versions, rebuild_knowledge_graph
 
 logger = get_logger(__name__)
 
@@ -461,10 +461,13 @@ async def refresh_data():
                 rules_version=project.get("rules_version"),
                 scaffolding_applied_at=project.get("scaffolding_applied_at")
             )
-        
+
+        # Rebuild knowledge graph so dashboard is up to date
+        rebuild_knowledge_graph()
+
         return JSONResponse({
             "status": "success",
-            "message": f"Refreshed {len(projects)} projects"
+            "message": f"Refreshed {len(projects)} projects and rebuilt graph"
         })
     except Exception as e:
         logger.error(f"Error refreshing data: {e}")
