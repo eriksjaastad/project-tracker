@@ -25,7 +25,7 @@ from scripts.utils.validation import (
     contains_secret,
     sanitize_task_text
 )
-from logger import get_logger
+from scripts.logger import get_logger
 
 logger = get_logger(__name__)
 

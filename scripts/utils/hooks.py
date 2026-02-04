@@ -6,7 +6,7 @@ import time
 import sys
 from pathlib import Path
 from typing import Dict, Any
-from logger import get_logger
+from scripts.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -80,7 +80,7 @@ def trigger_review_agent(task_id: int, project_id: str, task_text: str, done_cri
         # We use a wrapper or nohup to ensure it keeps running
         try:
             # Use configurable review model from config or env
-            from config import DEFAULT_REVIEW_MODEL
+            from scripts.config import DEFAULT_REVIEW_MODEL
             model = DEFAULT_REVIEW_MODEL
             
             # We'll run it and capture the output to update the task later

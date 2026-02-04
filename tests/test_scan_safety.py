@@ -5,7 +5,7 @@ import pytest
 
 
 def _reload_modules():
-    import config
+    import scripts.config as config
     import scripts.db.schema as schema
     import scripts.db.manager as manager
     import scripts.discovery.project_scanner as project_scanner

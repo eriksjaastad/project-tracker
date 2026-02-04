@@ -7,7 +7,7 @@ from typing import Dict, List, Any, Optional
 
 # Add parent directory to path for logger import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from logger import get_logger
+from scripts.logger import get_logger
 
 logger = get_logger(__name__)
 

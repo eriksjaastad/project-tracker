@@ -102,7 +102,7 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
 
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from config import DATABASE_PATH, DB_FINGERPRINT_PATH
+from scripts.config import DATABASE_PATH, DB_FINGERPRINT_PATH
 import uuid
 
 

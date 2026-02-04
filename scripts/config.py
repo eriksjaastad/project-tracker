@@ -10,6 +10,8 @@ import os
 import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 # Base directory for projects (can be overridden by PT_PROJECTS_DIR or PROJECTS_ROOT env vars)
 _projects_root_env = os.getenv("PROJECTS_ROOT")
 if _projects_root_env and _projects_root_env.strip():
@@ -17,7 +19,7 @@ if _projects_root_env and _projects_root_env.strip():
     PROJECTS_BASE_DIR = Path(_projects_root_env).resolve()
 else:
     # Environment variable is unset or empty - use default
-    PROJECTS_BASE_DIR = Path(__file__).resolve().parent.parent
+    PROJECTS_BASE_DIR = PROJECT_ROOT.parent
 
 # Validate that PROJECTS_ROOT exists
 if not PROJECTS_BASE_DIR.exists():
@@ -27,7 +29,7 @@ if not PROJECTS_BASE_DIR.exists():
     )
 
 # CANONICAL database location - this is the ONLY correct path
-_CANONICAL_DB_PATH = Path(__file__).parent / "data" / "tracker.db"
+_CANONICAL_DB_PATH = PROJECT_ROOT / "data" / "tracker.db"
 
 # Database location (can be overridden by PT_DB_PATH env var - but we warn loudly!)
 _db_path_override = os.getenv("PT_DB_PATH")
