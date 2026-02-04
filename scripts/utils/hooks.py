@@ -20,21 +20,58 @@ def trigger_review_agent(task_id: int, project_id: str, task_text: str, done_cri
         logger.error(f"Project {project_id} not found")
         return
 
-    project_path = project['path']
-    
-    # Prepare the review command
-    # We'll use a script that performs the review. 
-    # For now, we'll call a placeholder script or use a generic agent prompt.
-    review_script = Path(os.getenv("PROJECTS_ROOT", "")) / "project-scaffolding" / "scaffold_cli.py"
-    
-    if not review_script.exists():
-        logger.error(f"Review script not found at {review_script}")
-        return
+    project_path = Path(project['path'])
+    if not project_path.is_absolute():
+        project_path = Path(os.getenv("PROJECTS_ROOT", "")) / project_path
 
-    # Example command: scaffold review --type code --input <diff_file>
-    # This needs more thought on how to pass the context.
-    # For now, let's log the intent.
-    logger.info(f"Review agent would be spawned here for {project_id}")
+    # 1. Get git diff for the project
+    try:
+        diff_result = subprocess.run(
+            ["git", "diff", "main...HEAD"],
+            cwd=project_path,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        # If no diff on branch, try staged/unstaged changes
+        if not diff_result.stdout.strip():
+            diff_result = subprocess.run(
+                ["git", "diff", "HEAD"],
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+        diff_text = diff_result.stdout
+    except Exception as e:
+        logger.error(f"Failed to get git diff for {project_id}: {e}")
+        diff_text = "Error retrieving git diff"
+
+    # 2. Prepare the review prompt
+    review_prompt = f"""
+    Perform a multi-AI code review for task #{task_id} in project {project_id}.
+    
+    Task: {task_text}
+    Done Criteria: {done_criteria}
+    
+    Git Diff:
+    {diff_text}
+    
+    Please provide a PASS/FAIL verdict and detailed comments.
+    """
+
+    # 3. Spawn a reviewer agent (placeholder for actual agent-hub/MCP call)
+    # For now, we use a script that would interface with agent-hub
+    review_script = Path(os.getenv("PROJECTS_ROOT", "")) / "_tools" / "agent-hub" / "scripts" / "dispatch_task.py"
+    
+    if review_script.exists():
+        # This would be the actual trigger to the agent hub
+        # subprocess.run([sys.executable, str(review_script), "--task", review_prompt, ...])
+        logger.info(f"Review agent would be dispatched via {review_script}")
+    else:
+        logger.warning(f"Review dispatch script not found at {review_script}")
+
+    logger.info(f"Review agent triggered for {project_id} with diff size {len(diff_text)} bytes")
 
 def handle_status_change(task_id: int, old_status: str, new_status: str):
     """Handle task status transitions."""
