@@ -120,8 +120,9 @@ def trigger_review_agent(task_id: int, project_id: str, task_text: str, done_cri
                     new_status = "In Progress"
                 
                 cli_path = Path(os.getenv("PROJECTS_ROOT", "")) / "project-tracker" / "pt"
+                # Use bash to run the pt wrapper script since it's a shell script
                 subprocess.run([
-                    sys.executable, str(cli_path), "tasks", "update", str(tid),
+                    "bash", str(cli_path), "tasks", "update", str(tid),
                     "--status", new_status,
                     "--notes", review_notes
                 ])
