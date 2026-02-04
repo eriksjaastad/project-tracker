@@ -79,8 +79,9 @@ def trigger_review_agent(task_id: int, project_id: str, task_text: str, done_cri
         # Dispatch in background to avoid blocking the DB transition
         # We use a wrapper or nohup to ensure it keeps running
         try:
-            # Using 'fast' model as a default for reviews, or could be configurable
-            model = "deepseek-r1:32b" # Preferred local model for logic
+            # Use configurable review model from config or env
+            from config import DEFAULT_REVIEW_MODEL
+            model = DEFAULT_REVIEW_MODEL
             
             # We'll run it and capture the output to update the task later
             # For a truly non-blocking flow, this should be a separate process

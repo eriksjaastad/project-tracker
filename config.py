@@ -64,6 +64,11 @@ REINDEX_SCRIPT_PATH = PROJECTS_BASE_DIR / "project-scaffolding" / "scripts" / "r
 _default_audit_bin = PROJECTS_BASE_DIR / "audit-agent" / "audit"
 AUDIT_BIN_PATH = os.getenv("PT_AUDIT_BIN", str(_default_audit_bin) if _default_audit_bin.exists() else "audit")
 
+# --- Review Agent Configuration ---
+# Default model for code reviews (can be overridden by PT_REVIEW_MODEL)
+# Preferred local model for logic: deepseek-r1:32b
+DEFAULT_REVIEW_MODEL = os.getenv("PT_REVIEW_MODEL", "deepseek-r1:32b")
+
 # Ensure data directory exists
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
