@@ -20,7 +20,7 @@ import sqlite3
 
 # Add parent directory to path for logger import
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from logger import get_logger
+from scripts.logger import get_logger
 
 # Add scripts directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
@@ -42,7 +42,7 @@ from discovery.agent_registry import (
 from pydantic import BaseModel
 
 # Import config
-from config import REINDEX_SCRIPT_PATH
+from scripts.config import REINDEX_SCRIPT_PATH
 
 # Import scaffolding version helpers
 from scripts.pt import get_current_scaffolding_version, compare_versions

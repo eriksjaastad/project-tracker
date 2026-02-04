@@ -14,8 +14,8 @@ from dataclasses import dataclass, asdict
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import PROJECTS_BASE_DIR
-from logger import get_logger
+from scripts.config import PROJECTS_BASE_DIR
+from scripts.logger import get_logger
 
 logger = get_logger(__name__)
 

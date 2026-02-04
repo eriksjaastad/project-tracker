@@ -17,8 +17,8 @@ from .providers import get_provider
 
 # Add parent directory to path for config and logger imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from config import PROJECTS_BASE_DIR
-from logger import get_logger
+from scripts.config import PROJECTS_BASE_DIR
+from scripts.logger import get_logger
 
 logger = get_logger(__name__)
 

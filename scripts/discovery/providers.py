@@ -10,8 +10,8 @@ from pathlib import Path
 # Configure logging using project-specific logger
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from logger import get_logger
-from config import AUDIT_BIN_PATH
+from scripts.logger import get_logger
+from scripts.config import AUDIT_BIN_PATH
 
 logger = get_logger(__name__)
 
