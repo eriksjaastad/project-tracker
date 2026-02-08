@@ -4,11 +4,39 @@ import subprocess
 import os
 import time
 import sys
+import json
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any
 from scripts.logger import get_logger
 
 logger = get_logger(__name__)
+
+def _extract_verdict(text: str) -> tuple[str, str | None]:
+    """Extract explicit PASS/FAIL verdict from text."""
+    if not text:
+        return "ERROR", "no_output"
+    upper = text.upper()
+    verdict_match = re.search(r"\bVERDICT:\s*(PASS|FAIL)\b", upper)
+    if verdict_match:
+        return verdict_match.group(1), None
+    has_pass = "PASS" in upper
+    has_fail = "FAIL" in upper
+    if has_pass and not has_fail:
+        return "PASS", None
+    if has_fail and not has_pass:
+        return "FAIL", None
+    return "ERROR", "ambiguous_verdict"
+
+
+def _truncate(text: str, limit: int) -> tuple[str, bool]:
+    if not text:
+        return "", False
+    if len(text) <= limit:
+        return text, False
+    return text[:limit], True
+
 
 def trigger_review_agent(task_id: int, project_id: str, task_text: str, done_criteria: str):
     """Spawn a reviewer agent for the given task."""
@@ -67,10 +95,13 @@ def trigger_review_agent(task_id: int, project_id: str, task_text: str, done_cri
     
     if review_script.exists():
         # Create a temporary task file for the agent hub
-        temp_dir = Path(os.getenv("PROJECTS_ROOT", "")) / "project-tracker" / "data" / "temp_reviews"
+        project_root = Path(os.getenv("PROJECTS_ROOT", ""))
+        temp_dir = project_root / "project-tracker" / "data" / "temp_reviews"
         temp_dir.mkdir(parents=True, exist_ok=True)
         
-        review_file = temp_dir / f"review_{task_id}_{int(time.time())}.md"
+        timestamp = int(time.time())
+        review_file = temp_dir / f"review_{task_id}_{timestamp}.md"
+        response_file = temp_dir / f"review_{task_id}_{timestamp}.json"
         with open(review_file, 'w') as f:
             f.write(review_prompt)
         
@@ -102,21 +133,73 @@ def trigger_review_agent(task_id: int, project_id: str, task_text: str, done_cri
             # We'll spawn a small thread or separate process to wait for the result
             # and then update the task via the pt CLI.
             import threading
-            def update_task_after_review(p, tid, rfile):
-                stdout, stderr = p.communicate()
+            def update_task_after_review(p, tid, rfile, outfile):
+                timeout_seconds = int(os.getenv("PT_REVIEW_TIMEOUT", "600"))
+                started_at = datetime.now(timezone.utc).isoformat()
+                exit_code = None
+                timeout_hit = False
+                stdout = ""
+                stderr = ""
                 
-                # Extract PASS/FAIL from agent output
-                verdict = "FAIL"
-                if "PASS" in stdout.upper():
-                    verdict = "PASS"
+                try:
+                    stdout, stderr = p.communicate(timeout=timeout_seconds)
+                    exit_code = p.returncode
+                except subprocess.TimeoutExpired:
+                    timeout_hit = True
+                    p.kill()
+                    stdout, stderr = p.communicate()
+                    exit_code = p.returncode
+                except Exception as e:
+                    stderr = f"Error collecting review output: {e}"
+                    exit_code = p.returncode
+                
+                finished_at = datetime.now(timezone.utc).isoformat()
+                verdict, reason = _extract_verdict(stdout)
+                if timeout_hit:
+                    verdict = "ERROR"
+                    reason = "timeout"
+                
+                stdout_excerpt, stdout_truncated = _truncate(stdout, 2000)
+                stderr_excerpt, stderr_truncated = _truncate(stderr, 2000)
+                
+                # Persist stable JSON response
+                response_payload = {
+                    "task_id": tid,
+                    "project_id": project_id,
+                    "model": model,
+                    "verdict": verdict,
+                    "reason": reason,
+                    "exit_code": exit_code,
+                    "timeout_seconds": timeout_seconds,
+                    "timeout_hit": timeout_hit,
+                    "started_at": started_at,
+                    "finished_at": finished_at,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "stdout_truncated": stdout_truncated,
+                    "stderr_truncated": stderr_truncated,
+                    "review_file": str(rfile),
+                    "response_file": str(outfile)
+                }
+                try:
+                    with open(outfile, "w") as f:
+                        json.dump(response_payload, f, indent=2)
+                except Exception as e:
+                    logger.error(f"Failed to write review response JSON: {e}")
                 
                 # Prepare review notes
-                review_notes = f"AUTO-REVIEW: {verdict}\n\n{stdout[:2000]}"
+                reason_line = f"Reason: {reason}\n" if reason else ""
+                review_notes = (
+                    f"AUTO-REVIEW: {verdict}\n"
+                    f"{reason_line}"
+                    f"Response JSON: {outfile}\n\n"
+                    f"STDOUT:\n{stdout_excerpt}\n\n"
+                    f"STDERR:\n{stderr_excerpt}"
+                )
                 
                 # Update task status and notes via CLI
-                # If PASS, we could move to Done, but usually we just add the comment
-                # and let the user decide, or move back to 'In Progress' if FAIL.
-                new_status = "Review" # Keep in review for user verification
+                # If PASS, keep in Review for verification; FAIL goes back to In Progress; ERROR stays in Review.
+                new_status = "Review"
                 if verdict == "FAIL":
                     new_status = "In Progress"
                 
@@ -129,7 +212,10 @@ def trigger_review_agent(task_id: int, project_id: str, task_text: str, done_cri
                 ])
                 logger.info(f"Task #{tid} updated with review results.")
 
-            threading.Thread(target=update_task_after_review, args=(proc, task_id, review_file)).start()
+            threading.Thread(
+                target=update_task_after_review,
+                args=(proc, task_id, review_file, response_file)
+            ).start()
             
         except Exception as e:
             logger.error(f"Failed to dispatch review agent: {e}")

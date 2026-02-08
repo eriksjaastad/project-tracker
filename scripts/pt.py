@@ -618,10 +618,10 @@ def _has_complete_prompt(prompt: str | None) -> bool:
     )
 
 
-def _display_tasks(task_list: list, project: str | None = None, json_output: bool = False):
+def _display_tasks(task_list: list, project: str | None = None, json_output: bool = False, db: "DatabaseManager | None" = None):
     """Display tasks. AI-first: plain print(), no terminal width constraints."""
     import json as json_lib
-    
+
     if json_output:
         print(json_lib.dumps({"tasks": task_list, "total": len(task_list)}, indent=2))
         return
@@ -639,22 +639,34 @@ def _display_tasks(task_list: list, project: str | None = None, json_output: boo
         status = task["status"]
         task_id = task["id"]
         task_text = task["text"]
-        
-        # [P] marker if prompt has all three sections (Overview, Execution, Done Criteria)
-        prompt_marker = "[P] " if _has_complete_prompt(task.get("prompt")) else ""
+
+        # Prompt marker: highlight MISSING or INCOMPLETE prompts (problems stand out)
+        if _has_complete_prompt(task.get("prompt")):
+            prompt_marker = ""
+        elif task.get("prompt"):
+            prompt_marker = "[~P] "
+        else:
+            prompt_marker = "[!P] "
+
+        # [B] marker if task is blocked by incomplete tasks
+        blocked_marker = ""
+        if db and task.get("blocked_by"):
+            is_blocked, blocking_ids = db.is_blocked(task_id)
+            if is_blocked:
+                blocked_marker = f"[B:{','.join(str(i) for i in blocking_ids)}] "
 
         # Plain print - no terminal width wrapping
         if project:
-            print(f"#{task_id} {prompt_marker}| {status} | {priority} | {task_text}")
+            print(f"#{task_id} {prompt_marker}{blocked_marker}| {status} | {priority} | {task_text}")
         else:
-            print(f"#{task_id} {prompt_marker}| {task['project_id']} | {status} | {priority} | {task_text}")
+            print(f"#{task_id} {prompt_marker}{blocked_marker}| {task['project_id']} | {status} | {priority} | {task_text}")
 
     # Summary
     status_counts = {}
     for task in task_list:
         status_counts[task["status"]] = status_counts.get(task["status"], 0) + 1
 
-    summary_parts = [f"{s}: {status_counts[s]}" for s in ["Backlog", "To Do", "In Progress", "Review", "Done"] if s in status_counts]
+    summary_parts = [f"{s}: {status_counts[s]}" for s in ["Backlog", "To Do", "In Progress", "Review", "Done", "Cancelled"] if s in status_counts]
     print(f"\nTotal: {len(task_list)} tasks ({', '.join(summary_parts)})")
 
 
@@ -684,7 +696,9 @@ def _detect_project_from_cwd(db: DatabaseManager) -> str | None:
 @click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Review, Done)")
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def tasks_group(ctx, project, status, show_all, json_output):
+@click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
+@click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)")
+def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready):
     """Manage Kanban board tasks.
 
     \b
@@ -693,6 +707,8 @@ def tasks_group(ctx, project, status, show_all, json_output):
         ./pt tasks -p project-tracker    # Tasks for a specific project
         ./pt tasks -s "In Progress"      # Filter by status
         ./pt tasks --all                 # Include completed tasks
+        ./pt tasks --needs-prompt        # Show tasks that need prompts
+        ./pt tasks --ready               # Show tasks ready to start
         ./pt tasks create "Fix bug" -p myproject
     """
     # If a subcommand is invoked, don't run the default list behavior
@@ -716,11 +732,17 @@ def tasks_group(ctx, project, status, show_all, json_output):
 
     task_list = db.get_tasks(project_id=project_id, status=status)
 
-    # Filter out Done unless --all or specific status
+    # Filter out Done and Cancelled unless --all or specific status
     if not show_all and not status:
-        task_list = [t for t in task_list if t["status"] != "Done"]
+        task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
 
-    _display_tasks(task_list, project_label, json_output=json_output)
+    # Apply filter flags
+    if needs_prompt:
+        task_list = [t for t in task_list if not t.get("prompt")]
+    if ready:
+        task_list = [t for t in task_list if t["status"] == "To Do" and _has_complete_prompt(t.get("prompt"))]
+
+    _display_tasks(task_list, project_label, json_output=json_output, db=db)
 
 
 @tasks_group.command(name="list")
@@ -729,7 +751,9 @@ def tasks_group(ctx, project, status, show_all, json_output):
 @click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
 @click.option("--board", is_flag=True, help="Show columnar Kanban board view")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def tasks_list(project, status, show_all, board, json_output):
+@click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
+@click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)")
+def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready):
     """List tasks from the Kanban board."""
     db = DatabaseManager()
     if project:
@@ -748,7 +772,13 @@ def tasks_list(project, status, show_all, board, json_output):
     task_list = db.get_tasks(project_id=project_id, status=status)
 
     if not show_all and not status:
-        task_list = [t for t in task_list if t["status"] != "Done"]
+        task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
+
+    # Apply filter flags
+    if needs_prompt:
+        task_list = [t for t in task_list if not t.get("prompt")]
+    if ready:
+        task_list = [t for t in task_list if t["status"] == "To Do" and _has_complete_prompt(t.get("prompt"))]
 
     if board and not json_output:
         statuses = ["Backlog", "To Do", "In Progress", "Review", "Done"]
@@ -787,7 +817,7 @@ def tasks_list(project, status, show_all, board, json_output):
         console.print(table)
         return
 
-    _display_tasks(task_list, project_label, json_output=json_output)
+    _display_tasks(task_list, project_label, json_output=json_output, db=db)
 
 
 @tasks_group.command(name="create")
@@ -826,7 +856,7 @@ def tasks_create(text, project, status, priority, prompt, parent, blocked_by):
         return
 
     # Validate status
-    valid_statuses = ["Backlog", "To Do", "In Progress", "Review", "Done"]
+    valid_statuses = ["Backlog", "To Do", "In Progress", "Review", "Done", "Cancelled"]
     if status not in valid_statuses:
         console.print(f"[red]Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}[/red]")
         return
@@ -892,7 +922,8 @@ def tasks_create(text, project, status, priority, prompt, parent, blocked_by):
 @click.option("--prompt", default=None, help="Agent prompt (execution instructions for AI)")
 @click.option("--review-comment", default=None, help="Reviewer feedback when sending back from Review")
 @click.option("--notes", default=None, help="Internal notes/comments for the task")
-def tasks_update(task_id, status, text, priority, prompt, review_comment, notes):
+@click.option("--blocked-by", default=None, help="Comma-separated task IDs that block this task (replaces existing, empty string clears)")
+def tasks_update(task_id, status, text, priority, prompt, review_comment, notes, blocked_by):
     """Update an existing task.
 
     \b
@@ -901,13 +932,16 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes)
         ./pt tasks update 42 -t "Updated description" --priority High
         ./pt tasks update 42 --prompt "Overview: ... Execution: ... Done:"
         ./pt tasks update 42 --notes "Blocked waiting for API changes"
+        ./pt tasks update 42 --blocked-by "4645,4646"
+        ./pt tasks update 42 --blocked-by ""
     """
+    import json as json_lib
     db = DatabaseManager()
 
     # Build updates dict
     updates = {}
     if status:
-        valid_statuses = ["Backlog", "To Do", "In Progress", "Review", "Done"]
+        valid_statuses = ["Backlog", "To Do", "In Progress", "Review", "Done", "Cancelled"]
         if status not in valid_statuses:
             console.print(f"[red]Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}[/red]")
             return
@@ -926,9 +960,19 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes)
         updates["review_comment"] = review_comment
     if notes is not None:
         updates["notes"] = notes
+    if blocked_by is not None:
+        if blocked_by == "":
+            updates["blocked_by"] = None
+        else:
+            try:
+                ids = [int(tid.strip()) for tid in blocked_by.split(",")]
+                updates["blocked_by"] = json_lib.dumps(ids)
+            except ValueError:
+                console.print("[red]Error: blocked-by must be comma-separated task IDs (e.g., '4645,4646')[/red]")
+                return
 
     if not updates:
-        console.print("[yellow]No updates specified. Use -s, -t, --priority, --prompt, or --notes.[/yellow]")
+        console.print("[yellow]No updates specified. Use -s, -t, --priority, --prompt, --notes, or --blocked-by.[/yellow]")
         return
 
     try:
@@ -1100,6 +1144,81 @@ def tasks_review(task_ids):
         print(f"\nReviewed {success_count}/{len(task_ids)} tasks")
 
 
+@tasks_group.command(name="cancel")
+@click.argument("task_ids", type=int, nargs=-1, required=True)
+def tasks_cancel(task_ids):
+    """Cancel one or more tasks (soft delete - keeps history).
+
+    \b
+    Examples:
+        ./pt tasks cancel 42
+        ./pt tasks cancel 42 43 44
+    """
+    db = DatabaseManager()
+    
+    success_count = 0
+    for task_id in task_ids:
+        try:
+            task = db.get_task(task_id)
+            if not task:
+                print(f"Task #{task_id} not found")
+                continue
+            db.update_task(task_id, status="Cancelled")
+            print(f"Cancelled: #{task_id} - {task['text'][:50]}")
+            success_count += 1
+        except Exception as e:
+            print(f"Failed to cancel task #{task_id}: {e}")
+    
+    if len(task_ids) > 1:
+        print(f"\nCancelled {success_count}/{len(task_ids)} tasks")
+
+
+@tasks_group.command(name="delete")
+@click.argument("task_ids", type=int, nargs=-1, required=True)
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
+def tasks_delete(task_ids, yes):
+    """Permanently delete one or more tasks.
+
+    \b
+    Examples:
+        ./pt tasks delete 42
+        ./pt tasks delete 42 43 44
+        ./pt tasks delete 42 -y
+    """
+    db = DatabaseManager()
+    
+    # Show what will be deleted
+    tasks_to_delete = []
+    for task_id in task_ids:
+        task = db.get_task(task_id)
+        if not task:
+            print(f"Task #{task_id} not found")
+            continue
+        tasks_to_delete.append(task)
+        print(f"  #{task['id']} | {task['status']} | {task['text'][:60]}")
+    
+    if not tasks_to_delete:
+        return
+    
+    if not yes:
+        confirm = click.confirm(f"\nPermanently delete {len(tasks_to_delete)} task(s)?", default=False)
+        if not confirm:
+            print("Cancelled")
+            return
+    
+    success_count = 0
+    for task in tasks_to_delete:
+        try:
+            db.delete_task(task["id"])
+            print(f"Deleted: #{task['id']}")
+            success_count += 1
+        except Exception as e:
+            print(f"Failed to delete task #{task['id']}: {e}")
+    
+    if len(tasks_to_delete) > 1:
+        print(f"\nDeleted {success_count}/{len(tasks_to_delete)} tasks")
+
+
 @tasks_group.command(name="show")
 @click.argument("task_ids", type=int, nargs=-1, required=True)
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
@@ -1133,6 +1252,14 @@ def tasks_show(task_ids, json_output):
                 print(f"Project: {task['project_id']}")
                 print(f"Status: {task['status']}")
                 print(f"Priority: {task.get('priority') or 'None'}")
+
+                # Show blocked-by status
+                is_blocked, blocking_ids = db.is_blocked(task['id'])
+                if is_blocked:
+                    print(f"Blocked by: {', '.join(f'#{tid}' for tid in blocking_ids)} (incomplete)")
+                elif task.get('blocked_by'):
+                    print(f"Blocked by: (all resolved)")
+
                 print(f"Created: {task['created_at']}")
                 print(f"Updated: {task['updated_at']}")
                 if task.get('completed_at'):

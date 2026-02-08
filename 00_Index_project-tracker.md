@@ -73,16 +73,16 @@ This document serves as the index for the Project Tracker, providing a high-leve
 
 ## Recent Activity
 
+- 2026-02-04: fix: rebuild graph on refresh
+- 2026-02-03: refactor: move internal modules into scripts (#4721)
+- 2026-02-03: refactor: Move review model configuration to config.py and allow env override (#4693)
+- 2026-02-03: fix: Use bash to run pt CLI wrapper in hooks (#4693)
+- 2026-02-03: feat: Complete end-to-end auto-review flow (#4693)
+- 2026-02-03: feat: Implement git diff retrieval and review prompt preparation in hooks (#4693)
+- 2026-02-03: feat: Add infrastructure for auto-triggering code review agent (#4693)
+- 2026-02-02: feat: Add pt tasks move command (#4698)
+- 2026-02-01: feat: Add database robustness protections against file-level replacement (#4692)
 - 2026-02-01: feat: Add learning measurement dashboard and fix validation issues (#4686, #4689)
-- 2026-01-30: docs: Update index and add graph garbage nodes review report
-- 2026-01-29: feat: Major session - 11 tasks completed
-- 2026-01-29: feat: Project filter modal and iterdir exception handling
-- 2026-01-29: feat: Ideas section UI components and cleanup
-- 2026-01-29: feat: Database safety, validation improvements, and scan optimizations
-- 2026-01-29: fix: Guard incomplete subtasks methods to prevent dashboard crash
-- 2026-01-28: Merge remote-tracking branch 'origin/claude/fix-database-scanning-bugs-s6YJY'
-- 2026-01-28: docs: Document agent deletion safety bypass and fixes
-- 2026-01-28: Merge branch 'main' into claude/fix-database-scanning-bugs-s6YJY
 ## Related Documentation
 
 - [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
@@ -137,9 +137,7 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [QUICKSTART.md](QUICKSTART.md) | 🚀 project-tracker - Quick Start |
 | [README.md](README.md) | project-tracker |
 | [REVIEW.md](REVIEW.md) | This document outlines the code review process for the Project Tracker application. It aims to ensur... |
-| [TODO.md](TODO.md) | **Last Updated:** January 14, 2026 |
 | [USAGE.md](USAGE.md) | > **Quick Start:** `./pt launch` to open the dashboard |
-| [config.py](config.py) | Configuration for project tracker. |
 | [dashboard/__init__.py](dashboard/__init__.py) | No description available. |
 | [dashboard/app.py](dashboard/app.py) | FastAPI web dashboard for project tracker. |
 | [dashboard/frontend/README.md](dashboard/frontend/README.md) | This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules. |
@@ -158,7 +156,6 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [dashboard/static/script.js](dashboard/static/script.js) | No description available. |
 | [dashboard/static/style.css](dashboard/static/style.css) | No description available. |
 | [find_orphans.py](find_orphans.py) | No description available. |
-| [logger.py](logger.py) | Logging configuration for project tracker. |
 | [prompts/active/document_review/architecture.md](prompts/active/document_review/architecture.md) | You are an **architecture-focused purist reviewer** with expertise in system design, software archit... |
 | [prompts/active/document_review/performance.md](prompts/active/document_review/performance.md) | You are a **performance-focused critical reviewer** with expertise in scalability, database optimiza... |
 | [prompts/active/document_review/security.md](prompts/active/document_review/security.md) | You are a **security-focused skeptical reviewer** with expertise in application security, authentica... |

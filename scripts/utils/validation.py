@@ -21,7 +21,7 @@ SECRET_PATTERNS = [
 
 
 # Valid status values for tasks
-VALID_STATUSES = ["Backlog", "To Do", "In Progress", "Review", "Done"]
+VALID_STATUSES = ["Backlog", "To Do", "In Progress", "Review", "Done", "Cancelled"]
 
 # Valid priority values for tasks
 VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"]

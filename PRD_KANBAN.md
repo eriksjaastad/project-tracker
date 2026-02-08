@@ -73,7 +73,7 @@ With 20+ active projects, tasks are scattered across individual `TODO.md` files.
 This is a direct-manipulation tool. The human (Erik) interacts with the board constantly:
 
 - **Create tasks** - Via "Add Task" button on the board or CLI (`./pt tasks create`)
-- **Move tasks** - Drag-and-drop between columns (Backlog → To Do → In Progress → Review → Done)
+- **Move tasks** - Drag-and-drop between columns (Backlog ↔ To Do ↔ In Progress ↔ Review ↔ Done). Tasks can move forward or backward (e.g., Review → To Do for rejected work)
 - **Edit tasks** - Click to expand, edit text inline
 - **Filter view** - Toggle projects on/off via sidebar checkboxes
 - **Review progress** - View productivity graphs to see completion trends
