@@ -225,16 +225,44 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
         '_configs',          # Configuration files only
         '__knowledge',       # Knowledge base - no code
         '_tools',            # Tools directory - no code
-        'fci-plugins'        # FCI plugins - don't scaffold
+        'fci-plugins',       # FCI plugins - don't scaffold
+        'openclaw',          # External project - not ours
+        'nanoclaw',          # External project - not ours
+        'model-proving-ground'  # Renamed/stale project
     }
     
     project_id = project.get("id", "")
+    project_path = Path(project.get("path", ""))
+    
     if project_id in excluded_from_scaffolding:
         # Mark as current to hide from scaffolding alerts
         project["version_status"] = "current"
+    elif not project_path.exists():
+        # Project directory doesn't exist (stale/deleted)
+        project["version_status"] = "current"
     else:
         project_version = project.get("scaffolding_version")
-        if project_version is None:
+        scaffolding_issues = []
+        
+        # Check for {placeholder} content in CLAUDE.md
+        claude_md = project_path / "CLAUDE.md"
+        if claude_md.exists():
+            try:
+                content = claude_md.read_text(errors='ignore')
+                if '{project_description}' in content or '{language}' in content or '{framework}' in content:
+                    scaffolding_issues.append("CLAUDE.md has unfilled placeholders")
+            except Exception:
+                pass
+        
+        # Check for rogue 00-full-content.md in .agentsync/rules/
+        rogue_file = project_path / ".agentsync" / "rules" / "00-full-content.md"
+        if rogue_file.exists():
+            scaffolding_issues.append("rogue 00-full-content.md in .agentsync/rules/")
+        
+        if scaffolding_issues:
+            project["version_status"] = "outdated"
+            project["scaffolding_issues"] = scaffolding_issues
+        elif project_version is None:
             project["version_status"] = "unscaffolded"
         elif current_scaffolding_version and compare_versions(project_version, current_scaffolding_version) < 0:
             project["version_status"] = "outdated"

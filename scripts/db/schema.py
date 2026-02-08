@@ -406,7 +406,7 @@ def create_database(db_path: Optional[Path] = None) -> None:
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             text TEXT NOT NULL,
-            status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done')),
+            status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done', 'Cancelled')),
             project_id TEXT NOT NULL,
             priority TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL)),
             created_at TEXT NOT NULL,
@@ -478,13 +478,64 @@ def create_database(db_path: Optional[Path] = None) -> None:
     except sqlite3.OperationalError:
         pass
     
+    # Migration: add 'Cancelled' to status CHECK constraint (Task #4749)
+    # SQLite cannot ALTER CHECK constraints, so we recreate the table if needed.
+    # Only runs if the old constraint rejects 'Cancelled'.
+    try:
+        # Test if current schema accepts 'Cancelled'
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
+        tasks_sql = cursor.fetchone()
+        if tasks_sql and "'Cancelled'" not in tasks_sql[0]:
+            # Need to recreate table with new CHECK constraint
+            cursor.execute("SELECT COUNT(*) FROM tasks")
+            task_count = cursor.fetchone()[0]
+            print(f"ℹ️  Migrating tasks table CHECK constraint to add 'Cancelled' status ({task_count} tasks)")
+            
+            cursor.execute("""
+                CREATE TABLE tasks_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done', 'Cancelled')),
+                    project_id TEXT NOT NULL,
+                    priority TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL)),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    prompt TEXT,
+                    review_comment TEXT,
+                    title TEXT,
+                    notes TEXT,
+                    commit_sha TEXT,
+                    category TEXT,
+                    parent_id INTEGER REFERENCES tasks_new(id) ON DELETE CASCADE,
+                    blocked_by TEXT,
+                    sequence_order INTEGER,
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                )
+            """)
+            cursor.execute("""
+                INSERT INTO tasks_new
+                SELECT id, text, status, project_id, priority, created_at, updated_at,
+                       completed_at, prompt, review_comment, title, notes, commit_sha,
+                       category, parent_id, blocked_by, sequence_order
+                FROM tasks
+            """)
+            cursor.execute("DROP TABLE tasks")
+            cursor.execute("ALTER TABLE tasks_new RENAME TO tasks")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)")
+            print(f"  ✓ Migrated {task_count} tasks successfully")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not migrate tasks CHECK constraint: {e}")
+    
     # Task history table for productivity graphs
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS task_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id INTEGER NOT NULL,
             project_id TEXT NOT NULL,
-            event_type TEXT NOT NULL CHECK(event_type IN ('created', 'status_changed', 'completed')),
+            event_type TEXT NOT NULL CHECK(event_type IN ('created', 'status_changed', 'completed', 'cancelled')),
             old_status TEXT,
             new_status TEXT,
             timestamp TEXT NOT NULL,
