@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { DndContext, closestCenter, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
+import { DndContext, rectIntersection, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import type { Task, TaskStatus, TaskPriority } from '../types';
 import { fetchTasks, updateTask, createTask, deleteTask, deleteDoneTasks } from '../api';
@@ -290,7 +290,7 @@ export function KanbanBoard() {
           onAction={
             warning.actionUrl
               ? () => {
-                  window.location.href = warning.actionUrl;
+                  window.location.href = warning.actionUrl!;
                 }
               : undefined
           }
@@ -298,7 +298,7 @@ export function KanbanBoard() {
       ))}
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={rectIntersection}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >

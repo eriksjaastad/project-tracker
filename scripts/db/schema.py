@@ -526,6 +526,49 @@ def create_database(db_path: Optional[Path] = None) -> None:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)")
             print(f"  ✓ Migrated {task_count} tasks successfully")
+            
+            # CRITICAL: Recreate triggers after migration (they were dropped when we dropped the table)
+            cursor.execute("DROP TRIGGER IF EXISTS audit_task_delete")
+            cursor.execute("""
+                CREATE TRIGGER audit_task_delete
+                BEFORE DELETE ON tasks
+                WHEN (SELECT enabled FROM _delete_permissions WHERE id = 1) = 1
+                BEGIN
+                    INSERT INTO delete_audit_log (table_name, deleted_id, deleted_data, deleted_at, source)
+                    VALUES (
+                        'tasks',
+                        OLD.id,
+                        json_object(
+                            'id', OLD.id,
+                            'text', OLD.text,
+                            'status', OLD.status,
+                            'project_id', OLD.project_id,
+                            'priority', OLD.priority,
+                            'created_at', OLD.created_at,
+                            'updated_at', OLD.updated_at,
+                            'completed_at', OLD.completed_at,
+                            'parent_id', OLD.parent_id,
+                            'blocked_by', OLD.blocked_by,
+                            'sequence_order', OLD.sequence_order
+                        ),
+                        datetime('now'),
+                        'application'
+                    );
+                END
+            """)
+            
+            cursor.execute("DROP TRIGGER IF EXISTS block_task_delete")
+            cursor.execute("""
+                CREATE TRIGGER block_task_delete
+                BEFORE DELETE ON tasks
+                WHEN (SELECT enabled FROM _delete_permissions WHERE id = 1) = 0
+                BEGIN
+                    INSERT INTO delete_attempt_log (table_name, attempted_at, reason)
+                    VALUES ('tasks', datetime('now'), 'blocked: _delete_permissions.enabled = 0');
+                    SELECT RAISE(FAIL, 'Task deletes are blocked. Set _delete_permissions.enabled=1 first (application only).');
+                END
+            """)
+            print(f"  ✓ Recreated audit triggers after migration")
     except Exception as e:
         print(f"⚠️  Warning: Could not migrate tasks CHECK constraint: {e}")
     
@@ -588,50 +631,6 @@ def create_database(db_path: Optional[Path] = None) -> None:
     # Ensure the single row exists
     cursor.execute("INSERT OR IGNORE INTO _delete_permissions (id, enabled) VALUES (1, 0)")
 
-    # SAFETY TRIGGER: Log allowed task deletions
-    cursor.execute("DROP TRIGGER IF EXISTS audit_task_delete")
-    cursor.execute("""
-        CREATE TRIGGER audit_task_delete
-        BEFORE DELETE ON tasks
-        WHEN (SELECT enabled FROM _delete_permissions WHERE id = 1) = 1
-        BEGIN
-            INSERT INTO delete_audit_log (table_name, deleted_id, deleted_data, deleted_at, source)
-            VALUES (
-                'tasks',
-                OLD.id,
-                json_object(
-                    'id', OLD.id,
-                    'text', OLD.text,
-                    'status', OLD.status,
-                    'project_id', OLD.project_id,
-                    'priority', OLD.priority,
-                    'created_at', OLD.created_at,
-                    'updated_at', OLD.updated_at,
-                    'completed_at', OLD.completed_at,
-                    'parent_id', OLD.parent_id,
-                    'blocked_by', OLD.blocked_by,
-                    'sequence_order', OLD.sequence_order
-                ),
-                datetime('now'),
-                'application'
-            );
-        END
-    """)
-
-    # SAFETY TRIGGER: Block task deletes unless permission flag is set
-    # Uses RAISE(FAIL) not RAISE(ABORT) so the log INSERT isn't rolled back
-    cursor.execute("DROP TRIGGER IF EXISTS block_task_delete")
-    cursor.execute("""
-        CREATE TRIGGER block_task_delete
-        BEFORE DELETE ON tasks
-        WHEN (SELECT enabled FROM _delete_permissions WHERE id = 1) = 0
-        BEGIN
-            INSERT INTO delete_attempt_log (table_name, attempted_at, reason)
-            VALUES ('tasks', datetime('now'), 'blocked: _delete_permissions.enabled = 0');
-            SELECT RAISE(FAIL, 'Task deletes are blocked. Set _delete_permissions.enabled=1 first (application only).');
-        END
-    """)
-    
     # SAFETY TRIGGER: Log all project deletions
     cursor.execute("DROP TRIGGER IF EXISTS audit_project_delete")
     cursor.execute("""
@@ -655,6 +654,55 @@ def create_database(db_path: Optional[Path] = None) -> None:
             );
         END
     """)
+    
+    # NOTE: Task delete triggers are created after the Cancelled migration (if it runs)
+    # to ensure they survive the table recreation. See the migration section above.
+    # If migration doesn't run, create them here:
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name='audit_task_delete'")
+    if not cursor.fetchone():
+        # Triggers don't exist, so migration didn't run - create them now
+        cursor.execute("DROP TRIGGER IF EXISTS audit_task_delete")
+        cursor.execute("""
+            CREATE TRIGGER audit_task_delete
+            BEFORE DELETE ON tasks
+            WHEN (SELECT enabled FROM _delete_permissions WHERE id = 1) = 1
+            BEGIN
+                INSERT INTO delete_audit_log (table_name, deleted_id, deleted_data, deleted_at, source)
+                VALUES (
+                    'tasks',
+                    OLD.id,
+                    json_object(
+                        'id', OLD.id,
+                        'text', OLD.text,
+                        'status', OLD.status,
+                        'project_id', OLD.project_id,
+                        'priority', OLD.priority,
+                        'created_at', OLD.created_at,
+                        'updated_at', OLD.updated_at,
+                        'completed_at', OLD.completed_at,
+                        'parent_id', OLD.parent_id,
+                        'blocked_by', OLD.blocked_by,
+                        'sequence_order', OLD.sequence_order
+                    ),
+                    datetime('now'),
+                    'application'
+                );
+            END
+        """)
+
+        # SAFETY TRIGGER: Block task deletes unless permission flag is set
+        # Uses RAISE(FAIL) not RAISE(ABORT) so the log INSERT isn't rolled back
+        cursor.execute("DROP TRIGGER IF EXISTS block_task_delete")
+        cursor.execute("""
+            CREATE TRIGGER block_task_delete
+            BEFORE DELETE ON tasks
+            WHEN (SELECT enabled FROM _delete_permissions WHERE id = 1) = 0
+            BEGIN
+                INSERT INTO delete_attempt_log (table_name, attempted_at, reason)
+                VALUES ('tasks', datetime('now'), 'blocked: _delete_permissions.enabled = 0');
+                SELECT RAISE(FAIL, 'Task deletes are blocked. Set _delete_permissions.enabled=1 first (application only).');
+            END
+        """)
     
     # Create indexes for performance
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_last_modified ON projects(last_modified DESC)")

@@ -1174,49 +1174,43 @@ def tasks_cancel(task_ids):
 
 
 @tasks_group.command(name="delete")
-@click.argument("task_ids", type=int, nargs=-1, required=True)
+@click.argument("task_id", type=int)
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
-def tasks_delete(task_ids, yes):
-    """Permanently delete one or more tasks.
+def tasks_delete(task_id, yes):
+    """Permanently delete a single task (one at a time for safety).
 
     \b
     Examples:
         ./pt tasks delete 42
-        ./pt tasks delete 42 43 44
         ./pt tasks delete 42 -y
+    
+    \b
+    Note: Delete is a destructive operation. Only single IDs are accepted.
+    To delete multiple tasks, run this command once per task.
+    For reversible soft delete, use: ./pt tasks cancel <id>
     """
     db = DatabaseManager()
     
-    # Show what will be deleted
-    tasks_to_delete = []
-    for task_id in task_ids:
-        task = db.get_task(task_id)
-        if not task:
-            print(f"Task #{task_id} not found")
-            continue
-        tasks_to_delete.append(task)
-        print(f"  #{task['id']} | {task['status']} | {task['text'][:60]}")
-    
-    if not tasks_to_delete:
+    # Get the task to delete
+    task = db.get_task(task_id)
+    if not task:
+        print(f"Task #{task_id} not found")
         return
     
+    # Show what will be deleted
+    print(f"  #{task['id']} | {task['status']} | {task['text'][:60]}")
+    
     if not yes:
-        confirm = click.confirm(f"\nPermanently delete {len(tasks_to_delete)} task(s)?", default=False)
+        confirm = click.confirm(f"\nPermanently delete task #{task_id}?", default=False)
         if not confirm:
             print("Cancelled")
             return
     
-    success_count = 0
-    for task in tasks_to_delete:
-        try:
-            db.delete_task(task["id"])
-            print(f"Deleted: #{task['id']}")
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to delete task #{task['id']}: {e}")
-    
-    if len(tasks_to_delete) > 1:
-        print(f"\nDeleted {success_count}/{len(tasks_to_delete)} tasks")
+    try:
+        db.delete_task(task_id)
+        print(f"Deleted: #{task_id}")
+    except Exception as e:
+        print(f"Failed to delete task #{task_id}: {e}")
 
 
 @tasks_group.command(name="show")
