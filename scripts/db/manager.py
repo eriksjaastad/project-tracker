@@ -949,14 +949,6 @@ class DatabaseManager:
             
             conn.commit()
 
-            # Trigger status change hook AFTER commit to avoid locks
-            if old_status != new_status:
-                try:
-                    from utils.hooks import handle_status_change
-                    handle_status_change(task_id, old_status, new_status)
-                except Exception as e:
-                    logger.error(f"Error in status change hook: {e}")
-            
             # Return updated task
             return self.get_task(task_id)
 
