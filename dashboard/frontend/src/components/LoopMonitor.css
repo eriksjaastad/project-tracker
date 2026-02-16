@@ -1,0 +1,161 @@
+.loop-monitor {
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+  border: 1px solid #333;
+}
+
+.loop-monitor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.loop-monitor-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.refresh-button {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.refresh-button:hover {
+  background: #333;
+  border-color: #555;
+}
+
+.loop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.loop-card {
+  background: #2a2a2a;
+  border-radius: 6px;
+  padding: 16px;
+  border-left: 4px solid #666;
+  transition: all 0.2s;
+}
+
+.loop-card:hover {
+  background: #2f2f2f;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.loop-card.health-healthy {
+  border-left-color: #4caf50;
+}
+
+.loop-card.health-warning {
+  border-left-color: #ff9800;
+}
+
+.loop-card.health-failed {
+  border-left-color: #f44336;
+}
+
+.loop-card.health-never-run {
+  border-left-color: #666;
+  opacity: 0.7;
+}
+
+.loop-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+}
+
+.loop-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #fff;
+  text-transform: capitalize;
+}
+
+.loop-health-icon {
+  font-size: 20px;
+}
+
+.loop-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.loop-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.stat-label {
+  color: #999;
+  font-weight: 500;
+}
+
+.stat-value {
+  color: #fff;
+  font-weight: 600;
+}
+
+.loop-stat.highlight {
+  background: #1a3a1a;
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin: 4px 0;
+}
+
+.loop-stat.highlight .stat-value {
+  color: #4caf50;
+}
+
+.loop-error {
+  margin-top: 8px;
+  padding: 8px;
+  background: #3a1a1a;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #ff6b6b;
+  word-break: break-word;
+}
+
+.loop-error strong {
+  color: #f44336;
+}
+
+.loop-monitor.loading,
+.loop-monitor.error {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+
+.error-message {
+  color: #f44336;
+  font-weight: 500;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .loop-grid {
+    grid-template-columns: 1fr;
+  }
+}

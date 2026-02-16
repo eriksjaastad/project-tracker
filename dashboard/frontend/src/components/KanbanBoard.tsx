@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { DndContext, rectIntersection, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
-import type { Task, TaskStatus, TaskPriority } from '../types';
-import { fetchTasks, updateTask, createTask, deleteTask, deleteDoneTasks } from '../api';
+import type { Task, TaskStatus, TaskPriority, TaskType } from '../types';
+import { TASK_STATUSES, TASK_STATUS_LABELS } from '../types';
+import { fetchTasks, updateTask, createTask, deleteTask } from '../api';
 import { Column } from './Column';
 import { Notification } from './Notification';
 import { AddTaskButton } from './AddTaskButton';
@@ -14,9 +15,8 @@ import { WarningBanner } from './WarningBanner';
 import { Spinner } from './Spinner';
 import { SkeletonCard } from './SkeletonCard';
 import { IdeasSection } from './IdeasSection';
+import { LoopMonitor } from './LoopMonitor';
 import './KanbanBoard.css';
-
-const STATUSES: TaskStatus[] = ['Backlog', 'To Do', 'In Progress', 'Review', 'Done'];
 
 interface NotificationState {
   message: string;
@@ -123,7 +123,7 @@ export function KanbanBoard() {
 
     // Determine the target status - over.id could be a column status or a task ID
     let newStatus: TaskStatus;
-    if (STATUSES.includes(over.id as TaskStatus)) {
+    if (TASK_STATUSES.includes(over.id as TaskStatus)) {
       // Dropped on a column
       newStatus = over.id as TaskStatus;
     } else {
@@ -144,6 +144,20 @@ export function KanbanBoard() {
     // Don't do anything if dropped in the same column
     if (task.status === newStatus) {
       return;
+    }
+
+    if (
+      task.status === 'To Do' &&
+      newStatus === 'In Progress' &&
+      task.task_type === 'agent' &&
+      !task.prompt
+    ) {
+      const proceed = confirm(
+        'Agent task has no prompt. Move to In Progress anyway?'
+      );
+      if (!proceed) {
+        return;
+      }
     }
 
     // Store original state for potential rollback
@@ -176,6 +190,7 @@ export function KanbanBoard() {
     projectId: string;
     status: TaskStatus;
     priority: TaskPriority | null;
+    taskType: TaskType;
     parentId?: number | null;
     blockedBy?: number[] | null;
   }) => {
@@ -185,6 +200,7 @@ export function KanbanBoard() {
         data.projectId,
         data.status,
         data.priority,
+        data.taskType,
         data.parentId,
         data.blockedBy
       );
@@ -217,32 +233,11 @@ export function KanbanBoard() {
       showNotification(errorMessage, 'error');
       throw error; // Let TaskDetailModal handle the error display
     }
-  }, []);
-
-  const handleDeleteDone = useCallback(async () => {
-    const doneCount = tasks.filter(t => t.status === 'Done').length;
-    if (doneCount === 0) {
-      showNotification('No Done tasks to delete', 'error');
-      return;
-    }
-
-    if (!confirm(`Delete ${doneCount} Done task(s)?`)) {
-      return;
-    }
-
-    try {
-      const result = await deleteDoneTasks(project);
-      setTasks(prev => prev.filter(t => t.status !== 'Done'));
-      showNotification(`Deleted ${result.deleted} Done task(s)`, 'success');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete done tasks';
-      showNotification(errorMessage, 'error');
-    }
-  }, [tasks, project, showNotification]);
+  }, [showNotification]);
 
   // Group tasks by status (memoized for performance)
   const tasksByStatus = useMemo(() => {
-    return STATUSES.reduce((acc, status) => {
+    return TASK_STATUSES.reduce((acc, status) => {
       acc[status] = tasks.filter(task => task.status === status);
       return acc;
     }, {} as Record<TaskStatus, Task[]>);
@@ -265,10 +260,10 @@ export function KanbanBoard() {
           <p>Loading tasks...</p>
         </div>
         <div className="kanban-board-skeleton">
-          {STATUSES.map((status) => (
+          {TASK_STATUSES.map((status) => (
             <div key={status} className="column-skeleton">
               <div className="column-skeleton-header">
-                <h3>{status}</h3>
+                <h3>{TASK_STATUS_LABELS[status]}</h3>
               </div>
               <SkeletonCard count={3} />
             </div>
@@ -290,8 +285,8 @@ export function KanbanBoard() {
           onAction={
             warning.actionUrl
               ? () => {
-                  window.location.href = warning.actionUrl!;
-                }
+                window.location.href = warning.actionUrl!;
+              }
               : undefined
           }
         />
@@ -329,17 +324,15 @@ export function KanbanBoard() {
               </button>
             </div>
             <AddTaskButton onClick={() => setShowTaskForm(true)} />
-            <button onClick={handleDeleteDone} className="delete-done-button">
-              Delete Done
-            </button>
             <button onClick={loadTasks} className="refresh-button">
               Refresh
             </button>
           </div>
         </div>
+        <LoopMonitor refreshInterval={60000} />
         <IdeasSection />
         <div className="kanban-board-content">
-          {STATUSES.map((status) => (
+          {TASK_STATUSES.map((status) => (
             <Column
               key={status}
               status={status}
