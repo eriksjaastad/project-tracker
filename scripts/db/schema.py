@@ -332,6 +332,47 @@ def create_database(db_path: Optional[Path] = None) -> None:
     except sqlite3.OperationalError:
         pass
     
+    # Migration: add autonomous loop tracker fields (Task #4856)
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN tier INTEGER")  # 1=hourly, 2=daily, 3=weekly
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN healthcheck_cmd TEXT")  # Command to run for health checks
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN commands_to_run TEXT")  # JSON array of commands for automated fixes
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN cron_jobs_config TEXT")  # JSON object with cron schedules
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN template_version_installed TEXT")  # Current scaffolding version
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN template_version_expected TEXT")  # Expected scaffolding version
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN drift_status TEXT")  # clean, drift_detected, needs_update
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN autonomy_level TEXT DEFAULT 'report'")  # report, fix_safe, fix_full
+    except sqlite3.OperationalError:
+        pass
+    
     # Scheduled automation
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cron_jobs (
@@ -406,7 +447,7 @@ def create_database(db_path: Optional[Path] = None) -> None:
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             text TEXT NOT NULL,
-            status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done', 'Cancelled')),
+            status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done', 'Cancelled', 'TRIAGED', 'READY_FOR_PATCH', 'PR_READY')),
             project_id TEXT NOT NULL,
             priority TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL)),
             created_at TEXT NOT NULL,
@@ -472,9 +513,41 @@ def create_database(db_path: Optional[Path] = None) -> None:
     except sqlite3.OperationalError:
         pass
     
+    
     # Migration: add sequence_order column for execution ordering (Task #4645)
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN sequence_order INTEGER")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Migration: add autonomous loop metadata fields (Task #4857)
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN source TEXT")  # janitor/librarian/patch-bot/human
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN severity TEXT")  # P0/P1/P2
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN detected_at TEXT")  # When issue was first detected
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN evidence TEXT")  # JSON with logs/errors
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN allowed_paths TEXT")  # JSON array for Patch-Bot
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN definition_of_done TEXT")  # Acceptance criteria
     except sqlite3.OperationalError:
         pass
     
