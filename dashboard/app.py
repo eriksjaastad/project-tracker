@@ -732,6 +732,7 @@ class TaskCreateRequest(BaseModel):
     project_id: str
     status: Optional[str] = "Backlog"
     priority: Optional[str] = None
+    task_type: Optional[str] = None
     parent_id: Optional[int] = None  # Task #4645
     blocked_by: Optional[List[int]] = None  # Task #4579
 
@@ -745,8 +746,92 @@ class TaskUpdateRequest(BaseModel):
     review_comment: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
+    task_type: Optional[str] = None
     parent_id: Optional[int] = None  # Task #4645
     blocked_by: Optional[List[int]] = None  # Task #4579
+
+
+# GET /api/loops - Get autonomous loop status
+@app.get("/api/loops")
+async def get_loop_status():
+    """Return status of all autonomous loops."""
+    db = DatabaseManager()
+    
+    loops = ["janitor", "librarian", "patch-bot"]
+    status_data = []
+    
+    with db._get_conn() as conn:
+        cursor = conn.cursor()
+        
+        for loop_name in loops:
+            # Get last execution
+            cursor.execute("""
+                SELECT id, started_at, completed_at, status, cards_created, error_message
+                FROM loop_executions
+                WHERE loop_name = ?
+                ORDER BY started_at DESC
+                LIMIT 1
+            """, (loop_name,))
+            
+            last_run = cursor.fetchone()
+            
+            if last_run:
+                started = datetime.fromisoformat(last_run[1])
+                completed = datetime.fromisoformat(last_run[2]) if last_run[2] else None
+                
+                # Calculate health status
+                now = datetime.now()
+                time_since_run = now - started
+                
+                # Expected intervals (in hours)
+                expected_intervals = {
+                    "janitor": 1,      # Hourly
+                    "librarian": 6,    # Every 6 hours
+                    "patch-bot": 0.5   # Every 30 minutes
+                }
+                
+                expected_hours = expected_intervals.get(loop_name, 24)
+                expected_delta = timedelta(hours=expected_hours)
+                
+                # Determine health
+                if last_run[3] == "failed":
+                    health = "failed"
+                    health_icon = "🔴"
+                elif time_since_run > expected_delta * 2:
+                    health = "overdue"
+                    health_icon = "🔴"
+                elif time_since_run > expected_delta * 1.5:
+                    health = "warning"
+                    health_icon = "🟡"
+                else:
+                    health = "healthy"
+                    health_icon = "🟢"
+                
+                status_data.append({
+                    "loop": loop_name,
+                    "health": health,
+                    "health_icon": health_icon,
+                    "last_run": started.isoformat(),
+                    "last_run_human": format_time_ago(started.isoformat()),
+                    "status": last_run[3],
+                    "cards_created": last_run[4],
+                    "duration_seconds": (completed - started).total_seconds() if completed else None,
+                    "error": last_run[5] if last_run[5] else None
+                })
+            else:
+                status_data.append({
+                    "loop": loop_name,
+                    "health": "never_run",
+                    "health_icon": "⚪",
+                    "last_run": None,
+                    "last_run_human": "Never",
+                    "status": "N/A",
+                    "cards_created": 0,
+                    "duration_seconds": None,
+                    "error": None
+                })
+    
+    return {"loops": status_data}
 
 
 # GET /api/agents - List all agents
@@ -773,6 +858,7 @@ async def list_agents():
             for a in agents
         ]
     }
+
 
 
 # POST /api/agents/run - Execute agent command
@@ -965,6 +1051,7 @@ async def create_task(task_data: TaskCreateRequest):
             project_id=task_data.project_id,
             status=task_data.status or "Backlog",
             priority=task_data.priority,
+            task_type=task_data.task_type,
             parent_id=task_data.parent_id,
             blocked_by=blocked_by_json
         )
@@ -1157,13 +1244,15 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
             updates["status"] = task_data.status
         if task_data.priority is not None:
             updates["priority"] = task_data.priority
+        if task_data.task_type is not None:
+            updates["task_type"] = task_data.task_type
         if task_data.parent_id is not None:
             updates["parent_id"] = task_data.parent_id
         if task_data.blocked_by is not None:
             import json
             updates["blocked_by"] = json.dumps(task_data.blocked_by)
         
-        # Explicit API guard for promptless In Progress
+        # Prompt check for In Progress — warn but don't block
         if updates.get("status") == "In Progress":
             current = db.get_task(task_id)
             if not current:
@@ -1171,11 +1260,11 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
             prompt_value = updates.get("prompt")
             if prompt_value is None:
                 prompt_value = current.get("prompt")
-            if not prompt_value:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Cannot start task without a prompt. Add execution instructions first."
-                )
+            task_type_value = updates.get("task_type")
+            if task_type_value is None:
+                task_type_value = current.get("task_type") or "manual"
+            if task_type_value == "agent" and not prompt_value:
+                logger.warning(f"Agent task #{task_id} started without a prompt")
             is_blocked, blocking_ids = db.is_blocked(task_id)
             if is_blocked:
                 blocking_str = ", ".join([f"#{bid}" for bid in blocking_ids])
@@ -1209,12 +1298,33 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
 
 @app.delete("/api/tasks/{task_id}", status_code=status.HTTP_200_OK)
 async def delete_task(task_id: int):
-    """Delete a task (disabled)."""
-    logger.warning("Blocked API delete_task attempt: %s", task_id)
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Task deletions are disabled. Use manual DBA operations if needed."
-    )
+    """Delete a single task."""
+    try:
+        db = DatabaseManager()
+        db.delete_task(task_id)
+        return {"deleted": True, "task_id": task_id}
+    except ValueError as e:
+        message = str(e)
+        if "SAFE_MODE=1" in message:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=message
+            )
+        if "not found" in message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=message
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=message
+        )
+    except Exception as e:
+        logger.error(f"Error deleting task {task_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete task"
+        )
 
 
 # ==================== IDEAS API ENDPOINTS (Task #4583) ====================
