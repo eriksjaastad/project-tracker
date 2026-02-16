@@ -454,6 +454,7 @@ def create_database(db_path: Optional[Path] = None) -> None:
             updated_at TEXT NOT NULL,
             completed_at TEXT,
             prompt TEXT,
+            task_type TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent')),
             review_comment TEXT,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )
@@ -517,6 +518,18 @@ def create_database(db_path: Optional[Path] = None) -> None:
     # Migration: add sequence_order column for execution ordering (Task #4645)
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN sequence_order INTEGER")
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: add task_type column for manual/agent tasks
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'manual'")
+    except sqlite3.OperationalError:
+        pass
+
+    # Backfill task_type for existing rows
+    try:
+        cursor.execute("UPDATE tasks SET task_type = 'manual' WHERE task_type IS NULL")
     except sqlite3.OperationalError:
         pass
     
@@ -644,6 +657,26 @@ def create_database(db_path: Optional[Path] = None) -> None:
             print(f"  ✓ Recreated audit triggers after migration")
     except Exception as e:
         print(f"⚠️  Warning: Could not migrate tasks CHECK constraint: {e}")
+    
+    # Loop executions table for monitoring autonomous loops
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS loop_executions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            loop_name TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            status TEXT NOT NULL CHECK(status IN ('running', 'success', 'failed', 'timeout')),
+            error_message TEXT,
+            cards_created INTEGER DEFAULT 0,
+            metadata TEXT
+        )
+    """)
+    
+    # Create index on loop_name and started_at for efficient queries
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_loop_executions_name_time 
+        ON loop_executions(loop_name, started_at DESC)
+    """)
     
     # Task history table for productivity graphs
     cursor.execute("""
