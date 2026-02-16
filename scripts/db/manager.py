@@ -32,10 +32,13 @@ logger = get_logger(__name__)
 VALID_STATUS_TRANSITIONS = {
     "Backlog": ["To Do", "Cancelled"],
     "To Do": ["Backlog", "In Progress", "Cancelled"],
-    "In Progress": ["To Do", "Backlog", "Review", "Cancelled"],
+    "In Progress": ["To Do", "Backlog", "Review", "PR_READY", "Cancelled"],
     "Review": ["In Progress", "To Do", "Backlog", "Done", "Cancelled"],
     "Done": ["Review", "In Progress", "To Do"],
-    "Cancelled": ["Backlog", "To Do"]
+    "Cancelled": ["Backlog", "To Do"],
+    "TRIAGED": ["READY_FOR_PATCH", "Backlog", "Cancelled"],
+    "READY_FOR_PATCH": ["In Progress", "TRIAGED", "Cancelled"],
+    "PR_READY": ["Review", "In Progress", "Cancelled"]
 }
 
 def _get_backup_dir(db_path: Path) -> Path:
@@ -902,13 +905,13 @@ class DatabaseManager:
             if updates.get("review_comment") is None and not existing_task.get("review_comment"):
                 updates["review_comment"] = "Returned from Review"
 
-        # Require prompt before moving to In Progress
+        # Log when task starts without a prompt (human/manual tasks don't need one)
         if new_status == "In Progress":
             prompt_value = updates.get("prompt")
             if prompt_value is None:
                 prompt_value = existing_task.get("prompt")
             if not prompt_value:
-                raise ValueError("Cannot start task without a prompt. Add execution instructions first.")
+                logger.warning(f"Task #{task_id} started without a prompt — manual/human task assumed")
         
         with self._get_conn() as conn:
             cursor = conn.cursor()
