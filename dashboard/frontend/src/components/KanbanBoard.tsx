@@ -15,7 +15,6 @@ import { WarningBanner } from './WarningBanner';
 import { Spinner } from './Spinner';
 import { SkeletonCard } from './SkeletonCard';
 import { IdeasSection } from './IdeasSection';
-import { LoopMonitor } from './LoopMonitor';
 import './KanbanBoard.css';
 
 interface NotificationState {
@@ -329,7 +328,6 @@ export function KanbanBoard() {
             </button>
           </div>
         </div>
-        <LoopMonitor refreshInterval={60000} />
         <IdeasSection />
         <div className="kanban-board-content">
           {TASK_STATUSES.map((status) => (

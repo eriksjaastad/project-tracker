@@ -245,6 +245,14 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Autonomous Loops Card -->
+            <div class="stats-card autonomous-loops" id="loops-card">
+                <h3>🤖 Autonomous Loops</h3>
+                <div id="loops-stats" class="stats-content">
+                    <div id="loops-list"></div>
+                </div>
+            </div>
         </div>
 
         <div class="projects-grid">
@@ -740,6 +748,69 @@
                 console.error('Failed to load learning stats:', err);
                 document.getElementById('learning-stats').innerHTML = '<em>Learning stats unavailable</em>';
             });
+    </script>
+    <script>
+        // Load Autonomous Loops status
+        function loadLoopStatus() {
+            fetch('/api/loops')
+                .then(response => response.json())
+                .then(data => {
+                    const loops = data.loops || [];
+                    const loopsList = document.getElementById('loops-list');
+
+                    if (loops.length === 0) {
+                        loopsList.innerHTML = '<em>No loop data available</em>';
+                        return;
+                    }
+
+                    const loopsHtml = loops.map(loop => {
+                        const healthClass = loop.health === 'healthy' ? 'success' :
+                            loop.health === 'warning' ? 'warning' :
+                                loop.health === 'never_run' ? 'secondary' : 'danger';
+
+                        const loopName = loop.loop.split('-').map(w =>
+                            w.charAt(0).toUpperCase() + w.slice(1)
+                        ).join(' ');
+
+                        let html = `
+                            <div class="loop-item" style="border-left: 3px solid var(--${healthClass}-color, #666); padding-left: 10px; margin-bottom: 12px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <strong>${loopName}</strong>
+                                    <span style="font-size: 1.2em;">${loop.health_icon}</span>
+                                </div>
+                                <div style="font-size: 0.85em; color: #666;">
+                                    <div>Last run: ${loop.last_run_human}</div>
+                        `;
+
+                        if (loop.cards_created > 0) {
+                            html += `<div style="color: #4caf50; font-weight: 600;">Cards created: ${loop.cards_created}</div>`;
+                        }
+
+                        if (loop.error) {
+                            html += `<div style="color: #f44336; font-size: 0.8em; margin-top: 4px;">Error: ${loop.error.substring(0, 50)}...</div>`;
+                        }
+
+                        html += `
+                                </div>
+                            </div>
+                        `;
+
+                        return html;
+                    }).join('');
+
+                    loopsList.innerHTML = loopsHtml;
+                })
+                .catch(err => {
+                    console.error('Failed to load loop status:', err);
+                    document.getElementById('loops-list').innerHTML = '<em>Loop status unavailable</em>';
+                });
+        }
+
+        // Load immediately
+        loadLoopStatus();
+
+        // Refresh every 60 seconds
+        setInterval(loadLoopStatus, 60000);
     </script>
 </body>
 
