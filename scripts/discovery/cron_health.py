@@ -13,16 +13,13 @@ logger = logging.getLogger(__name__)
 PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", Path(__file__).resolve().parents[3]))
 
 # Known cron job log files (configurable via environment variables)
+# TODO: Populate this with actual cron jobs from crontab -l
+# For now, empty to avoid false alerts
 CRON_LOG_PATHS = {
-    "Trading Arena": Path(os.getenv(
-        "CRON_TRADING_LOG",
-        str(PROJECTS_ROOT / "trading-copilot" / "logs" / "arena.log")
-    )),
-    "Cortana Daily": Path(os.getenv(
-        "CRON_CORTANA_LOG",
-        str(PROJECTS_ROOT / "cortana-personal-ai" / "logs" / "daily.log")
-    )),
+    # Example format:
+    # "Job Name": Path(os.getenv("CRON_JOB_LOG", str(PROJECTS_ROOT / "project" / "logs" / "job.log"))),
 }
+
 
 
 def get_cron_health() -> list[dict[str, Any]]:
