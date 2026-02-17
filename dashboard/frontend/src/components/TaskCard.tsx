@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Task } from '../types';
+import { TASK_TYPE_LABELS } from '../types';
 import { sanitizeText } from '../utils/sanitize';
 import './TaskCard.css';
 
@@ -76,9 +77,9 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
               {task.category}
             </span>
           )}
-          {task.prompt && (
-            <span className="task-card-prompt-indicator" title="Has agent prompt">
-              🤖
+          {task.task_type === 'agent' && (
+            <span className="task-card-type-badge" title="Agent task">
+              {TASK_TYPE_LABELS[task.task_type]}
             </span>
           )}
           {/* Subtask progress badge (Task #4645) */}

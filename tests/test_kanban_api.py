@@ -55,7 +55,7 @@ def _setup_fresh_database():
     # Create database schema
     create_database(db_path)
     
-    # Add tasks and task_history tables (from design.md)
+    # Add tasks and task_history tables (align with current schema)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
@@ -63,12 +63,28 @@ def _setup_fresh_database():
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             text TEXT NOT NULL,
-            status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Done')),
+            status TEXT NOT NULL CHECK(status IN (
+                'Backlog',
+                'TRIAGED',
+                'READY_FOR_PATCH',
+                'To Do',
+                'In Progress',
+                'PR_READY',
+                'Review',
+                'Done',
+                'Cancelled'
+            )),
             project_id TEXT NOT NULL,
             priority TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL)),
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             completed_at TEXT,
+            prompt TEXT,
+            task_type TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent')),
+            review_comment TEXT,
+            parent_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+            blocked_by TEXT,
+            sequence_order INTEGER,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )
     """)
@@ -565,83 +581,63 @@ def test_property_19_database_lock_retry(text, project_id, status, priority):
         # Simulate database lock by holding a connection
         lock_conn = None
         release_thread = None
+        original_sleep = time.sleep
+        sleep_calls = []
+        release_event = threading.Event()
         
         try:
-            lock_conn = sqlite3.connect(db_manager.db_path)
+            lock_conn = sqlite3.connect(db_manager.db_path, check_same_thread=False)
             lock_conn.execute("BEGIN EXCLUSIVE TRANSACTION")
             
-            # Patch DatabaseManager to use retry logic with mocked sleep
-            original_get_conn = db_manager._get_conn
-            original_sleep = time.sleep
-            
-            # Track sleep calls for verification
-            sleep_calls = []
-            
             def mock_sleep(seconds):
-                """Mock sleep that records calls but uses minimal delay."""
+                """Mock sleep that records calls but uses real delay."""
                 sleep_calls.append(seconds)
-                # Use very small delay instead of real sleep
-                original_sleep(0.001)  # 1ms delay
+                if not release_event.is_set():
+                    release_event.set()
+                original_sleep(seconds)
             
-            @contextmanager
-            def retrying_get_conn(self):
-                """Get connection with retry logic."""
-                for attempt in range(5):
-                    try:
-                        conn = sqlite3.connect(self.db_path)
-                        conn.execute("PRAGMA foreign_keys = ON")
-                        conn.execute("PRAGMA journal_mode = WAL")
-                        conn.row_factory = sqlite3.Row
-                        yield conn
-                        conn.commit()
-                        conn.close()
-                        return
-                    except sqlite3.OperationalError as e:
-                        if "database is locked" in str(e).lower() and attempt < 4:
-                            sleep_time = 2 ** attempt * 0.01  # Reduced exponential backoff (10ms base)
-                            time.sleep(sleep_time)  # Will use mocked sleep when patched
-                            continue
-                        raise
-                    except Exception:
-                        if 'conn' in locals():
-                            conn.rollback()
-                            conn.close()
-                        raise
-            
-            # Start a thread that will release the lock after a short delay
+            # Start a thread that will release the lock after first retry sleep (or timeout)
             def release_lock_after_delay():
-                time.sleep(0.05)  # Wait 50ms (reduced from 300ms)
+                release_event.wait(timeout=0.2)
                 if lock_conn:
                     try:
                         lock_conn.rollback()
                         lock_conn.close()
-                    except (sqlite3.Error, OSError) as e:
-                        logger.debug(f"Failed to cleanup lock connection: {e}")
+                    except (sqlite3.Error, OSError):
+                        pass
             
             release_thread = threading.Thread(target=release_lock_after_delay)
             release_thread.start()
             
-            # Patch the connection method temporarily
-            db_manager._get_conn = retrying_get_conn.__get__(db_manager, DatabaseManager)
+            original_get_conn = db_manager._get_conn
             
-            # Patch time.sleep temporarily to use minimal delays
+            @contextmanager
+            def get_conn_with_zero_timeout(self):
+                conn = sqlite3.connect(self.db_path, timeout=0.0)
+                conn.execute("PRAGMA foreign_keys = ON")
+                conn.execute("PRAGMA journal_mode = WAL")
+                conn.row_factory = sqlite3.Row
+                try:
+                    yield conn
+                    conn.commit()
+                finally:
+                    conn.close()
+            
+            # Patch connection to use timeout=0 to force lock errors and time.sleep to track backoff
+            db_manager._get_conn = get_conn_with_zero_timeout.__get__(db_manager, DatabaseManager)
+            
             with patch('time.sleep', side_effect=mock_sleep):
                 # Attempt to update task via API - should retry and eventually succeed
-                start_time = time.time()
                 update_response = client.patch(f"/api/tasks/{task_id}", json={
                     "text": "Updated with retry"
                 }, timeout=2.0)
-                
-                elapsed_time = time.time() - start_time
             
-            # Should eventually succeed (lock released after 50ms, retries should handle it)
+            # Should eventually succeed (lock released after retry)
             assert update_response.status_code == 200, \
                 f"Update should succeed after retries. Got {update_response.status_code}: {update_response.text}"
             
-            # Verify retry logic was used (should have taken some time due to retries)
-            # With mocked sleep, delays are minimal, but operation should still take some time
-            assert elapsed_time >= 0.01, \
-                "Operation should have taken time due to retries"
+            # Verify retry logic was used
+            assert sleep_calls, "Expected retry backoff due to database lock"
             
             # Verify task was updated
             task_response = client.get(f"/api/tasks/{task_id}")
@@ -651,13 +647,14 @@ def test_property_19_database_lock_retry(text, project_id, status, priority):
             assert task["text"] == html.escape("Updated with retry", quote=True)
             
         finally:
+            db_manager._get_conn = original_get_conn
             # Cleanup lock connection
             if lock_conn:
                 try:
                     lock_conn.rollback()
                     lock_conn.close()
-                except (sqlite3.Error, OSError) as e:
-                    logger.debug(f"Failed to cleanup lock connection: {e}")
+                except (sqlite3.Error, OSError):
+                    pass
             
             # Wait for release thread to finish
             if release_thread:

@@ -21,10 +21,23 @@ SECRET_PATTERNS = [
 
 
 # Valid status values for tasks
-VALID_STATUSES = ["Backlog", "To Do", "In Progress", "Review", "Done", "Cancelled"]
+VALID_STATUSES = [
+    "Backlog",
+    "TRIAGED",
+    "READY_FOR_PATCH",
+    "To Do",
+    "In Progress",
+    "PR_READY",
+    "Review",
+    "Done",
+    "Cancelled"
+]
 
 # Valid priority values for tasks
 VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"]
+
+# Valid task types
+VALID_TASK_TYPES = ["manual", "agent"]
 
 
 def contains_secret(text: str) -> Tuple[bool, str]:
@@ -164,6 +177,34 @@ def validate_priority(priority: Optional[str]) -> Tuple[bool, Optional[str]]:
     return (True, None)
 
 
+def validate_task_type(task_type: Optional[str]) -> Tuple[bool, Optional[str]]:
+    """Validate task type.
+    
+    Args:
+        task_type: Task type to validate (manual or agent)
+        
+    Returns:
+        A tuple of (is_valid, error_message). If valid, returns (True, None).
+        If invalid, returns (False, error_message).
+        
+    Examples:
+        >>> validate_task_type("manual")
+        (True, None)
+        >>> validate_task_type("agent")
+        (True, None)
+        >>> validate_task_type("invalid")
+        (False, 'Task type must be one of: manual, agent')
+    """
+    if task_type is None:
+        return (True, None)
+
+    if task_type not in VALID_TASK_TYPES:
+        valid_list = ", ".join(VALID_TASK_TYPES)
+        return (False, f"Task type must be one of: {valid_list}")
+
+    return (True, None)
+
+
 def sanitize_task_text(text: str) -> str:
     """Sanitize task text to prevent XSS attacks.
     
@@ -190,6 +231,7 @@ def validate_task_input(
     project_id: str,
     status: str = "Backlog",
     priority: Optional[str] = None,
+    task_type: Optional[str] = None,
     db_manager: Optional[Any] = None
 ) -> Tuple[bool, Optional[str]]:
     """Comprehensive validation for task creation/update.
@@ -245,6 +287,11 @@ def validate_task_input(
     
     # Validate priority
     is_valid, error = validate_priority(priority)
+    if not is_valid:
+        return (False, error)
+
+    # Validate task type
+    is_valid, error = validate_task_type(task_type)
     if not is_valid:
         return (False, error)
     

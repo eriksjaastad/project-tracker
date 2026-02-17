@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import type { Task, TaskStatus, TaskPriority, Project } from '../types';
+import type { Task, TaskStatus, TaskPriority, Project, TaskType } from '../types';
+import { TASK_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
 import { updateTask, fetchProjects } from '../api';
 import './TaskDetailModal.css';
 
@@ -25,12 +26,12 @@ export function TaskDetailModal({
   const [editedCategory, setEditedCategory] = useState('');
   const [editedStatus, setEditedStatus] = useState<TaskStatus>('Backlog');
   const [editedPriority, setEditedPriority] = useState<TaskPriority | null>(null);
+  const [editedTaskType, setEditedTaskType] = useState<TaskType>('manual');
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const STATUSES: TaskStatus[] = ['Backlog', 'To Do', 'In Progress', 'Review', 'Done'];
   const PRIORITIES: TaskPriority[] = ['Critical', 'High', 'Medium', 'Low'];
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export function TaskDetailModal({
       setEditedCategory(task.category || '');
       setEditedStatus(task.status);
       setEditedPriority(task.priority);
+      setEditedTaskType(task.task_type || 'manual');
       setIsEditing(false);
       setError(null);
     }
@@ -87,6 +89,7 @@ export function TaskDetailModal({
         category: editedCategory.trim() || null,
         status: editedStatus,
         priority: editedPriority,
+        task_type: editedTaskType,
       });
       setIsEditing(false);
       onUpdate();
@@ -106,6 +109,7 @@ export function TaskDetailModal({
     setEditedCategory(task.category || '');
     setEditedStatus(task.status);
     setEditedPriority(task.priority);
+    setEditedTaskType(task.task_type || 'manual');
     setIsEditing(false);
     setError(null);
   };
@@ -270,9 +274,9 @@ export function TaskDetailModal({
                     }
                     disabled={loading}
                   >
-                    {STATUSES.map((s) => (
+                    {TASK_STATUSES.map((s) => (
                       <option key={s} value={s}>
-                        {s}
+                        {TASK_STATUS_LABELS[s]}
                       </option>
                     ))}
                   </select>
@@ -313,6 +317,22 @@ export function TaskDetailModal({
                   />
                 </div>
               </div>
+
+              <div className="task-detail-field">
+                <label className="task-detail-label">Task Type</label>
+                <label className="task-type-toggle">
+                  <input
+                    type="checkbox"
+                    checked={editedTaskType === 'agent'}
+                    onChange={(e) => setEditedTaskType(e.target.checked ? 'agent' : 'manual')}
+                    disabled={loading}
+                  />
+                  <span className="task-type-slider" aria-hidden="true" />
+                  <span className="task-type-text">
+                    {TASK_TYPE_LABELS[editedTaskType]}
+                  </span>
+                </label>
+              </div>
             </>
           ) : (
             <>
@@ -342,13 +362,6 @@ export function TaskDetailModal({
                 </div>
               )}
 
-              {task.prompt && (
-                <div className="task-detail-field">
-                  <label className="task-detail-label">Agent Prompt</label>
-                  <div className="task-detail-prompt">{task.prompt}</div>
-                </div>
-              )}
-
               <div className="task-detail-row">
                 <div className="task-detail-field">
                   <label className="task-detail-label">Project</label>
@@ -359,7 +372,16 @@ export function TaskDetailModal({
 
                 <div className="task-detail-field">
                   <label className="task-detail-label">Status</label>
-                  <div className="task-detail-value">{task.status}</div>
+                  <div className="task-detail-value">{TASK_STATUS_LABELS[task.status]}</div>
+                </div>
+
+                <div className="task-detail-field">
+                  <label className="task-detail-label">Task Type</label>
+                  <div className="task-detail-value">
+                    <span className="task-detail-type-badge">
+                      {TASK_TYPE_LABELS[task.task_type]}
+                    </span>
+                  </div>
                 </div>
               </div>
 
