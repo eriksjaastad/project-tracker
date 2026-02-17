@@ -670,44 +670,54 @@
         fetch('/api/telemetry')
             .then(response => response.json())
             .then(data => {
-                document.getElementById('telemetry-total').textContent = data.total_requests || 0;
-                document.getElementById('telemetry-local-pct').textContent = data.local_pct || 0;
-                document.getElementById('telemetry-cloud-cost').textContent = data.estimated_cloud_cost || '0.00';
-                document.getElementById('telemetry-actual-cost').textContent = data.actual_cost || '0.00';
-                document.getElementById('telemetry-savings').textContent = data.savings || '0.00';
-                document.getElementById('telemetry-savings-pct').textContent = data.savings_pct || 0;
-                document.getElementById('telemetry-avg-local').textContent = data.avg_duration_local_ms || 0;
+                // Helper function to safely set text content
+                const safeSet = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = value;
+                };
+
+                safeSet('telemetry-total', data.total_requests || 0);
+                safeSet('telemetry-local-pct', data.local_pct || 0);
+                safeSet('telemetry-cloud-cost', data.estimated_cloud_cost || '0.00');
+                safeSet('telemetry-actual-cost', data.actual_cost || '0.00');
+                safeSet('telemetry-savings', data.savings || '0.00');
+                safeSet('telemetry-savings-pct', data.savings_pct || 0);
 
                 // Color indicator for local percentage
                 const indicator = document.getElementById('telemetry-local-indicator');
-                if (data.local_pct >= 80) {
-                    indicator.innerHTML = '<span class="badge bg-success">Good</span>';
-                } else if (data.local_pct >= 50) {
-                    indicator.innerHTML = '<span class="badge bg-warning">OK</span>';
-                } else {
-                    indicator.innerHTML = '<span class="badge bg-danger">Low</span>';
+                if (indicator) {
+                    if (data.local_pct >= 80) {
+                        indicator.innerHTML = '<span class="indicator-dot good">●</span>';
+                    } else if (data.local_pct >= 50) {
+                        indicator.innerHTML = '<span class="indicator-dot warning">●</span>';
+                    } else {
+                        indicator.innerHTML = '<span class="indicator-dot critical">●</span>';
+                    }
                 }
 
-                // Model list (top 3)
-                if (data.models) {
-                    const sorted = Object.entries(data.models)
-                        .sort((a, b) => b[1] - a[1])
-                        .slice(0, 3);
-                    const modelHtml = sorted.map(([model, count]) =>
-                        `<div class="model-item">${model}: ${count}</div>`
-                    ).join('');
-                    document.getElementById('model-list').innerHTML = modelHtml || '<em>No data</em>';
+                // Top models
+                if (data.top_models && data.top_models.length > 0) {
+                    const modelHtml = data.top_models.slice(0, 3).map(m => {
+                        const localIcon = m.is_local ? '🏠' : '☁️';
+                        return `<div class="model-item">${localIcon} ${m.model_name}: ${m.count}</div>`;
+                    }).join('');
+                    const modelList = document.getElementById('model-list');
+                    if (modelList) modelList.innerHTML = modelHtml;
                 }
 
                 // Error rate warning
                 if (data.error_rate > 5) {
-                    document.getElementById('telemetry-error-warning').style.display = 'block';
-                    document.getElementById('telemetry-error-rate').textContent = data.error_rate;
+                    const errorWarning = document.getElementById('telemetry-error-warning');
+                    if (errorWarning) {
+                        errorWarning.style.display = 'block';
+                        safeSet('telemetry-error-rate', data.error_rate);
+                    }
                 }
             })
             .catch(err => {
                 console.error('Failed to load telemetry:', err);
-                document.getElementById('telemetry-stats').innerHTML = '<em>Telemetry unavailable</em>';
+                const stats = document.getElementById('telemetry-stats');
+                if (stats) stats.innerHTML = '<em>Telemetry unavailable</em>';
             });
     </script>
     <script>
