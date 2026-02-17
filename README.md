@@ -31,7 +31,7 @@ tags:
   - domain/project-management
 status: #status/active
 created: 2025-12-22
-updated: 2026-01-25
+updated: 2026-02-16
 ---
 
 # project-tracker
@@ -69,30 +69,42 @@ This will:
 
 ## Features
 
-### Dashboard (`/`)
+### Dashboard (`/` or `/dashboard`)
 
-The main view showing all projects sorted by last modified:
-- Project status and completion percentage
-- Quick links to Kanban board and Graph for each project
-- AI agents tracking
-- Cron job indicators
-- Service dependencies
+The main view showing comprehensive project and system status:
+
+**Project Cards:**
+- All projects sorted by last modified
+- Status indicators (Active, Development, Paused, Stalled)
+- Completion percentage with progress bars
+- Open code review status
+- Quick links to project details
+
+**System Monitoring Widgets:**
+- **🤖 AI Router (7d)** - Tracks local vs cloud AI usage and cost savings
+- **🤖 Agent Dispatcher** - Shows available AI agents (audit-agent, pt)
+- **💾 Backup Status** - rclone remote configuration status
+- **📚 Learning Loop** - Project learning entries and compile rates
+- **🤖 Autonomous Loops** - Real-time status of Janitor, Librarian, and Patch-Bot
+
+**Alerts:**
+- Critical, warning, and info alerts across all projects
+- Missing project indexes
+- Scaffolding documentation compliance
 
 ### Kanban Board (`/kanban` or `/kanban/{project}`)
 
-Task management with four columns:
+Task management with drag-and-drop interface:
 - **Backlog** - Ideas and future work
 - **To Do** - Ready to start
 - **In Progress** - Currently working on
 - **Done** - Completed tasks
 
-**Adding tasks:**
-- Click "+ Add Task" in any column
-- Or use the CLI/database directly (see below)
-
-**Moving tasks:**
-- Drag and drop between columns
-- Tasks auto-save on move
+**Features:**
+- Drag and drop between columns (auto-saves)
+- Add tasks via web UI or CLI
+- Filter by project
+- Task history tracking
 
 ### Knowledge Graph (`/graph`)
 
