@@ -73,6 +73,9 @@ This document serves as the index for the Project Tracker, providing a high-leve
 
 ## Recent Activity
 
+- 2026-02-15: fix: remove auto-review hook — local model reviews unreliable
+- 2026-02-08: fix: Restrict delete to single ID and ensure triggers survive migration (#4758)
+- 2026-02-08: refactor: Move kanban specs to separate files and consolidate task management
 - 2026-02-04: fix: rebuild graph on refresh
 - 2026-02-03: refactor: move internal modules into scripts (#4721)
 - 2026-02-03: refactor: Move review model configuration to config.py and allow env override (#4693)
@@ -80,9 +83,6 @@ This document serves as the index for the Project Tracker, providing a high-leve
 - 2026-02-03: feat: Complete end-to-end auto-review flow (#4693)
 - 2026-02-03: feat: Implement git diff retrieval and review prompt preparation in hooks (#4693)
 - 2026-02-03: feat: Add infrastructure for auto-triggering code review agent (#4693)
-- 2026-02-02: feat: Add pt tasks move command (#4698)
-- 2026-02-01: feat: Add database robustness protections against file-level replacement (#4692)
-- 2026-02-01: feat: Add learning measurement dashboard and fix validation issues (#4686, #4689)
 ## Related Documentation
 
 - [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
@@ -133,8 +133,7 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [Documents/reference/LEARNINGS.md](Documents/reference/LEARNINGS.md) | Project Tracker Learning Loop |
 | [Documents/reference/LOCAL_MODEL_LEARNINGS.md](Documents/reference/LOCAL_MODEL_LEARNINGS.md) | Local Model Learnings: project-tracker |
 | [Documents/reference/MODEL_LEARNINGS.md](Documents/reference/MODEL_LEARNINGS.md) | Local Model Learnings: project-tracker |
-| [PRD_KANBAN.md](PRD_KANBAN.md) | > **Type:** Feature PRD (adding to existing project) |
-| [QUICKSTART.md](QUICKSTART.md) | 🚀 project-tracker - Quick Start |
+| [PRD_KANBAN.md](Documents/planning/PRD_KANBAN.md) | > **Type:** Feature PRD (adding to existing project) |
 | [README.md](README.md) | project-tracker |
 | [REVIEW.md](REVIEW.md) | This document outlines the code review process for the Project Tracker application. It aims to ensur... |
 | [USAGE.md](USAGE.md) | > **Quick Start:** `./pt launch` to open the dashboard |
