@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import type { TaskStatus, TaskPriority, Project, Task } from '../types';
+import type { TaskStatus, TaskPriority, Project, Task, TaskType } from '../types';
+import { TASK_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
 import { fetchProjects, fetchTasks } from '../api';
 import { Spinner } from './Spinner';
 import './TaskForm.css';
@@ -10,6 +11,7 @@ interface TaskFormProps {
     projectId: string;
     status: TaskStatus;
     priority: TaskPriority | null;
+    taskType: TaskType;
     parentId?: number | null;
     blockedBy?: number[] | null;
   }) => Promise<void>;
@@ -28,6 +30,7 @@ export function TaskForm({
   const [projectId, setProjectId] = useState(initialProjectId || '');
   const [status, setStatus] = useState<TaskStatus>(initialStatus);
   const [priority, setPriority] = useState<TaskPriority | null>(null);
+  const [taskType, setTaskType] = useState<TaskType>('manual');
   const [parentId, setParentId] = useState<number | null>(null);
   const [blockedByInput, setBlockedByInput] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -35,7 +38,6 @@ export function TaskForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const STATUSES: TaskStatus[] = ['Backlog', 'To Do', 'In Progress', 'Review', 'Done'];
   const PRIORITIES: TaskPriority[] = ['Critical', 'High', 'Medium', 'Low'];
 
   useEffect(() => {
@@ -93,12 +95,14 @@ export function TaskForm({
         projectId,
         status,
         priority,
+        taskType,
         parentId,
         blockedBy,
       });
       // Reset form on success
       setText('');
       setPriority(null);
+      setTaskType('manual');
       setParentId(null);
       setBlockedByInput('');
     } catch (err) {
@@ -182,12 +186,31 @@ export function TaskForm({
             onChange={(e) => setStatus(e.target.value as TaskStatus)}
             disabled={loading}
           >
-            {STATUSES.map((s) => (
+            {TASK_STATUSES.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {TASK_STATUS_LABELS[s]}
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="task-form-field">
+          <label htmlFor="task-type" className="task-form-label">
+            Task Type
+          </label>
+          <label className="task-type-toggle">
+            <input
+              id="task-type"
+              type="checkbox"
+              checked={taskType === 'agent'}
+              onChange={(e) => setTaskType(e.target.checked ? 'agent' : 'manual')}
+              disabled={loading}
+            />
+            <span className="task-type-slider" aria-hidden="true" />
+            <span className="task-type-text">
+              {TASK_TYPE_LABELS[taskType]}
+            </span>
+          </label>
         </div>
       </div>
 

@@ -52,13 +52,20 @@ SKIP_FILES = set(_config.get('skip_files', []))
 SKIP_PATTERNS = _config.get('skip_patterns', [])
 IGNORE_PROJECTS = set(_config.get('ignore_projects', []))
 PROTECTED_PROJECTS = set(_config.get('protected_projects', []))
+ORPHAN_EXEMPT_PROJECTS = set(_config.get('orphan_exempt_projects', ['root']))
 
 # Regex patterns for relationship detection
 MD_LINK_PATTERN = re.compile(r'\[([^\]]+)\]\(([^)]+\.[a-zA-Z0-9]+)\)')
 
+# Obsidian wikilinks: [[Document Name]] or [[path/to/file]]
+WIKILINK_PATTERN = re.compile(r'\[\[([^\]]+)\]\]')
+
 # Python: from x import y OR import x
 PYTHON_IMPORT_FROM = re.compile(r'^\s*from\s+([\w.]+)\s+import', re.MULTILINE)
 PYTHON_IMPORT = re.compile(r'^\s*import\s+([\w.,\s]+)', re.MULTILINE)
+
+# Python CLI invocations in markdown code blocks: `python scripts/run.py`
+MD_PYTHON_CLI = re.compile(r'`(?:python|python3|uv run)\s+([^\s`]+\.py)', re.MULTILINE)
 
 # JS/TS: import x from 'y' OR import {x} from 'y' OR require('y')
 JS_IMPORT = re.compile(r'import\s+.*?\s+from\s+[\'"]([^\'"]+)[\'"]', re.MULTILINE)
@@ -67,6 +74,20 @@ JS_REQUIRE = re.compile(r'require\([\'"]([^\'"]+)[\'"]\)', re.MULTILINE)
 # Go: import "x"
 GO_IMPORT = re.compile(r'import\s+[\'"]([^\'"]+)[\'"]', re.MULTILINE)
 GO_IMPORT_BLOCK = re.compile(r'import\s+\((.*?)\)', re.DOTALL)
+
+# Shell: source ./file.sh OR . ./file.sh OR bash scripts/run.sh
+SHELL_SOURCE = re.compile(r'(?:source|\.)\s+([^\s;]+\.(?:sh|bash|zsh))', re.MULTILINE)
+SHELL_EXEC = re.compile(r'(?:bash|sh|zsh)\s+([^\s;]+\.(?:sh|bash|zsh))', re.MULTILINE)
+
+# Dockerfile: COPY/ADD directives
+DOCKERFILE_COPY = re.compile(r'(?:COPY|ADD)\s+([^\s]+)', re.MULTILINE)
+
+# YAML references: $ref: './schema.yaml' OR extends: base.yaml
+YAML_REF = re.compile(r'\$ref:\s*[\'"]([^\'"]+)[\'"]', re.MULTILINE)
+YAML_EXTENDS = re.compile(r'extends:\s*[\'"]?([^\s\n\'"]+)[\'"]?', re.MULTILINE)
+
+# Makefile: include common.mk
+MAKEFILE_INCLUDE = re.compile(r'^\s*include\s+([^\s\n]+)', re.MULTILINE)
 
 # File reference: # See: path OR // See: path
 FILE_REFERENCE = re.compile(r'(?:#|//)\s*See:\s*([^\s\n]+)', re.IGNORECASE)
@@ -125,6 +146,9 @@ class GraphBuilder:
                 self.projects.add(project_name)
 
             for filename in filenames:
+                # Skip dotfiles (consumed by external tools, not project code)
+                if filename.startswith('.'):
+                    continue
                 # Skip files from config (boilerplate that exists in every project)
                 if filename in SKIP_FILES:
                     continue
@@ -179,22 +203,41 @@ class GraphBuilder:
             return
 
         ext = file_path.suffix.lower()
-        
+        filename = file_path.name
+
         # Markdown relationships
         if ext == '.md':
             self._extract_markdown_relationships(node_id, content, file_path)
-        
+            self._extract_wikilinks(node_id, content, file_path)
+            self._extract_python_cli_from_markdown(node_id, content, file_path)
+
         # Python relationships
         elif ext == '.py':
             self._extract_python_relationships(node_id, content)
-            
+
         # JS/TS relationships
         elif ext in ['.js', '.jsx', '.ts', '.tsx']:
             self._extract_js_ts_relationships(node_id, content)
-            
+
         # Go relationships
         elif ext == '.go':
             self._extract_go_relationships(node_id, content)
+
+        # Shell script relationships
+        elif ext in ['.sh', '.bash', '.zsh']:
+            self._extract_shell_relationships(node_id, content, file_path)
+
+        # Dockerfile relationships
+        elif filename == 'Dockerfile':
+            self._extract_dockerfile_relationships(node_id, content, file_path)
+
+        # Makefile relationships
+        elif filename == 'Makefile':
+            self._extract_makefile_relationships(node_id, content, file_path)
+
+        # YAML relationships
+        elif ext in ['.yaml', '.yml']:
+            self._extract_yaml_relationships(node_id, content, file_path)
 
         # Generic file references (# See: path)
         self._extract_file_references(node_id, content, file_path)
@@ -230,7 +273,8 @@ class GraphBuilder:
                 continue
             
             try:
-                target_path = (file_path.parent / path).resolve()
+                # Use absolute() not resolve() to avoid following symlinks
+                target_path = (file_path.parent / path).absolute()
                 target_id = self._get_node_id(target_path)
                 self._add_edge(source_id, target_id, "markdown_link", f"[{text}]({path})")
             except Exception:
@@ -315,13 +359,13 @@ class GraphBuilder:
                     continue
             except (OSError, ValueError) as e:
                 logger.debug(f"Could not resolve file reference {path_str} from {source_id}: {e}")
-            
+
             # Try as absolute path from root
             target_id = path_str.lstrip('/')
             if target_id in self.node_map:
                 self._add_edge(source_id, target_id, "file_reference", f"See: {path_str}")
                 continue
-                
+
             # Try as filename match
             target_name = Path(path_str).name
             for node in self.nodes:
@@ -329,9 +373,167 @@ class GraphBuilder:
                     self._add_edge(source_id, node["id"], "file_reference", f"See: {path_str}")
                     break
 
+    def _extract_wikilinks(self, source_id: str, content: str, file_path: Path):
+        """Extract Obsidian wikilinks [[Document Name]]."""
+        for match in WIKILINK_PATTERN.findall(content):
+            link_text = match.strip()
+            # Wikilinks can be [[path/to/file]] or [[Document Name]]
+            # Try as relative path first
+            if '/' in link_text:
+                try:
+                    target_path = (file_path.parent / link_text).resolve()
+                    if not target_path.suffix:
+                        target_path = target_path.with_suffix('.md')
+                    target_id = self._get_node_id(target_path)
+                    if target_id in self.node_map:
+                        self._add_edge(source_id, target_id, "wikilink", f"[[{link_text}]]")
+                        continue
+                except (OSError, ValueError):
+                    pass
+
+            # Try as filename match (with or without .md extension)
+            for node in self.nodes:
+                node_name_no_ext = Path(node["name"]).stem
+                if node["name"] == link_text or node["name"] == f"{link_text}.md" or node_name_no_ext == link_text:
+                    self._add_edge(source_id, node["id"], "wikilink", f"[[{link_text}]]")
+                    break
+
+    def _extract_python_cli_from_markdown(self, source_id: str, content: str, file_path: Path):
+        """Extract Python CLI invocations from markdown code blocks."""
+        for match in MD_PYTHON_CLI.findall(content):
+            script_path = match.strip()
+            # Try as relative path
+            try:
+                target_path = (file_path.parent / script_path).resolve()
+                target_id = self._get_node_id(target_path)
+                if target_id in self.node_map:
+                    self._add_edge(source_id, target_id, "python_cli", f"`python {script_path}`")
+                    continue
+            except (OSError, ValueError):
+                pass
+
+            # Try as filename match
+            target_name = Path(script_path).name
+            for node in self.nodes:
+                if node["name"] == target_name:
+                    self._add_edge(source_id, node["id"], "python_cli", f"`python {script_path}`")
+                    break
+
+    def _extract_shell_relationships(self, source_id: str, content: str, file_path: Path):
+        """Extract shell script sourcing and execution."""
+        # Source patterns: source ./file.sh OR . ./file.sh
+        for match in SHELL_SOURCE.findall(content):
+            script_path = match.strip()
+            self._resolve_shell_path(source_id, script_path, file_path, "shell_source")
+
+        # Execution patterns: bash scripts/run.sh
+        for match in SHELL_EXEC.findall(content):
+            script_path = match.strip()
+            self._resolve_shell_path(source_id, script_path, file_path, "shell_exec")
+
+    def _resolve_shell_path(self, source_id: str, script_path: str, file_path: Path, edge_type: str):
+        """Resolve shell script path to a node."""
+        # Try as relative path
+        try:
+            target_path = (file_path.parent / script_path).resolve()
+            target_id = self._get_node_id(target_path)
+            if target_id in self.node_map:
+                self._add_edge(source_id, target_id, edge_type, script_path)
+                return
+        except (OSError, ValueError):
+            pass
+
+        # Try as filename match
+        target_name = Path(script_path).name
+        for node in self.nodes:
+            if node["name"] == target_name:
+                self._add_edge(source_id, node["id"], edge_type, script_path)
+                return
+
+    def _extract_dockerfile_relationships(self, source_id: str, content: str, file_path: Path):
+        """Extract COPY/ADD directives from Dockerfile."""
+        for match in DOCKERFILE_COPY.findall(content):
+            copy_path = match.strip()
+            # Skip URLs and wildcards
+            if copy_path.startswith(('http', 'https', '--')) or '*' in copy_path:
+                continue
+
+            # Try as relative path
+            try:
+                target_path = (file_path.parent / copy_path).resolve()
+                target_id = self._get_node_id(target_path)
+                if target_id in self.node_map:
+                    self._add_edge(source_id, target_id, "dockerfile_copy", f"COPY {copy_path}")
+                    continue
+            except (OSError, ValueError):
+                pass
+
+            # Try as filename match
+            target_name = Path(copy_path).name
+            for node in self.nodes:
+                if node["name"] == target_name:
+                    self._add_edge(source_id, node["id"], "dockerfile_copy", f"COPY {copy_path}")
+                    break
+
+    def _extract_yaml_relationships(self, source_id: str, content: str, file_path: Path):
+        """Extract YAML $ref and extends references."""
+        # $ref: './schema.yaml'
+        for match in YAML_REF.findall(content):
+            ref_path = match.strip()
+            self._resolve_yaml_path(source_id, ref_path, file_path, "yaml_ref")
+
+        # extends: base.yaml
+        for match in YAML_EXTENDS.findall(content):
+            extends_path = match.strip()
+            self._resolve_yaml_path(source_id, extends_path, file_path, "yaml_extends")
+
+    def _resolve_yaml_path(self, source_id: str, yaml_path: str, file_path: Path, edge_type: str):
+        """Resolve YAML reference path to a node."""
+        # Try as relative path
+        try:
+            target_path = (file_path.parent / yaml_path).resolve()
+            target_id = self._get_node_id(target_path)
+            if target_id in self.node_map:
+                self._add_edge(source_id, target_id, edge_type, yaml_path)
+                return
+        except (OSError, ValueError):
+            pass
+
+        # Try as filename match
+        target_name = Path(yaml_path).name
+        for node in self.nodes:
+            if node["name"] == target_name:
+                self._add_edge(source_id, node["id"], edge_type, yaml_path)
+                return
+
+    def _extract_makefile_relationships(self, source_id: str, content: str, file_path: Path):
+        """Extract Makefile include statements."""
+        for match in MAKEFILE_INCLUDE.findall(content):
+            include_path = match.strip()
+            # Try as relative path
+            try:
+                target_path = (file_path.parent / include_path).resolve()
+                target_id = self._get_node_id(target_path)
+                if target_id in self.node_map:
+                    self._add_edge(source_id, target_id, "makefile_include", f"include {include_path}")
+                    continue
+            except (OSError, ValueError):
+                pass
+
+            # Try as filename match
+            target_name = Path(include_path).name
+            for node in self.nodes:
+                if node["name"] == target_name:
+                    self._add_edge(source_id, node["id"], "makefile_include", f"include {include_path}")
+                    break
+
     def _finalize_graph(self):
         """Calculate final stats and status."""
         self.stats["total_edges"] = len(self.edges)
+        # Exempt root-level files (and other configured projects) from orphan detection
+        for node in self.nodes:
+            if node["is_orphan"] and node.get("project") in ORPHAN_EXEMPT_PROJECTS:
+                node["is_orphan"] = False
         orphans = [n for n in self.nodes if n["is_orphan"]]
         self.stats["orphan_count"] = len(orphans)
         

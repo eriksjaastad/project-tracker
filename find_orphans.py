@@ -17,7 +17,7 @@ def main():
     total_orphans = 0
 
     for node in data.get("nodes", []):
-        if node.get("is_orphan") or node.get("size") == 0:
+        if node.get("is_orphan"):
             orphans_by_project[node["project"]].append(node["id"])
             total_orphans += 1
 

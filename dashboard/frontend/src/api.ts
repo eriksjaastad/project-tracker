@@ -1,6 +1,6 @@
 // API client for Kanban Board
 
-import type { Task, TaskStatus, TaskPriority, TaskHistoryResponse } from './types';
+import type { Task, TaskStatus, TaskPriority, TaskHistoryResponse, TaskType } from './types';
 
 const API_BASE = '/api';
 
@@ -70,6 +70,7 @@ export async function updateTask(
     review_comment?: string | null;
     status?: TaskStatus;
     priority?: TaskPriority | null;
+    task_type?: TaskType;
     parent_id?: number | null;
     blocked_by?: number[] | null;
   }
@@ -102,6 +103,7 @@ export async function createTask(
   projectId: string,
   status: TaskStatus = 'Backlog',
   priority?: TaskPriority | null,
+  taskType: TaskType = 'manual',
   parentId?: number | null,
   blockedBy?: number[] | null
 ): Promise<Task> {
@@ -116,6 +118,7 @@ export async function createTask(
         project_id: projectId,
         status,
         priority,
+        task_type: taskType,
         parent_id: parentId,
         blocked_by: blockedBy,
       }),

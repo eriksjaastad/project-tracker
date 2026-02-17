@@ -10,6 +10,7 @@ Backups are stored in data/backups/ with timestamps.
 import sqlite3
 import json
 import os
+import time
 import traceback
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -666,6 +667,7 @@ class DatabaseManager:
         status: str = "Backlog",
         priority: Optional[str] = None,
         prompt: Optional[str] = None,
+        task_type: Optional[str] = None,
         review_comment: Optional[str] = None,
         parent_id: Optional[int] = None,
         blocked_by: Optional[Any] = None,
@@ -679,6 +681,7 @@ class DatabaseManager:
             status: Task status (default: "Backlog")
             priority: Task priority (optional)
             prompt: Structured execution instructions for agents (optional)
+            task_type: Task type (manual or agent)
             review_comment: Reviewer feedback when task is sent back (optional)
             parent_id: Parent task ID for subtasks (optional)
             blocked_by: JSON string or list of blocking task IDs (optional)
@@ -690,12 +693,15 @@ class DatabaseManager:
         Raises:
             ValueError: If validation fails (invalid input, secret detected, etc.)
         """
+        effective_task_type = task_type or ("agent" if prompt and prompt.strip() else "manual")
+
         # Comprehensive validation including secret detection
         is_valid, error_message = validate_task_input(
             text=text,
             project_id=project_id,
             status=status,
             priority=priority,
+            task_type=effective_task_type,
             db_manager=self
         )
         if not is_valid:
@@ -729,12 +735,13 @@ class DatabaseManager:
                     updated_at,
                     completed_at,
                     prompt,
+                    task_type,
                     review_comment,
                     parent_id,
                     blocked_by,
                     sequence_order
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 sanitized_text,
                 status,
@@ -744,6 +751,7 @@ class DatabaseManager:
                 now,
                 None if status != "Done" else now,
                 prompt,
+                effective_task_type,
                 review_comment,
                 parent_id,
                 blocked_by_value,
@@ -838,6 +846,7 @@ class DatabaseManager:
             "status",
             "priority",
             "prompt",
+            "task_type",
             "review_comment",
             "title",
             "notes",
@@ -855,6 +864,12 @@ class DatabaseManager:
         existing_task = self.get_task(task_id)
         if not existing_task:
             raise ValueError(f"Task with ID {task_id} not found")
+
+        # Auto-promote to agent when a prompt is added and task_type is not explicit
+        if "prompt" in updates and "task_type" not in updates:
+            prompt_value = updates.get("prompt")
+            if isinstance(prompt_value, str) and prompt_value.strip():
+                updates["task_type"] = "agent"
         
         # Validate and sanitize text if provided (includes secret detection)
         if "text" in updates:
@@ -885,6 +900,13 @@ class DatabaseManager:
             is_valid, error_message = validate_priority(updates["priority"])
             if not is_valid:
                 raise ValueError(error_message)
+
+        # Validate task type if provided
+        if "task_type" in updates:
+            from scripts.utils.validation import validate_task_type
+            is_valid, error_message = validate_task_type(updates["task_type"])
+            if not is_valid:
+                raise ValueError(error_message)
         
         now = datetime.now().isoformat()
         old_status = existing_task["status"]
@@ -905,54 +927,84 @@ class DatabaseManager:
             if updates.get("review_comment") is None and not existing_task.get("review_comment"):
                 updates["review_comment"] = "Returned from Review"
 
-        # Log when task starts without a prompt (human/manual tasks don't need one)
+        # Log when agent task starts without a prompt
         if new_status == "In Progress":
             prompt_value = updates.get("prompt")
             if prompt_value is None:
                 prompt_value = existing_task.get("prompt")
-            if not prompt_value:
-                logger.warning(f"Task #{task_id} started without a prompt — manual/human task assumed")
+            task_type_value = updates.get("task_type")
+            if task_type_value is None:
+                task_type_value = existing_task.get("task_type") or "manual"
+            if task_type_value == "agent" and not prompt_value:
+                logger.warning(f"Agent task #{task_id} started without a prompt")
         
-        with self._get_conn() as conn:
-            cursor = conn.cursor()
-            
-            # Build UPDATE query
-            fields = []
-            values = []
-            
-            for key, value in updates.items():
-                fields.append(f"{key} = ?")
-                values.append(value)
-            
-            # Always update updated_at
-            fields.append("updated_at = ?")
-            values.append(now)
-            
-            # Set completed_at if moving to Done
-            if new_status == "Done" and old_status != "Done":
-                fields.append("completed_at = ?")
-                values.append(now)
-            elif new_status != "Done" and old_status == "Done":
-                # Clear completed_at if moving away from Done
-                fields.append("completed_at = ?")
-                values.append(None)
-            
-            values.append(task_id)
-            
-            query = f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?"
-            cursor.execute(query, values)
-            
-            # Record history entry if status changed
-            if old_status != new_status:
-                event_type = "completed" if new_status == "Done" else "status_changed"
-                cursor.execute("""
-                    INSERT INTO task_history (task_id, project_id, event_type, old_status, new_status, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (task_id, existing_task["project_id"], event_type, old_status, new_status, now))
-            
-            conn.commit()
+        max_retries = 5
+        for attempt in range(max_retries):
+            locked = False
+            with self._get_conn() as conn:
+                try:
+                    cursor = conn.cursor()
+                    # Build UPDATE query
+                    fields = []
+                    values = []
+                    
+                    for key, value in updates.items():
+                        fields.append(f"{key} = ?")
+                        values.append(value)
+                    
+                    # Always update updated_at
+                    fields.append("updated_at = ?")
+                    values.append(now)
+                    
+                    # Set completed_at if moving to Done
+                    if new_status == "Done" and old_status != "Done":
+                        fields.append("completed_at = ?")
+                        values.append(now)
+                    elif new_status != "Done" and old_status == "Done":
+                        # Clear completed_at if moving away from Done
+                        fields.append("completed_at = ?")
+                        values.append(None)
+                    
+                    values.append(task_id)
+                    
+                    query = f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?"
+                    cursor.execute(query, values)
+                    
+                    # Record history entry if status changed
+                    if old_status != new_status:
+                        event_type = "completed" if new_status == "Done" else "status_changed"
+                        cursor.execute("""
+                            INSERT INTO task_history (task_id, project_id, event_type, old_status, new_status, timestamp)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (task_id, existing_task["project_id"], event_type, old_status, new_status, now))
+                    
+                    conn.commit()
 
-            # Return updated task
+                    cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+                    row = cursor.fetchone()
+                    return dict(row) if row else None
+                except sqlite3.OperationalError as e:
+                    if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                        locked = True
+                        try:
+                            conn.rollback()
+                        except sqlite3.Error:
+                            pass
+                    else:
+                        raise
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except sqlite3.Error:
+                        pass
+                    raise
+            
+            if locked:
+                sleep_time = (2 ** attempt) * 0.01
+                time.sleep(sleep_time)
+                continue
+
+            # Return updated task (already returned inside loop)
             return self.get_task(task_id)
 
     def get_subtasks(self, parent_id: int) -> List[Dict[str, Any]]:
@@ -1067,6 +1119,8 @@ class DatabaseManager:
         Returns:
             Number of tasks deleted
         """
+        if os.getenv("ALLOW_BULK_DELETE", "0") != "1":
+            raise ValueError("Bulk delete is disabled")
         self._ensure_delete_allowed(operation="delete_done_tasks")
 
         # 🛡️ SAFETY: Backup before bulk delete
@@ -1177,12 +1231,13 @@ class DatabaseManager:
                         
                     cursor.execute("""
                         INSERT OR REPLACE INTO tasks 
-                        (id, text, status, project_id, priority, created_at, updated_at, completed_at, prompt)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, text, status, project_id, priority, created_at, updated_at, completed_at, prompt, task_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         task["id"], task["text"], task["status"], task["project_id"],
                         task.get("priority"), task["created_at"], task["updated_at"],
-                        task.get("completed_at"), task.get("prompt")
+                        task.get("completed_at"), task.get("prompt"),
+                        task.get("task_type") or "manual"
                     ))
                     success_count += 1
                 except Exception as e:
