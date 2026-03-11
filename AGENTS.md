@@ -1,9 +1,33 @@
-
 <!-- SCAFFOLD:START - Do not edit between markers -->
 # AGENTS.md - Ecosystem Constitution (SSOT)
 
 > The single source of truth for hierarchy, workflow, and AI collaboration philosophy.
 > This document is universal across all projects.
+> **Start here:** Read `README.md` first. The auto-generated section at the top has this project's purpose, entry points, and key commands.
+
+---
+
+## 🛡️ UNIVERSAL GOVERNANCE RULES
+
+### 1. The "Trash, Don't Delete" Policy
+- **Rule:** NEVER use `rm`, `unlink`, or `shred`. Permanent deletion is forbidden.
+- **Enforcement:** Use `trash <file>` (CLI) or `send2trash` (Python).
+- **No workarounds:** Do not use `find -delete` or other indirect deletion methods.
+- **Why:** Allows recovery from accidental deletions.
+- **If trash is missing:** STOP and ask the user.
+
+### 2. DNA Integrity (Portability)
+- **Rule:** NO hardcoded absolute paths (e.g., `/Users/erik/...`).
+- **Enforcement:** Use relative paths or environment variables.
+
+### 3. Security Sentinel
+- **Rule:** NEVER hard-code API keys or secrets.
+- **Enforcement:** Use project-specific `.env` files and `os.getenv()`.
+
+### 4. No Hook Bypass
+- **Rule:** NEVER use `--no-verify` or `-n` with git commit or push.
+- **Why:** Pre-commit hooks exist to catch security issues and code quality problems. Bypassing them defeats the entire safety system.
+- **Enforcement:** Fix the issue, don't bypass the hook.
 
 ---
 
@@ -226,7 +250,7 @@ When a feature requires 3+ prompts, use **Staged Prompt Engineering**:
 - Break work into **Individual Prompts** (5-10 min each) with built-in verification
 - End with a **Verification Prompt** that tests all components together
 
-See: `agent-skills-library/playbooks/staged-prompt-engineering/` for templates.
+Claude Code skills for workflow phases are deployed to `~/.claude/skills/` and activate automatically.
 
 ---
 
@@ -235,24 +259,10 @@ See: `agent-skills-library/playbooks/staged-prompt-engineering/` for templates.
 - NEVER modify `.env` or `venv/`
 - NEVER install dependencies globally. Use a project-local virtual environment or tool-managed environment (e.g., `venv`, `uv`, `pipx`, `poetry`).
 - NEVER hard-code API keys, secrets, or credentials in script files. Use `.env` and `os.getenv()`
-- NEVER use absolute paths (e.g., `$HOME/...`). Use relative paths or environment variables
+- NEVER use absolute paths (e.g., `/Users/erik/...`). Use relative paths or environment variables
 - NEVER use `--no-verify` or `-n` with git commit/push. Pre-commit hooks exist to catch problems. Fix the issue, don't bypass the hook.
 - ALWAYS update `EXTERNAL_RESOURCES.yaml` when adding external services
 - ALWAYS use retry logic and cost tracking for API calls
-
-### 🔐 DATABASE SAFETY (CRITICAL)
-
-**No agent may execute DROP, TRUNCATE, or DELETE without explicit human approval in that session.**
-
-This rule exists because of the 2026-01-27 incident where 94 tasks were lost to an auto-migration.
-
-- **Detection ≠ Execution:** The AI that detects a schema problem must NOT automatically fix it
-- **Destructive operations require:**
-  1. Automatic backup BEFORE the operation (enforced by code)
-  2. Explicit human confirmation in the current session
-  3. Audit log entry documenting the action
-- **If schema is incompatible:** Print instructions and REFUSE. Never auto-fix.
-- **Safe operations only:** Migrations must be ADDITIVE (ALTER TABLE ADD COLUMN)
 
 ---
 
@@ -267,10 +277,10 @@ This rule exists because of the 2026-01-27 incident where 94 tasks were lost to 
 ## 📔 JOURNAL ENTRY PROTOCOL (UNIVERSAL)
 
 **Location:** `{PROJECTS_ROOT}/ai-journal/entries/YYYY/`
-**Format:** `YYYY-MM-DDTHH-MM-SSZ__Claude 3.5 Sonnet-floor-manager__{descriptive-title}.md` (UTC)
+**Format:** `YYYY-MM-DDTHH-MM-SSZ__{model}-{role}__{descriptive-title}.md` (UTC)
 
 ### Role Identification
-Include your role in the filename `floor-manager` tag:
+Include your role in the filename `{role}` tag:
 - **super-manager:** Strategic oversight, high-fidelity planning
 - **floor-manager:** Implementation, debugging, tool execution
 - **worker:** Specific code generation, task completion
@@ -392,16 +402,16 @@ Every `.md` file should include:
 ```yaml
 ---
 tags:
-  - p/project-tracker
+  - p/{{PROJECT_NAME}}
   - type/[pattern|template|tool|journal-entry]
   - domain/[relevant-domain]
 status: #status/[active|archived|draft]
-created: 2026-01-27
+created: {{DATE}}
 ---
 ```
 
 ### Tag Taxonomy
-- `#p/project-tracker` — Project namespace
+- `#p/{{PROJECT_NAME}}` — Project namespace
 - `#type/[pattern|template|tool]` — Document type
 - `#domain/[meta|trading|image|etc]` — Subject domain
 - `#status/[active|archived]` — Current state
@@ -441,7 +451,6 @@ Located in `patterns/` directory of project-scaffolding:
 
 ### Ecosystem Resources
 Cross-project resources (relative paths from project root):
-- [Agent Skills Library](../agent-skills-library/README.md) - Reusable AI instructions
 - [Project Scaffolding](../project-scaffolding/README.md) - This scaffolding system
-
+- Claude Code Skills: `~/.claude/skills/` (18 skills, activate automatically)
 <!-- SCAFFOLD:END - Custom content below is preserved -->
