@@ -49,7 +49,12 @@ else:
 DB_FINGERPRINT_PATH = DATABASE_PATH.parent / ".db-fingerprint"
 
 # External backup directory - survives project directory accidents
-EXTERNAL_BACKUP_DIR = Path.home() / ".project-tracker" / "backups"
+# Can be overridden for sandboxed environments (like Codex)
+_external_backup_env = os.getenv("PT_EXTERNAL_BACKUP_DIR")
+if _external_backup_env:
+    EXTERNAL_BACKUP_DIR = Path(_external_backup_env)
+else:
+    EXTERNAL_BACKUP_DIR = Path.home() / ".project-tracker" / "backups"
 
 # External resources file (can be overridden by PT_RESOURCES_FILE env var)
 EXTERNAL_RESOURCES_FILE = Path(

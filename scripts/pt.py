@@ -49,7 +49,16 @@ console = Console()
 
 @click.group()
 def cli():
-    """Project Tracker - Manage and track all your projects"""
+    """Project Tracker - Manage and track all your projects
+
+    Environment Variables:
+    ----------------------
+    PT_DB_PATH: Path to the database file (default: data/tracker.db)
+    PROJECTS_ROOT: Path to your projects folder
+    PT_EXTERNAL_BACKUP_DIR: Path for safety backups (use this in sandboxed environments)
+    PT_ALLOW_FRESH_DB: Set to 1 to allow starting with an empty database
+    SAFE_MODE: Set to 0 to enable permanent deletions (Erik only)
+    """
     pass
 
 
