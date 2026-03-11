@@ -268,7 +268,7 @@ project-tracker/
 ## Requirements
 
 - Python 3.11+
-- Node.js (for React frontend build)
+- Node.js `^20.19.0 || >=22.12.0` for the React/Vite frontend build
 - Dependencies: `pip install -r requirements.txt`
 
 ---
@@ -278,9 +278,12 @@ project-tracker/
 **Rebuild React frontend:**
 ```bash
 cd dashboard/frontend
+nvm use   # optional, uses dashboard/frontend/.nvmrc
 npm install
 npm run build
 ```
+
+For frontend-only work, `npm run lint` and `npm run dev` also run from `dashboard/frontend/`.
 
 **Rebuild graph data:**
 ```bash
