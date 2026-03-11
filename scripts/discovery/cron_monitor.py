@@ -6,7 +6,11 @@ import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from croniter import croniter
+
+try:
+    from croniter import croniter
+except ModuleNotFoundError:  # pragma: no cover - depends on optional environment dependency
+    croniter = None
 
 # Add parent directory to path for logger import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -99,6 +103,10 @@ def is_valid_cron(schedule: str) -> bool:
         # Handle special cases
         if schedule.startswith("@"):
             return schedule in ["@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly", "@reboot"]
+
+        if croniter is None:
+            logger.warning("croniter is not installed; skipping standard cron validation")
+            return False
         
         # Validate standard cron expression
         croniter(schedule)
@@ -260,6 +268,10 @@ def get_expected_next_run(schedule: str, last_run: datetime) -> Optional[datetim
             interval = intervals.get(schedule)
             if interval:
                 return last_run + interval
+
+        if croniter is None:
+            logger.warning("croniter is not installed; cannot calculate next standard cron run")
+            return None
         
         # Standard cron expression
         cron = croniter(schedule, last_run)

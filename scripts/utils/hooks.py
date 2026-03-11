@@ -6,3 +6,5 @@ Code reviews are handled by Claude instead.
 
 This file is kept as a stub in case we need status-change hooks for other purposes.
 """
+
+AUTO_REVIEW_ENABLED = False  # Deprecated: auto-review disabled; manual review only.

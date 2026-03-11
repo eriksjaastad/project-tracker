@@ -23,6 +23,19 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime, timezone
 
+# Add parent directory to path for config import
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    from scripts.config import DATABASE_PATH, DB_FINGERPRINT_PATH, EXTERNAL_BACKUP_DIR
+except ImportError:
+    # Fallback for when scripts/config.py is not in path (e.g. during some test setups)
+    DATABASE_PATH = Path("data/tracker.db")
+    DB_FINGERPRINT_PATH = Path("data/.db-fingerprint")
+    EXTERNAL_BACKUP_DIR = Path.home() / ".project-tracker" / "backups"
+
 
 class SafetyError(Exception):
     """Raised when a destructive operation is blocked by safety policy."""
@@ -43,8 +56,15 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
     backup_dir.mkdir(parents=True, exist_ok=True)
     
     # External backup location - survives project directory accidents
-    external_backup_dir = Path.home() / ".project-tracker" / "backups"
-    external_backup_dir.mkdir(parents=True, exist_ok=True)
+    # Use EXTERNAL_BACKUP_DIR from config
+    external_backup_dir = EXTERNAL_BACKUP_DIR
+    
+    try:
+        external_backup_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        # If we can't even create the directory, we might be sandboxed
+        # We don't warn here yet, wait until we actually try to write
+        pass
 
     try:
         conn = sqlite3.connect(db_path)
@@ -92,18 +112,27 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
                 json.dump(export_data, f, indent=2)
         except Exception as e:
             print(f"⚠️  Warning: Could not write external backup: {e}")
+            print(f"    (Set PT_EXTERNAL_BACKUP_DIR to a writable path in sandboxed environments)")
 
         print(f"🛡️  SAFETY: Auto-backup created: {backup_path} ({len(tasks)} tasks)")
+
+        # Rotate: keep only the 10 most recent safety backups per location
+        dirs_to_prune = [backup_dir, external_backup_dir]
+
+        for dir_to_prune in dirs_to_prune:
+            if not dir_to_prune.exists():
+                continue
+            safety_files = sorted(dir_to_prune.glob("tasks_safety_backup_*.json"))
+            for old in safety_files[:-10]:
+                old.unlink(missing_ok=True)
+
         return backup_path
 
     except Exception as e:
         print(f"⚠️  Warning: Could not create safety backup: {e}")
         return None
 
-# Add parent directory to path for config import
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from scripts.config import DATABASE_PATH, DB_FINGERPRINT_PATH
-import uuid
+# The following lines will be removed as they are now at the top
 
 
 class FreshDatabaseError(Exception):
