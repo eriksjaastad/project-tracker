@@ -113,26 +113,51 @@ def build_navigation(current_path: Optional[str] = None) -> List[Dict[str, objec
     return nav_items
 
 
+def build_navigation_payload(current_path: Optional[str] = None) -> Dict[str, object]:
+    """Return the shared navigation payload for templates, the API, and the SPA shell."""
+    return {
+        "title": NAVIGATION_TITLE,
+        "items": build_navigation(current_path),
+    }
+
+
 def build_template_context(request: Request, **context) -> Dict[str, object]:
     """Attach shared shell/navigation context to Jinja responses."""
     return {
         "request": request,
         "nav_title": NAVIGATION_TITLE,
-        "nav_items": build_navigation(request.url.path),
+        "nav_items": build_navigation_payload(request.url.path)["items"],
         **context,
     }
+
+
+def build_spa_shell_html(index_html: str, current_path: str) -> str:
+    """Inject backend-owned navigation metadata into the SPA shell."""
+    payload = json.dumps(build_navigation_payload(current_path)).replace("<", "\\u003c")
+    bootstrap_script = f"<script>window.__PT_NAVIGATION__ = {payload};</script>"
+
+    if "</head>" in index_html:
+        return index_html.replace("</head>", f"    {bootstrap_script}\n</head>", 1)
+
+    return f"{bootstrap_script}\n{index_html}"
+
+
+async def serve_spa_shell(request: Request):
+    """Serve the React SPA shell for SPA-owned routes."""
+    index_path = frontend_dist / "index.html"
+    if index_path.exists():
+        return HTMLResponse(content=build_spa_shell_html(index_path.read_text(), request.url.path), status_code=200)
+
+    # Fallback to dashboard when the frontend bundle is not built.
+    return await dashboard(request)
+
 
 @app.get("/kanban", response_class=HTMLResponse)
 @app.get("/kanban/{project}", response_class=HTMLResponse)
 @app.get("/agentic", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
-    index_path = frontend_dist / "index.html"
-    if index_path.exists():
-        return HTMLResponse(content=index_path.read_text(), status_code=200)
-    else:
-        # Fallback to old dashboard if React app not built
-        return await dashboard(request)
+    return await serve_spa_shell(request)
 
 
 def format_time_ago(iso_date: str) -> str:
@@ -340,12 +365,9 @@ async def root(request: Request):
     return RedirectResponse(url="/dashboard", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 @app.get("/old", response_class=HTMLResponse)
-async def react_frontend(request: Request):
-    """Serve the React frontend or fallback to Jinja dashboard."""
-    index_path = frontend_dist / "index.html"
-    if index_path.exists():
-        return HTMLResponse(content=index_path.read_text(), status_code=200)
-    return await dashboard(request)
+async def react_frontend():
+    """Redirect the legacy SPA entry to the canonical Kanban route."""
+    return RedirectResponse(url="/kanban", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
@@ -448,10 +470,7 @@ async def project_detail(request: Request, project_id: str):
 @app.get("/api/navigation")
 async def api_navigation():
     """Return shared top-level navigation metadata for all app shells."""
-    return {
-        "title": NAVIGATION_TITLE,
-        "items": build_navigation(),
-    }
+    return build_navigation_payload()
 
 
 @app.post("/api/create-index/{project_id}")

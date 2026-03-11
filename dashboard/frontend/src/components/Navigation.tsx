@@ -4,39 +4,15 @@ import { fetchNavigation } from '../api';
 import type { NavigationItem, NavigationResponse } from '../types';
 import './Navigation.css';
 
-const FALLBACK_NAVIGATION: NavigationResponse = {
-  title: 'Project Tracker',
-  items: [
-    {
-      id: 'dashboard',
-      label: 'Dashboard',
-      href: '/dashboard',
-      match_prefixes: ['/dashboard', '/project'],
-      navigation_type: 'document',
-    },
-    {
-      id: 'kanban',
-      label: 'Kanban',
-      href: '/kanban',
-      match_prefixes: ['/kanban'],
-      navigation_type: 'spa',
-    },
-    {
-      id: 'agentic',
-      label: 'Agentic',
-      href: '/agentic',
-      match_prefixes: ['/agentic'],
-      navigation_type: 'spa',
-    },
-    {
-      id: 'graph',
-      label: 'Graph',
-      href: '/graph',
-      match_prefixes: ['/graph'],
-      navigation_type: 'document',
-    },
-  ],
-};
+declare global {
+  interface Window {
+    __PT_NAVIGATION__?: NavigationResponse;
+  }
+}
+
+function getInitialNavigation(): NavigationResponse {
+  return window.__PT_NAVIGATION__ ?? { title: 'Project Tracker', items: [] };
+}
 
 function isNavigationItemActive(item: NavigationItem, pathname: string) {
   return item.match_prefixes.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
@@ -44,7 +20,7 @@ function isNavigationItemActive(item: NavigationItem, pathname: string) {
 
 export function Navigation() {
   const location = useLocation();
-  const [navigation, setNavigation] = useState<NavigationResponse>(FALLBACK_NAVIGATION);
+  const [navigation, setNavigation] = useState<NavigationResponse>(() => getInitialNavigation());
 
   useEffect(() => {
     let cancelled = false;

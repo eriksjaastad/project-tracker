@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from dashboard.app import app, build_navigation
+from dashboard.app import app, build_navigation, build_spa_shell_html
 
 
 client = TestClient(app)
@@ -11,6 +11,13 @@ def test_root_redirects_to_dashboard():
 
     assert response.status_code == 307
     assert response.headers["location"] == "/dashboard"
+
+
+def test_old_redirects_to_canonical_spa_entry():
+    response = client.get("/old", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/kanban"
 
 
 def test_navigation_api_returns_shared_contract():
@@ -50,3 +57,14 @@ def test_graph_view_renders_shared_shell_navigation():
     assert "Agentic" in body
     assert "Graph" in body
     assert "Knowledge Graph" in body
+
+
+def test_build_spa_shell_html_bootstraps_backend_navigation_payload():
+    html = "<html><head></head><body><div id='root'></div></body></html>"
+
+    rendered = build_spa_shell_html(html, "/agentic")
+
+    assert "window.__PT_NAVIGATION__" in rendered
+    assert '"title": "Project Tracker"' in rendered
+    assert '"href": "/agentic"' in rendered
+    assert '"active": true' in rendered
