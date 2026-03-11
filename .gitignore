@@ -74,3 +74,6 @@ htmlcov/
 
 # Distribution
 *.whl*.backup
+
+# Visual records - screenshots and screen recordings (too large for git)
+project-graph-screenshots-movies/
