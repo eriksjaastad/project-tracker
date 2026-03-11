@@ -139,7 +139,7 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [USAGE.md](USAGE.md) | > **Quick Start:** `./pt launch` to open the dashboard |
 | [dashboard/__init__.py](dashboard/__init__.py) | No description available. |
 | [dashboard/app.py](dashboard/app.py) | FastAPI web dashboard for project tracker. |
-| [dashboard/frontend/README.md](dashboard/frontend/README.md) | This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules. |
+| [dashboard/frontend/README.md](dashboard/frontend/README.md) | React + TypeScript + Vite frontend for the Kanban and Agentic SPA views, including Node version guidance and common commands. |
 | [dashboard/frontend/eslint.config.js](dashboard/frontend/eslint.config.js) | No description available. |
 | [dashboard/frontend/index.html](dashboard/frontend/index.html) | No description available. |
 | [dashboard/frontend/package-lock.json](dashboard/frontend/package-lock.json) | No description available. |
