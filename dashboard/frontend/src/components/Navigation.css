@@ -1,16 +1,18 @@
 .navigation {
   background: var(--surface);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 0 var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0 var(--space-xl);
 }
 
 .navigation-container {
+  width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: var(--space-md);
-  max-width: 1400px;
+  max-width: var(--content-max-width);
   margin: 0 auto;
+  flex-wrap: wrap;
 }
 
 .navigation-brand {
@@ -28,6 +30,7 @@
 .navigation-links {
   display: flex;
   gap: var(--space-md);
+  flex-wrap: wrap;
 }
 
 .nav-link {

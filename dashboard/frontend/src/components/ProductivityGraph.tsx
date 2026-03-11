@@ -170,7 +170,7 @@ export function ProductivityGraph() {
                 <YAxis />
                 <Tooltip
                   labelFormatter={(value) => `Date: ${formatDate(value)}`}
-                  formatter={(value: any) => [value, 'Completed']}
+                  formatter={(value) => [value, 'Completed']}
                 />
                 <Legend />
                 <Line

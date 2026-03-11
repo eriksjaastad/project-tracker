@@ -9,14 +9,14 @@ import subprocess
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import (
     http_exception_handler,
     request_validation_exception_handler
 )
-import markdown
 import sqlite3
+import json
 
 # Add parent directory to path for logger import
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -60,9 +60,71 @@ frontend_dist = Path(__file__).parent / "frontend" / "dist"
 if frontend_dist.exists():
     app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
 
+NAVIGATION_TITLE = "Project Tracker"
+NAVIGATION_ITEMS = [
+    {
+        "id": "dashboard",
+        "label": "Dashboard",
+        "href": "/dashboard",
+        "match_prefixes": ["/dashboard", "/project"],
+        "navigation_type": "document",
+    },
+    {
+        "id": "kanban",
+        "label": "Kanban",
+        "href": "/kanban",
+        "match_prefixes": ["/kanban"],
+        "navigation_type": "spa",
+    },
+    {
+        "id": "agentic",
+        "label": "Agentic",
+        "href": "/agentic",
+        "match_prefixes": ["/agentic"],
+        "navigation_type": "spa",
+    },
+    {
+        "id": "graph",
+        "label": "Graph",
+        "href": "/graph",
+        "match_prefixes": ["/graph"],
+        "navigation_type": "document",
+    },
+]
+
+
+def is_navigation_item_active(item: Dict[str, object], path: str) -> bool:
+    """Return True when a navigation item should be active for the given path."""
+    for prefix in item.get("match_prefixes", []):
+        if not isinstance(prefix, str):
+            continue
+        if path == prefix or path.startswith(f"{prefix}/"):
+            return True
+    return False
+
+
+def build_navigation(current_path: Optional[str] = None) -> List[Dict[str, object]]:
+    """Build navigation metadata for templates and API responses."""
+    nav_items: List[Dict[str, object]] = []
+    for item in NAVIGATION_ITEMS:
+        nav_item = dict(item)
+        nav_item["active"] = bool(current_path and is_navigation_item_active(item, current_path))
+        nav_items.append(nav_item)
+    return nav_items
+
+
+def build_template_context(request: Request, **context) -> Dict[str, object]:
+    """Attach shared shell/navigation context to Jinja responses."""
+    return {
+        "request": request,
+        "nav_title": NAVIGATION_TITLE,
+        "nav_items": build_navigation(request.url.path),
+        **context,
+    }
+
 @app.get("/kanban", response_class=HTMLResponse)
 @app.get("/kanban/{project}", response_class=HTMLResponse)
-@app.get("/dashboard", response_class=HTMLResponse)
+@app.get("/agentic", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
     index_path = frontend_dist / "index.html"
@@ -274,8 +336,8 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    """Serve the Jinja dashboard."""
-    return await dashboard(request)
+    """Redirect the root route to the canonical dashboard URL."""
+    return RedirectResponse(url="/dashboard", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 @app.get("/old", response_class=HTMLResponse)
 async def react_frontend(request: Request):
@@ -340,23 +402,26 @@ async def dashboard(request: Request):
     outdated_projects = [p for p in enriched_projects if p.get("version_status") == "outdated"]
     unscaffolded_projects = [p for p in enriched_projects if p.get("version_status") == "unscaffolded"]
     
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "projects": enriched_projects,
-        "alerts": alerts,
-        "code_reviews": code_reviews,
-        "total_projects": len(projects),
-        "indexed_count": indexed_count,
-        "compliance_pct": compliance_pct,
-        "audit_available": audit_available,
-        "agents": agents_data,
-        "backup_status": backup_status,
-        "current_scaffolding_version": current_scaffolding,
-        "outdated_projects": outdated_projects,
-        "unscaffolded_projects": unscaffolded_projects,
-        "outdated_count": len(outdated_projects),
-        "unscaffolded_count": len(unscaffolded_projects)
-    })
+    return templates.TemplateResponse(
+        "index.html",
+        build_template_context(
+            request,
+            projects=enriched_projects,
+            alerts=alerts,
+            code_reviews=code_reviews,
+            total_projects=len(projects),
+            indexed_count=indexed_count,
+            compliance_pct=compliance_pct,
+            audit_available=audit_available,
+            agents=agents_data,
+            backup_status=backup_status,
+            current_scaffolding_version=current_scaffolding,
+            outdated_projects=outdated_projects,
+            unscaffolded_projects=unscaffolded_projects,
+            outdated_count=len(outdated_projects),
+            unscaffolded_count=len(unscaffolded_projects),
+        ),
+    )
 
 
 @app.get("/project/{project_id}", response_class=HTMLResponse)
@@ -374,10 +439,19 @@ async def project_detail(request: Request, project_id: str):
     # Enrich with related data
     project = enrich_project_data(project, db, current_scaffolding)
     
-    return templates.TemplateResponse("project_detail.html", {
-        "request": request,
-        "project": project
-    })
+    return templates.TemplateResponse(
+        "project_detail.html",
+        build_template_context(request, project=project),
+    )
+
+
+@app.get("/api/navigation")
+async def api_navigation():
+    """Return shared top-level navigation metadata for all app shells."""
+    return {
+        "title": NAVIGATION_TITLE,
+        "items": build_navigation(),
+    }
 
 
 @app.post("/api/create-index/{project_id}")
@@ -654,7 +728,7 @@ async def api_learning_stats():
 @app.get("/graph", response_class=HTMLResponse)
 async def graph_view(request: Request):
     """Render the graph visualization page."""
-    return templates.TemplateResponse("graph.html", {"request": request})
+    return templates.TemplateResponse("graph.html", build_template_context(request))
 
 
 @app.get("/api/graph")
@@ -1324,6 +1398,122 @@ async def delete_task(task_id: int):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete task"
+        )
+
+
+@app.get("/api/agentic/summary")
+async def agentic_summary(days: int = 30, project_id: Optional[str] = None):
+    """Get agentic workflow metrics from task_history.
+
+    Tracks Review -> In Progress bounces, Review -> Done promotions, and
+    In Progress -> Review entries over time.
+    """
+    try:
+        db = DatabaseManager()
+
+        if days <= 0:
+            days = 30
+
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days - 1)
+        start_iso = start_date.isoformat()
+
+        with db._get_conn() as conn:
+            cursor = conn.cursor()
+            if project_id:
+                cursor.execute(
+                    """
+                    SELECT
+                        DATE(timestamp) as date,
+                        SUM(CASE WHEN old_status = 'Review' AND new_status = 'In Progress' THEN 1 ELSE 0 END) as review_bounces,
+                        SUM(CASE WHEN old_status = 'Review' AND new_status = 'Done' THEN 1 ELSE 0 END) as review_promotions,
+                        SUM(CASE WHEN old_status = 'In Progress' AND new_status = 'Review' THEN 1 ELSE 0 END) as review_entries
+                    FROM task_history
+                    WHERE timestamp >= ?
+                      AND project_id = ?
+                    GROUP BY DATE(timestamp)
+                    ORDER BY date ASC
+                    """,
+                    (start_iso, project_id),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT
+                        DATE(timestamp) as date,
+                        SUM(CASE WHEN old_status = 'Review' AND new_status = 'In Progress' THEN 1 ELSE 0 END) as review_bounces,
+                        SUM(CASE WHEN old_status = 'Review' AND new_status = 'Done' THEN 1 ELSE 0 END) as review_promotions,
+                        SUM(CASE WHEN old_status = 'In Progress' AND new_status = 'Review' THEN 1 ELSE 0 END) as review_entries
+                    FROM task_history
+                    WHERE timestamp >= ?
+                    GROUP BY DATE(timestamp)
+                    ORDER BY date ASC
+                    """,
+                    (start_iso,),
+                )
+
+            rows = cursor.fetchall()
+
+        row_map = {row["date"]: row for row in rows}
+
+        marker_path = Path(__file__).parent.parent / "data" / "agentic_markers.json"
+        markers = []
+        if marker_path.exists():
+            try:
+                marker_data = json.loads(marker_path.read_text())
+                if isinstance(marker_data, list):
+                    markers = [
+                        m for m in marker_data
+                        if isinstance(m, dict) and m.get("date") and m.get("label")
+                    ]
+            except Exception as e:
+                logger.warning(f"Failed to load agentic markers: {e}")
+        series = []
+        totals = {"review_bounces": 0, "review_promotions": 0, "review_entries": 0}
+
+        current_date = start_date
+        while current_date <= end_date:
+            date_str = current_date.isoformat()
+            row = row_map.get(date_str)
+            entry = {
+                "date": date_str,
+                "review_bounces": int(row["review_bounces"]) if row else 0,
+                "review_promotions": int(row["review_promotions"]) if row else 0,
+                "review_entries": int(row["review_entries"]) if row else 0,
+            }
+            totals["review_bounces"] += entry["review_bounces"]
+            totals["review_promotions"] += entry["review_promotions"]
+            totals["review_entries"] += entry["review_entries"]
+            series.append(entry)
+            current_date += timedelta(days=1)
+
+        review_total = totals["review_bounces"] + totals["review_promotions"]
+        bounce_rate = (totals["review_bounces"] / review_total) if review_total else 0.0
+        promotion_rate = (totals["review_promotions"] / review_total) if review_total else 0.0
+
+        filtered_markers = [
+            m for m in markers
+            if start_date.isoformat() <= m["date"] <= end_date.isoformat()
+        ]
+
+        return {
+            "summary": {
+                "review_bounces": totals["review_bounces"],
+                "review_promotions": totals["review_promotions"],
+                "review_entries": totals["review_entries"],
+                "bounce_rate": bounce_rate,
+                "promotion_rate": promotion_rate,
+            },
+            "series": series,
+            "markers": filtered_markers,
+            "date_range": {"start": start_date.isoformat(), "end": end_date.isoformat()},
+            "project_id": project_id,
+        }
+    except Exception as e:
+        logger.error(f"Error building agentic summary: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to build agentic summary"
         )
 
 

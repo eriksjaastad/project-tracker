@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { DndContext, rectIntersection, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
-import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
 import type { Task, TaskStatus, TaskPriority, TaskType } from '../types';
-import { TASK_STATUSES, TASK_STATUS_LABELS } from '../types';
+import { KANBAN_STATUSES, TASK_STATUS_LABELS } from '../types';
 import { fetchTasks, updateTask, createTask, deleteTask } from '../api';
 import { Column } from './Column';
 import { Notification } from './Notification';
@@ -15,6 +15,7 @@ import { WarningBanner } from './WarningBanner';
 import { Spinner } from './Spinner';
 import { SkeletonCard } from './SkeletonCard';
 import { IdeasSection } from './IdeasSection';
+import { PageShell } from './PageShell';
 import './KanbanBoard.css';
 
 interface NotificationState {
@@ -35,7 +36,6 @@ export function KanbanBoard() {
   const { project } = useParams<{ project?: string }>();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [_draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [searchTaskId, setSearchTaskId] = useState('');
@@ -105,14 +105,8 @@ export function KanbanBoard() {
     }
   };
 
-  const handleDragStart = (event: DragStartEvent) => {
-    const task = tasks.find(t => t.id === event.active.id);
-    setDraggedTask(task || null);
-  };
-
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
-    setDraggedTask(null);
 
     if (!over) {
       return;
@@ -122,7 +116,7 @@ export function KanbanBoard() {
 
     // Determine the target status - over.id could be a column status or a task ID
     let newStatus: TaskStatus;
-    if (TASK_STATUSES.includes(over.id as TaskStatus)) {
+    if (KANBAN_STATUSES.includes(over.id as TaskStatus)) {
       // Dropped on a column
       newStatus = over.id as TaskStatus;
     } else {
@@ -236,7 +230,7 @@ export function KanbanBoard() {
 
   // Group tasks by status (memoized for performance)
   const tasksByStatus = useMemo(() => {
-    return TASK_STATUSES.reduce((acc, status) => {
+    return KANBAN_STATUSES.reduce((acc, status) => {
       acc[status] = tasks.filter(task => task.status === status);
       return acc;
     }, {} as Record<TaskStatus, Task[]>);
@@ -251,126 +245,129 @@ export function KanbanBoard() {
     })
   );
 
-  if (loading) {
-    return (
-      <div className="kanban-board-loading">
-        <div className="kanban-board-loading-content">
-          <Spinner size="large" />
-          <p>Loading tasks...</p>
-        </div>
-        <div className="kanban-board-skeleton">
-          {TASK_STATUSES.map((status) => (
-            <div key={status} className="column-skeleton">
-              <div className="column-skeleton-header">
-                <h3>{TASK_STATUS_LABELS[status]}</h3>
-              </div>
-              <SkeletonCard count={3} />
-            </div>
-          ))}
-        </div>
+  const headerActions = (
+    <>
+      <button
+        className="project-filter-button"
+        onClick={() => setShowProjectFilter(true)}
+        type="button"
+      >
+        {project || 'All Projects'}
+        <span className="project-filter-caret">▼</span>
+      </button>
+      <div className="task-search">
+        <input
+          type="text"
+          placeholder="Search by #ID..."
+          value={searchTaskId}
+          onChange={(e) => setSearchTaskId(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              handleSearchTask();
+            }
+          }}
+          className="task-search-input"
+        />
+        <button onClick={handleSearchTask} className="task-search-button" type="button">
+          🔍
+        </button>
       </div>
-    );
-  }
+      <AddTaskButton onClick={() => setShowTaskForm(true)} />
+      <button onClick={loadTasks} className="refresh-button" type="button">
+        Refresh
+      </button>
+    </>
+  );
 
   return (
-    <div className="kanban-board">
-      {systemWarnings.map((warning) => (
-        <WarningBanner
-          key={warning.id}
-          message={warning.message}
-          type={warning.type}
-          onDismiss={() => setSystemWarnings(prev => prev.filter(w => w.id !== warning.id))}
-          actionLabel={warning.actionLabel}
-          onAction={
-            warning.actionUrl
-              ? () => {
-                window.location.href = warning.actionUrl!;
-              }
-              : undefined
-          }
-        />
-      ))}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={rectIntersection}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="kanban-board-header">
-          <div className="kanban-board-title">
-            <h1>Kanban Board</h1>
-            <button
-              className="project-filter-button"
-              onClick={() => setShowProjectFilter(true)}
-              type="button"
-            >
-              {project ? project : 'All Projects'}
-              <span className="project-filter-caret">▼</span>
-            </button>
+    <PageShell title="Kanban Board" actions={headerActions}>
+      {loading ? (
+        <div className="kanban-board-loading">
+          <div className="kanban-board-loading-content">
+            <Spinner size="large" />
+            <p>Loading tasks...</p>
           </div>
-          <div className="kanban-board-header-actions">
-            <div className="task-search">
-              <input
-                type="text"
-                placeholder="Search by #ID..."
-                value={searchTaskId}
-                onChange={(e) => setSearchTaskId(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearchTask()}
-                className="task-search-input"
-              />
-              <button onClick={handleSearchTask} className="task-search-button">
-                🔍
-              </button>
-            </div>
-            <AddTaskButton onClick={() => setShowTaskForm(true)} />
-            <button onClick={loadTasks} className="refresh-button">
-              Refresh
-            </button>
+          <div className="kanban-board-skeleton">
+            {KANBAN_STATUSES.map((status) => (
+              <div key={status} className="column-skeleton">
+                <div className="column-skeleton-header">
+                  <h3>{TASK_STATUS_LABELS[status]}</h3>
+                </div>
+                <SkeletonCard count={3} />
+              </div>
+            ))}
           </div>
         </div>
-        <IdeasSection />
-        <div className="kanban-board-content">
-          {TASK_STATUSES.map((status) => (
-            <Column
-              key={status}
-              status={status}
-              tasks={tasksByStatus[status]}
-              onTaskClick={handleTaskClick}
+      ) : (
+        <div className="kanban-board">
+          {systemWarnings.map((warning) => (
+            <WarningBanner
+              key={warning.id}
+              message={warning.message}
+              type={warning.type}
+              onDismiss={() => setSystemWarnings(prev => prev.filter(w => w.id !== warning.id))}
+              actionLabel={warning.actionLabel}
+              onAction={
+                warning.actionUrl
+                  ? () => {
+                    window.location.href = warning.actionUrl!;
+                  }
+                  : undefined
+              }
             />
           ))}
-        </div>
-      </DndContext>
-      {notification.visible && (
-        <Notification
-          message={notification.message}
-          type={notification.type}
-          onClose={() => setNotification(prev => ({ ...prev, visible: false }))}
-        />
-      )}
-      {showTaskForm && (
-        <div className="modal-overlay" onClick={() => setShowTaskForm(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <TaskForm
-              onSubmit={handleCreateTask}
-              onCancel={() => setShowTaskForm(false)}
-              initialProjectId={project}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={rectIntersection}
+            onDragEnd={handleDragEnd}
+          >
+            <IdeasSection />
+            <div className="kanban-board-content">
+              {KANBAN_STATUSES.map((status) => (
+                <Column
+                  key={status}
+                  status={status}
+                  tasks={tasksByStatus[status]}
+                  onTaskClick={handleTaskClick}
+                />
+              ))}
+            </div>
+          </DndContext>
+          {notification.visible && (
+            <Notification
+              message={notification.message}
+              type={notification.type}
+              onClose={() => setNotification(prev => ({ ...prev, visible: false }))}
             />
-          </div>
+          )}
+          {showTaskForm && (
+            <div className="modal-overlay" onClick={() => setShowTaskForm(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                <TaskForm
+                  onSubmit={handleCreateTask}
+                  onCancel={() => setShowTaskForm(false)}
+                  initialProjectId={project}
+                />
+              </div>
+            </div>
+          )}
+          {selectedTask && (
+            <TaskDetailModal
+              task={selectedTask}
+              onClose={() => setSelectedTask(null)}
+              onUpdate={handleTaskUpdate}
+              onDelete={handleTaskDelete}
+            />
+          )}
+          {showProjectFilter && (
+            <ProjectFilterModal
+              isOpen={showProjectFilter}
+              onClose={() => setShowProjectFilter(false)}
+              currentProject={project}
+            />
+          )}
         </div>
       )}
-      {selectedTask && (
-        <TaskDetailModal
-          task={selectedTask}
-          onClose={() => setSelectedTask(null)}
-          onUpdate={handleTaskUpdate}
-          onDelete={handleTaskDelete}
-        />
-      )}
-      <ProjectFilterModal
-        isOpen={showProjectFilter}
-        onClose={() => setShowProjectFilter(false)}
-        currentProject={project}
-      />
-    </div>
+    </PageShell>
   );
 }

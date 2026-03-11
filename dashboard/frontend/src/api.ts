@@ -1,6 +1,16 @@
 // API client for Kanban Board
 
-import type { Task, TaskStatus, TaskPriority, TaskHistoryResponse, TaskType } from './types';
+import type {
+  AgenticSummaryResponse,
+  Idea,
+  NavigationResponse,
+  Project,
+  Task,
+  TaskHistoryResponse,
+  TaskPriority,
+  TaskStatus,
+  TaskType,
+} from './types';
 
 const API_BASE = '/api';
 
@@ -181,7 +191,7 @@ export async function deleteDoneTasks(projectId?: string): Promise<{ deleted: nu
   }
 }
 
-export async function fetchProjects(): Promise<any[]> {
+export async function fetchProjects(): Promise<Project[]> {
   try {
     const response = await fetchWithErrorHandling(`${API_BASE}/projects`);
 
@@ -197,6 +207,26 @@ export async function fetchProjects(): Promise<any[]> {
       throw error;
     }
     throw new Error('Failed to fetch projects');
+  }
+}
+
+export async function fetchNavigation(): Promise<NavigationResponse> {
+  try {
+    const response = await fetchWithErrorHandling(`${API_BASE}/navigation`);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.message || errorData.detail || `Failed to fetch navigation: ${response.statusText}`
+      );
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to fetch navigation');
   }
 }
 
@@ -224,9 +254,31 @@ export async function fetchTaskHistory(days: number = 30, projectId?: string): P
   }
 }
 
-// ==================== IDEAS API (Task #4583) ====================
+export async function fetchAgenticSummary(days: number = 30, projectId?: string): Promise<AgenticSummaryResponse> {
+  const params = new URLSearchParams();
+  params.append('days', days.toString());
+  if (projectId) params.append('project_id', projectId);
 
-import type { Idea } from './types';
+  const url = `${API_BASE}/agentic/summary?${params.toString()}`;
+
+  try {
+    const response = await fetchWithErrorHandling(url);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || errorData.detail || `Failed to fetch agentic summary: ${response.statusText}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to fetch agentic summary');
+  }
+}
+
+// ==================== IDEAS API (Task #4583) ====================
 
 export async function fetchIdeas(): Promise<Idea[]> {
   try {

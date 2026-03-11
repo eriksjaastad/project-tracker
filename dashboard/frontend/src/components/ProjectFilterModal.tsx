@@ -20,7 +20,7 @@ export function ProjectFilterModal({
   const navigate = useNavigate();
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,21 +43,32 @@ export function ProjectFilterModal({
       return;
     }
 
-    setSearchTerm('');
-    setLoading(true);
-    setError(null);
+    let cancelled = false;
 
-    fetchProjects()
-      .then((data) => {
-        setProjects(data || []);
-      })
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : 'Failed to load projects';
-        setError(message);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+    async function loadProjects() {
+      try {
+        const data = await fetchProjects();
+        if (!cancelled) {
+          setProjects(data || []);
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : 'Failed to load projects';
+          setError(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadProjects();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   const filteredProjects = useMemo(() => {

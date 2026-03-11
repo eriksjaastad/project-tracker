@@ -1,47 +1,41 @@
 <!-- css-disable -->
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project Tracker Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <meta http-equiv="refresh" content="300"> <!-- Auto-refresh every 5 minutes -->
-</head>
+{% block title %}Project Tracker Dashboard{% endblock %}
 
-<body>
-    <!-- Navigation -->
-    {% include 'partials/nav.html' %}
+{% block head_extra %}
+<meta http-equiv="refresh" content="300"> <!-- Auto-refresh every 5 minutes -->
+{% endblock %}
 
-    <header>
-        <div class="header-content">
-            <h1>📊 Project Dashboard</h1>
-            <div class="header-actions">
-                <div class="compliance-metric" title="Project Index Compliance (Critical Rule #0)">
-                    <span class="metric-label">Index Compliance:</span>
-                    <span
-                        class="metric-value {% if compliance_pct > 90 %}good{% elif compliance_pct > 70 %}warning{% else %}critical{% endif %}">
-                        <a href="#" onclick="filterMissingIndexes(); return false;" class="compliance-link">
-                            {{ indexed_count }}/{{ total_projects }} ({{ compliance_pct }}%)
-                        </a>
-                    </span>
-                </div>
-                <span class="project-count">{{ total_projects }} projects</span>
-                <button onclick="refreshData()" class="btn-refresh">🔄 Refresh</button>
-            </div>
-        </div>
-    </header>
-
-    {% if not audit_available %}
-    <div class="system-warning">
-        <span class="warning-icon">⚠️</span>
-        <span class="warning-text">audit-agent not found. Health scores and advanced validation disabled.</span>
-        <a href="https://github.com/eriksjaastad/audit-agent" target="_blank" class="warning-link">Install →</a>
+{% block page_header_content %}
+<div class="page-title-group">
+    <h1>📊 Project Dashboard</h1>
+</div>
+<div class="header-actions">
+    <div class="compliance-metric" title="Project Index Compliance (Critical Rule #0)">
+        <span class="metric-label">Index Compliance:</span>
+        <span class="metric-value {% if compliance_pct > 90 %}good{% elif compliance_pct > 70 %}warning{% else %}critical{% endif %}">
+            <a href="#" onclick="filterMissingIndexes(); return false;" class="compliance-link">
+                {{ indexed_count }}/{{ total_projects }} ({{ compliance_pct }}%)
+            </a>
+        </span>
     </div>
-    {% endif %}
+    <span class="project-count">{{ total_projects }} projects</span>
+    <button onclick="refreshData()" class="btn-refresh">🔄 Refresh</button>
+</div>
+{% endblock %}
 
-    <main>
+{% block shell_notice %}
+{% if not audit_available %}
+<div class="system-warning">
+    <span class="warning-icon">⚠️</span>
+    <span class="warning-text">audit-agent not found. Health scores and advanced validation disabled.</span>
+    <a href="https://github.com/eriksjaastad/audit-agent" target="_blank" class="warning-link">Install →</a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block content %}
         <!-- Outdated Projects Section -->
         {% if outdated_count > 0 or unscaffolded_count > 0 %}
         <div class="alerts-section" style="border-left-color: #ff9800;">
@@ -532,8 +526,9 @@
             <p>Run <code>pt scan</code> to discover projects, or click the Refresh button above.</p>
         </div>
         {% endif %}
-    </main>
+{% endblock %}
 
+{% block scripts %}
     <script src="/static/script.js"></script>
     <style>
         .agent-dispatcher {
@@ -828,6 +823,4 @@
         // Refresh every 60 seconds
         setInterval(loadLoopStatus, 60000);
     </script>
-</body>
-
-</html>
+{% endblock %}

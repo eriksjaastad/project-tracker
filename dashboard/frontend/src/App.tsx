@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Navigation } from './components/Navigation';
 import { KanbanBoard } from './components/KanbanBoard';
+import { AgenticDashboard } from './components/AgenticDashboard';
 import './App.css';
 
 function App() {
@@ -8,13 +9,12 @@ function App() {
     <BrowserRouter>
       <div className="app">
         <Navigation />
-        <main className="app-main">
-          <Routes>
-            <Route path="/" element={<Navigate to="/kanban" replace />} />
-            <Route path="/kanban" element={<KanbanBoard />} />
-            <Route path="/kanban/:project" element={<KanbanBoard />} />
-          </Routes>
-        </main>
+        <Routes>
+          <Route path="/kanban" element={<KanbanBoard />} />
+          <Route path="/kanban/:project" element={<KanbanBoard />} />
+          <Route path="/agentic" element={<AgenticDashboard />} />
+          <Route path="*" element={<Navigate to="/kanban" replace />} />
+        </Routes>
       </div>
     </BrowserRouter>
   );
