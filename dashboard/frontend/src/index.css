@@ -16,6 +16,8 @@
   --critical: #dc2626;     /* Critical priority - dark alarm red */
   --warning: #ffd43b;      /* Warnings, caution indicators */
   --muted: #a0a3b1;        /* Secondary text, project labels */
+  --content-max-width: 1400px;
+  --content-narrow-width: 1200px;
   
   /* Spacing Scale */
   --space-xs: 0.25rem;    /* 4px - tight padding */

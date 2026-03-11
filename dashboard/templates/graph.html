@@ -1,29 +1,26 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ecosystem Knowledge Graph</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="/static/graph.css">
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-</head>
+{% block title %}Ecosystem Knowledge Graph{% endblock %}
 
-<body class="graph-page">
-    <!-- Navigation -->
-    {% include 'partials/nav.html' %}
+{% block body_class %}graph-page{% endblock %}
 
-    <header>
-        <div class="header-content">
-            <h1>🕸️ Knowledge Graph</h1>
-            <div class="header-actions">
-                <button onclick="rebuildGraph()" class="btn-refresh">🔄 Rebuild Data</button>
-            </div>
-        </div>
-    </header>
+{% block head_extra %}
+<link rel="stylesheet" href="/static/graph.css">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+{% endblock %}
 
-    <main class="graph-container">
+{% block page_header_content %}
+<div class="page-title-group">
+    <h1>🕸️ Knowledge Graph</h1>
+</div>
+<div class="header-actions">
+    <button onclick="rebuildGraph()" class="btn-refresh">🔄 Rebuild Data</button>
+</div>
+{% endblock %}
+
+{% block page_main_class %}page-main--full graph-container{% endblock %}
+
+{% block content %}
         <div id="graph-viewport">
             <div id="graph-controls">
                 <div class="control-group">
@@ -93,7 +90,8 @@
         <p>Loading Graph Data...</p>
     </div>
 
-    <script src="/static/graph.js"></script>
-</body>
+{% endblock %}
 
-</html>
+{% block scripts %}
+    <script src="/static/graph.js"></script>
+{% endblock %}

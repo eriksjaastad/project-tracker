@@ -6,8 +6,9 @@
     overflow: hidden;
 }
 
-.graph-page main {
+.graph-page .page-main {
     flex: 1;
+    min-height: 0;
     position: relative;
     padding: 0;
     max-width: none;

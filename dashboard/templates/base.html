@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ nav_title }}{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    {% block head_extra %}{% endblock %}
+</head>
+
+<body class="{% block body_class %}{% endblock %}">
+    {% include 'partials/nav.html' %}
+
+    {% block page_header %}
+    <header class="page-header">
+        <div class="header-content {% block header_content_class %}{% endblock %}">
+            {% block page_header_content %}{% endblock %}
+        </div>
+    </header>
+    {% endblock %}
+
+    {% block shell_notice %}{% endblock %}
+
+    <main class="page-main {% block page_main_class %}{% endblock %}">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>

@@ -25,6 +25,15 @@ export const TASK_STATUSES: TaskStatus[] = [
   'Cancelled',
 ];
 
+// UI display statuses (original five-column Kanban)
+export const KANBAN_STATUSES: TaskStatus[] = [
+  'Backlog',
+  'To Do',
+  'In Progress',
+  'Review',
+  'Done',
+];
+
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   Backlog: 'Backlog',
   TRIAGED: 'Triaged',
@@ -88,6 +97,20 @@ export interface Project {
   status: string;
 }
 
+export interface NavigationItem {
+  id: string;
+  label: string;
+  href: string;
+  match_prefixes: string[];
+  navigation_type: 'document' | 'spa';
+  active?: boolean;
+}
+
+export interface NavigationResponse {
+  title: string;
+  items: NavigationItem[];
+}
+
 export interface TaskHistoryEntry {
   date: string;
   completed: number;
@@ -101,6 +124,33 @@ export interface TaskHistoryResponse {
     start: string;
     end: string;
   };
+}
+
+export interface AgenticSeriesEntry {
+  date: string;
+  review_bounces: number;
+  review_promotions: number;
+  review_entries: number;
+}
+
+export interface AgenticSummaryResponse {
+  summary: {
+    review_bounces: number;
+    review_promotions: number;
+    review_entries: number;
+    bounce_rate: number;
+    promotion_rate: number;
+  };
+  series: AgenticSeriesEntry[];
+  markers: {
+    date: string;
+    label: string;
+  }[];
+  date_range: {
+    start: string;
+    end: string;
+  };
+  project_id?: string | null;
 }
 
 // Ideas (Task #4583)

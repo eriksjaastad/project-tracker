@@ -29,6 +29,8 @@
     --accent: var(--accent-primary);
     --accent-soft: rgba(33, 150, 243, 0.2);
     --muted: var(--text-secondary);
+    --content-max-width: 1400px;
+    --content-narrow-width: 1200px;
 }
 
 body {
@@ -39,34 +41,49 @@ body {
     min-height: 100vh;
 }
 
-/* Header */
+/* Shared page shell */
 
-header {
+.page-header {
     background: var(--bg-secondary);
     border-bottom: 2px solid var(--border-color);
     padding: 1.5rem 2rem;
-    position: sticky;
-    top: 0;
-    z-index: 100;
 }
 
 .header-content {
-    max-width: 1400px;
+    max-width: var(--content-max-width);
     margin: 0 auto;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
 }
 
-header h1 {
+.header-content--narrow {
+    max-width: var(--content-narrow-width);
+}
+
+.page-title-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.page-header h1 {
     font-size: 1.8rem;
     font-weight: 600;
+}
+
+.page-subtitle {
+    color: var(--text-secondary);
+    max-width: 48rem;
 }
 
 .header-actions {
     display: flex;
     gap: 1.5rem;
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .compliance-metric {
@@ -147,6 +164,7 @@ header h1 {
 .navigation-links {
     display: flex;
     gap: 1.5rem;
+    flex-wrap: wrap;
 }
 
 .nav-link {
@@ -173,10 +191,21 @@ header h1 {
 
 /* Main Content */
 
-main {
-    max-width: 1400px;
+.page-main {
+    max-width: var(--content-max-width);
+    width: 100%;
     margin: 0 auto;
     padding: 2rem;
+}
+
+.page-main--narrow {
+    max-width: var(--content-narrow-width);
+}
+
+.page-main--full {
+    max-width: none;
+    margin: 0;
+    padding: 0;
 }
 
 /* Code Review Section */

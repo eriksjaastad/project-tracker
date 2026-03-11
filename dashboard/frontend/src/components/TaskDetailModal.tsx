@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Task, TaskStatus, TaskPriority, Project, TaskType } from '../types';
-import { TASK_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
+import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
 import { updateTask, fetchProjects } from '../api';
 import './TaskDetailModal.css';
 
@@ -274,7 +274,7 @@ export function TaskDetailModal({
                     }
                     disabled={loading}
                   >
-                    {TASK_STATUSES.map((s) => (
+                    {KANBAN_STATUSES.map((s) => (
                       <option key={s} value={s}>
                         {TASK_STATUS_LABELS[s]}
                       </option>

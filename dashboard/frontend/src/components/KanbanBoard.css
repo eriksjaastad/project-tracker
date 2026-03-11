@@ -1,13 +1,15 @@
 .kanban-board {
-  padding: var(--space-xl);
-  min-height: calc(100vh - 60px);
-  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
   color: #e0e0e0;
 }
 
 .kanban-board-loading {
-  padding: var(--space-xl);
-  min-height: calc(100vh - 60px);
+  min-height: 20rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
 }
 
 .kanban-board-loading-content {
@@ -44,26 +46,6 @@
   font-weight: 600;
 }
 
-.kanban-board-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-xl);
-}
-
-.kanban-board-header h1 {
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #e0e0e0;
-}
-
-.kanban-board-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
 .project-filter-button {
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -86,12 +68,6 @@
 .project-filter-caret {
   font-size: 0.7rem;
   opacity: 0.8;
-}
-
-.kanban-board-header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
 }
 
 .refresh-button {
