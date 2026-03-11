@@ -24,6 +24,11 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime, timezone
 
+try:
+    from send2trash import send2trash
+except ImportError:
+    send2trash = None
+
 # Add parent directory to path for config import
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -41,6 +46,24 @@ except ImportError:
 class SafetyError(Exception):
     """Raised when a destructive operation is blocked by safety policy."""
     pass
+
+
+def _prune_safety_backups(backup_dir: Path, keep: int = 10) -> None:
+    """Prune old safety backups by sending them to Trash instead of deleting them."""
+    safety_files = sorted(backup_dir.glob("tasks_safety_backup_*.json"))
+    files_to_prune = safety_files[:-keep]
+    if not files_to_prune:
+        return
+
+    if send2trash is None:
+        print("⚠️  Warning: send2trash is unavailable; retaining old safety backups instead of deleting them")
+        return
+
+    for old in files_to_prune:
+        try:
+            send2trash(str(old))
+        except Exception as e:
+            print(f"⚠️  Warning: Could not send old safety backup to Trash: {e}")
 
 
 def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
@@ -117,15 +140,14 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
 
         print(f"🛡️  SAFETY: Auto-backup created: {backup_path} ({len(tasks)} tasks)")
 
-        # Rotate: keep only the 10 most recent safety backups per location
+        # Rotate: keep only the 10 most recent safety backups per location.
+        # Old backups go to Trash so they remain recoverable.
         dirs_to_prune = [backup_dir, external_backup_dir]
 
         for dir_to_prune in dirs_to_prune:
             if not dir_to_prune.exists():
                 continue
-            safety_files = sorted(dir_to_prune.glob("tasks_safety_backup_*.json"))
-            for old in safety_files[:-10]:
-                old.unlink(missing_ok=True)
+            _prune_safety_backups(dir_to_prune)
 
         return backup_path
 
