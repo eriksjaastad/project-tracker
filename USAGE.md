@@ -14,6 +14,20 @@ created: 2025-12-30
 
 ---
 
+## 🔐 Environment Variables
+
+You can configure the behavior of Project Tracker using these environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PT_EXTERNAL_BACKUP_DIR` | **CRITICAL for Sandbox:** Path for safety backups. Set this if your home directory is read-only. | `~/.project-tracker/backups/` |
+| `PT_DB_PATH` | Path to the SQLite database file. | `data/tracker.db` |
+| `PROJECTS_ROOT` | The root directory where your projects are located. | `../` |
+| `PT_ALLOW_FRESH_DB` | Set to `1` to bypass the "unexpected fresh database" safety check. | `0` |
+| `SAFE_MODE` | Set to `0` to allow permanent deletions (for Erik only). | `1` |
+
+---
+
 ## 🚀 Getting Started
 
 ### First Time Setup
