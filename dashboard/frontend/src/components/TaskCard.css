@@ -60,6 +60,10 @@
   font-size: 1rem;
   line-height: 1.5;
   font-family: 'JetBrains Mono', 'Monaco', 'Courier New', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .task-card-meta {
