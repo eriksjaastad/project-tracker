@@ -71,6 +71,7 @@ logs/
 .coverage
 htmlcov/
 .hypothesis/
+tests/screenshots/  # Visual regression test screenshots
 
 # Distribution
 *.whl*.backup
