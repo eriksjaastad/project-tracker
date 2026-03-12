@@ -145,6 +145,7 @@
   gap: var(--space-xl);
   overflow-x: auto;
   padding-bottom: var(--space-lg);
+  padding-right: var(--space-xl);
 }
 
 .kanban-board-content::-webkit-scrollbar {
