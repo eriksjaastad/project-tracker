@@ -280,7 +280,7 @@ export function KanbanBoard() {
   );
 
   return (
-    <PageShell title="Kanban Board" actions={headerActions}>
+    <PageShell title="Kanban Board" actions={headerActions} contentWidth="full">
       {loading ? (
         <div className="kanban-board-loading">
           <div className="kanban-board-loading-content">
