@@ -12,6 +12,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .git_metadata import get_last_modified
+from .agent_config_health import get_agent_config_health
 from .todo_parser import parse_todo
 from .providers import get_provider
 
@@ -316,6 +317,8 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
         readme_path = project_path / "README.md"
         if readme_path.exists():
             metadata["description"] = clean_description(extract_readme_description(readme_path))
+
+    metadata["agent_config_health"] = get_agent_config_health(project_path)
     
     return metadata
 
