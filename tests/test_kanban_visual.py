@@ -46,6 +46,15 @@ def test_kanban_board_full_layout(page: Page, dashboard_server):
     columns = page.locator(".column")
     expect(columns).to_have_count(5)  # Backlog, To Do, In Progress, Review, Done
 
+    # Print all column positions for debugging
+    print("\n📊 Column Layout:")
+    for i in range(5):
+        col = columns.nth(i)
+        box = col.bounding_box()
+        if box:
+            col_title = col.locator(".column-title").text_content()
+            print(f"   {col_title}: x={box['x']:.0f}px, width={box['width']:.0f}px, right_edge={box['x'] + box['width']:.0f}px")
+
     # Verify the Done column is visible
     done_column = page.locator(".column").filter(has_text="Done").first
     expect(done_column).to_be_visible()
