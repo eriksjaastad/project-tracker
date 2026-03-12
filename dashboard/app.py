@@ -26,6 +26,7 @@ from scripts.logger import get_logger
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.manager import DatabaseManager
+from discovery.agent_config_health import build_empty_agent_config_health, get_agent_config_health
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
@@ -320,6 +321,10 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
     
     project_id = project.get("id", "")
     project_path = Path(project.get("path", ""))
+    if project_path.exists():
+        project["agent_config_health"] = get_agent_config_health(project_path)
+    else:
+        project["agent_config_health"] = build_empty_agent_config_health(project.get("name", project_id))
     
     if project_id in excluded_from_scaffolding:
         # Mark as current to hide from scaffolding alerts

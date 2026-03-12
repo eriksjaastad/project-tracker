@@ -46,3 +46,20 @@ def test_extract_project_metadata(temp_project):
     assert project_data["name"] == "test-project"
     assert project_data["has_index"] is True
     assert project_data["completion_pct"] == 33
+
+
+def test_extract_project_metadata_includes_agent_config_health(temp_project):
+    claude_md = temp_project / "CLAUDE.md"
+    claude_md.write_text("\n".join([f"- rule {i}" for i in range(205)]) + "\n")
+
+    project_data = extract_project_metadata(temp_project)
+
+    assert project_data["agent_config_health"]["has_claude_md"] is True
+    assert project_data["agent_config_health"]["warning_count"] == 1
+    claude_health = next(
+        file_health
+        for file_health in project_data["agent_config_health"]["files"]
+        if file_health["path"] == "CLAUDE.md"
+    )
+    assert claude_health["over_limit"] is True
+    assert any("205 lines" in warning for warning in claude_health["warnings"])
