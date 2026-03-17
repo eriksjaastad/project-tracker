@@ -2,27 +2,19 @@
 
 export type TaskStatus =
   | 'Backlog'
-  | 'TRIAGED'
-  | 'READY_FOR_PATCH'
   | 'To Do'
   | 'In Progress'
-  | 'PR_READY'
   | 'Review'
-  | 'Done'
-  | 'Cancelled';
+  | 'Done';
 
 export type TaskType = 'manual' | 'agent';
 
 export const TASK_STATUSES: TaskStatus[] = [
   'Backlog',
-  'TRIAGED',
-  'READY_FOR_PATCH',
   'To Do',
   'In Progress',
-  'PR_READY',
   'Review',
   'Done',
-  'Cancelled',
 ];
 
 // UI display statuses (original five-column Kanban)
@@ -36,14 +28,10 @@ export const KANBAN_STATUSES: TaskStatus[] = [
 
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   Backlog: 'Backlog',
-  TRIAGED: 'Triaged',
-  READY_FOR_PATCH: 'Ready for Patch',
   'To Do': 'To Do',
   'In Progress': 'In Progress',
-  PR_READY: 'PR Ready',
   Review: 'Review',
   Done: 'Done',
-  Cancelled: 'Cancelled',
 };
 
 export const TASK_TYPES: TaskType[] = ['manual', 'agent'];
@@ -142,15 +130,20 @@ export interface AgenticSummaryResponse {
     promotion_rate: number;
   };
   series: AgenticSeriesEntry[];
-  markers: {
-    date: string;
-    label: string;
-  }[];
+  markers: AgenticMarker[];
   date_range: {
     start: string;
     end: string;
   };
   project_id?: string | null;
+}
+
+export interface AgenticMarker {
+  id: string;       // UUID generated on creation
+  date: string;     // ISO YYYY-MM-DD
+  label: string;    // Display text (max 120 chars)
+  source: 'manual' | 'auto';  // manual = user-created, auto = sync daemon
+  agent?: string;   // Which agent the marker is about (optional)
 }
 
 // Ideas (Task #4583)

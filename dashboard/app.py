@@ -1677,6 +1677,110 @@ async def agentic_summary(days: int = 30, project_id: Optional[str] = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to build agentic summary"
         )
+# ==================== AGENTIC MARKERS API (#5009) ====================
+
+MARKERS_PATH = Path(__file__).parent.parent / "data" / "agentic_markers.json"
+
+
+def _load_markers() -> list:
+    """Load markers from disk, returning empty list on any error."""
+    if not MARKERS_PATH.exists():
+        return []
+    try:
+        data = json.loads(MARKERS_PATH.read_text())
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_markers(markers: list) -> None:
+    """Atomically write markers to disk."""
+    MARKERS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = MARKERS_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(markers, indent=2))
+    tmp.replace(MARKERS_PATH)
+
+
+class MarkerCreateRequest(BaseModel):
+    date: str
+    label: str
+    source: str = "manual"
+    agent: Optional[str] = None
+
+
+class MarkerUpdateRequest(BaseModel):
+    date: Optional[str] = None
+    label: Optional[str] = None
+    agent: Optional[str] = None
+
+
+def _validate_marker_fields(date: Optional[str], label: Optional[str]) -> None:
+    """Raise 400 if fields fail validation."""
+    import re
+    if date is not None:
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+            raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    if label is not None:
+        label = label.strip()
+        if not label:
+            raise HTTPException(status_code=400, detail="label must not be empty")
+        if len(label) > 120:
+            raise HTTPException(status_code=400, detail="label must be 120 characters or fewer")
+
+
+@app.get("/api/agentic/markers")
+async def get_markers():
+    """Return all agentic markers."""
+    return {"markers": _load_markers()}
+
+
+@app.post("/api/agentic/markers", status_code=201)
+async def create_marker(req: MarkerCreateRequest):
+    """Create a new agentic marker."""
+    _validate_marker_fields(req.date, req.label)
+    markers = _load_markers()
+    import uuid
+    marker = {
+        "id": str(uuid.uuid4()),
+        "date": req.date,
+        "label": req.label.strip(),
+        "source": req.source if req.source in ("manual", "auto") else "manual",
+        "agent": req.agent or None,
+    }
+    markers.append(marker)
+    markers.sort(key=lambda m: m["date"])
+    _save_markers(markers)
+    return marker
+
+
+@app.patch("/api/agentic/markers/{marker_id}")
+async def update_marker(marker_id: str, req: MarkerUpdateRequest):
+    """Update an existing agentic marker by id."""
+    _validate_marker_fields(req.date, req.label)
+    markers = _load_markers()
+    for m in markers:
+        if m.get("id") == marker_id:
+            if req.date is not None:
+                m["date"] = req.date
+            if req.label is not None:
+                m["label"] = req.label.strip()
+            if req.agent is not None:
+                m["agent"] = req.agent
+            markers.sort(key=lambda x: x["date"])
+            _save_markers(markers)
+            return m
+    raise HTTPException(status_code=404, detail="Marker not found")
+
+
+@app.delete("/api/agentic/markers/{marker_id}", status_code=204)
+async def delete_marker(marker_id: str):
+    """Delete an agentic marker by id."""
+    markers = _load_markers()
+    updated = [m for m in markers if m.get("id") != marker_id]
+    if len(updated) == len(markers):
+        raise HTTPException(status_code=404, detail="Marker not found")
+    _save_markers(updated)
+    return None
 
 
 # ==================== IDEAS API ENDPOINTS (Task #4583) ====================
