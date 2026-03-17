@@ -15,8 +15,10 @@ from fastapi.exception_handlers import (
     http_exception_handler,
     request_validation_exception_handler
 )
+import re
 import sqlite3
 import json
+import uuid
 
 # Add parent directory to path for logger import
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -1716,7 +1718,6 @@ class MarkerUpdateRequest(BaseModel):
 
 def _validate_marker_fields(date: Optional[str], label: Optional[str]) -> None:
     """Raise 400 if fields fail validation."""
-    import re
     if date is not None:
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
             raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
@@ -1739,7 +1740,6 @@ async def create_marker(req: MarkerCreateRequest):
     """Create a new agentic marker."""
     _validate_marker_fields(req.date, req.label)
     markers = _load_markers()
-    import uuid
     marker = {
         "id": str(uuid.uuid4()),
         "date": req.date,
