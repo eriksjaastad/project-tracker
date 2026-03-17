@@ -1,6 +1,7 @@
 // API client for Kanban Board
 
 import type {
+  AgenticMarker,
   AgenticSummaryResponse,
   Idea,
   NavigationResponse,
@@ -278,7 +279,62 @@ export async function fetchAgenticSummary(days: number = 30, projectId?: string)
   }
 }
 
-// ==================== IDEAS API (Task #4583) ====================
+// ==================== AGENTIC MARKERS API (#5009) ====================
+
+export async function fetchMarkers(): Promise<AgenticMarker[]> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/agentic/markers`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch markers');
+  }
+  const data = await response.json();
+  return data.markers || [];
+}
+
+export async function createMarker(
+  date: string,
+  label: string,
+  agent?: string
+): Promise<AgenticMarker> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/agentic/markers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date, label, source: 'manual', agent }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to create marker');
+  }
+  return response.json();
+}
+
+export async function updateMarker(
+  id: string,
+  updates: { date?: string; label?: string; agent?: string }
+): Promise<AgenticMarker> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/agentic/markers/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to update marker');
+  }
+  return response.json();
+}
+
+export async function deleteMarker(id: string): Promise<void> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/agentic/markers/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to delete marker');
+  }
+}
+
+
 
 export async function fetchIdeas(): Promise<Idea[]> {
   try {
