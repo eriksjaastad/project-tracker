@@ -31,15 +31,11 @@ from scripts.logger import get_logger
 logger = get_logger(__name__)
 
 VALID_STATUS_TRANSITIONS = {
-    "Backlog": ["To Do", "Cancelled"],
-    "To Do": ["Backlog", "In Progress", "Cancelled"],
-    "In Progress": ["To Do", "Backlog", "Review", "PR_READY", "Cancelled"],
-    "Review": ["In Progress", "To Do", "Backlog", "Done", "Cancelled"],
+    "Backlog": ["To Do"],
+    "To Do": ["Backlog", "In Progress"],
+    "In Progress": ["To Do", "Backlog", "Review"],
+    "Review": ["In Progress", "To Do", "Backlog", "Done"],
     "Done": ["Review", "In Progress", "To Do"],
-    "Cancelled": ["Backlog", "To Do"],
-    "TRIAGED": ["READY_FOR_PATCH", "Backlog", "Cancelled"],
-    "READY_FOR_PATCH": ["In Progress", "TRIAGED", "Cancelled"],
-    "PR_READY": ["Review", "In Progress", "Cancelled"]
 }
 
 def _get_backup_dir(db_path: Path) -> Path:
