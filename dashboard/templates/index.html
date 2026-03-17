@@ -37,12 +37,12 @@
 
 {% block content %}
         <!-- Outdated Projects Section -->
-        {% if outdated_count > 0 or unscaffolded_count > 0 %}
+        {% if outdated_count > 0 or unscaffolded_count > 0 or structural_count > 0 %}
         <div class="alerts-section" style="border-left-color: #ff9800;">
             <div class="alerts-header">
                 <h2>🔧 Scaffolding Updates Needed</h2>
                 <span class="alerts-count">
-                    {{ outdated_count }} outdated, {{ unscaffolded_count }} not scaffolded
+                    {{ outdated_count }} outdated, {{ structural_count }} structural, {{ unscaffolded_count }} not scaffolded
                 </span>
             </div>
             <div class="alerts-grid">
@@ -52,6 +52,13 @@
                     <span class="alert-project-name">{{ project.name }}</span>
                     <span class="alert-msg">v{{ project.scaffolding_version }} → v{{ current_scaffolding_version
                         }}</span>
+                </a>
+                {% endfor %}
+                {% for project in structural_projects %}
+                <a href="/project/{{ project.id }}" class="alert-item alert-warning">
+                    <span class="alert-icon-small">🔧</span>
+                    <span class="alert-project-name">{{ project.name }}</span>
+                    <span class="alert-msg">{{ project.scaffolding_issues | join(', ') }}</span>
                 </a>
                 {% endfor %}
                 {% for project in unscaffolded_projects %}
@@ -317,6 +324,8 @@
                         <span class="meta-value">
                             {% if project.version_status == 'outdated' %}
                             <span style="color: #ff9800;">⚠️ v{{ project.scaffolding_version }}</span>
+                            {% elif project.version_status == 'structural_issue' %}
+                            <span style="color: #ff9800;">🔧 v{{ project.scaffolding_version }}</span>
                             {% elif project.version_status == 'unscaffolded' %}
                             <span style="color: #888;">❌ Not scaffolded</span>
                             {% elif project.version_status == 'current' %}

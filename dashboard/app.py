@@ -365,8 +365,15 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
             scaffolding_issues.append("rogue 00-full-content.md in .agentsync/rules/")
         
         if scaffolding_issues:
-            project["version_status"] = "outdated"
             project["scaffolding_issues"] = scaffolding_issues
+            # If version is also outdated, keep 'outdated' — it captures both problems
+            # Only use 'structural_issue' when version is actually current
+            if project_version is None:
+                project["version_status"] = "unscaffolded"
+            elif current_scaffolding_version and compare_versions(project_version, current_scaffolding_version) < 0:
+                project["version_status"] = "outdated"
+            else:
+                project["version_status"] = "structural_issue"
         elif project_version is None:
             project["version_status"] = "unscaffolded"
         elif current_scaffolding_version and compare_versions(project_version, current_scaffolding_version) < 0:
@@ -441,6 +448,7 @@ async def dashboard(request: Request):
     # Calculate version status counts
     outdated_projects = [p for p in enriched_projects if p.get("version_status") == "outdated"]
     unscaffolded_projects = [p for p in enriched_projects if p.get("version_status") == "unscaffolded"]
+    structural_projects = [p for p in enriched_projects if p.get("version_status") == "structural_issue"]
     
     return templates.TemplateResponse(
         "index.html",
@@ -458,8 +466,10 @@ async def dashboard(request: Request):
             current_scaffolding_version=current_scaffolding,
             outdated_projects=outdated_projects,
             unscaffolded_projects=unscaffolded_projects,
+            structural_projects=structural_projects,
             outdated_count=len(outdated_projects),
             unscaffolded_count=len(unscaffolded_projects),
+            structural_count=len(structural_projects),
         ),
     )
 
