@@ -657,6 +657,55 @@ body {
     justify-content: space-between;
 }
 
+/* Task Status Pills on Project Cards */
+.meta-row.task-status-row {
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.task-status-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    flex: 1;
+}
+
+.task-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+
+.pill-backlog {
+    background: rgba(120, 120, 120, 0.2);
+    color: #9e9e9e;
+    border: 1px solid rgba(120, 120, 120, 0.35);
+}
+
+.pill-todo {
+    background: rgba(33, 150, 243, 0.15);
+    color: #64b5f6;
+    border: 1px solid rgba(33, 150, 243, 0.3);
+}
+
+.pill-inprogress {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ffa726;
+    border: 1px solid rgba(255, 152, 0, 0.35);
+}
+
+.pill-review {
+    background: rgba(156, 39, 176, 0.15);
+    color: #ce93d8;
+    border: 1px solid rgba(156, 39, 176, 0.35);
+}
+
 .meta-label {
     color: var(--text-secondary);
     white-space: nowrap;
