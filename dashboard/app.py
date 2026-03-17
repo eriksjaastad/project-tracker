@@ -91,6 +91,13 @@ NAVIGATION_ITEMS = [
         "match_prefixes": ["/graph"],
         "navigation_type": "document",
     },
+    {
+        "id": "memory",
+        "label": "Memory 🧠",
+        "href": "/memory",
+        "match_prefixes": ["/memory"],
+        "navigation_type": "document",
+    },
 ]
 
 
@@ -290,6 +297,12 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
     open_tasks = [t for t in all_tasks if t.get("status") != "Done"]
     project["task_count"] = len(open_tasks)
     project["total_tasks"] = len(all_tasks)
+
+    # Per-status breakdowns (excluding Done)
+    project["backlog_count"] = len([t for t in all_tasks if t.get("status") == "Backlog"])
+    project["todo_count"] = len([t for t in all_tasks if t.get("status") == "To Do"])
+    project["in_progress_count"] = len([t for t in all_tasks if t.get("status") == "In Progress"])
+    project["review_count"] = len([t for t in all_tasks if t.get("status") == "Review"])
     
     # Check for code review
     review_path = Path(project["path"]) / "CODE_REVIEW.md"
@@ -753,6 +766,121 @@ async def api_learning_stats():
 async def graph_view(request: Request):
     """Render the graph visualization page."""
     return templates.TemplateResponse("graph.html", build_template_context(request))
+
+
+@app.get("/memory", response_class=HTMLResponse)
+async def memory_view(request: Request):
+    """Render the memory graph visualization page."""
+    return templates.TemplateResponse("memory.html", build_template_context(request))
+
+
+@app.get("/api/memory-graph")
+async def get_memory_graph_data(
+    thought_type: Optional[str] = None,  # Filter by type: observation, decision, idea, question
+    min_similarity: float = 0.3,         # Minimum similarity threshold for edges
+    max_edges_per_node: int = 10         # Limit edges per node
+):
+    """Return memory graph JSON for D3.js visualization."""
+    import json
+    import sqlite3
+
+    # Path to Open Brain database (sibling to project-tracker)
+    projects_root = Path(__file__).parent.parent.parent
+    brain_db_path = projects_root / "ai-memory" / "brain.db"
+
+    if not brain_db_path.exists():
+        return JSONResponse({
+            "error": f"Memory database not found. Expected at: {brain_db_path}"
+        }, status_code=404)
+
+    try:
+        # Helper function for cosine similarity
+        def cosine_similarity(a, b):
+            dot = sum(x * y for x, y in zip(a, b))
+            norm_a = sum(x * x for x in a) ** 0.5
+            norm_b = sum(x * x for x in b) ** 0.5
+            if norm_a == 0 or norm_b == 0:
+                return 0.0
+            return dot / (norm_a * norm_b)
+
+        # Connect to database
+        conn = sqlite3.connect(brain_db_path)
+        conn.row_factory = sqlite3.Row
+
+        # Load thoughts with embeddings
+        rows = conn.execute(
+            "SELECT id, content, embedding, metadata, created_at FROM thoughts WHERE embedding IS NOT NULL"
+        ).fetchall()
+
+        conn.close()
+
+        # Build nodes
+        nodes = []
+        embeddings = []
+
+        for row in rows:
+            metadata = json.loads(row["metadata"]) if row["metadata"] else {}
+            embedding = json.loads(row["embedding"])
+            thought_type_val = metadata.get("type", "observation")
+
+            # Apply type filter if specified
+            if thought_type and thought_type_val != thought_type:
+                continue
+
+            nodes.append({
+                "id": str(row["id"]),
+                "content": row["content"],
+                "type": thought_type_val,
+                "project": metadata.get("project", ""),
+                "created_at": row["created_at"],
+                "size": 1  # Will be updated based on connections
+            })
+            embeddings.append(embedding)
+
+        # Calculate similarity edges
+        edges = []
+        connection_counts = {node["id"]: 0 for node in nodes}
+
+        for i, node_i in enumerate(nodes):
+            similarities = []
+
+            for j, node_j in enumerate(nodes):
+                if i >= j:  # Skip self and duplicates
+                    continue
+
+                sim = cosine_similarity(embeddings[i], embeddings[j])
+                if sim > min_similarity:
+                    similarities.append((j, sim))
+
+            # Keep only top N most similar
+            similarities.sort(key=lambda x: x[1], reverse=True)
+            for j, sim in similarities[:max_edges_per_node]:
+                edges.append({
+                    "source": node_i["id"],
+                    "target": nodes[j]["id"],
+                    "similarity": round(sim, 3)
+                })
+                connection_counts[node_i["id"]] += 1
+                connection_counts[nodes[j]["id"]] += 1
+
+        # Update node sizes based on connections
+        for node in nodes:
+            node["size"] = connection_counts[node["id"]]
+
+        return {
+            "generated_at": datetime.now().isoformat(),
+            "stats": {
+                "total_thoughts": len(nodes),
+                "total_connections": len(edges),
+                "avg_connections": round(sum(connection_counts.values()) / len(nodes), 2) if nodes else 0
+            },
+            "nodes": nodes,
+            "edges": edges
+        }
+
+    except Exception as e:
+        logger.error(f"Error reading memory database: {e}")
+        return JSONResponse({"error": f"Error reading memory data: {e}"}, status_code=500)
 
 
 @app.get("/api/graph")

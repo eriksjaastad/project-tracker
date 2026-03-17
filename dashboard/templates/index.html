@@ -473,11 +473,21 @@
                     {% endif %}
 
                     {% if project.task_count is not none and project.task_count > 0 %}
-                    <div class="meta-row">
-                        <span class="meta-label">✅ Tasks:</span>
-                        <span class="meta-value">
-                            {{ project.task_count }} open{% if project.total_tasks > project.task_count %} ({{
-                            project.total_tasks }} total){% endif %}
+                    <div class="meta-row task-status-row">
+                        <span class="meta-label">📋 Tasks:</span>
+                        <span class="task-status-pills">
+                            {% if project.backlog_count > 0 %}
+                            <span class="task-pill pill-backlog" title="Backlog">{{ project.backlog_count }} backlog</span>
+                            {% endif %}
+                            {% if project.todo_count > 0 %}
+                            <span class="task-pill pill-todo" title="To Do">{{ project.todo_count }} todo</span>
+                            {% endif %}
+                            {% if project.in_progress_count > 0 %}
+                            <span class="task-pill pill-inprogress" title="In Progress">{{ project.in_progress_count }} in progress</span>
+                            {% endif %}
+                            {% if project.review_count > 0 %}
+                            <span class="task-pill pill-review" title="Review">{{ project.review_count }} review</span>
+                            {% endif %}
                         </span>
                     </div>
                     {% endif %}
