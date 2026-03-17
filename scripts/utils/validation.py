@@ -23,14 +23,10 @@ SECRET_PATTERNS = [
 # Valid status values for tasks
 VALID_STATUSES = [
     "Backlog",
-    "TRIAGED",
-    "READY_FOR_PATCH",
     "To Do",
     "In Progress",
-    "PR_READY",
     "Review",
     "Done",
-    "Cancelled"
 ]
 
 # Valid priority values for tasks
