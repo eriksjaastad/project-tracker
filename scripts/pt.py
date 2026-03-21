@@ -728,9 +728,10 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
 @click.option("-s", "--status", default="Backlog", help="Initial status")
 @click.option("--priority", default=None, help="Priority: Critical, High, Medium, Low")
 @click.option("--prompt", default=None, help="Agent prompt (execution instructions for AI)")
+@click.option("-d", "--description", default=None, help="Rich description / acceptance criteria (stored in notes field)")
 @click.option("--parent", type=int, default=None, help="Parent task ID (creates subtask)")
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs that block this task")
-def tasks_create(text, project, status, priority, prompt, parent, blocked_by):
+def tasks_create(text, project, status, priority, prompt, description, parent, blocked_by):
     """Create a new task. Auto-detects project from current directory."""
     import json
     db = DatabaseManager()
@@ -756,8 +757,9 @@ def tasks_create(text, project, status, priority, prompt, parent, blocked_by):
     try:
         final_prompt = prompt
         if prompt: final_prompt = prompt.rstrip() + WORKFLOW_FOOTER
-        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, parent_id=parent, blocked_by=blocked_by_json)
+        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, parent_id=parent, blocked_by=blocked_by_json, notes=description)
         msg = f"[green]Created task #{task['id']}: {text[:50]}{'...' if len(text) > 50 else ''}[/green]"
+        if description: msg += f" [dim](+ description)[/dim]"
         if parent: msg += f" [dim](subtask of #{parent})[/dim]"
         if blocked_by: msg += f" [dim](blocked by {blocked_by})[/dim]"
         console.print(msg)
