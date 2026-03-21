@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import type { Task, TaskStatus, TaskPriority, Project, TaskType } from '../types';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import type { Task, TaskStatus, TaskPriority, Project, TaskType, Attachment } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
-import { updateTask, fetchProjects } from '../api';
+import { updateTask, fetchProjects, fetchAttachments, uploadAttachment, deleteAttachment } from '../api';
 import './TaskDetailModal.css';
 
 interface TaskDetailModalProps {
@@ -32,6 +32,32 @@ export function TaskDetailModal({
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Attachments state (#5216)
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (!task) return;
+    const files = Array.from(e.dataTransfer.files);
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      for (const f of files) {
+        await uploadAttachment(task.id, f);
+      }
+      const updated = await fetchAttachments(task.id);
+      setAttachments(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }, [task]);
+
   const PRIORITIES: TaskPriority[] = ['Critical', 'High', 'Medium', 'Low'];
 
   useEffect(() => {
@@ -47,6 +73,8 @@ export function TaskDetailModal({
       setEditedTaskType(task.task_type || 'manual');
       setIsEditing(false);
       setError(null);
+      // Load attachments for this task
+      fetchAttachments(task.id).then(setAttachments).catch(() => setAttachments([]));
     }
   }, [task]);
 
@@ -498,6 +526,91 @@ export function TaskDetailModal({
                 </div>
               )}
             </>
+          )}
+        </div>
+
+        {/* Attachments panel (#5216) */}
+        <div className="task-detail-attachments">
+          <label className="task-detail-label">Attachments</label>
+
+          {/* Drop zone */}
+          <div
+            className={`attachment-zone${dragOver ? ' attachment-zone--over' : ''}`}
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleFileDrop}
+          >
+            {uploading ? '⏳ Uploading…' : '📎 Click or drag files here'}
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={async (e) => {
+              if (!task || !e.target.files?.length) return;
+              const files = Array.from(e.target.files);
+              setUploading(true);
+              try {
+                for (const f of files) {
+                  await uploadAttachment(task.id, f);
+                }
+                const updated = await fetchAttachments(task.id);
+                setAttachments(updated);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Upload failed');
+              } finally {
+                setUploading(false);
+                e.target.value = '';
+              }
+            }}
+          />
+
+          {/* Attachment grid */}
+          {attachments.length > 0 && (
+            <div className="attachment-grid">
+              {attachments.map((att) => {
+                const isImage = att.mime_type?.startsWith('image/');
+                const src = `/api/attachments/${att.task_id}/${att.stored_name}`;
+                const sizeLabel = att.size_bytes > 1024 * 1024
+                  ? `${(att.size_bytes / 1024 / 1024).toFixed(1)} MB`
+                  : `${Math.round(att.size_bytes / 1024)} KB`;
+                return (
+                  <div key={att.id} className="attachment-item">
+                    {isImage ? (
+                      <a href={src} target="_blank" rel="noreferrer">
+                        <img src={src} alt={att.filename} className="attachment-thumb" />
+                      </a>
+                    ) : (
+                      <a href={src} target="_blank" rel="noreferrer" className="attachment-file-icon">
+                        📄
+                      </a>
+                    )}
+                    <div className="attachment-info">
+                      <span className="attachment-name" title={att.filename}>{att.filename}</span>
+                      <span className="attachment-size">{sizeLabel}</span>
+                    </div>
+                    <button
+                      className="attachment-delete"
+                      title="Remove attachment"
+                      onClick={async () => {
+                        if (!task) return;
+                        try {
+                          await deleteAttachment(task.id, att.id);
+                          setAttachments(prev => prev.filter(a => a.id !== att.id));
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Delete failed');
+                        }
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
 

@@ -3,6 +3,7 @@
 import type {
   AgenticMarker,
   AgenticSummaryResponse,
+  Attachment,
   Idea,
   NavigationResponse,
   Project,
@@ -418,5 +419,42 @@ export async function deleteIdea(ideaId: number): Promise<void> {
       throw error;
     }
     throw new Error('Failed to delete idea');
+  }
+}
+
+// ==================== ATTACHMENT API (#5216) ====================
+
+export async function fetchAttachments(taskId: number): Promise<Attachment[]> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/tasks/${taskId}/attachments`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch attachments');
+  }
+  const data = await response.json();
+  return data.attachments || [];
+}
+
+export async function uploadAttachment(taskId: number, file: File): Promise<Attachment> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await fetch(`${API_BASE}/tasks/${taskId}/attachments`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to upload attachment');
+  }
+  return response.json();
+}
+
+export async function deleteAttachment(taskId: number, attachmentId: number): Promise<void> {
+  const response = await fetchWithErrorHandling(
+    `${API_BASE}/tasks/${taskId}/attachments/${attachmentId}`,
+    { method: 'DELETE' }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to delete attachment');
   }
 }

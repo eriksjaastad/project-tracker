@@ -6,7 +6,7 @@ from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 import subprocess
 
-from fastapi import FastAPI, Request, HTTPException, status
+from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -53,6 +53,12 @@ from scripts.pt import get_current_scaffolding_version, compare_versions, rebuil
 logger = get_logger(__name__)
 
 app = FastAPI(title="Project Tracker Dashboard")
+
+# Run idempotent migrations on startup
+try:
+    DatabaseManager().migrate_attachments_table()
+except Exception as _mig_err:
+    logger.warning(f"Attachments migration skipped: {_mig_err}")
 
 # Setup templates and static files
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -895,6 +901,79 @@ async def get_memory_graph_data(
         return JSONResponse({"error": f"Error reading memory data: {e}"}, status_code=500)
 
 
+@app.get("/api/thoughts")
+async def get_thoughts(
+    query: Optional[str] = None,
+    thought_type: Optional[str] = None,
+    project: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    """Return raw list of thoughts from Open Brain."""
+    import sqlite3
+    import json
+
+    projects_root = Path(__file__).parent.parent.parent
+    brain_db_path = projects_root / "ai-memory" / "brain.db"
+
+    if not brain_db_path.exists():
+        return JSONResponse({"error": "Database not found"}, status_code=404)
+
+    try:
+        conn = sqlite3.connect(brain_db_path)
+        conn.row_factory = sqlite3.Row
+
+        where_clauses = []
+        params = []
+
+        if query:
+            where_clauses.append("content LIKE ?")
+            params.append(f"%{query}%")
+
+        if thought_type:
+            where_clauses.append("json_extract(metadata, '$.type') = ?")
+            params.append(thought_type)
+
+        if project:
+            where_clauses.append("json_extract(metadata, '$.project') = ?")
+            params.append(project)
+
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+        # Get total count
+        count_row = conn.execute(f"SELECT COUNT(*) FROM thoughts {where_sql}", params).fetchone()
+        total_count = count_row[0]
+
+        # Get data
+        rows = conn.execute(
+            f"SELECT id, content, metadata, created_at FROM thoughts {where_sql} "
+            f"ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
+
+        thoughts = []
+        for row in rows:
+            metadata = json.loads(row["metadata"]) if row["metadata"] else {}
+            thoughts.append({
+                "id": row["id"],
+                "content": row["content"],
+                "type": metadata.get("type", "observation"),
+                "project": metadata.get("project", "N/A"),
+                "created_at": row["created_at"]
+            })
+
+        conn.close()
+        return {
+            "thoughts": thoughts,
+            "total": total_count,
+            "limit": limit,
+            "offset": offset
+        }
+    except Exception as e:
+        logger.error(f"Error fetching thoughts: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/api/graph")
 async def get_graph_data(
     project: Optional[str] = None,      # Filter to single project
@@ -1563,6 +1642,76 @@ async def delete_task(task_id: int):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete task"
         )
+
+
+# ==================== ATTACHMENT API ENDPOINTS (#5216) ====================
+
+ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024  # 20 MB
+
+
+@app.post("/api/tasks/{task_id}/attachments", status_code=status.HTTP_201_CREATED)
+async def upload_attachment(task_id: int, file: UploadFile = File(...)):
+    """Upload a file and attach it to a task."""
+    import mimetypes
+
+    db = DatabaseManager()
+    task = db.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    content = await file.read()
+    if len(content) > ATTACHMENT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds 20 MB limit")
+
+    ext = Path(file.filename or "upload").suffix
+    stored_name = f"{uuid.uuid4()}{ext}"
+    dest_dir = DatabaseManager._attachments_dir(task_id)
+    dest_path = dest_dir / stored_name
+    dest_path.write_bytes(content)
+
+    mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0]
+    record = db.add_attachment(
+        task_id=task_id,
+        filename=file.filename or stored_name,
+        stored_name=stored_name,
+        mime_type=mime_type,
+        size_bytes=len(content),
+    )
+    return record
+
+
+@app.get("/api/tasks/{task_id}/attachments")
+async def list_attachments(task_id: int):
+    """List all attachments for a task."""
+    db = DatabaseManager()
+    if not db.get_task(task_id):
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return {"attachments": db.get_attachments(task_id)}
+
+
+@app.delete("/api/tasks/{task_id}/attachments/{attachment_id}", status_code=status.HTTP_200_OK)
+async def delete_attachment(task_id: int, attachment_id: int):
+    """Delete an attachment record and its file from disk."""
+    db = DatabaseManager()
+    record = db.delete_attachment(attachment_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    file_path = DatabaseManager._attachments_dir(task_id) / record["stored_name"]
+    if file_path.exists():
+        file_path.unlink()
+    return {"deleted": True, "attachment_id": attachment_id}
+
+
+@app.get("/api/attachments/{task_id}/{stored_name}")
+async def serve_attachment(task_id: int, stored_name: str):
+    """Serve an attachment file for inline preview."""
+    from fastapi.responses import FileResponse
+    import mimetypes
+    file_path = DatabaseManager._attachments_dir(task_id) / stored_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    media_type = mimetypes.guess_type(stored_name)[0] or "application/octet-stream"
+    return FileResponse(path=str(file_path), media_type=media_type)
 
 
 @app.get("/api/agentic/summary")
