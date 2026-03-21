@@ -665,6 +665,7 @@ class DatabaseManager:
         prompt: Optional[str] = None,
         task_type: Optional[str] = None,
         review_comment: Optional[str] = None,
+        notes: Optional[str] = None,
         parent_id: Optional[int] = None,
         blocked_by: Optional[Any] = None,
         sequence_order: Optional[int] = None
@@ -733,11 +734,12 @@ class DatabaseManager:
                     prompt,
                     task_type,
                     review_comment,
+                    notes,
                     parent_id,
                     blocked_by,
                     sequence_order
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 sanitized_text,
                 status,
@@ -749,6 +751,7 @@ class DatabaseManager:
                 prompt,
                 effective_task_type,
                 review_comment,
+                notes,
                 parent_id,
                 blocked_by_value,
                 sequence_order
