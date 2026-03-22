@@ -186,11 +186,15 @@ class DatabaseManager:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def delete_attachment(self, attachment_id: int) -> Optional[Dict[str, Any]]:
-        """Delete an attachment record and return it (so caller can remove the file)."""
+    def delete_attachment(self, attachment_id: int, task_id: int) -> Optional[Dict[str, Any]]:
+        """Delete an attachment record and return it (so caller can remove the file).
+
+        Verifies task ownership — only deletes if the attachment belongs to task_id.
+        """
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT * FROM task_attachments WHERE id = ?", (attachment_id,)
+                "SELECT * FROM task_attachments WHERE id = ? AND task_id = ?",
+                (attachment_id, task_id),
             ).fetchone()
             if not row:
                 return None

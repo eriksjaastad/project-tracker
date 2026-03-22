@@ -38,12 +38,8 @@ export function TaskDetailModal({
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    if (!task) return;
-    const files = Array.from(e.dataTransfer.files);
-    if (!files.length) return;
+  const handleFiles = useCallback(async (files: File[]) => {
+    if (!task || !files.length) return;
     setUploading(true);
     try {
       for (const f of files) {
@@ -57,6 +53,12 @@ export function TaskDetailModal({
       setUploading(false);
     }
   }, [task]);
+
+  const handleFileDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    handleFiles(Array.from(e.dataTransfer.files));
+  }, [handleFiles]);
 
   const PRIORITIES: TaskPriority[] = ['Critical', 'High', 'Medium', 'Low'];
 
@@ -550,21 +552,10 @@ export function TaskDetailModal({
             multiple
             style={{ display: 'none' }}
             onChange={async (e) => {
-              if (!task || !e.target.files?.length) return;
+              if (!e.target.files?.length) return;
               const files = Array.from(e.target.files);
-              setUploading(true);
-              try {
-                for (const f of files) {
-                  await uploadAttachment(task.id, f);
-                }
-                const updated = await fetchAttachments(task.id);
-                setAttachments(updated);
-              } catch (err) {
-                setError(err instanceof Error ? err.message : 'Upload failed');
-              } finally {
-                setUploading(false);
-                e.target.value = '';
-              }
+              e.target.value = '';
+              handleFiles(files);
             }}
           />
 
