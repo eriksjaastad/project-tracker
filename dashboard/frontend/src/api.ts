@@ -458,3 +458,100 @@ export async function deleteAttachment(taskId: number, attachmentId: number): Pr
     throw new Error(err.detail || 'Failed to delete attachment');
   }
 }
+
+// ==================== CALENDAR API ====================
+
+export interface CalendarEvent {
+  id: number;
+  title: string;
+  description?: string;
+  event_date: string;
+  event_time?: string;
+  event_type: 'reminder' | 'deadline' | 'milestone' | 'meeting' | 'recurring';
+  recurrence?: string;
+  project_id?: string;
+  machine?: string;
+  prompt?: string;
+  notify_before_minutes: number;
+  status: 'active' | 'done' | 'cancelled';
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  metadata?: Record<string, unknown>;
+  linked_tasks?: { task_id: number; link_type: string }[];
+}
+
+export interface CalendarCronJob {
+  id: number;
+  project_id: string;
+  schedule: string;
+  command: string;
+  description?: string;
+  last_run?: string;
+  is_active: boolean;
+  machine?: string;
+}
+
+export interface CreateCalendarEventPayload {
+  title: string;
+  event_date: string;
+  event_time?: string;
+  event_type?: string;
+  project_id?: string;
+  machine?: string;
+  prompt?: string;
+  description?: string;
+  notify_before_minutes?: number;
+  recurrence?: string;
+  created_by?: string;
+}
+
+export async function fetchCalendarEvents(params: {
+  days?: number;
+  project_id?: string;
+  machine?: string;
+  event_type?: string;
+  include_all?: boolean;
+} = {}): Promise<CalendarEvent[]> {
+  const q = new URLSearchParams();
+  if (params.days) q.append('days', String(params.days));
+  if (params.project_id) q.append('project_id', params.project_id);
+  if (params.machine) q.append('machine', params.machine);
+  if (params.event_type) q.append('event_type', params.event_type);
+  if (params.include_all) q.append('include_all', 'true');
+  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events?${q}`);
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Failed to fetch calendar events');
+  const data = await response.json();
+  return data.events || [];
+}
+
+export async function fetchCalendarEvent(id: number): Promise<CalendarEvent> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events/${id}`);
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Not found');
+  return response.json();
+}
+
+export async function createCalendarEvent(payload: CreateCalendarEventPayload): Promise<{ id: number; title: string; event_date: string }> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Failed to create event');
+  return response.json();
+}
+
+export async function markCalendarEventDone(id: number): Promise<void> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events/${id}/done`, { method: 'PATCH' });
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Failed to mark done');
+}
+
+export async function fetchCalendarCrons(params: { project_id?: string; machine?: string } = {}): Promise<CalendarCronJob[]> {
+  const q = new URLSearchParams();
+  if (params.project_id) q.append('project_id', params.project_id);
+  if (params.machine) q.append('machine', params.machine);
+  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/crons?${q}`);
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Failed to fetch cron jobs');
+  const data = await response.json();
+  return data.cron_jobs || [];
+}
