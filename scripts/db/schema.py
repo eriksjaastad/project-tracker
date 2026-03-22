@@ -430,7 +430,13 @@ def create_database(db_path: Optional[Path] = None) -> None:
         cursor.execute("ALTER TABLE projects ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both
     except sqlite3.OperationalError:
         pass
-    
+
+    # Migration: add machine designation to cron_jobs (which computer runs this?)
+    try:
+        cursor.execute("ALTER TABLE cron_jobs ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both, web
+    except sqlite3.OperationalError:
+        pass
+
     # Scheduled automation
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cron_jobs (
