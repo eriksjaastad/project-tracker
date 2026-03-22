@@ -45,6 +45,29 @@ Good candidates for entries:
 
 ---
 
+### 2026-03-22: tracker.db → Turso (libsql) for Cross-Machine Shared Kanban
+
+**Context:** tracker.db is local to each machine. Working across laptop and Mac Mini
+means the Kanban state is fragmented — changes made on one machine are invisible on
+the other.
+
+**Decision:** Migrate tracker.db to Turso (libsql cloud) as the "open-kanban" database.
+The `pt` CLI and dashboard use `DatabaseManager._get_conn()`, which now uses libsql
+when `TURSO_KANBAN_URL` + `TURSO_KANBAN_TOKEN` are set, and falls back to local
+SQLite transparently (no code changes needed for offline/dev/test work).
+
+**Reasoning:** Turso is a libsql fork of SQLite with a python client (`libsql`) that
+has an identical API to `sqlite3`. The change was a ~30-line swap in `manager.py`,
+all SQL remained identical. Free tier covers 5 databases at 500MB — plenty of headroom.
+Eliminates the need to manually sync task state between machines.
+
+**Alternatives considered:**
+- Postgres/Supabase: Schema migration overhead, $0 free tier for production workloads
+- SQLite + rsync: Race conditions, no real-time sync
+- Keep local + export/import: Fragile, manual process
+
+---
+
 ## Principles (Optional)
 
 Document recurring principles that guide decisions in this project:

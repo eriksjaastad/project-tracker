@@ -11,11 +11,22 @@
 ## Tech Stack
 
 - **Language:** Python
-- **Frameworks:** None
+- **Database:** Turso (libsql cloud) in production; local SQLite fallback for offline/dev
+- **Frameworks:** Flask dashboard
+
+## Environment Variables (Turso connection)
+
+| Variable | Purpose | Required for cloud mode |
+|---|---|---|
+| `TURSO_KANBAN_URL` | libsql URL from `turso db show open-kanban --url` | Yes |
+| `TURSO_KANBAN_TOKEN` | Auth token from `turso db tokens create open-kanban` | Yes |
+
+When both vars are absent, `pt` CLI uses the local `tracker.db` file automatically.
+See `TURSO_SETUP.md` for full setup + Doppler instructions.
 
 ## Commands
 
-- **Run:** `python main.py`
+- **Run:** `./pt tasks list`
 - **Test:** `pytest`
 
 # Workflow
