@@ -1,0 +1,169 @@
+// Open Brain List View Logic
+
+let listState = {
+    query: '',
+    thoughtType: '',
+    limit: 50,
+    offset: 0,
+    total: 0
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Only init if we are on the memory page
+    if (!document.getElementById('memory-list-view')) return;
+
+    // Event listeners
+    document.getElementById('memory-search').addEventListener('input', debounce((e) => {
+        listState.query = e.target.value;
+        listState.offset = 0;
+        loadThoughts();
+    }, 300));
+
+    document.getElementById('list-type-filter').addEventListener('change', (e) => {
+        listState.thoughtType = e.target.value;
+        listState.offset = 0;
+        loadThoughts();
+    });
+
+    document.getElementById('prev-page').addEventListener('click', () => {
+        if (listState.offset > 0) {
+            listState.offset = Math.max(0, listState.offset - listState.limit);
+            loadThoughts();
+        }
+    });
+
+    document.getElementById('next-page').addEventListener('click', () => {
+        if (listState.offset + listState.limit < listState.total) {
+            listState.offset += listState.limit;
+            loadThoughts();
+        }
+    });
+});
+
+async function loadThoughts() {
+    const params = new URLSearchParams({
+        query: listState.query,
+        thought_type: listState.thoughtType,
+        limit: listState.limit,
+        offset: listState.offset
+    });
+
+    try {
+        const response = await fetch(`/api/thoughts?${params}`);
+        const data = await response.json();
+
+        if (data.error) {
+            console.error('Error loading thoughts:', data.error);
+            return;
+        }
+
+        listState.total = data.total;
+        renderTable(data.thoughts);
+        updatePagination();
+    } catch (err) {
+        console.error('Failed to fetch thoughts:', err);
+    }
+}
+
+function renderTable(thoughts) {
+    const tbody = document.getElementById('thoughts-body');
+    tbody.innerHTML = '';
+
+    if (!thoughts || thoughts.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No thoughts found matching your criteria.</td></tr>';
+        return;
+    }
+
+    thoughts.forEach(t => {
+        const tr = document.createElement('tr');
+        tr.onclick = () => showInGraph(t.id);
+        
+        // Format date
+        let dateStr = t.created_at;
+        try {
+            const date = new Date(t.created_at.replace(' ', 'T'));
+            dateStr = date.toLocaleDateString();
+        } catch(e) {}
+
+        tr.innerHTML = `
+            <td class="col-type"><span class="badge badge-${t.type}">${t.type}</span></td>
+            <td class="col-content">${escapeHtml(t.content).substring(0, 150)}${t.content.length > 150 ? '...' : ''}</td>
+            <td class="col-project">${t.project}</td>
+            <td class="col-date">${dateStr}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    document.getElementById('list-stats').textContent = `Showing ${thoughts.length} of ${listState.total} thoughts`;
+}
+
+function updatePagination() {
+    const page = Math.floor(listState.offset / listState.limit) + 1;
+    const totalPages = Math.ceil(listState.total / listState.limit) || 1;
+    
+    document.getElementById('page-info').textContent = `Page ${page} of ${totalPages}`;
+    document.getElementById('prev-page').disabled = listState.offset === 0;
+    document.getElementById('next-page').disabled = listState.offset + listState.limit >= listState.total;
+}
+
+function switchView(view) {
+    const graphView = document.getElementById('memory-viewport');
+    const listView = document.getElementById('memory-list-view');
+    const graphTab = document.getElementById('tab-graph');
+    const listTab = document.getElementById('tab-list');
+
+    if (view === 'graph') {
+        graphView.classList.add('active');
+        graphView.classList.remove('hidden');
+        listView.classList.add('hidden');
+        listView.classList.remove('active');
+        graphTab.classList.add('active');
+        listTab.classList.remove('active');
+    } else {
+        listView.classList.add('active');
+        listView.classList.remove('hidden');
+        graphView.classList.add('hidden');
+        graphView.classList.remove('active');
+        listTab.classList.add('active');
+        graphTab.classList.remove('active');
+        loadThoughts();
+    }
+}
+
+function refreshData() {
+    if (document.getElementById('memory-viewport').classList.contains('active')) {
+        if (typeof refreshMemoryGraph === 'function') refreshMemoryGraph();
+    } else {
+        loadThoughts();
+    }
+}
+
+function showInGraph(id) {
+    switchView('graph');
+    // We need to wait a moment for the graph to render/be visible
+    setTimeout(() => {
+        const node = memoryData.nodes.find(n => n.id === String(id));
+        if (node) {
+            showDetails(node);
+            highlightNode(node, true);
+        }
+    }, 500);
+}
+
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}

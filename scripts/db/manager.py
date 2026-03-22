@@ -12,10 +12,10 @@ import json
 import os
 import time
 import traceback
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from contextlib import contextmanager
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from .schema import get_db_path, create_database
 from scripts.utils.validation import (
@@ -29,6 +29,14 @@ from scripts.utils.validation import (
 from scripts.logger import get_logger
 
 logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Turso / libsql configuration
+# ---------------------------------------------------------------------------
+
+_TURSO_URL = os.environ.get("TURSO_KANBAN_URL", "")
+_TURSO_TOKEN = os.environ.get("TURSO_KANBAN_TOKEN", "")
+_USE_TURSO: bool = bool(_TURSO_URL and _TURSO_TOKEN)
 
 VALID_STATUS_TRANSITIONS = {
     "Backlog": ["To Do"],
@@ -54,8 +62,75 @@ class DatabaseManager:
         create_database(self.db_path)
         
     @contextmanager
-    def _get_conn(self):
-        """Get database connection context manager."""
+    def _get_conn(self) -> Generator[Any, None, None]:
+        """Get database connection context manager.
+
+        Uses Turso (libsql) when TURSO_KANBAN_URL + TURSO_KANBAN_TOKEN are set;
+        falls back to local SQLite otherwise (offline/dev/test mode).
+        """
+        if _USE_TURSO:
+            try:
+                import libsql
+
+                class _DictCursor:
+                    """Wrap a libsql cursor so rows are accessible by column name."""
+                    def __init__(self, cursor: Any) -> None:
+                        self._cur = cursor
+                    def _make_row(self, row: Any) -> Any:
+                        if row is None or self._cur.description is None:
+                            return row
+                        cols = [d[0] for d in self._cur.description]
+                        values = list(row)
+                        class _Row:
+                            def __getitem__(self, key: Any) -> Any:
+                                if isinstance(key, str): return values[cols.index(key)]
+                                return values[key]
+                            def keys(self) -> list: return cols
+                            def __iter__(self) -> Any: return iter(values)
+                            def __len__(self) -> int: return len(values)
+                        return _Row()
+                    def execute(self, sql: str, params: Any = ()) -> "_DictCursor":
+                        self._cur.execute(sql, params); return self
+                    def executemany(self, sql: str, params: Any) -> "_DictCursor":
+                        self._cur.executemany(sql, params); return self
+                    def fetchone(self) -> Any: return self._make_row(self._cur.fetchone())
+                    def fetchall(self) -> list: return [self._make_row(r) for r in self._cur.fetchall()]
+                    def __iter__(self) -> Any:
+                        for row in self._cur: yield self._make_row(row)
+                    @property
+                    def lastrowid(self) -> Any: return self._cur.lastrowid
+                    @property
+                    def description(self) -> Any: return self._cur.description
+
+                class _DictConn:
+                    """Wrap a libsql connection so cursor() returns _DictCursor."""
+                    def __init__(self, conn: Any) -> None: self._conn = conn
+                    def cursor(self) -> _DictCursor: return _DictCursor(self._conn.cursor())
+                    def execute(self, sql: str, params: Any = ()) -> _DictCursor:
+                        cur = _DictCursor(self._conn.cursor()); cur.execute(sql, params); return cur
+                    def executemany(self, sql: str, params: Any) -> _DictCursor:
+                        cur = _DictCursor(self._conn.cursor()); cur.executemany(sql, params); return cur
+                    def commit(self) -> None: self._conn.commit()
+                    def rollback(self) -> None: self._conn.rollback()
+                    def close(self) -> None: self._conn.close()
+                    def __enter__(self) -> "_DictConn": return self
+                    def __exit__(self, *args: Any) -> None: self.close()
+
+                raw = libsql.connect(_TURSO_URL, auth_token=_TURSO_TOKEN)
+                # WAL is managed server-side by Turso.
+                conn = _DictConn(raw)
+                try:
+                    yield conn
+                finally:
+                    conn.close()
+                return
+            except ImportError as exc:
+                raise RuntimeError(
+                    "TURSO_KANBAN_URL/TURSO_KANBAN_TOKEN are set but the 'libsql' package "
+                    "is not installed. Run: uv add libsql"
+                ) from exc
+
+        # --- Local fallback (sqlite3) ---
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")  # Enable WAL mode for concurrent access

@@ -5,191 +5,106 @@
        uv run $PROJECTS_ROOT/project-scaffolding/agentsync/sync_governance.py
      Any local edits WILL BE LOST. -->
 
-# 🛡️ Ecosystem Governance & Review Protocol (v1.3)
+# Ecosystem Governance & Review Protocol
 
-**Date:** 2026-01-27
-**Status:** ACTIVE
-**Goal:** Transition from "Rapid Experimentation" to "Industrial-Grade Hardening."
+version: 2026.03.12
 
----
+purpose: Checklist-driven review standard for all projects
+model: two-layer defense — robotic scan (Gate 0) + cognitive audit
 
-## 🏛️ Part 1: The Core Architecture (Checklist-First)
-*Intelligence belongs in the checklist, not the prompt.*
+## Blast Radius Prioritization
 
-### 1. The Fundamental Pivot
-Prompts are subjective and mood-dependent; checklists are versioned, auditable specifications of what "reviewed" means.
-*   **Evidence-First Rule:** Every check requires an evidence field (e.g., a `grep` output). Empty evidence = Incomplete Review.
-*   **The Artifact:** The review deliverable is a completed evidence trail, not an unstructured prose opinion.
+tier_1: templates/, .cursorrules, AGENTS.md — propagation sources, highest impact
+tier_2: scripts/, scaffold/ — execution critical, don't propagate
+tier_3: .agent/rules/, patterns/, documentation — human reference, zero code impact
+rule: audit in tier order — a Tier 1 defect infects every downstream project
 
-### 2. The Blast Radius Prioritization
-Audit files in order of their potential to infect the ecosystem:
-1.  **Tier 1: Propagation Sources (Highest Impact):** `templates/`, `.cursorrules`, `AGENTS.md`. If these fail, every downstream project inherits the defect.
-2.  **Tier 2: Execution Critical:** `scripts/`, `scaffold/`. These run the automation but don't propagate DNA.
-3.  **Tier 3: Documentation:** `Documents/`, `patterns/`. Important for humans, zero impact on code execution.
+## Two-Layer Defense
 
----
+layer_1: Robotic Scan (Gate 0) — pre_review_scan.sh catches hardcoded paths, secrets, silent errors
+layer_1_rule: single FAIL blocks all further review
+layer_2: Cognitive Audit — judgment-heavy checks automation misses
+layer_2_check: inverse test analysis (what do passing tests NOT check?)
+layer_2_check: temporal risk (what breaks in 1, 6, 12 months?)
+layer_2_check: propagation impact (Tier 1 files contain no machine-specific assumptions?)
 
-## 🏛️ Part 2: The Two-Layer Defense Model
+## Data Clobber Guard
 
-### Layer 1: Robotic Scan (Gatekeeper)
-A mechanical script (`pre_review_scan.sh`) that catches hardcoded paths, secrets, and silent errors. A single "FAIL" blocks the AI/Human review. This is integrated into the `Project-workflow.md` (lives at projects root) as the mandatory Gate 0.
+rule: scripts writing to global/external paths require path validation, dry-run flag, and safety gate
+require: --dry-run flag that parses all logic but performs zero disk writes
+require: target_path validated against whitelist of project roots
 
-### Layer 2: Cognitive Audit (Architect Work)
-AI Architects focus on judgment-heavy tasks that automation misses:
-*   **Inverse Test Analysis:** For every passing test, document what is **NOT** being checked. Identify the "Dark Territory."
-*   **Temporal Risk Analysis:** Identify what breaks in 1, 6, or 12 months (e.g., unpinned dependencies, API deprecations).
-*   **Propagation Impact:** Verify that Tier 1 files contain no machine-specific assumptions.
+## Database Safety
 
----
+origin: 2026-01-27 94-task data loss
+rule: CASCADE awareness — document FK relationships before any DELETE
+rule: bulk DELETE (>1 row) must backup first (JSON export or table copy)
+rule: auto-cleanup logic requires explicit user confirmation, never silent execution
+banned: unrequested DELETE/DROP/TRUNCATE logic — "helpful" destructive additions are defects
 
-## 🏛️ Part 3: The Industrial Hardening Audit
-*Mandatory checks for projects transitioning from Prototype to Production.*
+## Feature Authorization (Scope Creep Prevention)
 
-### 1. The "Data Clobber" Guard
-Reviewers must verify that any script writing to global or external paths (e.g., `agent-skills-library`) includes:
-*   **Path Validation:** Explicit check that the destination directory exists and is valid.
-*   **Dry-Run Mandate:** A `--dry-run` flag that parses all logic but performs zero disk writes.
-*   **Safety Gate:** Refuse to write if the `target_path` is not explicitly validated against a whitelist of project roots.
+rule: new DELETE, DROP, TRUNCATE, or cleanup logic must trace to explicit user request
+rule: "helpful" additions that weren't asked for are defects, not features
+test: "Did the Conductor explicitly request this behavior?" — if no, reject
 
-**Database Operations (Added 2026-01-27 after 94-task data loss):**
+## Subprocess Integrity
 
-Reviewers must verify that any code performing database DELETE operations includes:
-*   **CASCADE Awareness:** Document foreign key relationships. A `DELETE FROM projects` may cascade to tasks, history, etc.
-*   **Backup Before Delete:** Bulk deletions (>1 row) must create a backup first (JSON export or table copy).
-*   **Confirmation Gate:** Auto-cleanup logic (e.g., "delete stale entries") requires explicit user confirmation, not silent execution.
-*   **No Unrequested Cleanup:** Never add "delete items not found" logic without explicit authorization from the Conductor.
+rule: subprocess.run requires check=True, timeout=<seconds>, capture_output=True
+banned: subprocess calls without timeout (prevents indefinite hangs)
 
-**The 2026-01-27 Incident:** An AI added unrequested auto-delete logic to a scan function. When the scan temporarily found zero projects (due to path issues), it deleted all projects, which CASCADE-deleted 94 tasks. This section exists to prevent that class of failure.
+## Frontmatter & Schema Validation
 
-### 1b. Feature Authorization (Scope Creep Prevention)
-Reviewers must verify that code changes do not introduce unrequested destructive behavior:
-*   **Authorization Check:** Any new DELETE, DROP, TRUNCATE, or cleanup logic must trace to an explicit user request.
-*   **Scope Boundary:** "Helpful" additions that weren't asked for are defects, not features—especially if destructive.
-*   **The Test:** Ask "Did the Conductor explicitly request this behavior?" If no, reject it.
+rule: generated markdown must validate against project's frontmatter taxonomy
+rule: verbatim text (transcripts) must be escaped or truncated to prevent YAML parser breakage
 
-### 2. Subprocess Integrity
-Every `subprocess.run` call must follow the **Production Standard**:
-*   `check=True`: Fail loudly on non-zero exit codes.
-*   `timeout=X`: Never allow a subprocess to hang indefinitely (e.g., `yt-dlp` or `ollama` hangs).
-*   `capture_output=True`: Ensure stdout/stderr are captured for telemetry if a failure occurs.
+## Test Fixture Integrity
 
-### 3. Frontmatter & Schema Validation
-For projects that generate files:
-*   **Schema Enforcement:** Generated markdown must be validated against the project's frontmatter taxonomy.
-*   **Escape Verbatim:** Verbatim text (like transcripts) must be escaped or truncated to prevent breaking YAML parser logic.
+rule: all tests use temporary directories (tmp_path, tempfile) — no real project paths
+rule: fixtures must mirror production file structures, not empty dirs
+rule: mock subprocess.run, network calls, and system queries
+rule: build complex fixtures from simpler ones (composable)
+banned: weak assertions — assert isinstance() or is not None alone is insufficient
 
-### 4. Test Fixture Integrity
-For projects with filesystem or external dependencies:
-*   **Isolation Mandate:** All tests must use temporary directories (`tmp_path`, `tempfile`). No tests should read/write to real project paths.
-*   **Realistic Structures:** Fixtures must create file structures that mirror production (not empty dirs or single files).
-*   **Mock External Calls:** `subprocess.run`, network calls, and system queries must be mocked to prevent flaky tests.
-*   **Composable Fixtures:** Build complex fixtures from simpler ones (e.g., `project_with_wikilinks` builds on `project_with_markdown`).
-*   **No Weak Assertions:** Tests must verify specific values and behaviors, not just types. `assert isinstance(result, list)` is insufficient; `assert len(result) > 0` and `assert result[0].field == expected` are required.
+## Placeholder Integrity (Gate 2)
 
-### 5. Placeholder Integrity (Gate 2)
-Every scaffolded project must be validated for unfilled template placeholders:
-*   **The Check:** Run `scripts/validate_project.py` or `scripts/audit_all_projects.py`.
-*   **The Standard:** Zero results for `{{VAR}}` patterns in any `.md`, `.py`, or `.sh` files.
-*   **The Enforcement:** A single unfilled placeholder triggers a **Scaffolding Failure** alert to Discord.
+rule: zero unfilled {{VAR}} patterns in any .md, .py, or .sh files
+check: run scripts/validate_project.py or scripts/audit_all_projects.py
+enforcement: single unfilled placeholder triggers Scaffolding Failure alert
 
-### 6. Silent Failure Prevention (Added 2026-01-27)
-Functions that discover, scan, or aggregate data must NEVER silently return empty results when the underlying operation failed:
-*   **No Silent Empty Returns:** `return []` without logging is a defect. If a directory doesn't exist, LOG a warning, don't just return empty.
-*   **Distinguish "Nothing Found" from "Couldn't Look":** A scanner finding 0 items in a valid directory is different from a scanner failing to read the directory.
-*   **The Pattern:**
-    ```python
-    # BAD - Silent failure
-    if not base.exists():
-        return []  # Caller has no idea why
+## Silent Failure Prevention
 
-    # GOOD - Explicit failure
-    if not base.exists():
-        logger.warning(f"Directory does not exist: {base}")
-        return []  # Caller can see the warning in logs
-    ```
-*   **Exception Handling Required:** `iterdir()`, `glob()`, and similar filesystem operations can raise `PermissionError`, `OSError`. Wrap in try/except with logging.
+rule: return [] without logging when an operation failed is a defect
+rule: distinguish "nothing found" from "couldn't look" — different failure modes
+require: try/except with logging around iterdir(), glob(), filesystem operations
+require: if scanner finds 0 items where items are expected, emit WARNING
 
-**The 2026-01-27 Incident Context:** The `discover_projects()` function returned an empty list when PROJECTS_ROOT pointed to a non-existent path. No warning was logged. Downstream code interpreted "0 projects" as "delete everything not found."
+## Environment Variable Standards
 
-### 7. Environment Variable Standards
-Critical environment variables that affect data paths must be validated:
-*   **PROJECTS_ROOT Standard:**
-    - Must be validated at startup (exists, is directory, is readable)
-    - Empty string fallback to cwd is FORBIDDEN (use explicit default or fail)
-    - Log the resolved path at startup for debugging
-*   **Validation Pattern:**
-    ```python
-    # BAD - Empty string becomes cwd silently
-    PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", ""))
+rule: critical env vars (PROJECTS_ROOT) validated at startup — exists, is directory, is readable
+banned: empty string fallback to cwd — use explicit default or fail
+require: log resolved path at startup for debugging
 
-    # GOOD - Explicit validation
-    projects_root = os.getenv("PROJECTS_ROOT")
-    if not projects_root:
-        projects_root = Path(__file__).parent.parent  # Explicit default
-        logger.info(f"PROJECTS_ROOT not set, using {projects_root}")
-    PROJECTS_ROOT = Path(projects_root)
-    if not PROJECTS_ROOT.is_dir():
-        raise ValueError(f"PROJECTS_ROOT is not a directory: {PROJECTS_ROOT}")
-    ```
-*   **The Test:** If an env var is unset, does the code behave predictably? If the answer is "it uses cwd" or "it silently fails," that's a defect.
+## Performance Guards
 
-### 8. Performance Guards
-Filesystem operations that scale with codebase size must be bounded:
-*   **No Unbounded Recursive Globs:** `any(item.glob("**/*.py"))` scans the ENTIRE subtree. For 35+ projects with node_modules, this is catastrophic.
-*   **Alternatives:**
-    - Check only root-level files: `any(item.glob("*.py"))`
-    - Check specific known locations: `(item / "src").exists()`
-    - Use cached metadata from prior scans
-    - Limit depth: `item.glob("*/*.py")` (one level deep)
-*   **Sanity Checks for Zero Results:** If a scanner expects to find items (e.g., projects in PROJECTS_ROOT) and finds zero, emit a WARNING. Don't silently proceed with destructive operations.
+banned: unbounded recursive globs (**/*.py) across full project trees
+alternatives: root-level globs (*.py), specific known locations, cached metadata, depth-limited globs
+rule: zero-result sanity check — warn when scanner finds nothing, don't silently proceed
 
-### 9. End-to-End Data Flow Trace (E2E-TRACE)
-Every code review involving a pipeline, message bus, or cross-boundary call MUST include at least one concrete end-to-end trace before approval.
+## E2E Data Flow Trace
 
-**What this means:** Pick a representative input (e.g., `draft_read("pyproject.toml")` dispatched to an external project) and walk it through every layer — from the entry point where it's constructed, through serialization, across process/service boundaries, through deserialization, into the handler, and back out. Document what happens to the data at each hop.
+rule: code reviews involving pipelines or cross-boundary calls require at least one concrete E2E trace
+method: pick representative input, walk through every layer, document what happens at each hop
+check: at each boundary — is value passed? right type? transformed correctly? can it be lost?
+origin: 2026-02-15 bufio.Scanner 64KB buffer silently dropped 242KB review prompts
 
-**Why:** Static inspection of individual functions catches local bugs. It does not catch architectural omissions — cases where a value is never propagated, a field doesn't exist in a struct, or a path gets silently truncated at a boundary. These bugs are invisible when you review files in isolation. They only become visible when you follow one piece of data through the entire system.
+## PRD Traceability
 
-**The check:**
-*   Identify the critical data path for the change under review
-*   Trace at least one concrete value from origin to destination across all layers
-*   At each boundary, verify: Is the value passed? Is it the right type? Is it transformed correctly? Can it be lost or silently defaulted?
-*   Document the trace (even as a one-line-per-hop summary in the review)
+rule: Judge verifies implementation against original PRD, not just compressed Proposal
+require: every PRD requirement has status — Implemented, DESCOPED (with reason), or Deferred (with rationale)
+banned: requirements vanishing without documentation — silent drops are review failures
 
-**Anti-pattern this prevents:** Reviewing `dispatch_task.py` and saying "looks fine," reviewing `loop.go` and saying "looks fine," reviewing `types.go` and saying "looks fine" — while none of them pass `project_root` and the system silently does the wrong thing. Each file looks correct in isolation. The bug lives in the gaps between them.
-
-**Origin:** 2026-02-15. A `bufio.Scanner` with a 64KB default buffer silently dropped 242KB review prompts. `dispatch_task.py`, `hooks.py`, and `handler.go` each passed individual review. The broken pipe only appeared when data actually flowed end-to-end.
-
----
-
-## 🏛️ Part 4: Scalability Analysis
-*Reviewers must document the "Ceiling" of the current architecture.*
-
-### 1. The Context Window Limit
-Any logic that aggregates multiple files (e.g., `synthesize.py` reading an entire library) must be flagged for:
-*   **The Truncation Risk:** When does the library size exceed the LLM's context window?
-*   **Strategy:** Is there a Map-Reduce, RAG, or Tiered Synthesis plan for scale?
-
-### 2. Repository Bloat
-Audit for logic that dumps massive verbatim data (e.g., 2-hour video transcripts) into the main repository. Recommend strategies for externalizing large assets if they don't serve the core LLM reasoning.
-
----
-
-## 🧠 Part 5: Continual Learning (The Control Loop)
-*How we turn "Scars" into "Standards."*
-
-### 1. The "Scar Tissue" SLA
-Any new defect type found must be added to the **Robotic Scan** and the **Checklist** within **24 hours**.
-
-### 2. Regression Harnessing
-Every bug found must result in a **Reproducer Test** in CI. These tests are the "immune system" of the repo.
-
-### 3. Context-Aware "Mission Orders" (RISEN)
-Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing) to create a behavioral contract for the auditor.
-
----
-
-## 📋 Part 6: The Master Review Checklist (Template)
+## Master Review Checklist
 
 | ID | Category | Check Item | Evidence Requirement |
 |----|----------|------------|----------------------|
@@ -221,29 +136,4 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 | **R1** | **Reviews** | **Active Review Location** | Must be in project root: `CODE_REVIEW_{MODEL}_{VERSION}.md` |
 | **S1** | **Scaling** | Context ceiling strategy (Map-Reduce/RAG) | Document the architectural ceiling |
 | **S2** | **Scaling** | Memory/OOM guards for unbounded processing | Verify size-aware batching logic |
-
----
-
-## 🛠️ Immediate Action Items
-- [x] **Task 1:** Finalize `scripts/pre_review_scan.sh` as the mandatory Gate 0.
-- [ ] **Task 2:** Refactor `test_scripts_follow_standards.py` to `test_ecosystem_dna_integrity.py`.
-- [ ] **Task 3:** Establish the "Vault" protocol for the local `.env` record of API keys.
-- [x] **Task 4:** Implement `scripts/audit_all_projects.py` for ecosystem-wide placeholder scanning.
-- [x] **Task 5:** Add database safety rules (H5-H7) and incident documentation (2026-01-27).
-- [x] **Task 6:** Add silent failure prevention rules (E2-E4, Section 6-8) after code quality audit.
-
----
-**Protocol Authorized by:** The Phase 5 Judge (Super Manager)
-**Strategic Alignment:** Infrastructure (Root)
-
-## Related Documentation
-
-- [Project Workflow](../Project-workflow.md) - master workflow at projects root
-- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
-- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
-- [Automation Reliability](patterns/automation-reliability.md) - automation
-- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
-- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
-- [Safety Systems](patterns/safety-systems.md) - security
-- [Agent Skills Library](../agent-skills-library/README.md) - Agent Skills
-
+| **T5** | **Traceability** | Every PRD requirement accounted for (no silent drops) | List each requirement, status (Impl/Descoped/Deferred) |

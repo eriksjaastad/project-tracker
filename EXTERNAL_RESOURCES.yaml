@@ -1,0 +1,21 @@
+---
+# External Resources — project-tracker
+# Updated: 2026-03-22
+# Purpose: Track all external services this project depends on.
+# ALWAYS update this file when adding/removing external service dependencies.
+---
+
+services:
+  - name: Turso (open-kanban)
+    url: https://turso.tech
+    purpose: >
+      Cloud-hosted libsql database replacing local tracker.db for cross-machine
+      shared Kanban state. Used by manager.py when TURSO_KANBAN_URL +
+      TURSO_KANBAN_TOKEN env vars are set.
+    env_vars:
+      - TURSO_KANBAN_URL
+      - TURSO_KANBAN_TOKEN
+    doppler_project: project-tracker
+    cost: Free tier (5 databases, 500MB total)
+    added: 2026-03-22
+    card: "#5231"

@@ -3,6 +3,12 @@ name = "project-tracker"
 version = "0.0.0"
 description = "Local dashboard and CLI for tracking projects, Kanban work, graph relationships, and agentic workflow signals across the projects root."
 requires-python = ">=3.11"
+dependencies = [
+    "libsql>=0.1.11",
+]
+
+[project.optional-dependencies]
+turso = ["libsql>=0.1.0"]  # Install with: uv sync --extra turso
 
 [project.scripts]
 "./pt launch" = "scripts.pt:cli"
