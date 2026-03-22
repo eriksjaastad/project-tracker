@@ -47,8 +47,27 @@ from discovery.journal_specialist import JournalSpecialist
 console = Console()
 
 
-@click.group()
-def cli():
+
+_PT_BANNER = """\
+[bold cyan]  /^\\\\[/bold cyan]
+[bold cyan] (   )[/bold cyan]  [bold white]pt[/bold white] [dim]· project tracker[/dim]
+[bold cyan]  ) ([/bold cyan]
+[bold cyan] (___)  [/bold cyan][dim]✦ plan · ship · repeat ✦[/dim]
+"""
+
+def _print_banner() -> None:
+    """Print the pt banner — suppressed in non-interactive / CI environments."""
+    import os, sys
+    if not sys.stdout.isatty():
+        return
+    if os.environ.get("CI") or os.environ.get("PT_NO_BANNER"):
+        return
+    console.print(_PT_BANNER)
+
+
+@click.group(invoke_without_command=True)
+@click.pass_context
+def cli(ctx):
     """Project Tracker - Manage and track all your projects
 
     Environment Variables:
@@ -58,8 +77,11 @@ def cli():
     PT_EXTERNAL_BACKUP_DIR: Path for safety backups (use this in sandboxed environments)
     PT_ALLOW_FRESH_DB: Set to 1 to allow starting with an empty database
     SAFE_MODE: Set to 0 to enable permanent deletions (Erik only)
+    PT_NO_BANNER: Set to 1 to suppress the startup banner
     """
-    pass
+    _print_banner()
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 def compare_versions(v1, v2):

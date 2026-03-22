@@ -76,6 +76,20 @@ export interface Task {
   is_blocked?: boolean;
   incomplete_blocking_ids?: number[];
   sequence_order: number | null;
+
+  // File attachments (#5216)
+  attachments?: Attachment[];
+}
+
+export interface Attachment {
+  id: number;
+  task_id: number;
+  filename: string;
+  stored_name: string;
+  mime_type: string | null;
+  size_bytes: number;
+  uploaded_at: string;
+  uploaded_by: string;
 }
 
 export interface Project {
