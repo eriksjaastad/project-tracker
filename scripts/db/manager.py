@@ -1009,7 +1009,14 @@ class DatabaseManager:
             is_valid, error_message = validate_task_type(updates["task_type"])
             if not is_valid:
                 raise ValueError(error_message)
-        
+
+        # Validate machine if provided
+        if "machine" in updates:
+            from scripts.utils.validation import validate_machine
+            is_valid, error_message = validate_machine(updates["machine"])
+            if not is_valid:
+                raise ValueError(error_message)
+
         now = datetime.now().isoformat()
         old_status = existing_task["status"]
         new_status = updates.get("status", old_status)
