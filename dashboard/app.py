@@ -93,6 +93,13 @@ NAVIGATION_ITEMS = [
         "navigation_type": "spa",
     },
     {
+        "id": "calendar",
+        "label": "Calendar",
+        "href": "/calendar",
+        "match_prefixes": ["/calendar"],
+        "navigation_type": "spa",
+    },
+    {
         "id": "graph",
         "label": "Graph",
         "href": "/graph",
@@ -171,6 +178,7 @@ async def serve_spa_shell(request: Request):
 @app.get("/kanban", response_class=HTMLResponse)
 @app.get("/kanban/{project}", response_class=HTMLResponse)
 @app.get("/agentic", response_class=HTMLResponse)
+@app.get("/calendar", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
     return await serve_spa_shell(request)
@@ -778,6 +786,141 @@ async def api_learning_stats():
             },
             "projects": []
         }
+
+
+# =============================================================================
+# Calendar API
+# =============================================================================
+
+class CalendarEventCreate(BaseModel):
+    title: str
+    event_date: str
+    event_time: Optional[str] = None
+    event_type: str = "reminder"
+    project_id: Optional[str] = None
+    machine: Optional[str] = None
+    prompt: Optional[str] = None
+    description: Optional[str] = None
+    notify_before_minutes: int = 60
+    recurrence: Optional[str] = None
+    created_by: str = "human"
+
+
+def _get_cal_manager():
+    from db.calendar_manager import CalendarManager
+    cm = CalendarManager()
+    cm.ensure_tables()
+    return cm
+
+
+@app.get("/api/calendar/events")
+async def api_calendar_events(
+    days: int = 30,
+    project_id: Optional[str] = None,
+    machine: Optional[str] = None,
+    event_type: Optional[str] = None,
+    include_all: bool = False,
+):
+    """Return upcoming calendar events."""
+    try:
+        cm = _get_cal_manager()
+        events = cm.get_events(
+            days=days,
+            project_id=project_id,
+            machine=machine,
+            event_type=event_type,
+            include_all=include_all,
+        )
+        return {"events": events, "total": len(events)}
+    except Exception as e:
+        logger.error(f"Calendar events error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/calendar/events/{event_id}")
+async def api_calendar_event_detail(event_id: int):
+    """Return a single calendar event with linked tasks."""
+    try:
+        cm = _get_cal_manager()
+        event = cm.get_event(event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+        return event
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Calendar event detail error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/calendar/events")
+async def api_calendar_create(payload: CalendarEventCreate):
+    """Create a calendar event."""
+    try:
+        cm = _get_cal_manager()
+        event_id = cm.add_event(
+            title=payload.title,
+            event_date=payload.event_date,
+            event_time=payload.event_time,
+            event_type=payload.event_type,
+            project_id=payload.project_id,
+            machine=payload.machine,
+            prompt=payload.prompt,
+            description=payload.description,
+            notify_before_minutes=payload.notify_before_minutes,
+            recurrence=payload.recurrence,
+            created_by=payload.created_by,
+        )
+        return {"id": event_id, "title": payload.title, "event_date": payload.event_date}
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Calendar create error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/api/calendar/events/{event_id}/done")
+async def api_calendar_done(event_id: int):
+    """Mark calendar event as done."""
+    try:
+        cm = _get_cal_manager()
+        if cm.mark_done(event_id):
+            return {"ok": True}
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/calendar/crons")
+async def api_calendar_crons(
+    project_id: Optional[str] = None,
+    machine: Optional[str] = None,
+):
+    """Return all active cron jobs with machine designations."""
+    try:
+        cm = _get_cal_manager()
+        crons = cm.get_cron_jobs(project_id=project_id, machine=machine)
+        return {"cron_jobs": crons, "total": len(crons)}
+    except Exception as e:
+        logger.error(f"Calendar crons error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/calendar/remind")
+async def api_calendar_remind(
+    within_minutes: int = 60,
+    machine: Optional[str] = None,
+):
+    """Events firing soon — for agent polling and notification widgets."""
+    try:
+        cm = _get_cal_manager()
+        events = cm.get_upcoming_reminders(within_minutes=within_minutes, machine=machine)
+        return {"events": events, "total": len(events), "within_minutes": within_minutes}
+    except Exception as e:
+        logger.error(f"Calendar remind error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/graph", response_class=HTMLResponse)
