@@ -430,7 +430,9 @@ def create_database(db_path: Optional[Path] = None) -> None:
         cursor.execute("ALTER TABLE projects ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both
     except sqlite3.OperationalError:
         pass
-    
+
+
+
     # Scheduled automation
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cron_jobs (
@@ -444,6 +446,11 @@ def create_database(db_path: Optional[Path] = None) -> None:
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )
     """)
+    # Migration: add machine designation to cron_jobs (must run AFTER CREATE TABLE above)
+    try:
+        cursor.execute("ALTER TABLE cron_jobs ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both, web
+    except sqlite3.OperationalError:
+        pass  # Column already exists
     
     # External services
     cursor.execute("""

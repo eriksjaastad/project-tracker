@@ -1244,11 +1244,419 @@ def inbox_clear():
 
 
 # =============================================================================
+# Calendar group
+# =============================================================================
+
+def _get_calendar_manager():
+    from db.calendar_manager import CalendarManager
+    cm = CalendarManager()
+    cm.ensure_tables()
+    return cm
+
+
+def _display_events(events, json_output=False, cron_jobs=None):
+    import json as json_lib
+    if json_output:
+        out = {"events": events, "total": len(events)}
+        if cron_jobs is not None:
+            out["cron_jobs"] = cron_jobs
+        print(json_lib.dumps(out, indent=2))
+        return
+    if not events and not cron_jobs:
+        print("No events found.")
+        return
+    if events:
+        for ev in events:
+            time_str = f" {ev['event_time']}" if ev.get("event_time") else ""
+            machine_str = f" | {ev['machine']}" if ev.get("machine") else ""
+            project_str = f" | {ev['project_id']}" if ev.get("project_id") else ""
+            prompt_marker = " [prompt]" if ev.get("prompt") else ""
+            print(f"#{ev['id']} | {ev['event_date']}{time_str} | {ev['event_type']} | {ev['status']}{machine_str}{project_str}{prompt_marker} | {ev['title']}")
+        print(f"\nEvents: {len(events)}")
+    if cron_jobs:
+        print(f"\n── Cron Jobs ──")
+        for cj in cron_jobs:
+            machine_str = f" | {cj['machine']}" if cj.get("machine") else " | machine:?"
+            desc_str = f" | {cj['description']}" if cj.get("description") else ""
+            print(f"  cron/{cj['id']} | {cj['schedule']}{machine_str} | {cj['project_id']}{desc_str} | {cj['command']}")
+        print(f"\nCron jobs: {len(cron_jobs)}")
+
+
+@click.group(name="calendar", invoke_without_command=True)
+@click.pass_context
+@click.option("--days", default=7, type=int, help="Days ahead to show (default: 7)")
+@click.option("-p", "--project", default=None, help="Filter by project")
+@click.option("-m", "--machine", default=None, help="Filter by machine: MacBook, OpenClaw, Both")
+@click.option("-t", "--type", "event_type", default=None, help="Filter by type: reminder, deadline, milestone, meeting")
+@click.option("--all", "show_all", is_flag=True, help="Show all events (no date window)")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def calendar_group(ctx, days, project, machine, event_type, show_all, json_output):
+    """Manage the AI-first calendar.
+
+    \b
+    Examples:
+        ./pt calendar                        # Upcoming 7 days
+        ./pt calendar --days 30              # Next 30 days
+        ./pt calendar -p ai-memory-replay    # Filter by project
+        ./pt calendar --machine MacBook      # Filter by machine
+        ./pt calendar add "Sprint review" --date 2026-03-28
+        ./pt calendar show 1
+        ./pt calendar remind --json          # For cron agent polling
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    db = DatabaseManager()
+    project_id = _resolve_project_id(db, project) if project else None
+    cm = _get_calendar_manager()
+    events = cm.get_events(
+        days=days,
+        project_id=project_id,
+        machine=machine,
+        event_type=event_type,
+        include_all=show_all,
+    )
+    cron_jobs = cm.get_cron_jobs(project_id=project_id, machine=machine)
+    _display_events(events, json_output=json_output, cron_jobs=cron_jobs)
+
+
+@calendar_group.command(name="list")
+@click.option("--days", default=7, type=int, help="Days ahead to show (default: 7)")
+@click.option("-p", "--project", default=None, help="Filter by project")
+@click.option("-m", "--machine", default=None, help="Filter by machine")
+@click.option("-t", "--type", "event_type", default=None, help="Filter by event type")
+@click.option("--all", "show_all", is_flag=True, help="Show all events ignoring date window")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def calendar_list(days, project, machine, event_type, show_all, json_output):
+    """List upcoming calendar events and active cron jobs."""
+    db = DatabaseManager()
+    project_id = _resolve_project_id(db, project) if project else None
+    cm = _get_calendar_manager()
+    events = cm.get_events(
+        days=days, project_id=project_id, machine=machine,
+        event_type=event_type, include_all=show_all,
+    )
+    cron_jobs = cm.get_cron_jobs(project_id=project_id, machine=machine)
+    _display_events(events, json_output=json_output, cron_jobs=cron_jobs)
+
+
+@calendar_group.command(name="crons")
+@click.option("-p", "--project", default=None, help="Filter by project")
+@click.option("-m", "--machine", default=None, help="Filter by machine: MacBook, OpenClaw, Both, web")
+@click.option("--all", "show_all", is_flag=True, help="Include inactive cron jobs")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def calendar_crons(project, machine, show_all, json_output):
+    """List all cron jobs with their machine designations.
+
+    \b
+    Examples:
+        ./pt calendar crons
+        ./pt calendar crons --machine MacBook
+        ./pt calendar crons -p project-tracker --json
+    """
+    import json as json_lib
+    db = DatabaseManager()
+    project_id = _resolve_project_id(db, project) if project else None
+    cm = _get_calendar_manager()
+    cron_jobs = cm.get_cron_jobs(
+        project_id=project_id, machine=machine, active_only=not show_all
+    )
+    if json_output:
+        print(json_lib.dumps({"cron_jobs": cron_jobs, "total": len(cron_jobs)}, indent=2))
+        return
+    if not cron_jobs:
+        print("No cron jobs found.")
+        return
+    print("Cron Jobs\n")
+    for cj in cron_jobs:
+        machine_str = f" | {cj['machine']}" if cj.get("machine") else " | machine:?"
+        desc_str = f" | {cj['description']}" if cj.get("description") else ""
+        active_str = "" if cj.get("is_active", 1) else " [inactive]"
+        print(f"  cron/{cj['id']} | {cj['schedule']}{machine_str} | {cj['project_id']}{desc_str}{active_str}")
+        print(f"    {cj['command']}")
+    print(f"\nTotal: {len(cron_jobs)} cron job(s)")
+
+
+@calendar_group.command(name="add-cron")
+@click.argument("project")
+@click.argument("schedule")
+@click.argument("command")
+@click.option("--description", default="", help="What this cron job does")
+@click.option("-m", "--machine", default=None,
+              type=click.Choice(["MacBook", "OpenClaw", "Both", "web"]),
+              help="Which machine runs this job")
+def calendar_add_cron(project, schedule, command, description, machine):
+    """Add a cron job from the calendar (with machine designation).
+
+    \b
+    Examples:
+        ./pt calendar add-cron project-tracker "*/15 * * * *" "./pt calendar remind --json" \\
+            --machine MacBook --description "Agent reminder poller"
+        ./pt calendar add-cron ai-memory-replay "0 9 * * 1" "bash scripts/render_replay.sh" \\
+            --machine MacBook --description "Weekly brain replay render"
+    """
+    from datetime import datetime, timezone as _tz
+    db = DatabaseManager()
+    project_id = _resolve_project_id(db, project)
+    if not project_id:
+        console.print(f"[red]Project '{project}' not found[/red]"); return
+
+    cm = _get_calendar_manager()
+    # Insert directly so we can capture lastrowid atomically — avoids duplicate-command race
+    with cm._conn() as conn:
+        cursor = conn.execute(
+            """INSERT INTO cron_jobs (project_id, schedule, command, description, machine, is_active)
+               VALUES (?, ?, ?, ?, ?, 1)""",
+            (project_id, schedule, command, description or None, machine),
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
+
+    machine_note = f" on {machine}" if machine else ""
+    console.print(f"[green]✅ Added cron job #{new_id} to {project}{machine_note}[/green]")
+    console.print(f"   Schedule: {schedule}")
+    console.print(f"   Command:  {command}")
+
+
+@calendar_group.command(name="add")
+@click.argument("title")
+@click.option("--date", "event_date", required=True, help="Date: YYYY-MM-DD")
+@click.option("--time", "event_time", default=None, help="Time: HH:MM (optional)")
+@click.option("-t", "--type", "event_type", default="reminder",
+              type=click.Choice(["reminder", "deadline", "milestone", "meeting", "recurring"]),
+              help="Event type (default: reminder)")
+@click.option("-p", "--project", default=None, help="Project name or ID")
+@click.option("-m", "--machine", default=None, help="Machine: MacBook, OpenClaw, Both")
+@click.option("--prompt", default=None, help="Agent instructions when event fires")
+@click.option("--description", default=None, help="Human-readable description")
+@click.option("--notify", "notify_before_minutes", default=60, type=int,
+              help="Minutes before to notify (default: 60)")
+@click.option("--recurrence", default=None,
+              type=click.Choice(["daily", "weekly", "monthly"]),
+              help="Recurrence pattern")
+@click.option("--json", "json_output", is_flag=True, help="Output new event as JSON")
+def calendar_add(title, event_date, event_time, event_type, project, machine,
+                 prompt, description, notify_before_minutes, recurrence, json_output):
+    """Add a calendar event.
+
+    \b
+    Examples:
+        ./pt calendar add "Ship v2" --date 2026-03-28 --type milestone
+        ./pt calendar add "Weekly review" --date 2026-03-25 --time 10:00 --recurrence weekly
+        ./pt calendar add "Check cards" --date 2026-03-24 --prompt "Review all In Progress cards" --machine Both
+    """
+    import json as json_lib
+    db = DatabaseManager()
+    project_id = _resolve_project_id(db, project) if project else None
+    if project and not project_id:
+        console.print(f"[red]Project '{project}' not found[/red]"); return
+
+    cm = _get_calendar_manager()
+    try:
+        event_id = cm.add_event(
+            title=title,
+            event_date=event_date,
+            event_time=event_time,
+            event_type=event_type,
+            project_id=project_id,
+            machine=machine,
+            prompt=prompt,
+            description=description,
+            notify_before_minutes=notify_before_minutes,
+            recurrence=recurrence,
+            created_by="human",
+        )
+        if json_output:
+            print(json_lib.dumps({"id": event_id, "title": title, "event_date": event_date}))
+        else:
+            console.print(f"[green]✅ Created event #{event_id}: {title} on {event_date}[/green]")
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+
+
+@calendar_group.command(name="show")
+@click.argument("event_id", type=int)
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def calendar_show(event_id, json_output):
+    """Show full details of a calendar event."""
+    import json as json_lib
+    cm = _get_calendar_manager()
+    event = cm.get_event(event_id)
+    if not event:
+        console.print(f"[red]Event #{event_id} not found[/red]"); return
+    if json_output:
+        print(json_lib.dumps(event, indent=2)); return
+
+    console.print(f"\n[bold cyan]#{event['id']} — {event['title']}[/bold cyan]")
+    console.print(f"Date:    {event['event_date']}" + (f" {event['event_time']}" if event.get("event_time") else ""))
+    console.print(f"Type:    {event['event_type']}")
+    console.print(f"Status:  {event['status']}")
+    if event.get("machine"):       console.print(f"Machine: {event['machine']}")
+    if event.get("project_id"):    console.print(f"Project: {event['project_id']}")
+    if event.get("recurrence"):    console.print(f"Recurs:  {event['recurrence']}")
+    if event.get("description"):   console.print(f"\n{event['description']}")
+    if event.get("prompt"):        console.print(f"\n[dim]Agent prompt:[/dim]\n{event['prompt']}")
+
+    linked = event.get("linked_tasks", [])
+    if linked:
+        console.print(f"\n[bold]Linked tasks:[/bold]")
+        for t in linked:
+            console.print(f"  #{t['id']} [{t['status']}] {t['text']} ({t['link_type']})")
+    console.print()
+
+
+@calendar_group.command(name="link")
+@click.argument("event_id", type=int)
+@click.argument("task_id", type=int)
+@click.option("--type", "link_type", default="related",
+              type=click.Choice(["related", "deadline-for", "blocks"]),
+              help="Link type (default: related)")
+def calendar_link(event_id, task_id, link_type):
+    """Link a task to a calendar event."""
+    cm = _get_calendar_manager()
+    if not cm.get_event(event_id):
+        console.print(f"[red]Event #{event_id} not found[/red]"); return
+    cm.link_task(event_id, task_id, link_type)
+    console.print(f"[green]Linked task #{task_id} to event #{event_id} ({link_type})[/green]")
+
+
+@calendar_group.command(name="unlink")
+@click.argument("event_id", type=int)
+@click.argument("task_id", type=int)
+def calendar_unlink(event_id, task_id):
+    """Remove a task-event link."""
+    cm = _get_calendar_manager()
+    cm.unlink_task(event_id, task_id)
+    console.print(f"[green]Unlinked task #{task_id} from event #{event_id}[/green]")
+
+
+@calendar_group.command(name="done")
+@click.argument("event_id", type=int)
+def calendar_done(event_id):
+    """Mark an event as done."""
+    cm = _get_calendar_manager()
+    if cm.mark_done(event_id):
+        console.print(f"[green]✅ Event #{event_id} marked as done[/green]")
+    else:
+        console.print(f"[red]Event #{event_id} not found[/red]")
+
+
+@calendar_group.command(name="cancel")
+@click.argument("event_id", type=int)
+def calendar_cancel(event_id):
+    """Cancel an event."""
+    cm = _get_calendar_manager()
+    if cm.cancel_event(event_id):
+        console.print(f"[yellow]Event #{event_id} cancelled[/yellow]")
+    else:
+        console.print(f"[red]Event #{event_id} not found[/red]")
+
+
+@calendar_group.command(name="update")
+@click.argument("event_id", type=int)
+@click.option("--title", default=None)
+@click.option("--date", "event_date", default=None)
+@click.option("--time", "event_time", default=None)
+@click.option("-t", "--type", "event_type", default=None)
+@click.option("-p", "--project", default=None)
+@click.option("-m", "--machine", default=None)
+@click.option("--prompt", default=None)
+@click.option("--description", default=None)
+@click.option("--notify", "notify_before_minutes", default=None, type=int)
+def calendar_update(event_id, title, event_date, event_time, event_type, project,
+                    machine, prompt, description, notify_before_minutes):
+    """Update any fields on a calendar event."""
+    db = DatabaseManager()
+    cm = _get_calendar_manager()
+    updates = {}
+    if title is not None:                 updates["title"] = title
+    if event_date is not None:            updates["event_date"] = event_date
+    if event_time is not None:            updates["event_time"] = event_time
+    if event_type is not None:            updates["event_type"] = event_type
+    if machine is not None:               updates["machine"] = machine
+    if prompt is not None:                updates["prompt"] = prompt
+    if description is not None:           updates["description"] = description
+    if notify_before_minutes is not None: updates["notify_before_minutes"] = notify_before_minutes
+    if project is not None:
+        pid = _resolve_project_id(db, project)
+        if not pid:
+            console.print(f"[red]Project '{project}' not found[/red]"); return
+        updates["project_id"] = pid
+
+    if not updates:
+        console.print("[yellow]No updates provided[/yellow]"); return
+    try:
+        if cm.update_event(event_id, **updates):
+            console.print(f"[green]Updated event #{event_id}[/green]")
+        else:
+            console.print(f"[red]Event #{event_id} not found[/red]")
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+
+
+@calendar_group.command(name="remind")
+@click.option("--within", "within_minutes", default=60, type=int,
+              help="Alert window in minutes (default: 60)")
+@click.option("-m", "--machine", default=None, help="Filter by machine")
+@click.option("--dry-run", is_flag=True, help="Print what would fire without marking as notified")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON (for cron/agent polling)")
+def calendar_remind(within_minutes, machine, dry_run, json_output):
+    """Show events firing soon — designed for cron/agent polling.
+
+    \b
+    Run every 15 min:
+        */15 * * * * cd ~/projects/project-tracker && \\
+          doppler run -- ./pt calendar remind --machine MacBook --json
+    """
+    import json as json_lib
+    cm = _get_calendar_manager()
+    events = cm.get_upcoming_reminders(within_minutes=within_minutes, machine=machine)
+    if json_output:
+        print(json_lib.dumps({"events": events, "total": len(events), "within_minutes": within_minutes}, indent=2))
+    else:
+        if not events:
+            print(f"No events firing in next {within_minutes} minutes.")
+        else:
+            print(f"🔔 {len(events)} event(s) firing soon:\n")
+            _display_events(events)
+    if not dry_run:
+        for ev in events:
+            cm.mark_notified(ev["id"])
+
+
+@calendar_group.command(name="export")
+@click.option("--ical", is_flag=True, help="Export as iCal (.ics) format")
+@click.option("-o", "--output", default=None, help="Output file path (default: stdout)")
+@click.option("-p", "--project", default=None, help="Filter by project")
+@click.option("-m", "--machine", default=None, help="Filter by machine")
+def calendar_export(ical, output, project, machine):
+    """Export calendar events.
+
+    \b
+    Example:
+        ./pt calendar export --ical -o ~/Desktop/pt-calendar.ics
+    """
+    db = DatabaseManager()
+    project_id = _resolve_project_id(db, project) if project else None
+    cm = _get_calendar_manager()
+
+    if ical:
+        content = cm.export_ical(project_id=project_id, machine=machine, include_all=True)
+        if output:
+            Path(output).write_text(content)
+            console.print(f"[green]✅ Exported to {output}[/green]")
+        else:
+            print(content)
+    else:
+        console.print("[yellow]Specify --ical for iCal export format[/yellow]")
+
+
+# =============================================================================
 # Register subgroups and run
 # =============================================================================
 
 cli.add_command(tasks_group)
 cli.add_command(inbox_group)
+cli.add_command(calendar_group)
 
 if __name__ == "__main__":
     cli()
