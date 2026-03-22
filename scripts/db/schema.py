@@ -424,6 +424,12 @@ def create_database(db_path: Optional[Path] = None) -> None:
         cursor.execute("ALTER TABLE projects ADD COLUMN autonomy_level TEXT DEFAULT 'report'")  # report, fix_safe, fix_full
     except sqlite3.OperationalError:
         pass
+
+    # Migration: add machine designation field (#5236)
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both
+    except sqlite3.OperationalError:
+        pass
     
     # Scheduled automation
     cursor.execute("""
@@ -613,6 +619,12 @@ def create_database(db_path: Optional[Path] = None) -> None:
     
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN definition_of_done TEXT")  # Acceptance criteria
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: add machine designation field (#5236)
+    try:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both
     except sqlite3.OperationalError:
         pass
     
@@ -896,7 +908,7 @@ def create_database(db_path: Optional[Path] = None) -> None:
     """, (fingerprint, datetime.now(timezone.utc).isoformat()))
     
     # Update schema version (current version: 4 - added database fingerprinting)
-    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (4, ?)", (datetime.now().isoformat(),))
+    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (5, ?)", (datetime.now().isoformat(),))
     
     conn.commit()
     conn.close()
