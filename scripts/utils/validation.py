@@ -35,6 +35,9 @@ VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"]
 # Valid task types
 VALID_TASK_TYPES = ["manual", "agent"]
 
+# Valid machine designations
+VALID_MACHINES = ["MacBook", "OpenClaw", "Both"]
+
 
 def contains_secret(text: str) -> Tuple[bool, str]:
     """Check if text contains secret patterns.
@@ -201,6 +204,33 @@ def validate_task_type(task_type: Optional[str]) -> Tuple[bool, Optional[str]]:
     return (True, None)
 
 
+def validate_machine(machine: Optional[str]) -> Tuple[bool, Optional[str]]:
+    """Validate machine designation.
+
+    Args:
+        machine: Machine designation to validate (MacBook, OpenClaw, Both)
+
+    Returns:
+        A tuple of (is_valid, error_message).
+
+    Examples:
+        >>> validate_machine("MacBook")
+        (True, None)
+        >>> validate_machine(None)
+        (True, None)
+        >>> validate_machine("invalid")
+        (False, 'Machine must be one of: MacBook, OpenClaw, Both')
+    """
+    if machine is None:
+        return (True, None)
+
+    if machine not in VALID_MACHINES:
+        valid_list = ", ".join(VALID_MACHINES)
+        return (False, f"Machine must be one of: {valid_list}")
+
+    return (True, None)
+
+
 def sanitize_task_text(text: str) -> str:
     """Sanitize task text to prevent XSS attacks.
     
@@ -228,6 +258,7 @@ def validate_task_input(
     status: str = "Backlog",
     priority: Optional[str] = None,
     task_type: Optional[str] = None,
+    machine: Optional[str] = None,
     db_manager: Optional[Any] = None
 ) -> Tuple[bool, Optional[str]]:
     """Comprehensive validation for task creation/update.
@@ -290,5 +321,10 @@ def validate_task_input(
     is_valid, error = validate_task_type(task_type)
     if not is_valid:
         return (False, error)
-    
+
+    # Validate machine designation
+    is_valid, error = validate_machine(machine)
+    if not is_valid:
+        return (False, error)
+
     return (True, None)
