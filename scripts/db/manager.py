@@ -71,9 +71,54 @@ class DatabaseManager:
         if _USE_TURSO:
             try:
                 import libsql
-                conn = libsql.connect(_TURSO_URL, auth_token=_TURSO_TOKEN)
+
+                class _DictCursor:
+                    """Wrap a libsql cursor so rows are accessible by column name."""
+                    def __init__(self, cursor: Any) -> None:
+                        self._cur = cursor
+                    def _make_row(self, row: Any) -> Any:
+                        if row is None or self._cur.description is None:
+                            return row
+                        cols = [d[0] for d in self._cur.description]
+                        values = list(row)
+                        class _Row:
+                            def __getitem__(self, key: Any) -> Any:
+                                if isinstance(key, str): return values[cols.index(key)]
+                                return values[key]
+                            def keys(self) -> list: return cols
+                            def __iter__(self) -> Any: return iter(values)
+                            def __len__(self) -> int: return len(values)
+                        return _Row()
+                    def execute(self, sql: str, params: Any = ()) -> "_DictCursor":
+                        self._cur.execute(sql, params); return self
+                    def executemany(self, sql: str, params: Any) -> "_DictCursor":
+                        self._cur.executemany(sql, params); return self
+                    def fetchone(self) -> Any: return self._make_row(self._cur.fetchone())
+                    def fetchall(self) -> list: return [self._make_row(r) for r in self._cur.fetchall()]
+                    def __iter__(self) -> Any:
+                        for row in self._cur: yield self._make_row(row)
+                    @property
+                    def lastrowid(self) -> Any: return self._cur.lastrowid
+                    @property
+                    def description(self) -> Any: return self._cur.description
+
+                class _DictConn:
+                    """Wrap a libsql connection so cursor() returns _DictCursor."""
+                    def __init__(self, conn: Any) -> None: self._conn = conn
+                    def cursor(self) -> _DictCursor: return _DictCursor(self._conn.cursor())
+                    def execute(self, sql: str, params: Any = ()) -> _DictCursor:
+                        cur = _DictCursor(self._conn.cursor()); cur.execute(sql, params); return cur
+                    def executemany(self, sql: str, params: Any) -> _DictCursor:
+                        cur = _DictCursor(self._conn.cursor()); cur.executemany(sql, params); return cur
+                    def commit(self) -> None: self._conn.commit()
+                    def rollback(self) -> None: self._conn.rollback()
+                    def close(self) -> None: self._conn.close()
+                    def __enter__(self) -> "_DictConn": return self
+                    def __exit__(self, *args: Any) -> None: self.close()
+
+                raw = libsql.connect(_TURSO_URL, auth_token=_TURSO_TOKEN)
                 # WAL is managed server-side by Turso.
-                conn.row_factory = libsql.Row
+                conn = _DictConn(raw)
                 try:
                     yield conn
                 finally:
