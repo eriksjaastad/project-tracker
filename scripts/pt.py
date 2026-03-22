@@ -790,8 +790,11 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
         console.print(f"[red]Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}[/red]"); return
     if priority and priority not in ["Critical", "High", "Medium", "Low"]:
         console.print(f"[red]Invalid priority '{priority}'. Must be one of: Critical, High, Medium, Low[/red]"); return
-    if machine and machine not in ["MacBook", "OpenClaw", "Both"]:
-        console.print(f"[red]Invalid machine '{machine}'. Must be one of: MacBook, OpenClaw, Both[/red]"); return
+    if machine:
+        from scripts.utils.validation import validate_machine
+        is_valid, err = validate_machine(machine)
+        if not is_valid:
+            console.print(f"[red]{err}[/red]"); return
     blocked_by_json = None
     if blocked_by:
         try:
@@ -842,8 +845,10 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes,
     if review_comment is not None: updates["review_comment"] = review_comment
     if notes is not None: updates["notes"] = notes
     if machine:
-        if machine not in ["MacBook", "OpenClaw", "Both"]:
-            console.print(f"[red]Invalid machine '{machine}'[/red]"); return
+        from scripts.utils.validation import validate_machine
+        is_valid, err = validate_machine(machine)
+        if not is_valid:
+            console.print(f"[red]{err}[/red]"); return
         updates["machine"] = machine
     if blocked_by is not None:
         if blocked_by == "": updates["blocked_by"] = None
