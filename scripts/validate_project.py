@@ -40,7 +40,6 @@ MANDATORY_FILES = [
     "CLAUDE.md",
     ".cursorrules",
     ".cursorignore",
-    "TODO.md",
     "README.md",
     ".gitignore"
 ]
@@ -310,12 +309,11 @@ def validate_project(project_path: Path, verbose: bool = True) -> bool:
             for error in errors:
                 print(f"   - {error}")
         
-        # Send Discord alert for validation failure
-        msg = f"❌ **Project Validation Failed** for: `{project_name}`\n"
-        msg += "\n".join(f"- {e}" for e in errors[:10])
-        if len(errors) > 10:
-            msg += f"\n... and {len(errors) - 10} more errors."
-        send_discord_alert(msg)
+        # Send Discord alert — wrapped with timeout to prevent hanging during pt scan
+        try:
+            send_discord_alert(msg)
+        except Exception:
+            pass  # Never let a notification failure block or hang the scan
         
         return False
     

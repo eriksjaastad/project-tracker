@@ -73,16 +73,16 @@ This document serves as the index for the Project Tracker, providing a high-leve
 
 ## Recent Activity
 
-- 2026-02-15: fix: remove auto-review hook — local model reviews unreliable
-- 2026-02-08: fix: Restrict delete to single ID and ensure triggers survive migration (#4758)
-- 2026-02-08: refactor: Move kanban specs to separate files and consolidate task management
-- 2026-02-04: fix: rebuild graph on refresh
-- 2026-02-03: refactor: move internal modules into scripts (#4721)
-- 2026-02-03: refactor: Move review model configuration to config.py and allow env override (#4693)
-- 2026-02-03: fix: Use bash to run pt CLI wrapper in hooks (#4693)
-- 2026-02-03: feat: Complete end-to-end auto-review flow (#4693)
-- 2026-02-03: feat: Implement git diff retrieval and review prompt preparation in hooks (#4693)
-- 2026-02-03: feat: Add infrastructure for auto-triggering code review agent (#4693)
+- 2026-03-17: fix: Move re and uuid imports to top level in app.py (#5009)
+- 2026-03-17: feat: Agentic markers CRUD UI (#5009)
+- 2026-03-17: fix: Remove non-standard Kanban statuses (#5013)
+- 2026-03-17: fix: Distinguish structural issues from version mismatches in dashboard (#4765)
+- 2026-03-17: feat: Add per-status task count pills to project cards on dashboard
+- 2026-03-12: fix: prevent text overflow on Kanban task cards (#5117)
+- 2026-03-12: fix: ensure all 5 Kanban columns visible without cutoff (#5115)
+- 2026-03-12: feat: add visual regression testing for Kanban board UI (#5116)
+- 2026-03-12: fix: prevent DONE column cutoff on Kanban board (#5115)
+- 2026-03-11: feat: surface agent config health in dashboard and alerts (#5093)
 ## Related Documentation
 
 - [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
@@ -106,9 +106,9 @@ This document serves as the index for the Project Tracker, providing a high-leve
 
 | Directory | Files | Description |
 | :--- | :---: | :--- |
-| [Documents/](Documents/README.md) | 8 | *Auto-generated index. Last updated: 2026-01-24* |
 | [dashboard/](dashboard/) | 2 | No description available. |
 | [patterns/](patterns/) | 0 | No description available. |
+| [project-graph-screenshots-movies/](project-graph-screenshots-movies/) | 80 | No description available. |
 | [project-tracker/](project-tracker/) | 0 | No description available. |
 | [prompts/](prompts/) | 0 | No description available. |
 
@@ -119,23 +119,9 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [AGENTS.md](AGENTS.md) | > **Universal Constitution:** See `project-scaffolding/AGENTS.md` for hierarchy, workflow, and unive... |
 | [CLAUDE.md](CLAUDE.md) | 🛑 IMPORTANT: READ AGENTS.md FIRST |
 | [DECISIONS.md](DECISIONS.md) | > *Documenting WHY we made decisions, not just WHAT we built.* |
-| [Documents/ARCHITECTURE.md](Documents/ARCHITECTURE.md) | > **Last Updated:** January 2026 |
-| [Documents/CODE_QUALITY_STANDARDS.md](Documents/CODE_QUALITY_STANDARDS.md) | Code Quality Standards |
-| [Documents/CODE_REVIEW_PHASE4_TELEMETRY.md](Documents/CODE_REVIEW_PHASE4_TELEMETRY.md) | Code Review: Phase 4 Telemetry Implementation |
-| [Documents/INTEGRATION_WITH_SCAFFOLDING.md](Documents/INTEGRATION_WITH_SCAFFOLDING.md) | Integration Strategy: Project Tracker ↔ Project Scaffolding |
-| [Documents/OPERATIONS.md](Documents/OPERATIONS.md) | > **Last Updated:** January 2026 |
-| [Documents/README.md](Documents/README.md) | Project Tracker - Documents Index |
-| [Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md](Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md) | 🛡️ Ecosystem Governance & Review Protocol (v1.2) |
-| [Documents/SCAFFOLDING_TRANSFER_GUIDE.md](Documents/SCAFFOLDING_TRANSFER_GUIDE.md) | Scaffolding Transfer Guide: project-tracker |
-| [Documents/patterns/code-review-standard.md](Documents/patterns/code-review-standard.md) | Code Review Standardization |
-| [Documents/patterns/learning-loop-pattern.md](Documents/patterns/learning-loop-pattern.md) | Learning Loop Pattern |
-| [Documents/reference/AI_JOURNAL.md](Documents/reference/AI_JOURNAL.md) | Strategic decisions, significant events, and reflections for future context. |
-| [Documents/reference/LEARNINGS.md](Documents/reference/LEARNINGS.md) | Project Tracker Learning Loop |
-| [Documents/reference/LOCAL_MODEL_LEARNINGS.md](Documents/reference/LOCAL_MODEL_LEARNINGS.md) | Local Model Learnings: project-tracker |
-| [Documents/reference/MODEL_LEARNINGS.md](Documents/reference/MODEL_LEARNINGS.md) | Local Model Learnings: project-tracker |
-| [PRD_KANBAN.md](Documents/planning/PRD_KANBAN.md) | > **Type:** Feature PRD (adding to existing project) |
 | [README.md](README.md) | project-tracker |
 | [REVIEW.md](REVIEW.md) | This document outlines the code review process for the Project Tracker application. It aims to ensur... |
+| [REVIEWS_AND_GOVERNANCE_PROTOCOL.md](REVIEWS_AND_GOVERNANCE_PROTOCOL.md) | This file is managed by sync_governance.py and will be OVERWRITTEN on the next sync. |
 | [USAGE.md](USAGE.md) | > **Quick Start:** `./pt launch` to open the dashboard |
 | [dashboard/__init__.py](dashboard/__init__.py) | No description available. |
 | [dashboard/app.py](dashboard/app.py) | FastAPI web dashboard for project tracker. |
@@ -152,13 +138,27 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [dashboard/static/graph.css](dashboard/static/graph.css) | No description available. |
 | [dashboard/static/graph.js](dashboard/static/graph.js) | No description available. |
 | [dashboard/static/markdown.css](dashboard/static/markdown.css) | No description available. |
+| [dashboard/static/memory.css](dashboard/static/memory.css) | No description available. |
+| [dashboard/static/memory.js](dashboard/static/memory.js) | No description available. |
+| [dashboard/static/memory_list.js](dashboard/static/memory_list.js) | No description available. |
 | [dashboard/static/script.js](dashboard/static/script.js) | No description available. |
 | [dashboard/static/style.css](dashboard/static/style.css) | No description available. |
 | [find_orphans.py](find_orphans.py) | No description available. |
+| [project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.11.00 AM.mov](project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.11.00 AM.mov) | No description available. |
+| [project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.22.52 AM.mov](project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.22.52 AM.mov) | No description available. |
+| [project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.46.56 AM.mov](project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.46.56 AM.mov) | No description available. |
+| [project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.50.56 AM.mov](project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.50.56 AM.mov) | No description available. |
+| [project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.54.43 AM.mov](project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.54.43 AM.mov) | No description available. |
+| [project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.55.29 AM.mov](project-graph-screenshots-movies/Screen Recording 2026-01-15 at 10.55.29 AM.mov) | No description available. |
+| [project-graph-screenshots-movies/Screen Recording 2026-01-15 at 11.17.19 AM.mov](project-graph-screenshots-movies/Screen Recording 2026-01-15 at 11.17.19 AM.mov) | No description available. |
+| [project-graph-screenshots-movies/Screen Recording 2026-01-15 at 12.14.57 PM.mov](project-graph-screenshots-movies/Screen Recording 2026-01-15 at 12.14.57 PM.mov) | No description available. |
 | [prompts/active/document_review/architecture.md](prompts/active/document_review/architecture.md) | You are an **architecture-focused purist reviewer** with expertise in system design, software archit... |
 | [prompts/active/document_review/performance.md](prompts/active/document_review/performance.md) | You are a **performance-focused critical reviewer** with expertise in scalability, database optimiza... |
 | [prompts/active/document_review/security.md](prompts/active/document_review/security.md) | You are a **security-focused skeptical reviewer** with expertise in application security, authentica... |
 | [pt](pt) | No description available. |
+| [pyproject.toml](pyproject.toml) | No description available. |
+| [pyrightconfig.json](pyrightconfig.json) | No description available. |
 | [requirements.txt](requirements.txt) | No description available. |
+| [uv.lock](uv.lock) | No description available. |
 
 <!-- LIBRARIAN-INDEX-END -->
