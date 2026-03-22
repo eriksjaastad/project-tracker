@@ -12,10 +12,10 @@ import json
 import os
 import time
 import traceback
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from contextlib import contextmanager
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from .schema import get_db_path, create_database
 from scripts.utils.validation import (
@@ -29,6 +29,14 @@ from scripts.utils.validation import (
 from scripts.logger import get_logger
 
 logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Turso / libsql configuration
+# ---------------------------------------------------------------------------
+
+_TURSO_URL = os.environ.get("TURSO_KANBAN_URL", "")
+_TURSO_TOKEN = os.environ.get("TURSO_KANBAN_TOKEN", "")
+_USE_TURSO: bool = bool(_TURSO_URL and _TURSO_TOKEN)
 
 VALID_STATUS_TRANSITIONS = {
     "Backlog": ["To Do"],
@@ -54,8 +62,30 @@ class DatabaseManager:
         create_database(self.db_path)
         
     @contextmanager
-    def _get_conn(self):
-        """Get database connection context manager."""
+    def _get_conn(self) -> Generator[Any, None, None]:
+        """Get database connection context manager.
+
+        Uses Turso (libsql) when TURSO_KANBAN_URL + TURSO_KANBAN_TOKEN are set;
+        falls back to local SQLite otherwise (offline/dev/test mode).
+        """
+        if _USE_TURSO:
+            try:
+                import libsql
+                conn = libsql.connect(_TURSO_URL, auth_token=_TURSO_TOKEN)
+                # WAL is managed server-side by Turso.
+                conn.row_factory = libsql.Row
+                try:
+                    yield conn
+                finally:
+                    conn.close()
+                return
+            except ImportError as exc:
+                raise RuntimeError(
+                    "TURSO_KANBAN_URL/TURSO_KANBAN_TOKEN are set but the 'libsql' package "
+                    "is not installed. Run: uv add libsql"
+                ) from exc
+
+        # --- Local fallback (sqlite3) ---
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")  # Enable WAL mode for concurrent access
