@@ -271,10 +271,12 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
             is_blocked, blocking_ids = db.is_blocked(task_id)
             if is_blocked:
                 blocked_marker = f"[B:{','.join(str(i) for i in blocking_ids)}] "
+        machine_str = task.get("machine") or ""
+        machine_marker = f" | {machine_str}" if machine_str else ""
         if project:
-            print(f"#{task_id} {prompt_marker}{blocked_marker}| {status} | {priority} | {task_text}")
+            print(f"#{task_id} {prompt_marker}{blocked_marker}| {status} | {priority}{machine_marker} | {task_text}")
         else:
-            print(f"#{task_id} {prompt_marker}{blocked_marker}| {task['project_id']} | {status} | {priority} | {task_text}")
+            print(f"#{task_id} {prompt_marker}{blocked_marker}| {task['project_id']} | {status} | {priority}{machine_marker} | {task_text}")
     status_counts = {}
     for task in task_list:
         status_counts[task["status"]] = status_counts.get(task["status"], 0) + 1
@@ -636,6 +638,23 @@ def remove_project(project):
     console.print(f"[green]✅ Removed '{target['name']}' from the database.[/green]")
 
 
+@cli.command(name="set-machine")
+@click.argument("project")
+@click.argument("machine_value", type=click.Choice(["MacBook", "OpenClaw", "Both", "none"], case_sensitive=True))
+def set_machine(project, machine_value):
+    """Set the default machine for a project."""
+    db = DatabaseManager()
+    project_id = _resolve_project_id(db, project)
+    if not project_id:
+        console.print(f"[red]Project '{project}' not found[/red]"); return
+    value = None if machine_value == "none" else machine_value
+    db.update_project(project_id, machine=value)
+    if value:
+        console.print(f"[green]Set {project} machine to {value}[/green]")
+    else:
+        console.print(f"[green]Cleared machine designation for {project}[/green]")
+
+
 @cli.command()
 @click.pass_context
 def help(ctx):
@@ -655,7 +674,8 @@ def help(ctx):
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
 @click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)")
-def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready):
+@click.option("-m", "--machine", default=None, help="Filter by machine: MacBook, OpenClaw, Both")
+def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready, machine):
     """Manage Kanban board tasks.
 
     \b
@@ -679,7 +699,7 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
         if project_id:
             detected = db.get_project(project_id)
             project_label = detected["name"] if detected else None
-    task_list = db.get_tasks(project_id=project_id, status=status)
+    task_list = db.get_tasks(project_id=project_id, status=status, machine=machine)
     if not show_all and not status:
         task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
     if needs_prompt:
@@ -697,7 +717,8 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
 @click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts")
-def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready):
+@click.option("-m", "--machine", default=None, help="Filter by machine: MacBook, OpenClaw, Both")
+def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready, machine):
     """List tasks from the Kanban board."""
     db = DatabaseManager()
     if project:
@@ -711,7 +732,7 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
         if project_id:
             detected = db.get_project(project_id)
             project_label = detected["name"] if detected else None
-    task_list = db.get_tasks(project_id=project_id, status=status)
+    task_list = db.get_tasks(project_id=project_id, status=status, machine=machine)
     if not show_all and not status:
         task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
     if needs_prompt:
@@ -753,7 +774,8 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
 @click.option("-d", "--description", default=None, help="Rich description / acceptance criteria (stored in notes field)")
 @click.option("--parent", type=int, default=None, help="Parent task ID (creates subtask)")
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs that block this task")
-def tasks_create(text, project, status, priority, prompt, description, parent, blocked_by):
+@click.option("-m", "--machine", default=None, help="Machine: MacBook, OpenClaw, Both")
+def tasks_create(text, project, status, priority, prompt, description, parent, blocked_by, machine):
     """Create a new task. Auto-detects project from current directory."""
     import json
     db = DatabaseManager()
@@ -768,6 +790,8 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
         console.print(f"[red]Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}[/red]"); return
     if priority and priority not in ["Critical", "High", "Medium", "Low"]:
         console.print(f"[red]Invalid priority '{priority}'. Must be one of: Critical, High, Medium, Low[/red]"); return
+    if machine and machine not in ["MacBook", "OpenClaw", "Both"]:
+        console.print(f"[red]Invalid machine '{machine}'. Must be one of: MacBook, OpenClaw, Both[/red]"); return
     blocked_by_json = None
     if blocked_by:
         try:
@@ -779,7 +803,7 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
     try:
         final_prompt = prompt
         if prompt: final_prompt = prompt.rstrip() + WORKFLOW_FOOTER
-        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, parent_id=parent, blocked_by=blocked_by_json, notes=description)
+        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, parent_id=parent, blocked_by=blocked_by_json, notes=description, machine=machine)
         msg = f"[green]Created task #{task['id']}: {text[:50]}{'...' if len(text) > 50 else ''}[/green]"
         if description: msg += f" [dim](+ description)[/dim]"
         if parent: msg += f" [dim](subtask of #{parent})[/dim]"
@@ -798,7 +822,8 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
 @click.option("--review-comment", default=None, help="Reviewer feedback")
 @click.option("--notes", default=None, help="Internal notes/comments")
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs (empty string clears)")
-def tasks_update(task_id, status, text, priority, prompt, review_comment, notes, blocked_by):
+@click.option("-m", "--machine", default=None, help="Machine: MacBook, OpenClaw, Both")
+def tasks_update(task_id, status, text, priority, prompt, review_comment, notes, blocked_by, machine):
     """Update an existing task."""
     import json as json_lib
     db = DatabaseManager()
@@ -816,6 +841,10 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes,
     if prompt: updates["prompt"] = prompt
     if review_comment is not None: updates["review_comment"] = review_comment
     if notes is not None: updates["notes"] = notes
+    if machine:
+        if machine not in ["MacBook", "OpenClaw", "Both"]:
+            console.print(f"[red]Invalid machine '{machine}'[/red]"); return
+        updates["machine"] = machine
     if blocked_by is not None:
         if blocked_by == "": updates["blocked_by"] = None
         else:
