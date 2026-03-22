@@ -29,12 +29,18 @@ def _now() -> str:
 
 def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     d = dict(row)
-    # Deserialize metadata JSON if present
+    # Deserialize metadata JSON if present — warn on corruption, don't silently swallow
     if d.get("metadata") and isinstance(d["metadata"], str):
         try:
             d["metadata"] = json.loads(d["metadata"])
-        except (json.JSONDecodeError, TypeError):
-            pass
+        except (json.JSONDecodeError, TypeError) as exc:
+            import warnings
+            warnings.warn(
+                f"calendar_events row {d.get('id')}: corrupted metadata JSON ({exc}). "
+                "Resetting to empty dict.",
+                stacklevel=2,
+            )
+            d["metadata"] = {}
     return d
 
 
@@ -296,25 +302,38 @@ class CalendarManager:
     def get_upcoming_reminders(
         self, within_minutes: int = 60, machine: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Return events whose notification window is now open and haven't been notified yet."""
+        """Return events whose notification window is now open and haven't been notified yet.
+
+        Timezone note: event_date and event_time are stored as user-entered local wall-clock
+        values (no TZ info). We do a date-only comparison for all-day events and strip
+        timezone info for time comparisons to avoid UTC-vs-local drift.
+        """
         from datetime import timedelta
 
         now_dt = datetime.now(timezone.utc)
-        window_end = (now_dt + timedelta(minutes=within_minutes)).isoformat()
+        window_end = now_dt + timedelta(minutes=within_minutes)
+        # Use naive ISO strings for SQLite datetime() comparison — SQLite has no TZ support
+        now_naive = now_dt.strftime("%Y-%m-%dT%H:%M:%S")
+        end_naive = window_end.strftime("%Y-%m-%dT%H:%M:%S")
+        today = now_dt.date().isoformat()
+        end_date = window_end.date().isoformat()
 
         query = """
             SELECT * FROM calendar_events
             WHERE status = 'active'
               AND notified_at IS NULL
               AND (
-                CASE WHEN event_time IS NOT NULL
-                     THEN datetime(event_date || 'T' || event_time)
-                     ELSE datetime(event_date || 'T00:00:00')
-                END
-                BETWEEN datetime(?) AND datetime(?)
+                -- Events with a specific time: compare datetime values (naive, wall-clock)
+                (event_time IS NOT NULL
+                 AND datetime(event_date || 'T' || event_time)
+                     BETWEEN datetime(?) AND datetime(?))
+                OR
+                -- All-day events: fire if the event date falls in the window's date range
+                (event_time IS NULL
+                 AND event_date BETWEEN ? AND ?)
               )
         """
-        params = [now_dt.isoformat(), window_end]
+        params: list = [now_naive, end_naive, today, end_date]
 
         if machine:
             query += " AND (machine = ? OR machine IS NULL OR machine = 'Both')"

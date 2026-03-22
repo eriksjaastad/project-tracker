@@ -1394,25 +1394,25 @@ def calendar_add_cron(project, schedule, command, description, machine):
         ./pt calendar add-cron ai-memory-replay "0 9 * * 1" "bash scripts/render_replay.sh" \\
             --machine MacBook --description "Weekly brain replay render"
     """
+    from datetime import datetime, timezone as _tz
     db = DatabaseManager()
     project_id = _resolve_project_id(db, project)
     if not project_id:
         console.print(f"[red]Project '{project}' not found[/red]"); return
 
-    db.add_cron_job(project_id, schedule, command, description)
-
-    if machine:
-        cm = _get_calendar_manager()
-        with cm._conn() as conn:
-            row = conn.execute(
-                "SELECT id FROM cron_jobs WHERE project_id = ? AND command = ? ORDER BY id DESC LIMIT 1",
-                (project_id, command),
-            ).fetchone()
-        if row:
-            cm.set_cron_machine(row["id"], machine)
+    cm = _get_calendar_manager()
+    # Insert directly so we can capture lastrowid atomically — avoids duplicate-command race
+    with cm._conn() as conn:
+        cursor = conn.execute(
+            """INSERT INTO cron_jobs (project_id, schedule, command, description, machine, is_active)
+               VALUES (?, ?, ?, ?, ?, 1)""",
+            (project_id, schedule, command, description or None, machine),
+        )
+        conn.commit()
+        new_id = cursor.lastrowid
 
     machine_note = f" on {machine}" if machine else ""
-    console.print(f"[green]✅ Added cron job to {project}{machine_note}[/green]")
+    console.print(f"[green]✅ Added cron job #{new_id} to {project}{machine_note}[/green]")
     console.print(f"   Schedule: {schedule}")
     console.print(f"   Command:  {command}")
 
