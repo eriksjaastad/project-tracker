@@ -121,8 +121,89 @@ class DatabaseManager:
             
             print(f"🛡️  SAFETY: Backup created before delete: {backup_path.name} ({len(data)} rows)")
             return backup_path
-    
+
+    # ==================== ATTACHMENT OPERATIONS (#5216) ====================
+
+    @staticmethod
+    def _attachments_dir(task_id: int) -> Path:
+        """Return (and create) the storage directory for a task's attachments."""
+        base = Path.home() / ".project-tracker" / "attachments" / str(task_id)
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+
+    def migrate_attachments_table(self) -> None:
+        """Idempotent migration — create task_attachments table if not present."""
+        with self._get_conn() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS task_attachments (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    filename     TEXT NOT NULL,
+                    stored_name  TEXT NOT NULL,
+                    mime_type    TEXT,
+                    size_bytes   INTEGER,
+                    uploaded_at  TEXT DEFAULT (datetime('now')),
+                    uploaded_by  TEXT DEFAULT 'user'
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_attachments_task_id ON task_attachments(task_id)"
+            )
+            conn.commit()
+
+    def add_attachment(
+        self,
+        task_id: int,
+        filename: str,
+        stored_name: str,
+        mime_type: Optional[str],
+        size_bytes: int,
+        uploaded_by: str = "user",
+    ) -> Dict[str, Any]:
+        """Insert an attachment record and return it."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO task_attachments
+                    (task_id, filename, stored_name, mime_type, size_bytes, uploaded_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (task_id, filename, stored_name, mime_type, size_bytes, uploaded_by),
+            )
+            conn.commit()
+            row = cursor.execute(
+                "SELECT * FROM task_attachments WHERE id = ?", (cursor.lastrowid,)
+            ).fetchone()
+            return dict(row)
+
+    def get_attachments(self, task_id: int) -> List[Dict[str, Any]]:
+        """Return all attachments for a task, newest first."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM task_attachments WHERE task_id = ? ORDER BY uploaded_at DESC",
+                (task_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_attachment(self, attachment_id: int, task_id: int) -> Optional[Dict[str, Any]]:
+        """Delete an attachment record and return it (so caller can remove the file).
+
+        Verifies task ownership — only deletes if the attachment belongs to task_id.
+        """
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM task_attachments WHERE id = ? AND task_id = ?",
+                (attachment_id, task_id),
+            ).fetchone()
+            if not row:
+                return None
+            conn.execute("DELETE FROM task_attachments WHERE id = ?", (attachment_id,))
+            conn.commit()
+            return dict(row)
+
     # ==================== PROJECT OPERATIONS ====================
+
     
     def add_project(
         self,

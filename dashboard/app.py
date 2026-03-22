@@ -6,7 +6,7 @@ from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 import subprocess
 
-from fastapi import FastAPI, Request, HTTPException, status
+from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -53,6 +53,12 @@ from scripts.pt import get_current_scaffolding_version, compare_versions, rebuil
 logger = get_logger(__name__)
 
 app = FastAPI(title="Project Tracker Dashboard")
+
+# Run idempotent migrations on startup
+try:
+    DatabaseManager().migrate_attachments_table()
+except Exception as _mig_err:
+    logger.warning(f"Attachments migration skipped: {_mig_err}")
 
 # Setup templates and static files
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -1563,6 +1569,88 @@ async def delete_task(task_id: int):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete task"
         )
+
+
+# ==================== ATTACHMENT API ENDPOINTS (#5216) ====================
+
+ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024  # 20 MB
+
+
+@app.post("/api/tasks/{task_id}/attachments", status_code=status.HTTP_201_CREATED)
+async def upload_attachment(task_id: int, file: UploadFile = File(...)):
+    """Upload a file and attach it to a task."""
+    import mimetypes
+    import shutil
+
+    db = DatabaseManager()
+    task = db.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    # Stream to a temp file so we never hold >ATTACHMENT_MAX_BYTES in RAM
+    import tempfile
+    dest_dir = DatabaseManager._attachments_dir(task_id)
+    ext = Path(file.filename or "upload").suffix
+    stored_name = f"{uuid.uuid4()}{ext}"
+    dest_path = dest_dir / stored_name
+
+    size = 0
+    with dest_path.open("wb") as out:
+        while chunk := await file.read(65_536):  # 64 KB chunks
+            size += len(chunk)
+            if size > ATTACHMENT_MAX_BYTES:
+                out.close()
+                dest_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="File exceeds 20 MB limit")
+            out.write(chunk)
+
+    mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0]
+    record = db.add_attachment(
+        task_id=task_id,
+        filename=file.filename or stored_name,
+        stored_name=stored_name,
+        mime_type=mime_type,
+        size_bytes=size,
+    )
+    return record
+
+
+@app.get("/api/tasks/{task_id}/attachments")
+async def list_attachments(task_id: int):
+    """List all attachments for a task."""
+    db = DatabaseManager()
+    if not db.get_task(task_id):
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return {"attachments": db.get_attachments(task_id)}
+
+
+@app.delete("/api/tasks/{task_id}/attachments/{attachment_id}", status_code=status.HTTP_200_OK)
+async def delete_attachment(task_id: int, attachment_id: int):
+    """Delete an attachment record and its file from disk."""
+    db = DatabaseManager()
+    record = db.delete_attachment(attachment_id=attachment_id, task_id=task_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    file_path = DatabaseManager._attachments_dir(task_id) / record["stored_name"]
+    if file_path.exists():
+        file_path.unlink()
+    return {"deleted": True, "attachment_id": attachment_id}
+
+
+@app.get("/api/attachments/{task_id}/{stored_name}")
+async def serve_attachment(task_id: int, stored_name: str):
+    """Serve an attachment file for inline preview."""
+    from fastapi.responses import FileResponse
+    import mimetypes
+    attach_dir = DatabaseManager._attachments_dir(task_id)
+    file_path = (attach_dir / stored_name).resolve()
+    # Path traversal guard: resolved path must stay inside the task's attachment dir
+    if not file_path.is_relative_to(attach_dir.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    media_type = mimetypes.guess_type(stored_name)[0] or "application/octet-stream"
+    return FileResponse(path=str(file_path), media_type=media_type)
 
 
 @app.get("/api/agentic/summary")

@@ -277,3 +277,101 @@
   margin-bottom: var(--space-md);
   border: 1px solid var(--danger);
 }
+
+/* ==================== ATTACHMENT STYLES (#5216) ==================== */
+
+.task-detail-attachments {
+  margin-bottom: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.attachment-zone {
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: var(--space-md) var(--space-lg);
+  text-align: center;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.875rem;
+  transition: border-color 0.2s, background 0.2s;
+  margin-bottom: var(--space-md);
+  user-select: none;
+}
+
+.attachment-zone:hover,
+.attachment-zone--over {
+  border-color: var(--accent);
+  background: rgba(79, 157, 255, 0.06);
+  color: var(--accent);
+}
+
+.attachment-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  background: var(--bg);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 6px;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.attachment-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.attachment-file-icon {
+  font-size: 1.75rem;
+  line-height: 1;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+
+.attachment-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attachment-name {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-size {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.attachment-delete {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.attachment-delete:hover {
+  color: var(--danger);
+  background: rgba(255, 107, 107, 0.1);
+}
