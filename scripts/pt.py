@@ -1650,6 +1650,102 @@ def calendar_export(ical, output, project, machine):
         console.print("[yellow]Specify --ical for iCal export format[/yellow]")
 
 
+
+
+@calendar_group.command(name="poll")
+@click.option("-m", "--machine", default=None, help="Machine to filter events for (default: auto-detect)")
+@click.option("--within", "within_minutes", default=60, type=int,
+              help="Notify events firing within this many minutes (default: 60)")
+@click.option("--dry-run", is_flag=True, help="Show what would fire without marking as notified or writing to brain")
+@click.option("--quiet", is_flag=True, help="Suppress human-readable output")
+@click.option("--json", "as_json", is_flag=True, help="Output results as JSON")
+def calendar_poll(machine, within_minutes, dry_run, quiet, as_json):
+    """Run one calendar poll cycle — fire events, write to brain, run agent prompts.
+
+    \b
+    Designed to be run every 5-15 minutes via cron. Use install-poll-cron to
+    set that up automatically.
+
+    \b
+    Examples:
+        ./pt calendar poll                          # auto-detect machine, 60 min window
+        ./pt calendar poll --machine MacBook        # explicit machine filter
+        ./pt calendar poll --within 15 --dry-run    # preview without side effects
+        ./pt calendar poll --json                   # structured output for agents
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent.parent))
+    from scripts.hooks.calendar_poller import poll as _poll
+    results = _poll(
+        machine=machine,
+        within_minutes=within_minutes,
+        dry_run=dry_run,
+        quiet=quiet,
+        as_json=as_json,
+    )
+    if results.get("errors"):
+        raise SystemExit(1)
+
+
+@calendar_group.command(name="install-poll-cron")
+@click.option("--interval", default=10, type=int, help="Run every N minutes (default: 10)")
+@click.option("-m", "--machine", default=None,
+              type=click.Choice(["MacBook", "OpenClaw", "Both", "web"]),
+              help="Machine to filter events for in the cron job")
+@click.option("--within", "within_minutes", default=60, type=int,
+              help="Notify events firing within N minutes (default: 60)")
+@click.option("--remove", is_flag=True, help="Remove the poller cron job instead of installing")
+@click.option("--dry-run", is_flag=True, help="Print the crontab line without installing it")
+def calendar_install_poll_cron(interval, machine, within_minutes, remove, dry_run):
+    """Install (or remove) the calendar_poller cron job in the current user's crontab.
+
+    \b
+    Installs a sentinel-tagged crontab line that runs the calendar poller every
+    N minutes using uv run. Output appended to data/logs/poller.log.
+
+    \b
+    Examples:
+        ./pt calendar install-poll-cron                          # every 10 min, auto-detect machine
+        ./pt calendar install-poll-cron --machine MacBook        # explicit machine
+        ./pt calendar install-poll-cron --interval 5 --within 15
+        ./pt calendar install-poll-cron --remove                 # uninstall
+        ./pt calendar install-poll-cron --dry-run                # preview
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent.parent))
+    from scripts.hooks.cron_installer import install as _install
+
+    result = _install(
+        interval=interval,
+        machine=machine,
+        within=within_minutes,
+        dry_run=dry_run,
+        remove=remove,
+    )
+
+    if remove:
+        removed = result["previous_lines_removed"]
+        if dry_run:
+            console.print(f"[yellow]Dry run - would remove {removed} line(s)[/yellow]")
+        else:
+            console.print(f"[green]Removed {removed} poller line(s) from crontab[/green]")
+        return
+
+    if dry_run:
+        console.print("[yellow]Dry run - crontab line would be:[/yellow]")
+        console.print(f"  [blue]{result['line']}[/blue]")
+        return
+
+    console.print(f"[green]Calendar poller installed[/green]")
+    console.print(f"   Interval : every {result['interval_minutes']} min")
+    console.print(f"   Window   : {result['within_minutes']} min lookahead")
+    console.print(f"   Machine  : {result['machine'] or 'auto-detect'}")
+    console.print(f"   Log      : {result['log_path']}")
+    if result["previous_lines_removed"]:
+        console.print(f"   Replaced : {result['previous_lines_removed']} old poller line(s)")
+    console.print(f"\n   Crontab entry:")
+    console.print(f"   [dim]{result['line']}[/dim]")
+
 # =============================================================================
 # Register subgroups and run
 # =============================================================================
