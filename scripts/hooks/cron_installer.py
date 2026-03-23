@@ -28,17 +28,31 @@ SENTINEL = "# pt-calendar-poller"
 LOG_PATH = _ROOT / "data" / "logs" / "poller.log"
 POLLER_SCRIPT = _ROOT / "scripts" / "hooks" / "calendar_poller.py"
 
+# Allowlist used to validate machine before shell interpolation
+_VALID_MACHINES = {"MacBook", "OpenClaw", "Both", "web"}
+
 
 def _get_crontab() -> str:
-    result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
-    if result.returncode == 0:
-        return result.stdout
-    # No crontab yet
+    try:
+        result = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            return result.stdout
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("crontab -l timed out (>10s)")
+    # No crontab yet (exit 1 on most systems)
     return ""
 
 
 def _set_crontab(content: str) -> None:
-    proc = subprocess.run(["crontab", "-"], input=content, text=True, capture_output=True)
+    try:
+        proc = subprocess.run(
+            ["crontab", "-"], input=content, text=True,
+            capture_output=True, timeout=10
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("crontab write timed out (>10s)")
     if proc.returncode != 0:
         raise RuntimeError(f"crontab write failed: {proc.stderr.strip()}")
 
@@ -49,6 +63,11 @@ def _build_cron_line(
     within: int,
 ) -> str:
     """Build the crontab line."""
+    # Validate machine against allowlist before shell interpolation
+    if machine is not None and machine not in _VALID_MACHINES:
+        raise ValueError(
+            f"Invalid machine '{machine}'. Must be one of: {', '.join(sorted(_VALID_MACHINES))}"
+        )
     machine_flag = f" --machine {machine}" if machine else ""
     # uv run is the ecosystem standard for Python script execution
     script = str(POLLER_SCRIPT)

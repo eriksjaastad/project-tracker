@@ -19,7 +19,7 @@ What it does each run
       (if available) or logs it as a pending prompt for manual followup
    c. Calls CalendarManager.mark_notified(event_id) so it doesn't re-fire
 3. Writes a structured run-log entry to data/logs/calendar_poller.ndjson
-4. Exits with code 0 (no events) or 0 (events processed) — never 1 on normal op
+4. Exits with code 0 (no events or events processed) or 1 (fatal error)
 
 Output
 ------
@@ -88,38 +88,79 @@ def _append_ndjson(path: Path, record: dict) -> None:
 
 
 def _write_brain(event: dict, machine: str) -> bool:
-    """Write a memory to open-brain via MCP server (if accessible).
+    """Write a memory to open-brain via the brain CLI or MCP subprocess.
 
-    Returns True if the write succeeded, False otherwise (graceful degradation).
+    Strategy:
+      1. Try the open-brain-mcp server via its Python client if importable.
+      2. Fall back to the brain.py CLI script in the ai-memory-replay project.
+      3. Fall back to local NDJSON logging (caller handles this case).
+
+    Returns True if an external write succeeded, False otherwise (graceful degradation).
     """
-    try:
-        # Attempt to import and call the open-brain MCP client.
-        # The MCP server exposes brain_write via its transport; we call it via
-        # the mcp_server module which wraps the local MCP stdio transport.
-        # If no MCP transport is running we fall back to the local NDJSON log.
-        from scripts.mcp_server import call_tool  # type: ignore[import]
+    # Derive agent_family from machine rather than hardcoding 'claude'
+    machine_to_family = {
+        "MacBook": "claude",
+        "OpenClaw": "codex",
+        "Both": "claude",
+        "web": "claude",
+    }
+    agent_family = machine_to_family.get(machine, "claude")
 
-        call_tool(
-            "brain_write",
-            {
-                "content": (
-                    f"📅 Calendar event fired on {machine}: "
-                    f"{event['title']} ({event['event_type']}) — "
-                    f"{event['event_date']}"
-                    + (f" at {event['event_time']}" if event.get("event_time") else "")
-                    + (f"\nPrompt: {event['prompt']}" if event.get("prompt") else "")
-                ),
-                "project": event.get("project_id", ""),
-                "type": "observation",
-                "scope": "shared",
-                "source_agent": "calendar_poller",
-                "agent_family": "claude",
-            },
+    content = (
+        f"\U0001f4c5 Calendar event fired on {machine}: "
+        f"{event['title']} ({event['event_type']}) \u2014 "
+        f"{event['event_date']}"
+        + (f" at {event['event_time']}" if event.get("event_time") else "")
+        + (f"\nPrompt: {event['prompt']}" if event.get("prompt") else "")
+    )
+
+    # Strategy 1: open-brain MCP Python client (when running inside MCP session)
+    try:
+        from open_brain import brain_write  # type: ignore[import]
+        brain_write(
+            content=content,
+            project=event.get("project_id", ""),
+            type="observation",
+            scope="shared",
+            source_agent="calendar_poller",
+            agent_family=agent_family,
         )
         return True
+    except ImportError:
+        pass  # MCP client not importable — try CLI
     except Exception as exc:
-        logger.debug("open-brain MCP write skipped (%s), using local log", exc)
-        return False
+        logger.warning("open-brain Python client failed: %s", exc)
+
+    # Strategy 2: brain CLI subprocess (ai-memory-replay project)
+    brain_candidates = [
+        _ROOT.parent / "ai-memory-replay" / "brain.py",
+        _ROOT.parent / "open-brain" / "brain.py",
+    ]
+    brain_cli = next((p for p in brain_candidates if p.exists()), None)
+    if brain_cli:
+        try:
+            uv = os.getenv("UV_BIN", str(Path.home() / ".local" / "bin" / "uv"))
+            result = subprocess.run(
+                [uv, "run", str(brain_cli), "write", content,
+                 "--type", "observation",
+                 "--scope", "shared",
+                 "--source-agent", "calendar_poller",
+                 "--agent-family", agent_family,
+                 "--project", event.get("project_id", "")],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode == 0:
+                return True
+            logger.warning("brain CLI exited %d: %s", result.returncode, result.stderr.strip()[:200])
+        except subprocess.TimeoutExpired:
+            logger.warning("brain CLI timed out")
+        except Exception as exc:
+            logger.warning("brain CLI error: %s", exc)
+
+    logger.info("open-brain write unavailable for event %d — using local NDJSON fallback", event["id"])
+    return False
 
 
 def _run_agent_prompt(event: dict, dry_run: bool) -> dict:
@@ -272,6 +313,11 @@ def poll(
             except Exception as exc:
                 event_result["notified"] = False
                 event_result["notify_error"] = str(exc)
+                # Propagate to results.errors so main() exits 1 and cron sees failure
+                results["errors"].append(
+                    f"mark_notified({event['id']}) failed: {exc} — event may re-fire"
+                )
+                logger.error("mark_notified(%d) failed: %s", event["id"], exc)
 
         results["events_fired"].append(event_result)
 
