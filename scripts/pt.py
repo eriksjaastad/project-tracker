@@ -1760,7 +1760,11 @@ def _run_brain(*args: str) -> None:
             f"brain.py not found at {BRAIN_PY_PATH}. "
             "Is PROJECTS_ROOT set correctly and is ai-memory cloned?"
         )
-    subprocess.run(["uv", "run", str(BRAIN_PY_PATH), *args], check=False)
+    subprocess.run(
+        ["uv", "run", str(BRAIN_PY_PATH), *args],
+        check=False,
+        cwd=str(BRAIN_PY_PATH.parent),
+    )
 
 
 @click.group(name="memory", invoke_without_command=True)
