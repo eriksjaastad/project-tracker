@@ -1747,12 +1747,108 @@ def calendar_install_poll_cron(interval, machine, within_minutes, remove, dry_ru
     console.print(f"   [dim]{result['line']}[/dim]")
 
 # =============================================================================
+# Memory group — wraps ai-memory/brain.py for cross-agent semantic memory
+# =============================================================================
+
+BRAIN_PY_PATH = PROJECTS_BASE_DIR / "ai-memory" / "brain.py"
+
+
+def _run_brain(*args: str) -> None:
+    """Call brain.py via uv run, streaming output directly to the terminal."""
+    if not BRAIN_PY_PATH.exists():
+        raise click.ClickException(
+            f"brain.py not found at {BRAIN_PY_PATH}. "
+            "Is PROJECTS_ROOT set correctly and is ai-memory cloned?"
+        )
+    subprocess.run(["uv", "run", str(BRAIN_PY_PATH), *args], check=False)
+
+
+@click.group(name="memory", invoke_without_command=True)
+@click.pass_context
+def memory_group(ctx: click.Context) -> None:
+    """Search and write to the shared agent brain (Open Brain).
+
+    A thin wrapper around ai-memory/brain.py so every agent can access
+    cross-agent memory without knowing the full path or needing MCP approval.
+
+    \b
+    Quick start:
+      pt memory search "what did we decide about Turso?"
+      pt memory write "Decision: use Haiku for routine tasks" --type decision
+      pt memory stats
+    """
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@memory_group.command(name="search")
+@click.argument("query")
+@click.option("--top", "-n", default=5, type=int, help="Number of results (default: 5)")
+@click.option("--agent-family", "-a", default="",
+              help="Filter to agent family: claude | gemini | codex | antigravity | qwen")
+@click.option("--namespace", default="", help="Filter by project prefix (e.g. loop/sales)")
+@click.option("--goal-id", default="", help="Filter to loop_state entries for a specific goal ID")
+def memory_search(query: str, top: int, agent_family: str, namespace: str, goal_id: str) -> None:
+    """Search the shared brain by semantic similarity.
+
+    \b
+    Examples:
+      pt memory search "what was the Turso decision?"
+      pt memory search "MCP firewall" --top 10
+      pt memory search "calendar" --agent-family claude
+    """
+    args = ["search", query, "--top", str(top)]
+    if agent_family:
+        args += ["--agent-family", agent_family]
+    if namespace:
+        args += ["--namespace", namespace]
+    if goal_id:
+        args += ["--goal-id", goal_id]
+    _run_brain(*args)
+
+
+@memory_group.command(name="write")
+@click.argument("content")
+@click.option("--type", "-t", "entry_type", default="observation",
+              help="Type: observation | decision | question | insight | error (default: observation)")
+@click.option("--project", "-p", default="", help="Project name to tag this entry")
+@click.option("--agent-family", "-a", default="",
+              help="Agent family: claude | gemini | codex | antigravity | qwen")
+@click.option("--scope", "-s", default="",
+              help="Scope: shared | agent-scoped (auto-classified if omitted)")
+def memory_write(content: str, entry_type: str, project: str, agent_family: str, scope: str) -> None:
+    """Write a new entry to the shared brain.
+
+    \b
+    Examples:
+      pt memory write "Decision: use Haiku for all routine tasks" --type decision
+      pt memory write "Bug: pt scan hangs without Discord timeout" --type error --project project-tracker
+      pt memory write "Trust layer is the right thesis" --type insight --project data-vault-factory
+    """
+    args = ["write", content, "--type", entry_type]
+    if project:
+        args += ["--project", project]
+    if agent_family:
+        args += ["--agent-family", agent_family]
+    if scope:
+        args += ["--scope", scope]
+    _run_brain(*args)
+
+
+@memory_group.command(name="stats")
+def memory_stats() -> None:
+    """Show brain database statistics and per-agent search efficiency."""
+    _run_brain("stats")
+
+
+# =============================================================================
 # Register subgroups and run
 # =============================================================================
 
 cli.add_command(tasks_group)
 cli.add_command(inbox_group)
 cli.add_command(calendar_group)
+cli.add_command(memory_group)
 
 if __name__ == "__main__":
     cli()

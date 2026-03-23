@@ -186,6 +186,38 @@ python scripts/discovery/graph_builder.py
 
 ---
 
+## Agent Memory (`pt memory`)
+
+`pt memory` is the **cross-agent semantic brain** built into the pt CLI. It lets every agent search and write the shared Open Brain without MCP permissions or knowing the path to `brain.py`.
+
+```bash
+# Search by semantic similarity — the most important command
+pt memory search "what was the decision about Turso?"
+pt memory search "MCP firewall competitors" --top 10
+pt memory search "calendar" --agent-family claude
+
+# Write a new memory entry
+pt memory write "Decision: use Haiku for all routine tasks" --type decision
+pt memory write "Bug: pt scan hangs without Discord timeout" --type error --project project-tracker
+pt memory write "Trust layer is the right thesis" --type insight --project data-vault-factory
+
+# Stats — per-agent search efficiency and totals
+pt memory stats
+```
+
+### Why `pt memory` instead of calling `brain.py` directly?
+
+- **No MCP approval prompt** — agents using MCP get a permission pop-up every time. `pt memory` is a bash call, which is pre-trusted.
+- **Consistent interface** — every agent already knows `pt`. No need to remember the path to `brain.py` or how to invoke `uv run`.
+- **Works on both machines** — uses `PROJECTS_ROOT` from config to find `brain.py` automatically.
+- **The right habit** — agents should check memory first, before grepping the codebase. `pt memory search` is the command to reach for.
+
+> **Important:** Call `pt memory search` at the **start** of a session to retrieve relevant context before starting work. Call `pt memory write` at the **end** to leave a trail for the next agent.
+
+`pt memory` wraps `ai-memory/brain.py`. See that project's README for database architecture and MCP server setup.
+
+---
+
 ## Adding Tasks Programmatically
 
 ### Via Python
