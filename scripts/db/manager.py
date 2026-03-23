@@ -59,7 +59,8 @@ class DatabaseManager:
     def __init__(self, db_path: Optional[Path] = None):
         """Initialize database manager."""
         self.db_path = db_path or get_db_path()
-        create_database(self.db_path)
+        if not _USE_TURSO:
+            create_database(self.db_path)
         
     @contextmanager
     def _get_conn(self) -> Generator[Any, None, None]:
