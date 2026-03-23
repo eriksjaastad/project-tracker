@@ -805,6 +805,30 @@ class CalendarEventCreate(BaseModel):
     recurrence: Optional[str] = None
     created_by: str = "human"
 
+    @staticmethod
+    def _validate_date(v: str) -> str:
+        from datetime import datetime
+        try:
+            datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"event_date must be YYYY-MM-DD, got '{v}'")
+        return v
+
+    # Pydantic v2 field validator
+    try:
+        from pydantic import field_validator
+        @field_validator("event_date")
+        @classmethod
+        def validate_event_date(cls, v: str) -> str:
+            return cls._validate_date(v)
+    except ImportError:
+        # Pydantic v1 fallback
+        from pydantic import validator
+        @validator("event_date")
+        @classmethod  # type: ignore[misc]
+        def validate_event_date(cls, v: str) -> str:
+            return cls._validate_date(v)
+
 
 def _get_cal_manager():
     from db.calendar_manager import CalendarManager
@@ -822,6 +846,7 @@ async def api_calendar_events(
     include_all: bool = False,
 ):
     """Return upcoming calendar events."""
+    days = max(1, min(days, 730))  # clamp: 1–730 days
     try:
         cm = _get_cal_manager()
         events = cm.get_events(
@@ -890,6 +915,7 @@ async def api_calendar_done(event_id: int):
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Calendar done error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
