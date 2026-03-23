@@ -188,13 +188,22 @@ jobs:
             exit 0
           fi
 
+          # Use jq to safely escape JSON values and prevent injection attacks
           if [ "$VERDICT" = "request_changes" ]; then
-            MSG=":warning: *PR Review: Changes Requested*\n<${PR_URL}|${REPO}#${PR_NUMBER}>: ${PR_TITLE}\nReview found blocking issues — check PR comments."
+            MSG_PREFIX=":warning: *PR Review: Changes Requested*"
+            MSG_SUFFIX="Review found blocking issues — check PR comments."
           else
-            MSG=":x: *PR Review Failed*\n<${PR_URL}|${REPO}#${PR_NUMBER}>: ${PR_TITLE}\nAutomated review encountered an error — check Actions log."
+            MSG_PREFIX=":x: *PR Review Failed*"
+            MSG_SUFFIX="Automated review encountered an error — check Actions log."
           fi
+
+          # Build text message with all variables safely escaped by jq
+          TEXT=$(printf "%s\n<%s|%s#%s>: %s\n%s" "$MSG_PREFIX" "$PR_URL" "$REPO" "$PR_NUMBER" "$PR_TITLE" "$MSG_SUFFIX")
+
+          # Use jq -Rs to properly escape the text as a JSON string, preventing injection attacks
+          JSON_PAYLOAD=$(echo "$TEXT" | jq -Rs '{channel: "C0AMELVKL4F", text: .}')
 
           curl -s -X POST "https://slack.com/api/chat.postMessage" \
             -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"channel\": \"C0AMELVKL4F\", \"text\": \"${MSG}\"}"
+            -d "$JSON_PAYLOAD"
