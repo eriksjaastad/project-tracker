@@ -4,7 +4,19 @@ version = "0.0.0"
 description = "Local dashboard and CLI for tracking projects, Kanban work, graph relationships, and agentic workflow signals across the projects root."
 requires-python = ">=3.11"
 dependencies = [
+    "click>=8.0",
+    "croniter>=2.0",
+    "fastapi>=0.115",
+    "jinja2>=3.1",
     "libsql>=0.1.11",
+    "markdown>=3.7",
+    "pygments>=2.18",
+    "python-dateutil>=2.9",
+    "python-multipart>=0.0.9",
+    "pyyaml>=6.0",
+    "rich>=13.9",
+    "typer>=0.12",
+    "uvicorn>=0.34",
 ]
 
 [project.optional-dependencies]
