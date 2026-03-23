@@ -17,7 +17,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
-from .schema import get_db_path, create_database
+from .schema import get_db_path, create_database, ensure_schema
 from scripts.utils.validation import (
     validate_task_input,
     validate_task_text,
@@ -59,7 +59,14 @@ class DatabaseManager:
     def __init__(self, db_path: Optional[Path] = None):
         """Initialize database manager."""
         self.db_path = db_path or get_db_path()
-        if not _USE_TURSO:
+        if _USE_TURSO:
+            # Run schema migrations against Turso (no local safety checks needed)
+            with self._get_conn() as conn:
+                cursor = conn.cursor()
+                ensure_schema(cursor)
+                conn.commit()
+        else:
+            # Local SQLite: safety checks + schema migrations
             create_database(self.db_path)
         
     @contextmanager

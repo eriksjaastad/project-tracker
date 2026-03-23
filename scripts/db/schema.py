@@ -21,7 +21,7 @@ import json
 import os
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime, timezone
 
 try:
@@ -288,18 +288,13 @@ def get_db_path() -> Path:
     return Path(env_path) if env_path else DATABASE_PATH
 
 
-def create_database(db_path: Optional[Path] = None) -> None:
-    """Create database with all tables and indexes."""
-    if db_path is None:
-        db_path = get_db_path()
-    
-    # SAFETY: Check for unexpected fresh database
-    if db_path.exists():
-        _check_fresh_database(db_path)
-    
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
+def ensure_schema(cursor: Any) -> None:
+    """Run all DDL migrations against the given cursor.
+
+    This is backend-agnostic — works with both sqlite3 and libsql (Turso).
+    All statements are idempotent (CREATE IF NOT EXISTS, ALTER ADD COLUMN
+    wrapped in try/except). Safe to run on every startup.
+    """
     # 0. Schema Versioning
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS schema_version (
@@ -331,104 +326,103 @@ def create_database(db_path: Optional[Path] = None) -> None:
     # Migration: add project_type column
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN project_type TEXT DEFAULT 'standard'")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add is_infrastructure column if it doesn't exist
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN is_infrastructure BOOLEAN DEFAULT 0")
-    except sqlite3.OperationalError:
-        # Column already exists
+    except Exception:
         pass
     
     # Migration: add index tracking columns
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN has_index BOOLEAN DEFAULT 0")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
         
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN index_is_valid BOOLEAN DEFAULT 0")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
         
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN index_updated_at TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add health columns
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN health_score INTEGER")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
         
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN health_grade TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add scaffolding version tracking columns
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN scaffolding_version TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
         
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN rules_version TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
         
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN scaffolding_applied_at TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add autonomous loop tracker fields (Task #4856)
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN tier INTEGER")  # 1=hourly, 2=daily, 3=weekly
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN healthcheck_cmd TEXT")  # Command to run for health checks
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN commands_to_run TEXT")  # JSON array of commands for automated fixes
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN cron_jobs_config TEXT")  # JSON object with cron schedules
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN template_version_installed TEXT")  # Current scaffolding version
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN template_version_expected TEXT")  # Expected scaffolding version
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN drift_status TEXT")  # clean, drift_detected, needs_update
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN autonomy_level TEXT DEFAULT 'report'")  # report, fix_safe, fix_full
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     # Migration: add machine designation field (#5236)
     try:
         cursor.execute("ALTER TABLE projects ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
 
@@ -449,7 +443,7 @@ def create_database(db_path: Optional[Path] = None) -> None:
     # Migration: add machine designation to cron_jobs (must run AFTER CREATE TABLE above)
     try:
         cursor.execute("ALTER TABLE cron_jobs ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both, web
-    except sqlite3.OperationalError:
+    except Exception:
         pass  # Column already exists
     
     # External services
@@ -477,9 +471,6 @@ def create_database(db_path: Optional[Path] = None) -> None:
     """)
     
     # 2. Kanban tasks table
-    # SAFETY: Always backup before ANY operation that might affect tasks
-    _safety_backup_tasks(db_path)
-
     # SAFETY: Check if tasks table exists with data - NEVER drop automatically
     cursor.execute("PRAGMA table_info(tasks)")
     columns = cursor.fetchall()
@@ -499,7 +490,6 @@ def create_database(db_path: Optional[Path] = None) -> None:
                 print(f"    2. Backup: cp data/tracker.db data/tracker.db.backup")
                 print(f"    3. Run dedicated migration script")
                 print(f"    4. Restore from export if needed")
-                conn.close()
                 raise SafetyError(f"Cannot auto-migrate: {task_count} tasks would be lost. See instructions above.")
             else:
                 # Table is empty, safe to recreate (but still log it)
@@ -528,111 +518,111 @@ def create_database(db_path: Optional[Path] = None) -> None:
     # Migration: add prompt column if it doesn't exist
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN prompt TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add review_comment column if it doesn't exist
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN review_comment TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     # Migration: ensure tasks table has all columns
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN completed_at TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add title column for short task names
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN title TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add notes column for freeform text notes
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN notes TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add commit_sha column for linking to commits/PRs
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN commit_sha TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add category column for task categorization/tagging
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN category TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add parent_id column for subtask support (Task #4645)
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add blocked_by column for task dependencies (Task #4579)
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN blocked_by TEXT")  # JSON array of task IDs
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     
     # Migration: add sequence_order column for execution ordering (Task #4645)
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN sequence_order INTEGER")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     # Migration: add task_type column for manual/agent tasks
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'manual'")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     # Backfill task_type for existing rows
     try:
         cursor.execute("UPDATE tasks SET task_type = 'manual' WHERE task_type IS NULL")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add autonomous loop metadata fields (Task #4857)
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN source TEXT")  # janitor/librarian/patch-bot/human
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN severity TEXT")  # P0/P1/P2
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN detected_at TEXT")  # When issue was first detected
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN evidence TEXT")  # JSON with logs/errors
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN allowed_paths TEXT")  # JSON array for Patch-Bot
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN definition_of_done TEXT")  # Acceptance criteria
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     # Migration: add machine designation field (#5236)
     try:
         cursor.execute("ALTER TABLE tasks ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both
-    except sqlite3.OperationalError:
+    except Exception:
         pass
     
     # Migration: add 'Cancelled' to status CHECK constraint (Task #4749)
@@ -906,17 +896,40 @@ def create_database(db_path: Optional[Path] = None) -> None:
             created_at TEXT NOT NULL
         )
     """)
-    
-    # Store or validate fingerprint
+
+    # Update schema version
+    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (5, ?)", (datetime.now().isoformat(),))
+
+
+def create_database(db_path: Optional[Path] = None) -> None:
+    """Create/migrate a LOCAL SQLite database.
+
+    Handles local-only safety checks (fresh-DB guard, file-based fingerprint,
+    safety backups) then delegates all DDL to ensure_schema().
+    """
+    if db_path is None:
+        db_path = get_db_path()
+
+    # SAFETY: Check for unexpected fresh database
+    if db_path.exists():
+        _check_fresh_database(db_path)
+
+    # SAFETY: Backup tasks before any schema operation
+    _safety_backup_tasks(db_path)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Run all DDL migrations
+    ensure_schema(cursor)
+
+    # Local-only: store/validate fingerprint
     fingerprint = _get_or_create_fingerprint(db_path)
     cursor.execute("""
         INSERT OR REPLACE INTO _metadata (key, value, created_at)
         VALUES ('fingerprint', ?, ?)
     """, (fingerprint, datetime.now(timezone.utc).isoformat()))
-    
-    # Update schema version (current version: 4 - added database fingerprinting)
-    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (5, ?)", (datetime.now().isoformat(),))
-    
+
     conn.commit()
     conn.close()
 
