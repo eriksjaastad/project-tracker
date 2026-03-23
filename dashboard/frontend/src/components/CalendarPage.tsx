@@ -104,6 +104,7 @@ export function CalendarPage() {
   const [formRecurrence, setFormRecurrence] = useState('');
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [markDoneError, setMarkDoneError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -174,9 +175,14 @@ export function CalendarPage() {
   }
 
   async function handleMarkDone(id: number) {
-    await markCalendarEventDone(id);
-    setSelectedEvent(null);
-    load();
+    setMarkDoneError(null);
+    try {
+      await markCalendarEventDone(id);
+      setSelectedEvent(null);
+      load();
+    } catch (err) {
+      setMarkDoneError(err instanceof Error ? err.message : 'Failed to mark done');
+    }
   }
 
   async function handleAddEvent(e: React.FormEvent) {
@@ -258,8 +264,10 @@ export function CalendarPage() {
             {/* Tabs */}
             <div className="cal-tabs" role="tablist">
               <button
+                id="cal-tab-calendar"
                 role="tab"
                 aria-selected={activeTab === 'calendar'}
+                aria-controls="cal-panel-calendar"
                 className={`cal-tab${activeTab === 'calendar' ? ' active' : ''}`}
                 onClick={() => setActiveTab('calendar')}
                 type="button"
@@ -267,8 +275,10 @@ export function CalendarPage() {
                 📅 Calendar
               </button>
               <button
+                id="cal-tab-crons"
                 role="tab"
                 aria-selected={activeTab === 'crons'}
+                aria-controls="cal-panel-crons"
                 className={`cal-tab${activeTab === 'crons' ? ' active' : ''}`}
                 onClick={() => setActiveTab('crons')}
                 type="button"
@@ -279,7 +289,12 @@ export function CalendarPage() {
             </div>
 
             {activeTab === 'calendar' && (
-              <div className="cal-layout">
+              <div
+                id="cal-panel-calendar"
+                role="tabpanel"
+                aria-labelledby="cal-tab-calendar"
+                className="cal-layout"
+              >
                 {/* ── Monthly Grid ── */}
                 <div className="cal-main">
                   <div className="cal-nav">
@@ -374,7 +389,12 @@ export function CalendarPage() {
             )}
 
             {activeTab === 'crons' && (
-              <div className="cal-crons">
+              <div
+                id="cal-panel-crons"
+                role="tabpanel"
+                aria-labelledby="cal-tab-crons"
+                className="cal-crons"
+              >
                 <p className="cal-crons-intro">
                   All scheduled automation across your projects. Machine designation shows where the job runs.
                   Jobs without a machine set show <code>?</code>.
@@ -428,7 +448,15 @@ export function CalendarPage() {
 
       {/* ── Event Detail Panel ── */}
       {selectedEvent && (
-        <div className="cal-overlay" onClick={() => setSelectedEvent(null)} role="dialog" aria-modal aria-label="Event detail">
+        <div
+          className="cal-overlay"
+          onClick={() => setSelectedEvent(null)}
+          onKeyDown={e => e.key === 'Escape' && setSelectedEvent(null)}
+          role="dialog"
+          aria-modal
+          aria-label="Event detail"
+          tabIndex={-1}
+        >
           <div className="cal-panel" onClick={e => e.stopPropagation()}>
             <button
               type="button"
@@ -473,6 +501,7 @@ export function CalendarPage() {
               </div>
             )}
             <div className="cal-panel-actions">
+              {markDoneError && <p className="cal-form-error" style={{margin: 0}}>{markDoneError}</p>}
               <button
                 type="button"
                 className="btn-primary"
@@ -494,7 +523,15 @@ export function CalendarPage() {
 
       {/* ── Add Event Slide-out ── */}
       {showAddForm && (
-        <div className="cal-overlay" onClick={() => setShowAddForm(false)} role="dialog" aria-modal aria-label="Add event">
+        <div
+          className="cal-overlay"
+          onClick={() => setShowAddForm(false)}
+          onKeyDown={e => e.key === 'Escape' && setShowAddForm(false)}
+          role="dialog"
+          aria-modal
+          aria-label="Add event"
+          tabIndex={-1}
+        >
           <div className="cal-panel cal-panel--form" onClick={e => e.stopPropagation()}>
             <button type="button" className="cal-panel-close" onClick={() => setShowAddForm(false)} aria-label="Close">×</button>
             <h2 className="cal-panel-title">New Calendar Event</h2>
