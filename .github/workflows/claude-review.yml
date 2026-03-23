@@ -152,3 +152,58 @@ jobs:
 
           The automated review did not produce output. Check the Actions log for details."
           fi
+
+      - name: Notify Slack on REQUEST_CHANGES or failure
+        if: always()
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Only notify if we have the token
+          if [ -z "${SLACK_BOT_TOKEN}" ]; then
+            echo "::warning::SLACK_BOT_TOKEN not set, skipping notification"
+            exit 0
+          fi
+
+          # Determine what happened
+          VERDICT="unknown"
+          if [ -f review.md ]; then
+            if head -5 review.md | grep -q "VERDICT: REQUEST_CHANGES"; then
+              VERDICT="request_changes"
+            elif head -5 review.md | grep -q "VERDICT: APPROVE"; then
+              VERDICT="approve"
+            elif head -5 review.md | grep -q "Review Timed Out\|Review Failed\|Review Unavailable"; then
+              VERDICT="error"
+            fi
+          else
+            VERDICT="error"
+          fi
+
+          # Only notify on problems
+          if [ "$VERDICT" = "approve" ]; then
+            echo "Review approved, no notification needed"
+            exit 0
+          fi
+
+          # Use jq to safely escape JSON values and prevent injection attacks
+          if [ "$VERDICT" = "request_changes" ]; then
+            MSG_PREFIX=":warning: *PR Review: Changes Requested*"
+            MSG_SUFFIX="Review found blocking issues — check PR comments."
+          else
+            MSG_PREFIX=":x: *PR Review Failed*"
+            MSG_SUFFIX="Automated review encountered an error — check Actions log."
+          fi
+
+          # Build text message with all variables safely escaped by jq
+          TEXT=$(printf "%s\n<%s|%s#%s>: %s\n%s" "$MSG_PREFIX" "$PR_URL" "$REPO" "$PR_NUMBER" "$PR_TITLE" "$MSG_SUFFIX")
+
+          # Use jq -Rs to properly escape the text as a JSON string, preventing injection attacks
+          JSON_PAYLOAD=$(echo "$TEXT" | jq -Rs '{channel: "C0AMELVKL4F", text: .}')
+
+          curl -s -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$JSON_PAYLOAD"
