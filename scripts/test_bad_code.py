@@ -1,4 +1,7 @@
-"""Utility to clean up old completed tasks."""
+"""Utility to clean up old completed tasks.
+
+Triggers re-review with updated workflow.
+"""
 
 import sqlite3
 import os
