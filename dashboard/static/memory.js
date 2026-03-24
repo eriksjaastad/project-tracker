@@ -61,12 +61,11 @@ function nodeColor(type) {
 let maxConnections = 1;
 
 function nodeRadius(node) {
-    // Sqrt scale: visually amplifies the high end much more than linear.
-    // A node with 4x connections gets 2x the radius (not 4x area, which would be too extreme).
-    const base = 5;
-    const maxExtra = 20;  // radius range: 5 → 25px
-    const normalized = Math.sqrt(Math.max(0, node.size) / Math.max(1, maxConnections));
-    return base + maxExtra * normalized;
+    // Use backend raw degree (all connections above threshold, not display-capped).
+    // Fixed scale: 4px (isolated) → 22px (150+ real connections).
+    // Sqrt so medium-connected nodes are visually distinct, not just the extremes.
+    const raw = node.rawSize || 0;
+    return 4 + 18 * Math.pow(Math.min(1, raw / 150), 0.45);
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -141,6 +140,10 @@ async function loadGraph() {
             showLoading(false);
             return;
         }
+
+        // Preserve the backend-computed raw degree on each node so filters
+        // can overwrite node.size for display without losing the true connectivity.
+        memoryData.nodes.forEach(n => { n.rawSize = n.size || 0; });
 
         // Populate filter dropdowns dynamically
         populateTypeDropdowns(typesData.types || []);
@@ -247,20 +250,19 @@ function applyFiltersInternal() {
         }
     });
 
-    // Update connection counts on nodes for radius sizing
-    const connCounts = {};
-    filteredEdges.forEach(e => {
+    // Node SIZE uses raw degree (all valid edges before display cap)
+    // so highly-connected hubs look bigger even when we only draw 10 of their edges.
+    const rawDegree = {};
+    sortedEdges.forEach(e => {
         const src = typeof e.source === 'object' ? e.source.id : e.source;
         const tgt = typeof e.target === 'object' ? e.target.id : e.target;
-        connCounts[src] = (connCounts[src] || 0) + 1;
-        connCounts[tgt] = (connCounts[tgt] || 0) + 1;
+        rawDegree[src] = (rawDegree[src] || 0) + 1;
+        rawDegree[tgt] = (rawDegree[tgt] || 0) + 1;
     });
     filteredNodes.forEach(n => {
-        n.size = connCounts[n.id] || 0;
+        n.size = rawDegree[n.id] || 0;
+        // rawSize stays as the backend degree — never overwritten
     });
-
-    // Update global max for radius normalization
-    maxConnections = Math.max(1, ...filteredNodes.map(n => n.size));
 
     visibleNodes = filteredNodes;
     visibleEdges = filteredEdges;
