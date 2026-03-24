@@ -17,6 +17,7 @@ let visibleEdges = [];
 // Current filter settings
 let currentFilters = {
     thoughtType: '',
+    machine: '',
     minSimilarity: 0.3,
     maxEdges: 10
 };
@@ -95,6 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Controls
     document.getElementById('type-filter').addEventListener('change', applyFilters);
+    document.getElementById('machine-filter').addEventListener('change', applyFilters);
     document.getElementById('min-similarity').addEventListener('input', e => {
         const val = parseInt(e.target.value) / 100;
         document.getElementById('min-similarity-val').textContent = val.toFixed(2);
@@ -158,6 +160,7 @@ async function loadGraph() {
 
         // Populate filter dropdowns dynamically
         populateTypeDropdowns(typesData.types || []);
+        populateMachineDropdown();
         // Build dynamic legend
         buildLegend(typesData.types || []);
 
@@ -187,6 +190,30 @@ function populateTypeDropdowns(types) {
             sel.appendChild(opt);
         });
     });
+}
+
+function populateMachineDropdown() {
+    const sel = document.getElementById('machine-filter');
+    if (!sel) return;
+    while (sel.options.length > 1) sel.remove(1);
+    // Count nodes per machine for the label
+    const macbook = memoryData.nodes.filter(n => (n.source_machine || '').toLowerCase().includes('macbook')).length;
+    const mini = memoryData.nodes.filter(n => {
+        const m = (n.source_machine || '').toLowerCase();
+        return m.includes('mac-mini') || m.includes('mini');
+    }).length;
+    if (macbook > 0) {
+        const opt = document.createElement('option');
+        opt.value = 'macbook';
+        opt.textContent = `MacBook (${macbook})`;
+        sel.appendChild(opt);
+    }
+    if (mini > 0) {
+        const opt = document.createElement('option');
+        opt.value = 'openclaw';
+        opt.textContent = `OpenClaw (${mini})`;
+        sel.appendChild(opt);
+    }
 }
 
 function buildLegend(types) {
@@ -224,6 +251,7 @@ let isRecomputing = false;
 
 function applyFilters() {
     currentFilters.thoughtType = document.getElementById('type-filter').value;
+    currentFilters.machine = document.getElementById('machine-filter').value;
 
     // Dim canvas to signal recomputation
     isRecomputing = true;
@@ -262,10 +290,19 @@ function applyFilters() {
 }
 
 function applyFiltersInternal() {
-    // Type filter
-    const filteredNodes = currentFilters.thoughtType
-        ? memoryData.nodes.filter(n => n.type === currentFilters.thoughtType)
-        : memoryData.nodes;
+    // Type + machine filter
+    let filteredNodes = memoryData.nodes;
+    if (currentFilters.thoughtType) {
+        filteredNodes = filteredNodes.filter(n => n.type === currentFilters.thoughtType);
+    }
+    if (currentFilters.machine) {
+        filteredNodes = filteredNodes.filter(n => {
+            const lower = (n.source_machine || '').toLowerCase();
+            if (currentFilters.machine === 'macbook') return lower.includes('macbook');
+            if (currentFilters.machine === 'openclaw') return lower.includes('mac-mini') || lower.includes('mini');
+            return true;
+        });
+    }
 
     const nodeIds = new Set(filteredNodes.map(n => n.id));
 

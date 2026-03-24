@@ -37,6 +37,13 @@
                     </select>
                 </div>
                 <div class="control-group">
+                    <label for="machine-filter">Machine:</label>
+                    <select id="machine-filter">
+                        <option value="">All Machines</option>
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+                <div class="control-group">
                     <label for="min-similarity">Min Similarity:</label>
                     <input type="range" id="min-similarity" min="0" max="100" value="30" step="5">
                     <span id="min-similarity-val">0.30</span>
