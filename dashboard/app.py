@@ -467,6 +467,7 @@ async def dashboard(request: Request):
     structural_projects = [p for p in enriched_projects if p.get("version_status") == "structural_issue"]
     
     return templates.TemplateResponse(
+        request,
         "index.html",
         build_template_context(
             request,
@@ -506,6 +507,7 @@ async def project_detail(request: Request, project_id: str):
     project = enrich_project_data(project, db, current_scaffolding)
     
     return templates.TemplateResponse(
+        request,
         "project_detail.html",
         build_template_context(request, project=project),
     )
@@ -952,13 +954,13 @@ async def api_calendar_remind(
 @app.get("/graph", response_class=HTMLResponse)
 async def graph_view(request: Request):
     """Render the graph visualization page."""
-    return templates.TemplateResponse("graph.html", build_template_context(request))
+    return templates.TemplateResponse(request, "graph.html", build_template_context(request))
 
 
 @app.get("/memory", response_class=HTMLResponse)
 async def memory_view(request: Request):
     """Render the memory graph visualization page."""
-    return templates.TemplateResponse("memory.html", build_template_context(request))
+    return templates.TemplateResponse(request, "memory.html", build_template_context(request))
 
 
 @app.get("/api/memory-graph")
