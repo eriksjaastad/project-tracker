@@ -57,15 +57,51 @@ function nodeColor(type) {
     return TYPE_COLORS[type] || TYPE_COLORS.default;
 }
 
+// ─── Machine color map (ring around nodes) ──────────────────────────────────
+
+const MACHINE_COLORS = {
+    'openclaw':  '#FF9800',    // OpenClaw (Mac Mini) — orange
+    'macbook':   '#42A5F5',    // MacBook — blue
+};
+
+function machineColor(machine) {
+    if (!machine) return null;
+    const lower = machine.toLowerCase();
+    if (lower.includes('mac-mini') || lower.includes('openclaw') || lower.includes('mini')) return MACHINE_COLORS['openclaw'];
+    if (lower.includes('macbook')) return MACHINE_COLORS['macbook'];
+    return '#666666';  // Unknown machine — gray
+}
+
 // Track max connections across visible nodes for radius normalization
 let maxConnections = 1;
+let sizeRanks = []; // sorted rawSize values for percentile lookup
 
 function nodeRadius(node) {
-    // Use backend raw degree (all connections above threshold, not display-capped).
-    // Fixed scale: 4px (isolated) → 22px (150+ real connections).
-    // Sqrt so medium-connected nodes are visually distinct, not just the extremes.
     const raw = node.rawSize || 0;
-    return 4 + 18 * Math.pow(Math.min(1, raw / 150), 0.45);
+    if (!sizeRanks.length) return 6;
+
+    // If data has very little spread, use simple linear scale
+    const maxVal = sizeRanks[sizeRanks.length - 1];
+    const minVal = sizeRanks[0];
+    if (maxVal - minVal < 5) {
+        return 5 + (maxVal > 0 ? 25 * (raw / maxVal) : 0);
+    }
+
+    // Binary search for rank position
+    let lo = 0, hi = sizeRanks.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (sizeRanks[mid] <= raw) lo = mid;
+        else hi = mid - 1;
+    }
+    const pct = sizeRanks.length > 1 ? lo / (sizeRanks.length - 1) : 0.5;
+
+    // Map percentile to radius: 5px (bottom) → 35px (top hub)
+    return 5 + 30 * Math.pow(pct, 0.7);
+}
+
+function computeSizeRanks(nodes) {
+    sizeRanks = nodes.map(n => n.rawSize || 0).sort((a, b) => a - b);
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -180,12 +216,28 @@ function populateTypeDropdowns(types) {
 
 function buildLegend(types) {
     const legend = document.getElementById('memory-legend');
-    legend.innerHTML = '<h4>Legend</h4>';
+    legend.innerHTML = '<h4>Type</h4>';
     types.forEach(t => {
         const color = nodeColor(t);
         const item = document.createElement('div');
         item.className = 'legend-item';
         item.innerHTML = `<span class="legend-color" style="background:${color}"></span><span>${t.charAt(0).toUpperCase() + t.slice(1)}</span>`;
+        legend.appendChild(item);
+    });
+
+    // Machine legend
+    const machineHeader = document.createElement('h4');
+    machineHeader.textContent = 'Machine';
+    machineHeader.style.marginTop = '12px';
+    legend.appendChild(machineHeader);
+
+    [
+        { name: 'OpenClaw', color: MACHINE_COLORS['openclaw'] },
+        { name: 'MacBook', color: MACHINE_COLORS['macbook'] },
+    ].forEach(m => {
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `<span class="legend-color" style="background:transparent;border:3px solid ${m.color};box-sizing:border-box"></span><span>${m.name}</span>`;
         legend.appendChild(item);
     });
 }
@@ -208,12 +260,29 @@ function applyFilters() {
         applyFiltersInternal();
         updateStats();
         buildSimulation();
+
+        // Handle empty results — restore opacity immediately
+        if (visibleNodes.length === 0) {
+            canvas.style.opacity = '1';
+            isRecomputing = false;
+            ctx.clearRect(0, 0, width, height);
+            return;
+        }
+
         // Restore opacity on first simulation tick
         simulation.on('tick.filterFeedback', () => {
             canvas.style.opacity = '1';
             isRecomputing = false;
-            simulation.on('tick.filterFeedback', null); // remove one-shot listener
+            simulation.on('tick.filterFeedback', null);
         });
+
+        // Safety timeout in case tick never fires
+        setTimeout(() => {
+            if (isRecomputing) {
+                canvas.style.opacity = '1';
+                isRecomputing = false;
+            }
+        }, 300);
     });
 }
 
@@ -266,6 +335,7 @@ function applyFiltersInternal() {
 
     visibleNodes = filteredNodes;
     visibleEdges = filteredEdges;
+    computeSizeRanks(visibleNodes);
 }
 
 function updateStats() {
@@ -293,18 +363,22 @@ function buildSimulation() {
     // Spread initial positions if nodes lack them
     visibleNodes.forEach(n => {
         if (!n.x) {
-            n.x = width / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.6;
-            n.y = height / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.6;
+            n.x = width / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.9;
+            n.y = height / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.9;
         }
     });
 
     simulation = d3.forceSimulation(visibleNodes)
-        .force('link', d3.forceLink(visibleEdges).id(d => d.id).distance(120).strength(0.3))
-        .force('charge', d3.forceManyBody().strength(-300).distanceMax(400))
-        .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collision', d3.forceCollide().radius(d => nodeRadius(d) + 4))
-        .alphaDecay(0.02)
-        .velocityDecay(0.4);
+        .force('link', d3.forceLink(visibleEdges).id(d => d.id)
+            .distance(d => 100 + nodeRadius(d.source) + nodeRadius(d.target))
+            .strength(0.15))
+        .force('charge', d3.forceManyBody()
+            .strength(d => -150 - nodeRadius(d) * 8)
+            .distanceMax(800))
+        .force('center', d3.forceCenter(width / 2, height / 2).strength(0.03))
+        .force('collision', d3.forceCollide().radius(d => nodeRadius(d) + 6))
+        .alphaDecay(0.015)
+        .velocityDecay(0.35);
 
     startLoop();
 
@@ -392,6 +466,16 @@ function drawFrame() {
         ctx.strokeStyle = isSelected ? '#fff' : isHovered ? '#fff' : 'rgba(255,255,255,0.4)';
         ctx.lineWidth = isSelected ? 2.5 : isHovered ? 2 : 1;
         ctx.stroke();
+
+        // Machine ring (second visual channel)
+        const mColor = machineColor(n.source_machine);
+        if (mColor) {
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r + 2, 0, Math.PI * 2);
+            ctx.strokeStyle = mColor;
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+        }
 
         // Glow on hover/select
         if (isHovered || isSelected) {
@@ -605,6 +689,8 @@ function showDetails(thought) {
 
     document.getElementById('details-project').textContent = thought.project || 'N/A';
     document.getElementById('details-connections').textContent = thought.size;
+    const machineEl = document.getElementById('details-machine');
+    if (machineEl) machineEl.textContent = thought.source_machine || 'Unknown';
 
     const relatedEdges = visibleEdges.filter(e => {
         const src = typeof e.source === 'object' ? e.source.id : e.source;

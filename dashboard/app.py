@@ -995,7 +995,7 @@ async def get_memory_graph_data(
         conn.row_factory = sqlite3.Row
 
         rows = conn.execute(
-            "SELECT id, content, embedding, metadata, created_at FROM thoughts WHERE embedding IS NOT NULL"
+            "SELECT id, content, embedding, metadata, created_at, source_machine FROM thoughts WHERE embedding IS NOT NULL"
         ).fetchall()
         conn.close()
 
@@ -1014,6 +1014,7 @@ async def get_memory_graph_data(
                 "project": metadata.get("project", ""),
                 "agent_family": metadata.get("agent_family", ""),
                 "created_at": row["created_at"],
+                "source_machine": row["source_machine"] or "",
                 "size": 1
             })
             embeddings.append(embedding)
