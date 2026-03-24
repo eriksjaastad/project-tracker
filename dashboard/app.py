@@ -963,15 +963,17 @@ async def memory_view(request: Request):
 
 @app.get("/api/memory-graph")
 async def get_memory_graph_data(
-    thought_type: Optional[str] = None,  # Filter by type: observation, decision, idea, question
-    min_similarity: float = 0.3,         # Minimum similarity threshold for edges
-    max_edges_per_node: int = 10         # Limit edges per node
+    min_similarity: float = 0.3,   # Minimum similarity threshold for edges
+    max_edges_per_node: int = 10   # Limit edges per node to keep response size reasonable
 ):
-    """Return memory graph JSON for D3.js visualization."""
+    """Return full memory graph JSON for client-side rendering.
+
+    Type filtering is intentionally done client-side so the browser can
+    switch filters instantly without a network round-trip.
+    """
     import json
     import sqlite3
 
-    # Path to Open Brain database (sibling to project-tracker)
     projects_root = Path(__file__).parent.parent.parent
     brain_db_path = projects_root / "ai-memory" / "brain.db"
 
@@ -981,7 +983,6 @@ async def get_memory_graph_data(
         }, status_code=404)
 
     try:
-        # Helper function for cosine similarity
         def cosine_similarity(a, b):
             dot = sum(x * y for x, y in zip(a, b))
             norm_a = sum(x * x for x in a) ** 0.5
@@ -990,18 +991,14 @@ async def get_memory_graph_data(
                 return 0.0
             return dot / (norm_a * norm_b)
 
-        # Connect to database
         conn = sqlite3.connect(brain_db_path)
         conn.row_factory = sqlite3.Row
 
-        # Load thoughts with embeddings
         rows = conn.execute(
             "SELECT id, content, embedding, metadata, created_at FROM thoughts WHERE embedding IS NOT NULL"
         ).fetchall()
-
         conn.close()
 
-        # Build nodes
         nodes = []
         embeddings = []
 
@@ -1010,36 +1007,27 @@ async def get_memory_graph_data(
             embedding = json.loads(row["embedding"])
             thought_type_val = metadata.get("type", "observation")
 
-            # Apply type filter if specified
-            if thought_type and thought_type_val != thought_type:
-                continue
-
             nodes.append({
                 "id": str(row["id"]),
                 "content": row["content"],
                 "type": thought_type_val,
                 "project": metadata.get("project", ""),
+                "agent_family": metadata.get("agent_family", ""),
                 "created_at": row["created_at"],
-                "size": 1  # Will be updated based on connections
+                "size": 1
             })
             embeddings.append(embedding)
 
-        # Calculate similarity edges
         edges = []
         connection_counts = {node["id"]: 0 for node in nodes}
 
         for i, node_i in enumerate(nodes):
             similarities = []
-
-            for j, node_j in enumerate(nodes):
-                if i >= j:  # Skip self and duplicates
-                    continue
-
+            for j in range(i + 1, len(nodes)):
                 sim = cosine_similarity(embeddings[i], embeddings[j])
                 if sim > min_similarity:
                     similarities.append((j, sim))
 
-            # Keep only top N most similar
             similarities.sort(key=lambda x: x[1], reverse=True)
             for j, sim in similarities[:max_edges_per_node]:
                 edges.append({
@@ -1050,7 +1038,6 @@ async def get_memory_graph_data(
                 connection_counts[node_i["id"]] += 1
                 connection_counts[nodes[j]["id"]] += 1
 
-        # Update node sizes based on connections
         for node in nodes:
             node["size"] = connection_counts[node["id"]]
 
@@ -1068,6 +1055,93 @@ async def get_memory_graph_data(
     except Exception as e:
         logger.error(f"Error reading memory database: {e}")
         return JSONResponse({"error": f"Error reading memory data: {e}"}, status_code=500)
+
+
+@app.get("/api/memory/types")
+async def get_memory_types():
+    """Return distinct thought types present in brain.db.
+
+    Used by the frontend to populate filter dropdowns dynamically.
+    """
+    import json
+    import sqlite3
+
+    projects_root = Path(__file__).parent.parent.parent
+    brain_db_path = projects_root / "ai-memory" / "brain.db"
+
+    if not brain_db_path.exists():
+        return {"types": ["observation", "decision", "idea", "question"]}
+
+    try:
+        conn = sqlite3.connect(brain_db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT DISTINCT json_extract(metadata, '$.type') AS thought_type FROM thoughts "
+            "WHERE metadata IS NOT NULL ORDER BY thought_type"
+        ).fetchall()
+        conn.close()
+
+        types = sorted(set(
+            row["thought_type"] for row in rows
+            if row["thought_type"] is not None
+        ))
+        # Always ensure the canonical types are present
+        for t in ("observation", "decision", "idea", "question"):
+            if t not in types:
+                types.insert(0, t)
+
+        return {"types": types}
+
+    except Exception as e:
+        logger.error(f"Error reading memory types: {e}")
+        return {"types": ["observation", "decision", "idea", "question"]}
+
+
+@app.get("/api/memory/heatmap")
+async def get_memory_heatmap():
+    """Return thought density grouped by date and type for the heatmap view.
+
+    Returns rows of { date, type, count } sorted chronologically.
+    """
+    import json
+    import sqlite3
+
+    projects_root = Path(__file__).parent.parent.parent
+    brain_db_path = projects_root / "ai-memory" / "brain.db"
+
+    if not brain_db_path.exists():
+        return {"rows": [], "error": "Memory database not found"}
+
+    try:
+        conn = sqlite3.connect(brain_db_path)
+        conn.row_factory = sqlite3.Row
+
+        rows = conn.execute("""
+            SELECT
+                date(created_at) AS day,
+                json_extract(metadata, '$.type') AS thought_type,
+                COUNT(*) AS count
+            FROM thoughts
+            WHERE metadata IS NOT NULL
+            GROUP BY day, thought_type
+            ORDER BY day ASC, thought_type ASC
+        """).fetchall()
+        conn.close()
+
+        return {
+            "rows": [
+                {
+                    "date": row["day"],
+                    "type": row["thought_type"] or "observation",
+                    "count": row["count"]
+                }
+                for row in rows
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"Error reading memory heatmap: {e}")
+        return JSONResponse({"error": f"Error reading heatmap data: {e}"}, status_code=500)
 
 
 @app.get("/api/graph")

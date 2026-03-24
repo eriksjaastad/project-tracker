@@ -1,324 +1,620 @@
-// D3.js Memory Graph Visualization
+// Open Brain Memory Graph — Canvas Renderer
+// Uses d3-force for physics, Canvas 2D for rendering (handles 2000+ nodes at 60fps).
+// All filtering is client-side from a single full-data fetch.
 
+// ─── State ───────────────────────────────────────────────────────────────────
+
+let canvas, ctx, simulation;
 let width, height;
-let svg, container, simulation;
+
+// Full dataset fetched once from /api/memory-graph
 let memoryData = { nodes: [], edges: [] };
+
+// Filtered view (updated in-place on filter change, no re-fetch)
+let visibleNodes = [];
+let visibleEdges = [];
+
+// Current filter settings
 let currentFilters = {
     thoughtType: '',
     minSimilarity: 0.3,
     maxEdges: 10
 };
 
+// Zoom / pan transform
+let transform = { x: 0, y: 0, k: 1 };
+// Target transform for animated fit-to-screen
+let fitTarget = null;
+let fitFrame = 0;
+const FIT_FRAMES = 30;
+
+// Interaction state
+let hoveredNode = null;
+let selectedNode = null;
+let dragNode = null;
+let isPanning = false;
+let panStart = { x: 0, y: 0 };
+
+// rAF handle
+let rafId = null;
+
+// ─── Color map ───────────────────────────────────────────────────────────────
+
 const TYPE_COLORS = {
-    observation: '#4ECDC4',
-    decision: '#FF6B6B',
-    idea: '#FFD93D',
-    question: '#A8E6CF',
-    default: '#999999'
+    observation:  '#4ECDC4',
+    decision:     '#FF6B6B',
+    idea:         '#FFD93D',
+    question:     '#A8E6CF',
+    conversation: '#B39DDB',
+    fact:         '#80CBC4',
+    project:      '#FFB74D',
+    insight:      '#AED581',
+    error:        '#EF9A9A',
+    default:      '#888888'
 };
 
+function nodeColor(type) {
+    return TYPE_COLORS[type] || TYPE_COLORS.default;
+}
+
+function nodeRadius(node) {
+    return Math.max(6, Math.min(22, 7 + node.size * 0.8));
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+
 document.addEventListener('DOMContentLoaded', () => {
-    const svgElement = document.getElementById('memory-svg');
-    width = svgElement.clientWidth || window.innerWidth - 280;
-    height = svgElement.clientHeight || window.innerHeight - 80;
-    
-    svg = d3.select('#memory-svg');
-    container = svg.append('g');
-    
-    // Setup zoom
-    const zoom = d3.zoom()
-        .scaleExtent([0.1, 10])
-        .on('zoom', (event) => {
-            container.attr('transform', event.transform);
-        });
-    
-    svg.call(zoom);
-    
-    // Initial load
-    loadMemoryGraph();
-    
-    // Event listeners
+    canvas = document.getElementById('memory-canvas');
+    ctx = canvas.getContext('2d');
+
+    resizeCanvas();
+    window.addEventListener('resize', () => {
+        resizeCanvas();
+        if (simulation) {
+            simulation.force('center', d3.forceCenter(width / 2, height / 2));
+        }
+    });
+
+    // Controls
     document.getElementById('type-filter').addEventListener('change', applyFilters);
-    document.getElementById('min-similarity').addEventListener('input', (e) => {
+    document.getElementById('min-similarity').addEventListener('input', e => {
         const val = parseInt(e.target.value) / 100;
         document.getElementById('min-similarity-val').textContent = val.toFixed(2);
         currentFilters.minSimilarity = val;
         applyFilters();
     });
-    document.getElementById('max-edges').addEventListener('input', (e) => {
+    document.getElementById('max-edges').addEventListener('input', e => {
         document.getElementById('max-edges-val').textContent = e.target.value;
         currentFilters.maxEdges = parseInt(e.target.value);
         applyFilters();
     });
     document.getElementById('labels-toggle').addEventListener('change', () => {
-        const showLabels = document.getElementById('labels-toggle').checked;
-        container.selectAll('.node text').style('display', showLabels ? 'block' : 'none');
+        if (rafId === null) startLoop();
     });
-    document.getElementById('reset-view').addEventListener('click', () => {
-        fitToScreen();
-    });
-    
-    // Resize listener
-    window.addEventListener('resize', () => {
-        width = svgElement.clientWidth;
-        height = svgElement.clientHeight;
-        if (simulation) {
-            simulation.force('center', d3.forceCenter(width / 2, height / 2));
-            simulation.alpha(0.3).restart();
-        }
-    });
+    document.getElementById('reset-view').addEventListener('click', fitToScreen);
+
+    // Canvas mouse events
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('mousedown', onMouseDown);
+    canvas.addEventListener('mouseup', onMouseUp);
+    canvas.addEventListener('mouseleave', onMouseLeave);
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('click', onClick);
+
+    // Load everything
+    loadGraph();
 });
 
-async function loadMemoryGraph() {
+function resizeCanvas() {
+    width = canvas.clientWidth;
+    height = canvas.clientHeight;
+    canvas.width = width;
+    canvas.height = height;
+}
+
+// ─── Data loading ─────────────────────────────────────────────────────────────
+
+async function loadGraph() {
     showLoading(true);
     try {
-        const params = new URLSearchParams({
-            thought_type: currentFilters.thoughtType,
-            min_similarity: currentFilters.minSimilarity,
-            max_edges_per_node: currentFilters.maxEdges
-        });
-        
-        const response = await fetch(`/api/memory-graph?${params}`);
-        memoryData = await response.json();
-        
+        const t0 = performance.now();
+
+        // Fetch data and types in parallel
+        const [graphRes, typesRes] = await Promise.all([
+            fetch('/api/memory-graph'),
+            fetch('/api/memory/types')
+        ]);
+
+        memoryData = await graphRes.json();
+        const typesData = await typesRes.json();
+
         if (memoryData.error) {
             alert(`Error: ${memoryData.error}`);
             showLoading(false);
             return;
         }
-        
+
+        // Populate filter dropdowns dynamically
+        populateTypeDropdowns(typesData.types || []);
+        // Build dynamic legend
+        buildLegend(typesData.types || []);
+
+        // Apply current filters to get visible subset
+        applyFiltersInternal();
         updateStats();
-        renderGraph();
-        showLoading(false);
+        buildSimulation();
+
+        console.log(`Graph loaded: ${memoryData.nodes.length} nodes, ${memoryData.edges.length} edges in ${(performance.now() - t0).toFixed(0)}ms`);
     } catch (err) {
         console.error('Error loading memory graph:', err);
         alert('Failed to load memory graph');
-        showLoading(false);
     }
+    showLoading(false);
 }
+
+function populateTypeDropdowns(types) {
+    ['type-filter', 'list-type-filter'].forEach(id => {
+        const sel = document.getElementById(id);
+        if (!sel) return;
+        // Remove all except the first "All Types" option
+        while (sel.options.length > 1) sel.remove(1);
+        types.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t.charAt(0).toUpperCase() + t.slice(1);
+            sel.appendChild(opt);
+        });
+    });
+}
+
+function buildLegend(types) {
+    const legend = document.getElementById('memory-legend');
+    legend.innerHTML = '<h4>Legend</h4>';
+    types.forEach(t => {
+        const color = nodeColor(t);
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `<span class="legend-color" style="background:${color}"></span><span>${t.charAt(0).toUpperCase() + t.slice(1)}</span>`;
+        legend.appendChild(item);
+    });
+}
+
+// ─── Filtering (client-side, instant) ─────────────────────────────────────────
 
 function applyFilters() {
     currentFilters.thoughtType = document.getElementById('type-filter').value;
-    loadMemoryGraph();
+    applyFiltersInternal();
+    updateStats();
+    // Re-run simulation with new node set
+    buildSimulation();
+}
+
+function applyFiltersInternal() {
+    // Type filter
+    const filteredNodes = currentFilters.thoughtType
+        ? memoryData.nodes.filter(n => n.type === currentFilters.thoughtType)
+        : memoryData.nodes;
+
+    const nodeIds = new Set(filteredNodes.map(n => n.id));
+
+    // Similarity + max-edges filter on edges
+    const edgeCounts = {};
+    const filteredEdges = [];
+
+    // Sort by similarity descending so we pick the strongest edges first
+    const sortedEdges = [...memoryData.edges]
+        .filter(e => {
+            const src = typeof e.source === 'object' ? e.source.id : e.source;
+            const tgt = typeof e.target === 'object' ? e.target.id : e.target;
+            return nodeIds.has(src) && nodeIds.has(tgt) && e.similarity >= currentFilters.minSimilarity;
+        })
+        .sort((a, b) => b.similarity - a.similarity);
+
+    sortedEdges.forEach(e => {
+        const src = typeof e.source === 'object' ? e.source.id : e.source;
+        const tgt = typeof e.target === 'object' ? e.target.id : e.target;
+        edgeCounts[src] = (edgeCounts[src] || 0);
+        edgeCounts[tgt] = (edgeCounts[tgt] || 0);
+        if (edgeCounts[src] < currentFilters.maxEdges && edgeCounts[tgt] < currentFilters.maxEdges) {
+            filteredEdges.push(e);
+            edgeCounts[src]++;
+            edgeCounts[tgt]++;
+        }
+    });
+
+    // Update connection counts on nodes for radius sizing
+    const connCounts = {};
+    filteredEdges.forEach(e => {
+        const src = typeof e.source === 'object' ? e.source.id : e.source;
+        const tgt = typeof e.target === 'object' ? e.target.id : e.target;
+        connCounts[src] = (connCounts[src] || 0) + 1;
+        connCounts[tgt] = (connCounts[tgt] || 0) + 1;
+    });
+    filteredNodes.forEach(n => {
+        n.size = connCounts[n.id] || 0;
+    });
+
+    visibleNodes = filteredNodes;
+    visibleEdges = filteredEdges;
 }
 
 function updateStats() {
     const stats = memoryData.stats || {};
-    const statsHtml = `
-        <div><strong>Total Thoughts:</strong> ${stats.total_thoughts || 0}</div>
-        <div><strong>Connections:</strong> ${stats.total_connections || 0}</div>
-        <div><strong>Avg Connections:</strong> ${stats.avg_connections || 0}</div>
+    document.getElementById('memory-stats').innerHTML = `
+        <div><strong>Shown:</strong> ${visibleNodes.length} / ${stats.total_thoughts || 0}</div>
+        <div><strong>Edges:</strong> ${visibleEdges.length}</div>
+        <div><strong>Avg conn:</strong> ${stats.avg_connections || 0}</div>
     `;
-    document.getElementById('memory-stats').innerHTML = statsHtml;
 }
 
-function renderGraph() {
-    // Clear existing
-    container.selectAll('*').remove();
-    
-    if (!memoryData.nodes || memoryData.nodes.length === 0) {
-        console.warn('No thoughts to display');
+// ─── D3-force simulation ──────────────────────────────────────────────────────
+
+function buildSimulation() {
+    if (simulation) {
+        simulation.stop();
+    }
+    if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+    }
+
+    if (!visibleNodes.length) return;
+
+    // Spread initial positions if nodes lack them
+    visibleNodes.forEach(n => {
+        if (!n.x) {
+            n.x = width / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.6;
+            n.y = height / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.6;
+        }
+    });
+
+    simulation = d3.forceSimulation(visibleNodes)
+        .force('link', d3.forceLink(visibleEdges).id(d => d.id).distance(120).strength(0.3))
+        .force('charge', d3.forceManyBody().strength(-300).distanceMax(400))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(d => nodeRadius(d) + 4))
+        .alphaDecay(0.02)
+        .velocityDecay(0.4);
+
+    startLoop();
+
+    // Auto-fit once simulation cools
+    simulation.on('end', () => {
+        scheduleFit();
+    });
+}
+
+function startLoop() {
+    if (rafId !== null) return;
+    function loop() {
+        drawFrame();
+        rafId = requestAnimationFrame(loop);
+    }
+    rafId = requestAnimationFrame(loop);
+}
+
+// ─── Canvas rendering ─────────────────────────────────────────────────────────
+
+function drawFrame() {
+    // Animated fit interpolation
+    if (fitTarget && fitFrame < FIT_FRAMES) {
+        const t = fitFrame / FIT_FRAMES;
+        const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // ease in-out
+        transform.x = transform.x + (fitTarget.x - transform.x) * ease * 0.15;
+        transform.y = transform.y + (fitTarget.y - transform.y) * ease * 0.15;
+        transform.k = transform.k + (fitTarget.k - transform.k) * ease * 0.15;
+        fitFrame++;
+        if (fitFrame >= FIT_FRAMES) fitTarget = null;
+    }
+
+    ctx.clearRect(0, 0, width, height);
+
+    if (!visibleNodes.length) return;
+
+    ctx.save();
+    ctx.translate(transform.x, transform.y);
+    ctx.scale(transform.k, transform.k);
+
+    // Draw edges
+    const highlightedIds = hoveredNode ? getConnectedIds(hoveredNode) : null;
+
+    visibleEdges.forEach(e => {
+        const src = e.source;
+        const tgt = e.target;
+        if (!src || !tgt || src.x == null) return;
+
+        const isHighlighted = highlightedIds &&
+            (highlightedIds.has(src.id) && highlightedIds.has(tgt.id));
+        const dimmed = highlightedIds && !isHighlighted;
+
+        ctx.beginPath();
+        ctx.moveTo(src.x, src.y);
+        ctx.lineTo(tgt.x, tgt.y);
+        ctx.strokeStyle = isHighlighted ? 'rgba(78, 205, 196, 0.85)' : 'rgba(120,120,120,0.35)';
+        ctx.lineWidth = isHighlighted ? 2 : e.similarity * 2.5;
+        ctx.globalAlpha = dimmed ? 0.08 : 1;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+    });
+
+    // Draw nodes
+    const showLabels = document.getElementById('labels-toggle') &&
+                       document.getElementById('labels-toggle').checked &&
+                       transform.k > 0.35;
+
+    visibleNodes.forEach(n => {
+        if (n.x == null) return;
+        const r = nodeRadius(n);
+        const color = nodeColor(n.type);
+        const isHovered = n === hoveredNode;
+        const isSelected = n === selectedNode;
+        const isDimmed = highlightedIds && !highlightedIds.has(n.id);
+
+        ctx.globalAlpha = isDimmed ? 0.15 : 1;
+
+        // Circle fill
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        // Stroke
+        ctx.strokeStyle = isSelected ? '#fff' : isHovered ? '#fff' : 'rgba(255,255,255,0.4)';
+        ctx.lineWidth = isSelected ? 2.5 : isHovered ? 2 : 1;
+        ctx.stroke();
+
+        // Glow on hover/select
+        if (isHovered || isSelected) {
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        ctx.globalAlpha = 1;
+
+        // Labels
+        if (showLabels) {
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.font = `${Math.max(9, 11 / transform.k)}px monospace`;
+            ctx.shadowColor = '#000';
+            ctx.shadowBlur = 3;
+            ctx.fillText(n.content.substring(0, 35), n.x + r + 4, n.y + 4);
+            ctx.shadowBlur = 0;
+        }
+    });
+
+    ctx.restore();
+}
+
+// ─── Hit detection ────────────────────────────────────────────────────────────
+
+function canvasToWorld(cx, cy) {
+    return {
+        x: (cx - transform.x) / transform.k,
+        y: (cy - transform.y) / transform.k
+    };
+}
+
+function hitTest(cx, cy) {
+    const { x, y } = canvasToWorld(cx, cy);
+    // Test in reverse order so topmost visually is hit first
+    for (let i = visibleNodes.length - 1; i >= 0; i--) {
+        const n = visibleNodes[i];
+        if (n.x == null) continue;
+        const r = nodeRadius(n);
+        const dx = x - n.x;
+        const dy = y - n.y;
+        if (dx * dx + dy * dy <= r * r) return n;
+    }
+    return null;
+}
+
+function getConnectedIds(node) {
+    const ids = new Set([node.id]);
+    visibleEdges.forEach(e => {
+        const src = typeof e.source === 'object' ? e.source.id : e.source;
+        const tgt = typeof e.target === 'object' ? e.target.id : e.target;
+        if (src === node.id) ids.add(tgt);
+        if (tgt === node.id) ids.add(src);
+    });
+    return ids;
+}
+
+// ─── Mouse events ─────────────────────────────────────────────────────────────
+
+function getCanvasPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    return { cx: e.clientX - rect.left, cy: e.clientY - rect.top };
+}
+
+function onMouseMove(e) {
+    const { cx, cy } = getCanvasPos(e);
+    if (dragNode) {
+        // Dragging a node
+        const { x, y } = canvasToWorld(cx, cy);
+        dragNode.fx = x;
+        dragNode.fy = y;
+        if (simulation) simulation.alphaTarget(0.1).restart();
         return;
     }
-    
-    // Create deep copies for D3
-    const d3Nodes = memoryData.nodes.map(d => ({...d}));
-    const d3Edges = memoryData.edges.map(d => ({...d}));
-    
-    // Create simulation
-    simulation = d3.forceSimulation(d3Nodes)
-        .force('link', d3.forceLink(d3Edges).id(d => d.id).distance(200))
-        .force('charge', d3.forceManyBody().strength(-500))
-        .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collision', d3.forceCollide().radius(50));
-    
-    // Set initial positions
-    d3Nodes.forEach(n => {
-        n.x = width / 2 + (Math.random() - 0.5) * 200;
-        n.y = height / 2 + (Math.random() - 0.5) * 200;
+    if (isPanning) {
+        transform.x += e.movementX;
+        transform.y += e.movementY;
+        return;
+    }
+    const hit = hitTest(cx, cy);
+    if (hit !== hoveredNode) {
+        hoveredNode = hit;
+        canvas.style.cursor = hit ? 'pointer' : 'grab';
+    }
+}
+
+function onMouseDown(e) {
+    if (e.button !== 0) return;
+    const { cx, cy } = getCanvasPos(e);
+    const hit = hitTest(cx, cy);
+    if (hit) {
+        dragNode = hit;
+        dragNode.fx = dragNode.x;
+        dragNode.fy = dragNode.y;
+        canvas.style.cursor = 'grabbing';
+    } else {
+        isPanning = true;
+        panStart = { x: cx, y: cy };
+        canvas.style.cursor = 'grabbing';
+    }
+}
+
+function onMouseUp(e) {
+    if (dragNode) {
+        dragNode.fx = null;
+        dragNode.fy = null;
+        if (simulation) simulation.alphaTarget(0);
+        dragNode = null;
+    }
+    isPanning = false;
+    const { cx, cy } = getCanvasPos(e);
+    canvas.style.cursor = hitTest(cx, cy) ? 'pointer' : 'grab';
+}
+
+function onMouseLeave() {
+    hoveredNode = null;
+    if (dragNode) {
+        dragNode.fx = null;
+        dragNode.fy = null;
+        dragNode = null;
+    }
+    isPanning = false;
+}
+
+function onClick(e) {
+    const { cx, cy } = getCanvasPos(e);
+    const hit = hitTest(cx, cy);
+    if (hit) {
+        selectedNode = hit;
+        showDetails(hit);
+    } else {
+        selectedNode = null;
+        closeDetails();
+    }
+}
+
+function onWheel(e) {
+    e.preventDefault();
+    const { cx, cy } = getCanvasPos(e);
+    const delta = -e.deltaY * 0.001;
+    const factor = Math.exp(delta * 2.5);
+    const newK = Math.max(0.05, Math.min(15, transform.k * factor));
+    // Zoom towards cursor position
+    transform.x = cx - (cx - transform.x) * (newK / transform.k);
+    transform.y = cy - (cy - transform.y) * (newK / transform.k);
+    transform.k = newK;
+}
+
+// ─── Fit to screen ────────────────────────────────────────────────────────────
+
+function scheduleFit() {
+    if (!visibleNodes.length) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    visibleNodes.forEach(n => {
+        if (n.x == null) return;
+        minX = Math.min(minX, n.x);
+        maxX = Math.max(maxX, n.x);
+        minY = Math.min(minY, n.y);
+        maxY = Math.max(maxY, n.y);
     });
-    
-    // Draw edges
-    const link = container.append('g')
-        .selectAll('line')
-        .data(d3Edges)
-        .enter().append('line')
-        .attr('class', 'link')
-        .attr('stroke-width', d => d.similarity * 3);
-    
-    // Draw nodes
-    const node = container.append('g')
-        .selectAll('g')
-        .data(d3Nodes)
-        .enter().append('g')
-        .attr('class', 'node')
-        .call(d3.drag()
-            .on('start', dragstarted)
-            .on('drag', dragged)
-            .on('end', dragended))
-        .on('click', (event, d) => showDetails(d))
-        .on('mouseover', (event, d) => highlightNode(d, true))
-        .on('mouseout', (event, d) => highlightNode(d, false));
+    if (!isFinite(minX)) return;
 
-    node.append('circle')
-        .attr('r', d => Math.max(20, 10 + d.size * 2))
-        .attr('fill', d => TYPE_COLORS[d.type] || TYPE_COLORS.default);
+    const pad = 60;
+    const gw = maxX - minX || 1;
+    const gh = maxY - minY || 1;
+    const k = Math.min(0.9, (width - pad * 2) / gw, (height - pad * 2) / gh);
+    const midX = (minX + maxX) / 2;
+    const midY = (minY + maxY) / 2;
 
-    const showLabels = document.getElementById('labels-toggle').checked;
-    node.append('text')
-        .attr('dx', d => Math.max(20, 10 + d.size * 2) + 5)
-        .attr('dy', 4)
-        .text(d => d.content.substring(0, 50))
-        .style('display', showLabels ? 'block' : 'none');
-
-    // Update positions on tick
-    simulation.on('tick', () => {
-        link
-            .attr('x1', d => d.source.x)
-            .attr('y1', d => d.source.y)
-            .attr('x2', d => d.target.x)
-            .attr('y2', d => d.target.y);
-
-        node.attr('transform', d => `translate(${d.x},${d.y})`);
-    });
-
-    // Auto-fit after simulation stabilizes
-    simulation.on('end', () => {
-        fitToScreen();
-    });
+    fitTarget = {
+        x: width / 2 - k * midX,
+        y: height / 2 - k * midY,
+        k
+    };
+    fitFrame = 0;
 }
 
 function fitToScreen() {
-    if (!memoryData.nodes || memoryData.nodes.length === 0) return;
-
-    const bounds = container.node().getBBox();
-    const fullWidth = width;
-    const fullHeight = height;
-    const graphWidth = bounds.width;
-    const graphHeight = bounds.height;
-    const midX = bounds.x + graphWidth / 2;
-    const midY = bounds.y + graphHeight / 2;
-
-    if (graphWidth === 0 || graphHeight === 0) return;
-
-    const scale = 0.85 / Math.max(graphWidth / fullWidth, graphHeight / fullHeight);
-    const translate = [fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY];
-
-    const zoom = d3.zoom().scaleExtent([0.1, 10]);
-    svg.transition().duration(750).call(
-        zoom.transform,
-        d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
-    );
+    // Instant version for the button — use scheduleFit which animates
+    if (simulation && simulation.alpha() > 0.01) {
+        simulation.stop();
+    }
+    scheduleFit();
 }
 
+// ─── Details panel ─────────────────────────────────────────────────────────────
+
 function showDetails(thought) {
-    // Show panel
     const panel = document.getElementById('thought-details');
     panel.classList.remove('hidden');
-
-    // Hide placeholder, show info
     document.getElementById('details-placeholder').style.display = 'none';
     document.getElementById('details-info').classList.remove('hidden');
 
-    // Populate details
-    document.getElementById('details-type').textContent = thought.type.charAt(0).toUpperCase() + thought.type.slice(1);
+    document.getElementById('details-type').textContent =
+        thought.type.charAt(0).toUpperCase() + thought.type.slice(1);
     document.getElementById('details-content').textContent = thought.content;
 
-    // DEBUG: Log what we're getting from the database
-    console.log('Raw timestamp from DB:', thought.created_at);
-
-    // Parse timestamp - database stores local time, display as-is
-    // Format: "2026-03-16 01:06:33" -> "3/16/2026, 1:06:33 AM"
-    const parts = thought.created_at.match(/(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+    const parts = thought.created_at && thought.created_at.match(/(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
     if (parts) {
         const [_, year, month, day, hour, min, sec] = parts;
-        console.log('Parsed parts:', { year, month, day, hour, min, sec });
-        const date = new Date(year, month - 1, day, hour, min, sec); // month is 0-indexed
-        console.log('Created Date object:', date);
-        console.log('Formatted:', date.toLocaleString());
+        const date = new Date(year, month - 1, day, hour, min, sec);
         document.getElementById('details-created').textContent = date.toLocaleString();
     } else {
-        console.log('Failed to parse timestamp!');
-        document.getElementById('details-created').textContent = thought.created_at;
+        document.getElementById('details-created').textContent = thought.created_at || '';
     }
 
     document.getElementById('details-project').textContent = thought.project || 'N/A';
     document.getElementById('details-connections').textContent = thought.size;
 
-    // Find related thoughts
-    const relatedEdges = memoryData.edges.filter(e =>
-        e.source === thought.id || e.target === thought.id ||
-        e.source.id === thought.id || e.target.id === thought.id
-    );
+    const relatedEdges = visibleEdges.filter(e => {
+        const src = typeof e.source === 'object' ? e.source.id : e.source;
+        const tgt = typeof e.target === 'object' ? e.target.id : e.target;
+        return src === thought.id || tgt === thought.id;
+    });
 
     const relatedList = document.getElementById('related-list');
     relatedList.innerHTML = '';
-
-    relatedEdges.forEach(edge => {
-        const relatedId = (edge.source === thought.id || edge.source.id === thought.id) ?
-            (edge.target.id || edge.target) : (edge.source.id || edge.source);
-        const relatedNode = memoryData.nodes.find(n => n.id === relatedId);
-
-        if (relatedNode) {
-            const li = document.createElement('li');
-            li.textContent = `${relatedNode.content.substring(0, 60)}... (${(edge.similarity * 100).toFixed(0)}%)`;
-            li.onclick = () => showDetails(relatedNode);
-            relatedList.appendChild(li);
-        }
+    relatedEdges.slice(0, 8).forEach(edge => {
+        const src = typeof edge.source === 'object' ? edge.source.id : edge.source;
+        const tgt = typeof edge.target === 'object' ? edge.target.id : edge.target;
+        const relatedId = src === thought.id ? tgt : src;
+        const relatedNode = visibleNodes.find(n => n.id === relatedId);
+        if (!relatedNode) return;
+        const li = document.createElement('li');
+        li.textContent = `${relatedNode.content.substring(0, 60)}... (${(edge.similarity * 100).toFixed(0)}%)`;
+        li.onclick = () => {
+            selectedNode = relatedNode;
+            showDetails(relatedNode);
+        };
+        relatedList.appendChild(li);
     });
 }
 
 function closeDetails() {
     document.getElementById('thought-details').classList.add('hidden');
-    container.selectAll('.node').classed('dimmed', false);
-    container.selectAll('.link').classed('highlighted', false);
+    document.getElementById('details-placeholder').style.display = '';
+    document.getElementById('details-info').classList.add('hidden');
+    selectedNode = null;
 }
 
-function highlightNode(thought, active) {
-    if (active) {
-        // Dim all nodes except this one and its connections
-        const connectedIds = new Set([thought.id]);
-        memoryData.edges.forEach(e => {
-            const sourceId = e.source.id || e.source;
-            const targetId = e.target.id || e.target;
-            if (sourceId === thought.id) connectedIds.add(targetId);
-            if (targetId === thought.id) connectedIds.add(sourceId);
-        });
-
-        container.selectAll('.node').classed('dimmed', d => !connectedIds.has(d.id));
-        container.selectAll('.link').classed('highlighted', e => {
-            const sourceId = e.source.id || e.source;
-            const targetId = e.target.id || e.target;
-            return sourceId === thought.id || targetId === thought.id;
-        });
-    } else {
-        container.selectAll('.node').classed('dimmed', false);
-        container.selectAll('.link').classed('highlighted', false);
-    }
-}
-
-function dragstarted(event, d) {
-    if (!event.active) simulation.alphaTarget(0.3).restart();
-    d.fx = d.x;
-    d.fy = d.y;
-}
-
-function dragged(event, d) {
-    d.fx = event.x;
-    d.fy = event.y;
-}
-
-function dragended(event, d) {
-    if (!event.active) simulation.alphaTarget(0);
-    d.fx = null;
-    d.fy = null;
-}
+// ─── Loading overlay ──────────────────────────────────────────────────────────
 
 function showLoading(show) {
     document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none';
 }
 
-function refreshMemoryGraph() {
-    loadMemoryGraph();
-}
+// ─── Public API (called by memory_list.js and memory.html) ───────────────────
 
+function refreshMemoryGraph() {
+    loadGraph();
+}
