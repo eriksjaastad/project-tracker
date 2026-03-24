@@ -57,8 +57,16 @@ function nodeColor(type) {
     return TYPE_COLORS[type] || TYPE_COLORS.default;
 }
 
+// Track max connections across visible nodes for radius normalization
+let maxConnections = 1;
+
 function nodeRadius(node) {
-    return Math.max(6, Math.min(22, 7 + node.size * 0.8));
+    // Sqrt scale: visually amplifies the high end much more than linear.
+    // A node with 4x connections gets 2x the radius (not 4x area, which would be too extreme).
+    const base = 5;
+    const maxExtra = 20;  // radius range: 5 → 25px
+    const normalized = Math.sqrt(Math.max(0, node.size) / Math.max(1, maxConnections));
+    return base + maxExtra * normalized;
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -181,12 +189,29 @@ function buildLegend(types) {
 
 // ─── Filtering (client-side, instant) ─────────────────────────────────────────
 
+// Track recomputing state for visual feedback
+let isRecomputing = false;
+
 function applyFilters() {
     currentFilters.thoughtType = document.getElementById('type-filter').value;
-    applyFiltersInternal();
-    updateStats();
-    // Re-run simulation with new node set
-    buildSimulation();
+
+    // Dim canvas to signal recomputation
+    isRecomputing = true;
+    canvas.style.opacity = '0.35';
+    canvas.style.transition = 'opacity 0.15s';
+
+    // Defer to next frame so the dim renders before JS blocks
+    requestAnimationFrame(() => {
+        applyFiltersInternal();
+        updateStats();
+        buildSimulation();
+        // Restore opacity on first simulation tick
+        simulation.on('tick.filterFeedback', () => {
+            canvas.style.opacity = '1';
+            isRecomputing = false;
+            simulation.on('tick.filterFeedback', null); // remove one-shot listener
+        });
+    });
 }
 
 function applyFiltersInternal() {
@@ -233,6 +258,9 @@ function applyFiltersInternal() {
     filteredNodes.forEach(n => {
         n.size = connCounts[n.id] || 0;
     });
+
+    // Update global max for radius normalization
+    maxConnections = Math.max(1, ...filteredNodes.map(n => n.size));
 
     visibleNodes = filteredNodes;
     visibleEdges = filteredEdges;
