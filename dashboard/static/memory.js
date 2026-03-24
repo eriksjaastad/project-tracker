@@ -17,6 +17,7 @@ let visibleEdges = [];
 // Current filter settings
 let currentFilters = {
     thoughtType: '',
+    machine: '',
     minSimilarity: 0.3,
     maxEdges: 10
 };
@@ -31,7 +32,6 @@ const FIT_FRAMES = 30;
 // Interaction state
 let hoveredNode = null;
 let selectedNode = null;
-let dragNode = null;
 let isPanning = false;
 let panStart = { x: 0, y: 0 };
 
@@ -57,15 +57,27 @@ function nodeColor(type) {
     return TYPE_COLORS[type] || TYPE_COLORS.default;
 }
 
-// Track max connections across visible nodes for radius normalization
-let maxConnections = 1;
+// ─── Machine color map (ring around nodes) ──────────────────────────────────
+
+const MACHINE_COLORS = {
+    'openclaw':  '#FF9800',    // OpenClaw (Mac Mini) — orange
+    'macbook':   '#42A5F5',    // MacBook — blue
+};
+
+function machineColor(machine) {
+    if (!machine) return null;
+    const lower = machine.toLowerCase();
+    if (lower.includes('mac-mini') || lower.includes('openclaw') || lower.includes('mini')) return MACHINE_COLORS['openclaw'];
+    if (lower.includes('macbook')) return MACHINE_COLORS['macbook'];
+    return '#666666';  // Unknown machine — gray
+}
+
+// ─── Node sizing ─────────────────────────────────────────────────────────────
 
 function nodeRadius(node) {
-    // Use backend raw degree (all connections above threshold, not display-capped).
-    // Fixed scale: 4px (isolated) → 22px (150+ real connections).
-    // Sqrt so medium-connected nodes are visually distinct, not just the extremes.
+    // Original SVG formula — linear, uncapped. Hubs grow big.
     const raw = node.rawSize || 0;
-    return 4 + 18 * Math.pow(Math.min(1, raw / 150), 0.45);
+    return Math.max(20, 10 + raw * 2);
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -84,6 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Controls
     document.getElementById('type-filter').addEventListener('change', applyFilters);
+    document.getElementById('machine-filter').addEventListener('change', applyFilters);
     document.getElementById('min-similarity').addEventListener('input', e => {
         const val = parseInt(e.target.value) / 100;
         document.getElementById('min-similarity-val').textContent = val.toFixed(2);
@@ -147,6 +160,7 @@ async function loadGraph() {
 
         // Populate filter dropdowns dynamically
         populateTypeDropdowns(typesData.types || []);
+        populateMachineDropdown();
         // Build dynamic legend
         buildLegend(typesData.types || []);
 
@@ -178,14 +192,54 @@ function populateTypeDropdowns(types) {
     });
 }
 
+function populateMachineDropdown() {
+    const sel = document.getElementById('machine-filter');
+    if (!sel) return;
+    while (sel.options.length > 1) sel.remove(1);
+    // Count nodes per machine for the label
+    const macbook = memoryData.nodes.filter(n => (n.source_machine || '').toLowerCase().includes('macbook')).length;
+    const mini = memoryData.nodes.filter(n => {
+        const m = (n.source_machine || '').toLowerCase();
+        return m.includes('mac-mini') || m.includes('mini');
+    }).length;
+    if (macbook > 0) {
+        const opt = document.createElement('option');
+        opt.value = 'macbook';
+        opt.textContent = `MacBook (${macbook})`;
+        sel.appendChild(opt);
+    }
+    if (mini > 0) {
+        const opt = document.createElement('option');
+        opt.value = 'openclaw';
+        opt.textContent = `OpenClaw (${mini})`;
+        sel.appendChild(opt);
+    }
+}
+
 function buildLegend(types) {
     const legend = document.getElementById('memory-legend');
-    legend.innerHTML = '<h4>Legend</h4>';
+    legend.innerHTML = '<h4>Type</h4>';
     types.forEach(t => {
         const color = nodeColor(t);
         const item = document.createElement('div');
         item.className = 'legend-item';
         item.innerHTML = `<span class="legend-color" style="background:${color}"></span><span>${t.charAt(0).toUpperCase() + t.slice(1)}</span>`;
+        legend.appendChild(item);
+    });
+
+    // Machine legend
+    const machineHeader = document.createElement('h4');
+    machineHeader.textContent = 'Machine';
+    machineHeader.style.marginTop = '12px';
+    legend.appendChild(machineHeader);
+
+    [
+        { name: 'OpenClaw', color: MACHINE_COLORS['openclaw'] },
+        { name: 'MacBook', color: MACHINE_COLORS['macbook'] },
+    ].forEach(m => {
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `<span class="legend-color" style="background:transparent;border:3px solid ${m.color};box-sizing:border-box"></span><span>${m.name}</span>`;
         legend.appendChild(item);
     });
 }
@@ -197,6 +251,7 @@ let isRecomputing = false;
 
 function applyFilters() {
     currentFilters.thoughtType = document.getElementById('type-filter').value;
+    currentFilters.machine = document.getElementById('machine-filter').value;
 
     // Dim canvas to signal recomputation
     isRecomputing = true;
@@ -208,20 +263,46 @@ function applyFilters() {
         applyFiltersInternal();
         updateStats();
         buildSimulation();
+
+        // Handle empty results — restore opacity immediately
+        if (visibleNodes.length === 0) {
+            canvas.style.opacity = '1';
+            isRecomputing = false;
+            ctx.clearRect(0, 0, width, height);
+            return;
+        }
+
         // Restore opacity on first simulation tick
         simulation.on('tick.filterFeedback', () => {
             canvas.style.opacity = '1';
             isRecomputing = false;
-            simulation.on('tick.filterFeedback', null); // remove one-shot listener
+            simulation.on('tick.filterFeedback', null);
         });
+
+        // Safety timeout in case tick never fires
+        setTimeout(() => {
+            if (isRecomputing) {
+                canvas.style.opacity = '1';
+                isRecomputing = false;
+            }
+        }, 300);
     });
 }
 
 function applyFiltersInternal() {
-    // Type filter
-    const filteredNodes = currentFilters.thoughtType
-        ? memoryData.nodes.filter(n => n.type === currentFilters.thoughtType)
-        : memoryData.nodes;
+    // Type + machine filter
+    let filteredNodes = memoryData.nodes;
+    if (currentFilters.thoughtType) {
+        filteredNodes = filteredNodes.filter(n => n.type === currentFilters.thoughtType);
+    }
+    if (currentFilters.machine) {
+        filteredNodes = filteredNodes.filter(n => {
+            const lower = (n.source_machine || '').toLowerCase();
+            if (currentFilters.machine === 'macbook') return lower.includes('macbook');
+            if (currentFilters.machine === 'openclaw') return lower.includes('mac-mini') || lower.includes('mini');
+            return true;
+        });
+    }
 
     const nodeIds = new Set(filteredNodes.map(n => n.id));
 
@@ -293,18 +374,19 @@ function buildSimulation() {
     // Spread initial positions if nodes lack them
     visibleNodes.forEach(n => {
         if (!n.x) {
-            n.x = width / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.6;
-            n.y = height / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.6;
+            n.x = width / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.9;
+            n.y = height / 2 + (Math.random() - 0.5) * Math.min(width, height) * 0.9;
         }
     });
 
+    // Physics tuned to match old SVG version's organic layout:
+    // Strong repulsion with NO distance cap creates tendrils and chains.
+    // Large fixed collision radius prevents blob packing.
     simulation = d3.forceSimulation(visibleNodes)
-        .force('link', d3.forceLink(visibleEdges).id(d => d.id).distance(120).strength(0.3))
-        .force('charge', d3.forceManyBody().strength(-300).distanceMax(400))
+        .force('link', d3.forceLink(visibleEdges).id(d => d.id).distance(200))
+        .force('charge', d3.forceManyBody().strength(-500))
         .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collision', d3.forceCollide().radius(d => nodeRadius(d) + 4))
-        .alphaDecay(0.02)
-        .velocityDecay(0.4);
+        .force('collision', d3.forceCollide().radius(d => Math.max(30, nodeRadius(d) + 4)));
 
     startLoop();
 
@@ -393,6 +475,16 @@ function drawFrame() {
         ctx.lineWidth = isSelected ? 2.5 : isHovered ? 2 : 1;
         ctx.stroke();
 
+        // Machine ring (second visual channel)
+        const mColor = machineColor(n.source_machine);
+        if (mColor) {
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r + 2, 0, Math.PI * 2);
+            ctx.strokeStyle = mColor;
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+        }
+
         // Glow on hover/select
         if (isHovered || isSelected) {
             ctx.shadowColor = color;
@@ -463,14 +555,6 @@ function getCanvasPos(e) {
 
 function onMouseMove(e) {
     const { cx, cy } = getCanvasPos(e);
-    if (dragNode) {
-        // Dragging a node
-        const { x, y } = canvasToWorld(cx, cy);
-        dragNode.fx = x;
-        dragNode.fy = y;
-        if (simulation) simulation.alphaTarget(0.1).restart();
-        return;
-    }
     if (isPanning) {
         transform.x += e.movementX;
         transform.y += e.movementY;
@@ -487,12 +571,7 @@ function onMouseDown(e) {
     if (e.button !== 0) return;
     const { cx, cy } = getCanvasPos(e);
     const hit = hitTest(cx, cy);
-    if (hit) {
-        dragNode = hit;
-        dragNode.fx = dragNode.x;
-        dragNode.fy = dragNode.y;
-        canvas.style.cursor = 'grabbing';
-    } else {
+    if (!hit) {
         isPanning = true;
         panStart = { x: cx, y: cy };
         canvas.style.cursor = 'grabbing';
@@ -500,12 +579,6 @@ function onMouseDown(e) {
 }
 
 function onMouseUp(e) {
-    if (dragNode) {
-        dragNode.fx = null;
-        dragNode.fy = null;
-        if (simulation) simulation.alphaTarget(0);
-        dragNode = null;
-    }
     isPanning = false;
     const { cx, cy } = getCanvasPos(e);
     canvas.style.cursor = hitTest(cx, cy) ? 'pointer' : 'grab';
@@ -513,11 +586,6 @@ function onMouseUp(e) {
 
 function onMouseLeave() {
     hoveredNode = null;
-    if (dragNode) {
-        dragNode.fx = null;
-        dragNode.fy = null;
-        dragNode = null;
-    }
     isPanning = false;
 }
 
@@ -538,7 +606,7 @@ function onWheel(e) {
     const { cx, cy } = getCanvasPos(e);
     const delta = -e.deltaY * 0.001;
     const factor = Math.exp(delta * 2.5);
-    const newK = Math.max(0.05, Math.min(15, transform.k * factor));
+    const newK = Math.max(0.01, Math.min(15, transform.k * factor));
     // Zoom towards cursor position
     transform.x = cx - (cx - transform.x) * (newK / transform.k);
     transform.y = cy - (cy - transform.y) * (newK / transform.k);
@@ -562,7 +630,7 @@ function scheduleFit() {
     const pad = 60;
     const gw = maxX - minX || 1;
     const gh = maxY - minY || 1;
-    const k = Math.min(0.9, (width - pad * 2) / gw, (height - pad * 2) / gh);
+    const k = Math.min((width - pad * 2) / gw, (height - pad * 2) / gh);
     const midX = (minX + maxX) / 2;
     const midY = (minY + maxY) / 2;
 
@@ -605,6 +673,8 @@ function showDetails(thought) {
 
     document.getElementById('details-project').textContent = thought.project || 'N/A';
     document.getElementById('details-connections').textContent = thought.size;
+    const machineEl = document.getElementById('details-machine');
+    if (machineEl) machineEl.textContent = thought.source_machine || 'Unknown';
 
     const relatedEdges = visibleEdges.filter(e => {
         const src = typeof e.source === 'object' ? e.source.id : e.source;
