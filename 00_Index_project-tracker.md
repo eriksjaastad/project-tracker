@@ -73,16 +73,16 @@ This document serves as the index for the Project Tracker, providing a high-leve
 
 ## Recent Activity
 
-- 2026-03-17: fix: Move re and uuid imports to top level in app.py (#5009)
-- 2026-03-17: feat: Agentic markers CRUD UI (#5009)
-- 2026-03-17: fix: Remove non-standard Kanban statuses (#5013)
-- 2026-03-17: fix: Distinguish structural issues from version mismatches in dashboard (#4765)
-- 2026-03-17: feat: Add per-status task count pills to project cards on dashboard
-- 2026-03-12: fix: prevent text overflow on Kanban task cards (#5117)
-- 2026-03-12: fix: ensure all 5 Kanban columns visible without cutoff (#5115)
-- 2026-03-12: feat: add visual regression testing for Kanban board UI (#5116)
-- 2026-03-12: fix: prevent DONE column cutoff on Kanban board (#5115)
-- 2026-03-11: feat: surface agent config health in dashboard and alerts (#5093)
+- 2026-03-23: fix: Run brain.py from ai-memory cwd so uv resolves correct virtualenv
+- 2026-03-23: feat: Add pt memory command — cross-agent brain search/write via pt CLI
+- 2026-03-23: Merge pull request #19 from eriksjaastad/fix/reusable-claude-review
+- 2026-03-23: chore: point shared review workflow at main
+- 2026-03-23: chore: use shared claude review workflow
+- 2026-03-23: fix: Separate schema DDL from local DB init so migrations run on Turso (#5256)
+- 2026-03-23: fix: Add missing dependencies to pyproject.toml for uv run
+- 2026-03-23: ci: Add Claude auto-review workflow
+- 2026-03-23: Merge pull request #18 from eriksjaastad/fix/scripts-init-conftest
+- 2026-03-23: fix: add scripts/__init__.py and root conftest.py for sandbox imports
 ## Related Documentation
 
 - [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
@@ -117,12 +117,17 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | File | Description |
 | :--- | :--- |
 | [AGENTS.md](AGENTS.md) | > **Universal Constitution:** See `project-scaffolding/AGENTS.md` for hierarchy, workflow, and unive... |
+| [AUTO_REVIEW_RECOMMENDATION.md](AUTO_REVIEW_RECOMMENDATION.md) | Remove `scripts/utils/hooks.py` entirely. It is dead code with no path to useful resurrection. |
 | [CLAUDE.md](CLAUDE.md) | 🛑 IMPORTANT: READ AGENTS.md FIRST |
+| [CRON_JOBS.md](CRON_JOBS.md) | All scheduled automation across the ecosystem. Every launchd plist is listed here with install instr... |
 | [DECISIONS.md](DECISIONS.md) | > *Documenting WHY we made decisions, not just WHAT we built.* |
+| [EXTERNAL_RESOURCES.yaml](EXTERNAL_RESOURCES.yaml) | No description available. |
 | [README.md](README.md) | project-tracker |
 | [REVIEW.md](REVIEW.md) | This document outlines the code review process for the Project Tracker application. It aims to ensur... |
 | [REVIEWS_AND_GOVERNANCE_PROTOCOL.md](REVIEWS_AND_GOVERNANCE_PROTOCOL.md) | This file is managed by sync_governance.py and will be OVERWRITTEN on the next sync. |
+| [TURSO_SETUP.md](TURSO_SETUP.md) | > Step-by-step guide for cards 5227, 5231, 5232, 5233. |
 | [USAGE.md](USAGE.md) | > **Quick Start:** `./pt launch` to open the dashboard |
+| [conftest.py](conftest.py) | No description available. |
 | [dashboard/__init__.py](dashboard/__init__.py) | No description available. |
 | [dashboard/app.py](dashboard/app.py) | FastAPI web dashboard for project tracker. |
 | [dashboard/frontend/README.md](dashboard/frontend/README.md) | React + TypeScript + Vite frontend for the Kanban and Agentic SPA views, including Node version guidance and common commands. |
@@ -140,6 +145,7 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [dashboard/static/markdown.css](dashboard/static/markdown.css) | No description available. |
 | [dashboard/static/memory.css](dashboard/static/memory.css) | No description available. |
 | [dashboard/static/memory.js](dashboard/static/memory.js) | No description available. |
+| [dashboard/static/memory_heatmap.js](dashboard/static/memory_heatmap.js) | No description available. |
 | [dashboard/static/memory_list.js](dashboard/static/memory_list.js) | No description available. |
 | [dashboard/static/script.js](dashboard/static/script.js) | No description available. |
 | [dashboard/static/style.css](dashboard/static/style.css) | No description available. |

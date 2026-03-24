@@ -7,7 +7,7 @@
 
 # Ecosystem Governance & Review Protocol
 
-version: 2026.03.12
+version: 2026.03.23
 
 purpose: Checklist-driven review standard for all projects
 model: two-layer defense — robotic scan (Gate 0) + cognitive audit
@@ -41,6 +41,34 @@ rule: CASCADE awareness — document FK relationships before any DELETE
 rule: bulk DELETE (>1 row) must backup first (JSON export or table copy)
 rule: auto-cleanup logic requires explicit user confirmation, never silent execution
 banned: unrequested DELETE/DROP/TRUNCATE logic — "helpful" destructive additions are defects
+
+## Resilience Pattern Authorization
+
+origin: 2026-03-23 auto-reviewer flagged governance gap in muffinpanrecipes self-healing pipeline
+rule: auto-repair vs fail-fast must be evaluated per these criteria before implementation
+
+### Decision Framework
+
+| Question | If YES | If NO |
+|----------|--------|-------|
+| Is the action fully reversible? | Auto-heal OK | Require approval |
+| Does it modify user-facing content? | Notify after (minimum) | Auto-heal OK |
+| Does it touch stateful data (DB, blob, catalog)? | Backup first, notify | Auto-heal OK |
+| Has it already failed N times (N≥3)? | Escalate to human | Retry permitted |
+| Could the "fix" mask a deeper bug? | Fail-fast, log loudly | Auto-heal OK |
+
+### Tiers
+
+tier_auto: Retry transient failures (network, CDN cache), fix formatting, clean input validation
+tier_notify: LLM-assisted content repair, recipe/copy rewriting, catalog updates — auto-heal but log and notify
+tier_approve: Schema changes, data deletion, publishing after 3+ failed attempts, anything involving credentials
+
+### Review Checklist Addition
+
+rule: PRs introducing auto-repair logic must document which tier the repair falls into
+rule: auto-repair that modifies user-facing content must include a notification mechanism (Discord, Slack, or brain write)
+rule: auto-repair loops must have a hard cap (max retries) to prevent infinite cost spirals
+banned: silent auto-repair of stateful data without backup or audit trail
 
 ## Feature Authorization (Scope Creep Prevention)
 
@@ -133,6 +161,10 @@ banned: requirements vanishing without documentation — silent drops are review
 | **H8** | **Hardening**| No unbounded recursive globs (`**/*.py`) | Grep for `.glob("**` patterns, verify bounded or cached |
 | **H9** | **Hardening**| Exception handling around filesystem iterators | Verify `iterdir()`, `glob()` wrapped in try/except |
 | **H10** | **Hardening**| E2E data flow trace for cross-boundary changes | Document one concrete value traced through all layers |
+| **A1** | **Auto-Heal** | Auto-repair tier documented (auto/notify/approve) | Verify tier assignment matches decision framework |
+| **A2** | **Auto-Heal** | Retry loops have hard max cap | Verify max_retries constant, no unbounded loops |
+| **A3** | **Auto-Heal** | Content-modifying auto-repair has notification | Verify Discord/Slack/brain write on auto-fix |
+| **A4** | **Auto-Heal** | Stateful auto-repair creates backup before modify | Verify backup/snapshot before in-place changes |
 | **R1** | **Reviews** | **Active Review Location** | Must be in project root: `CODE_REVIEW_{MODEL}_{VERSION}.md` |
 | **S1** | **Scaling** | Context ceiling strategy (Map-Reduce/RAG) | Document the architectural ceiling |
 | **S2** | **Scaling** | Memory/OOM guards for unbounded processing | Verify size-aware batching logic |
