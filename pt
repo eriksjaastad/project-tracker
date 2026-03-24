@@ -6,7 +6,14 @@
 cd "$(dirname "$0")"
 
 if command -v doppler >/dev/null 2>&1; then
-  exec doppler run --project "${PT_DOPPLER_PROJECT:-openclaw}" --config "${PT_DOPPLER_CONFIG:-dev}" -- \
+  # On the Mini, pt subcommands rely on shared, credential-backed services.
+  doppler_project="${PT_DOPPLER_PROJECT:-openclaw}"
+  doppler_config="${PT_DOPPLER_CONFIG:-dev}"
+  if [ -z "$doppler_project" ] || [ -z "$doppler_config" ]; then
+    echo "pt launcher requires non-empty Doppler project and config" >&2
+    exit 1
+  fi
+  exec doppler run --project "$doppler_project" --config "$doppler_config" -- \
     "$HOME/.local/bin/uv" run scripts/pt.py "$@"
 fi
 
