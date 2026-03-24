@@ -57,8 +57,15 @@ function nodeColor(type) {
     return TYPE_COLORS[type] || TYPE_COLORS.default;
 }
 
+// Track max connections across visible nodes for radius normalization
+let maxConnections = 1;
+
 function nodeRadius(node) {
-    return Math.max(6, Math.min(22, 7 + node.size * 0.8));
+    // Use backend raw degree (all connections above threshold, not display-capped).
+    // Fixed scale: 4px (isolated) → 22px (150+ real connections).
+    // Sqrt so medium-connected nodes are visually distinct, not just the extremes.
+    const raw = node.rawSize || 0;
+    return 4 + 18 * Math.pow(Math.min(1, raw / 150), 0.45);
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -134,6 +141,10 @@ async function loadGraph() {
             return;
         }
 
+        // Preserve the backend-computed raw degree on each node so filters
+        // can overwrite node.size for display without losing the true connectivity.
+        memoryData.nodes.forEach(n => { n.rawSize = n.size || 0; });
+
         // Populate filter dropdowns dynamically
         populateTypeDropdowns(typesData.types || []);
         // Build dynamic legend
@@ -181,12 +192,29 @@ function buildLegend(types) {
 
 // ─── Filtering (client-side, instant) ─────────────────────────────────────────
 
+// Track recomputing state for visual feedback
+let isRecomputing = false;
+
 function applyFilters() {
     currentFilters.thoughtType = document.getElementById('type-filter').value;
-    applyFiltersInternal();
-    updateStats();
-    // Re-run simulation with new node set
-    buildSimulation();
+
+    // Dim canvas to signal recomputation
+    isRecomputing = true;
+    canvas.style.opacity = '0.35';
+    canvas.style.transition = 'opacity 0.15s';
+
+    // Defer to next frame so the dim renders before JS blocks
+    requestAnimationFrame(() => {
+        applyFiltersInternal();
+        updateStats();
+        buildSimulation();
+        // Restore opacity on first simulation tick
+        simulation.on('tick.filterFeedback', () => {
+            canvas.style.opacity = '1';
+            isRecomputing = false;
+            simulation.on('tick.filterFeedback', null); // remove one-shot listener
+        });
+    });
 }
 
 function applyFiltersInternal() {
@@ -222,16 +250,18 @@ function applyFiltersInternal() {
         }
     });
 
-    // Update connection counts on nodes for radius sizing
-    const connCounts = {};
-    filteredEdges.forEach(e => {
+    // Node SIZE uses raw degree (all valid edges before display cap)
+    // so highly-connected hubs look bigger even when we only draw 10 of their edges.
+    const rawDegree = {};
+    sortedEdges.forEach(e => {
         const src = typeof e.source === 'object' ? e.source.id : e.source;
         const tgt = typeof e.target === 'object' ? e.target.id : e.target;
-        connCounts[src] = (connCounts[src] || 0) + 1;
-        connCounts[tgt] = (connCounts[tgt] || 0) + 1;
+        rawDegree[src] = (rawDegree[src] || 0) + 1;
+        rawDegree[tgt] = (rawDegree[tgt] || 0) + 1;
     });
     filteredNodes.forEach(n => {
-        n.size = connCounts[n.id] || 0;
+        n.size = rawDegree[n.id] || 0;
+        // rawSize stays as the backend degree — never overwritten
     });
 
     visibleNodes = filteredNodes;
