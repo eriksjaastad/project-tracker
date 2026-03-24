@@ -77,15 +77,10 @@ let maxConnections = 1;
 let sizeRanks = []; // sorted rawSize values for percentile lookup
 
 function nodeRadius(node) {
+    // Match the old SVG version's dramatic sizing: Math.max(20, 10 + d.size * 2)
+    // Adapted for Canvas with percentile normalization for consistent spread.
     const raw = node.rawSize || 0;
-    if (!sizeRanks.length) return 6;
-
-    // If data has very little spread, use simple linear scale
-    const maxVal = sizeRanks[sizeRanks.length - 1];
-    const minVal = sizeRanks[0];
-    if (maxVal - minVal < 5) {
-        return 5 + (maxVal > 0 ? 25 * (raw / maxVal) : 0);
-    }
+    if (!sizeRanks.length) return 12;
 
     // Binary search for rank position
     let lo = 0, hi = sizeRanks.length - 1;
@@ -96,8 +91,8 @@ function nodeRadius(node) {
     }
     const pct = sizeRanks.length > 1 ? lo / (sizeRanks.length - 1) : 0.5;
 
-    // Map percentile to radius: 5px (bottom) → 35px (top hub)
-    return 5 + 30 * Math.pow(pct, 0.7);
+    // 12px floor (visible even zoomed out) → 60px for top hubs
+    return 12 + 48 * Math.pow(pct, 0.5);
 }
 
 function computeSizeRanks(nodes) {
@@ -368,17 +363,14 @@ function buildSimulation() {
         }
     });
 
+    // Physics tuned to match old SVG version's organic layout:
+    // Strong repulsion with NO distance cap creates tendrils and chains.
+    // Large fixed collision radius prevents blob packing.
     simulation = d3.forceSimulation(visibleNodes)
-        .force('link', d3.forceLink(visibleEdges).id(d => d.id)
-            .distance(d => 100 + nodeRadius(d.source) + nodeRadius(d.target))
-            .strength(0.15))
-        .force('charge', d3.forceManyBody()
-            .strength(d => -150 - nodeRadius(d) * 8)
-            .distanceMax(800))
-        .force('center', d3.forceCenter(width / 2, height / 2).strength(0.03))
-        .force('collision', d3.forceCollide().radius(d => nodeRadius(d) + 6))
-        .alphaDecay(0.015)
-        .velocityDecay(0.35);
+        .force('link', d3.forceLink(visibleEdges).id(d => d.id).distance(200))
+        .force('charge', d3.forceManyBody().strength(-500))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(d => Math.max(30, nodeRadius(d) + 4)));
 
     startLoop();
 
