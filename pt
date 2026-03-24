@@ -5,16 +5,9 @@
 
 cd "$(dirname "$0")"
 
-subcommand="${1:-}"
 if command -v doppler >/dev/null 2>&1; then
-  case "$subcommand" in
-    tasks|calendar)
-      doppler_project="${PT_DOPPLER_PROJECT:-openclaw}"
-      doppler_config="${PT_DOPPLER_CONFIG:-dev}"
-      exec doppler run --project "$doppler_project" --config "$doppler_config" -- \
-        "$HOME/.local/bin/uv" run scripts/pt.py "$@"
-      ;;
-  esac
+  exec doppler run --project "${PT_DOPPLER_PROJECT:-openclaw}" --config "${PT_DOPPLER_CONFIG:-dev}" -- \
+    "$HOME/.local/bin/uv" run scripts/pt.py "$@"
 fi
 
 exec "$HOME/.local/bin/uv" run scripts/pt.py "$@"
