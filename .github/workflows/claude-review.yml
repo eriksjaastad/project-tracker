@@ -6,7 +6,7 @@ on:
 
 jobs:
   claude-review:
-    uses: eriksjaastad/tools/.github/workflows/claude-review-reusable.yml@fix/reusable-claude-review
+    uses: eriksjaastad/tools/.github/workflows/claude-review-reusable.yml@main
     with:
       test_command: |
         if uv run -m pytest --collect-only -q 2>/dev/null | grep -q "test"; then
