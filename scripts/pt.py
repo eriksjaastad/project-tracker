@@ -17,6 +17,7 @@ Common Commands:
 - ./pt help      # Show help
 """
 
+import shutil
 import sys
 import webbrowser
 import time
@@ -1754,17 +1755,30 @@ BRAIN_PY_PATH = PROJECTS_BASE_DIR / "ai-memory" / "brain.py"
 
 
 def _run_brain(*args: str) -> None:
-    """Call brain.py via uv run, streaming output directly to the terminal."""
+    """Call brain.py via doppler + uv run, ensuring Turso credentials are available.
+
+    Uses ``doppler run --project ai-memory --config dev`` so that
+    TURSO_BRAIN_URL / TURSO_BRAIN_TOKEN are always injected, regardless
+    of ambient shell environment.  Falls back to bare ``uv run`` only if
+    doppler is not installed (e.g. CI without Doppler).
+    """
     if not BRAIN_PY_PATH.exists():
         raise click.ClickException(
             f"brain.py not found at {BRAIN_PY_PATH}. "
             "Is PROJECTS_ROOT set correctly and is ai-memory cloned?"
         )
-    subprocess.run(
-        ["uv", "run", str(BRAIN_PY_PATH), *args],
-        check=False,
-        cwd=str(BRAIN_PY_PATH.parent),
-    )
+    uv_cmd = ["uv", "run", str(BRAIN_PY_PATH), *args]
+    if shutil.which("doppler"):
+        cmd = [
+            "doppler", "run",
+            "--project", "ai-memory",
+            "--config", "dev",
+            "--",
+            *uv_cmd,
+        ]
+    else:
+        cmd = uv_cmd
+    subprocess.run(cmd, check=False, cwd=str(BRAIN_PY_PATH.parent))
 
 
 @click.group(name="memory", invoke_without_command=True)
