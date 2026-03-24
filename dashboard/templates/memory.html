@@ -17,6 +17,7 @@
 <div class="header-actions">
     <div class="view-tabs">
         <button onclick="switchView('graph')" id="tab-graph" class="tab-btn active">📊 Graph</button>
+        <button onclick="switchView('heatmap')" id="tab-heatmap" class="tab-btn">🌡️ Heatmap</button>
         <button onclick="switchView('list')" id="tab-list" class="tab-btn">📋 List</button>
     </div>
     <button onclick="refreshData()" class="btn-refresh">🔄 Refresh</button>
@@ -32,10 +33,7 @@
                     <label for="type-filter">Thought Type:</label>
                     <select id="type-filter">
                         <option value="">All Types</option>
-                        <option value="observation">Observation</option>
-                        <option value="decision">Decision</option>
-                        <option value="idea">Idea</option>
-                        <option value="question">Question</option>
+                        <!-- Populated dynamically from /api/memory/types -->
                     </select>
                 </div>
                 <div class="control-group">
@@ -58,89 +56,76 @@
                 </div>
                 <div id="memory-legend" class="memory-legend">
                     <h4>Legend</h4>
-                    <div class="legend-item">
-                        <span class="legend-color" style="background: #4ECDC4;"></span>
-                        <span>Observation</span>
-                    </div>
-                    <div class="legend-item">
-                        <span class="legend-color" style="background: #FF6B6B;"></span>
-                        <span>Decision</span>
-                    </div>
-                    <div class="legend-item">
-                        <span class="legend-color" style="background: #FFD93D;"></span>
-                        <span>Idea</span>
-                    </div>
-                    <div class="legend-item">
-                        <span class="legend-color" style="background: #A8E6CF;"></span>
-                        <span>Question</span>
-                    </div>
+                    <!-- Populated dynamically -->
                 </div>
-                <button id="reset-view" class="btn-small">Reset View</button>
+                <button id="reset-view" class="btn-small">Fit to Screen</button>
             </div>
 
-            <svg id="memory-svg"></svg>
+        <canvas id="memory-canvas"></canvas>
 
-            <div id="thought-details" class="details-panel hidden">
-                <button class="close-btn" onclick="closeDetails()">&times;</button>
-                <h3 id="details-type">Thought</h3>
-                <div class="details-content">
-                    <p id="details-placeholder">Click on any thought to see details here.</p>
-                    <div id="details-info" class="hidden">
-                        <p><strong>Content:</strong></p>
-                        <p id="details-content" class="thought-content"></p>
-                        <p><strong>Created:</strong> <span id="details-created"></span></p>
-                        <p><strong>Project:</strong> <span id="details-project"></span></p>
-                        <p><strong>Connections:</strong> <span id="details-connections"></span></p>
-                        <div id="details-related">
-                            <h4>Related Thoughts</h4>
-                            <ul id="related-list"></ul>
-                        </div>
+        <div id="thought-details" class="details-panel hidden">
+            <button class="close-btn" onclick="closeDetails()">&times;</button>
+            <h3 id="details-type">Thought</h3>
+            <div class="details-content">
+                <p id="details-placeholder">Click on any thought to see details here.</p>
+                <div id="details-info" class="hidden">
+                    <p><strong>Content:</strong></p>
+                    <p id="details-content" class="thought-content"></p>
+                    <p><strong>Created:</strong> <span id="details-created"></span></p>
+                    <p><strong>Project:</strong> <span id="details-project"></span></p>
+                    <p><strong>Connections:</strong> <span id="details-connections"></span></p>
+                    <div id="details-related">
+                        <h4>Related Thoughts</h4>
+                        <ul id="related-list"></ul>
                     </div>
                 </div>
             </div>
         </div>
+    </div>
 
-        <div id="memory-list-view" class="view-content hidden">
-            <div class="list-controls">
-                <div class="control-group search-group">
-                    <input type="text" id="memory-search" placeholder="Search thoughts...">
-                </div>
-                <div class="control-group">
-                    <label for="list-type-filter">Type:</label>
-                    <select id="list-type-filter">
-                        <option value="">All Types</option>
-                        <option value="observation">Observation</option>
-                        <option value="decision">Decision</option>
-                        <option value="idea">Idea</option>
-                        <option value="question">Question</option>
-                        <option value="conversation">Conversation</option>
-                    </select>
-                </div>
+    <div id="memory-heatmap-view" class="view-content hidden">
+        <div id="heatmap-container">
+            <!-- Populated by memory_heatmap.js -->
+        </div>
+    </div>
+
+    <div id="memory-list-view" class="view-content hidden">
+        <div class="list-controls">
+            <div class="control-group search-group">
+                <input type="text" id="memory-search" placeholder="Search thoughts...">
             </div>
-            <div class="table-container">
-                <table id="thoughts-table">
-                    <thead>
-                        <tr>
-                            <th class="col-type">Type</th>
-                            <th class="col-content">Content</th>
-                            <th class="col-project">Project</th>
-                            <th class="col-date">Created</th>
-                        </tr>
-                    </thead>
-                    <tbody id="thoughts-body">
-                        <!-- Filled by JS -->
-                    </tbody>
-                </table>
-            </div>
-            <div class="list-footer">
-                <div id="list-stats">Showing 0 thoughts</div>
-                <div class="pagination">
-                    <button id="prev-page" class="btn-small" disabled>Previous</button>
-                    <span id="page-info">Page 1</span>
-                    <button id="next-page" class="btn-small" disabled>Next</button>
-                </div>
+            <div class="control-group">
+                <label for="list-type-filter">Type:</label>
+                <select id="list-type-filter">
+                    <option value="">All Types</option>
+                    <!-- Populated dynamically from /api/memory/types -->
+                </select>
             </div>
         </div>
+        <div class="table-container">
+            <table id="thoughts-table">
+                <thead>
+                    <tr>
+                        <th class="col-type">Type</th>
+                        <th class="col-content">Content</th>
+                        <th class="col-project">Project</th>
+                        <th class="col-date">Created</th>
+                    </tr>
+                </thead>
+                <tbody id="thoughts-body">
+                    <!-- Filled by JS -->
+                </tbody>
+            </table>
+        </div>
+        <div class="list-footer">
+            <div id="list-stats">Showing 0 thoughts</div>
+            <div class="pagination">
+                <button id="prev-page" class="btn-small" disabled>Previous</button>
+                <span id="page-info">Page 1</span>
+                <button id="next-page" class="btn-small" disabled>Next</button>
+            </div>
+        </div>
+    </div>
     </main>
 
     <div id="loading-overlay">
@@ -153,5 +138,5 @@
 {% block scripts %}
     <script src="/static/memory.js"></script>
     <script src="/static/memory_list.js"></script>
+    <script src="/static/memory_heatmap.js"></script>
 {% endblock %}
-
