@@ -39,11 +39,12 @@ _TURSO_TOKEN = os.environ.get("TURSO_KANBAN_TOKEN", "")
 _USE_TURSO: bool = bool(_TURSO_URL and _TURSO_TOKEN)
 
 VALID_STATUS_TRANSITIONS = {
-    "Backlog": ["To Do"],
-    "To Do": ["Backlog", "In Progress"],
-    "In Progress": ["To Do", "Backlog", "Review"],
-    "Review": ["In Progress", "To Do", "Backlog", "Done"],
-    "Done": ["Review", "In Progress", "To Do"],
+    "Backlog": ["To Do", "Cancelled"],
+    "To Do": ["Backlog", "In Progress", "Cancelled"],
+    "In Progress": ["To Do", "Backlog", "Review", "Cancelled"],
+    "Review": ["In Progress", "To Do", "Backlog", "Done", "Cancelled"],
+    "Done": ["Review", "In Progress", "To Do", "Cancelled"],
+    "Cancelled": ["Backlog"],
 }
 
 def _get_backup_dir(db_path: Path) -> Path:

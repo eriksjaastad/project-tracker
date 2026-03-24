@@ -27,6 +27,7 @@ VALID_STATUSES = [
     "In Progress",
     "Review",
     "Done",
+    "Cancelled",
 ]
 
 # Valid priority values for tasks
