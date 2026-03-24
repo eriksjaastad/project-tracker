@@ -31,7 +31,6 @@ const FIT_FRAMES = 30;
 // Interaction state
 let hoveredNode = null;
 let selectedNode = null;
-let dragNode = null;
 let isPanning = false;
 let panStart = { x: 0, y: 0 };
 
@@ -72,31 +71,12 @@ function machineColor(machine) {
     return '#666666';  // Unknown machine — gray
 }
 
-// Track max connections across visible nodes for radius normalization
-let maxConnections = 1;
-let sizeRanks = []; // sorted rawSize values for percentile lookup
+// ─── Node sizing ─────────────────────────────────────────────────────────────
 
 function nodeRadius(node) {
-    // Match the old SVG version's dramatic sizing: Math.max(20, 10 + d.size * 2)
-    // Adapted for Canvas with percentile normalization for consistent spread.
+    // Original SVG formula — linear, uncapped. Hubs grow big.
     const raw = node.rawSize || 0;
-    if (!sizeRanks.length) return 12;
-
-    // Binary search for rank position
-    let lo = 0, hi = sizeRanks.length - 1;
-    while (lo < hi) {
-        const mid = (lo + hi + 1) >> 1;
-        if (sizeRanks[mid] <= raw) lo = mid;
-        else hi = mid - 1;
-    }
-    const pct = sizeRanks.length > 1 ? lo / (sizeRanks.length - 1) : 0.5;
-
-    // 12px floor (visible even zoomed out) → 60px for top hubs
-    return 12 + 48 * Math.pow(pct, 0.5);
-}
-
-function computeSizeRanks(nodes) {
-    sizeRanks = nodes.map(n => n.rawSize || 0).sort((a, b) => a - b);
+    return Math.max(20, 10 + raw * 2);
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -330,7 +310,6 @@ function applyFiltersInternal() {
 
     visibleNodes = filteredNodes;
     visibleEdges = filteredEdges;
-    computeSizeRanks(visibleNodes);
 }
 
 function updateStats() {
@@ -539,14 +518,6 @@ function getCanvasPos(e) {
 
 function onMouseMove(e) {
     const { cx, cy } = getCanvasPos(e);
-    if (dragNode) {
-        // Dragging a node
-        const { x, y } = canvasToWorld(cx, cy);
-        dragNode.fx = x;
-        dragNode.fy = y;
-        if (simulation) simulation.alphaTarget(0.1).restart();
-        return;
-    }
     if (isPanning) {
         transform.x += e.movementX;
         transform.y += e.movementY;
@@ -563,12 +534,7 @@ function onMouseDown(e) {
     if (e.button !== 0) return;
     const { cx, cy } = getCanvasPos(e);
     const hit = hitTest(cx, cy);
-    if (hit) {
-        dragNode = hit;
-        dragNode.fx = dragNode.x;
-        dragNode.fy = dragNode.y;
-        canvas.style.cursor = 'grabbing';
-    } else {
+    if (!hit) {
         isPanning = true;
         panStart = { x: cx, y: cy };
         canvas.style.cursor = 'grabbing';
@@ -576,12 +542,6 @@ function onMouseDown(e) {
 }
 
 function onMouseUp(e) {
-    if (dragNode) {
-        dragNode.fx = null;
-        dragNode.fy = null;
-        if (simulation) simulation.alphaTarget(0);
-        dragNode = null;
-    }
     isPanning = false;
     const { cx, cy } = getCanvasPos(e);
     canvas.style.cursor = hitTest(cx, cy) ? 'pointer' : 'grab';
@@ -589,11 +549,6 @@ function onMouseUp(e) {
 
 function onMouseLeave() {
     hoveredNode = null;
-    if (dragNode) {
-        dragNode.fx = null;
-        dragNode.fy = null;
-        dragNode = null;
-    }
     isPanning = false;
 }
 
