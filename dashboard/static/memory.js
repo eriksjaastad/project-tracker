@@ -614,7 +614,7 @@ function onWheel(e) {
     const { cx, cy } = getCanvasPos(e);
     const delta = -e.deltaY * 0.001;
     const factor = Math.exp(delta * 2.5);
-    const newK = Math.max(0.05, Math.min(15, transform.k * factor));
+    const newK = Math.max(0.01, Math.min(15, transform.k * factor));
     // Zoom towards cursor position
     transform.x = cx - (cx - transform.x) * (newK / transform.k);
     transform.y = cy - (cy - transform.y) * (newK / transform.k);
@@ -638,7 +638,7 @@ function scheduleFit() {
     const pad = 60;
     const gw = maxX - minX || 1;
     const gh = maxY - minY || 1;
-    const k = Math.min(0.9, (width - pad * 2) / gw, (height - pad * 2) / gh);
+    const k = Math.min((width - pad * 2) / gw, (height - pad * 2) / gh);
     const midX = (minX + maxX) / 2;
     const midY = (minY + maxY) / 2;
 
