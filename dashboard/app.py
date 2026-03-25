@@ -345,11 +345,16 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
     else:
         project["agent_config_health"] = build_empty_agent_config_health(project.get("name", project_id))
 
-    version_file = project_path / ".scaffolding-version" if project_path.exists() else None
-    has_scaffolding_file = version_file is not None and version_file.exists()
+    try:
+        path_exists = project_path.exists()
+        version_file = project_path / ".scaffolding-version" if path_exists else None
+        has_scaffolding_file = version_file is not None and version_file.exists()
+    except OSError:
+        path_exists = False
+        has_scaffolding_file = False
 
-    if not project_path.exists():
-        # Project directory doesn't exist (stale/deleted)
+    if not path_exists:
+        # Project directory doesn't exist (stale/deleted) or inaccessible
         project["version_status"] = "unmanaged"
     elif not has_scaffolding_file:
         # No .scaffolding-version file — project is not managed by scaffolding
