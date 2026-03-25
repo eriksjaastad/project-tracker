@@ -107,6 +107,7 @@ function updatePagination() {
 }
 
 function switchView(view) {
+    const graphWrapper = document.getElementById('memory-graph-wrapper');
     const graphView = document.getElementById('memory-viewport');
     const svgView = document.getElementById('memory-svg-view');
     const listView = document.getElementById('memory-list-view');
@@ -121,17 +122,21 @@ function switchView(view) {
     [graphTab, svgTab, listTab, heatmapTab].forEach(t => t && t.classList.remove('active'));
 
     if (view === 'graph') {
+        graphWrapper && (graphWrapper.style.display = 'flex');
         graphView.classList.remove('hidden');
         graphTab && graphTab.classList.add('active');
     } else if (view === 'svg') {
+        graphWrapper && (graphWrapper.style.display = 'flex');
         svgView.classList.remove('hidden');
         svgTab && svgTab.classList.add('active');
         if (typeof loadSvgGraph === 'function') loadSvgGraph();
     } else if (view === 'heatmap') {
+        graphWrapper && (graphWrapper.style.display = 'none');
         heatmapView.classList.remove('hidden');
         heatmapTab && heatmapTab.classList.add('active');
         if (typeof loadHeatmap === 'function') loadHeatmap();
     } else {
+        graphWrapper && (graphWrapper.style.display = 'none');
         listView.classList.remove('hidden');
         listTab && listTab.classList.add('active');
         loadThoughts();
