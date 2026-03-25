@@ -916,7 +916,7 @@ def tasks_done(task_ids):
             print(f"Failed to complete task #{task_id}: {e}")
     if len(task_ids) > 1: print(f"\nCompleted {success_count}/{len(task_ids)} tasks")
     if success_count > 0:
-        print("💡 Tip: Run /compound to journal what you learned from this task")
+        print("💡 Tip: Run /compound in Claude Code to journal what you learned")
 
 
 @tasks_group.command(name="start")
