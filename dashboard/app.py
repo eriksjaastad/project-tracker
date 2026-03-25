@@ -370,8 +370,8 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
                 content = claude_md.read_text(errors='ignore')
                 if '{project_description}' in content or '{language}' in content or '{framework}' in content:
                     scaffolding_issues.append("CLAUDE.md has unfilled placeholders")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not check CLAUDE.md for placeholders in {claude_md}: {e}")
 
         # Check for rogue 00-full-content.md in .agentsync/rules/
         rogue_file = project_path / ".agentsync" / "rules" / "00-full-content.md"
