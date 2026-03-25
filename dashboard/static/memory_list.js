@@ -108,19 +108,25 @@ function updatePagination() {
 
 function switchView(view) {
     const graphView = document.getElementById('memory-viewport');
+    const svgView = document.getElementById('memory-svg-view');
     const listView = document.getElementById('memory-list-view');
     const heatmapView = document.getElementById('memory-heatmap-view');
     const graphTab = document.getElementById('tab-graph');
+    const svgTab = document.getElementById('tab-svg');
     const listTab = document.getElementById('tab-list');
     const heatmapTab = document.getElementById('tab-heatmap');
 
     // Hide all views and deactivate all tabs
-    [graphView, listView, heatmapView].forEach(v => v && v.classList.add('hidden'));
-    [graphTab, listTab, heatmapTab].forEach(t => t && t.classList.remove('active'));
+    [graphView, svgView, listView, heatmapView].forEach(v => v && v.classList.add('hidden'));
+    [graphTab, svgTab, listTab, heatmapTab].forEach(t => t && t.classList.remove('active'));
 
     if (view === 'graph') {
         graphView.classList.remove('hidden');
         graphTab && graphTab.classList.add('active');
+    } else if (view === 'svg') {
+        svgView.classList.remove('hidden');
+        svgTab && svgTab.classList.add('active');
+        if (typeof loadSvgGraph === 'function') loadSvgGraph();
     } else if (view === 'heatmap') {
         heatmapView.classList.remove('hidden');
         heatmapTab && heatmapTab.classList.add('active');
@@ -133,7 +139,10 @@ function switchView(view) {
 }
 
 function refreshData() {
-    if (document.getElementById('memory-viewport').classList.contains('active')) {
+    const svgView = document.getElementById('memory-svg-view');
+    if (svgView && !svgView.classList.contains('hidden')) {
+        if (typeof refreshSvgGraph === 'function') refreshSvgGraph();
+    } else if (!document.getElementById('memory-viewport').classList.contains('hidden')) {
         if (typeof refreshMemoryGraph === 'function') refreshMemoryGraph();
     } else {
         loadThoughts();
