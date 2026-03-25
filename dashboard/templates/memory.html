@@ -28,7 +28,7 @@
 {% block page_main_class %}page-main--full memory-container{% endblock %}
 
 {% block content %}
-    <div id="memory-viewport" class="view-content active">
+    <div id="memory-graph-wrapper">
         <div id="memory-controls">
                 <div class="control-group">
                     <label for="type-filter">Thought Type:</label>
@@ -67,33 +67,35 @@
                     <!-- Populated dynamically -->
                 </div>
                 <button id="reset-view" class="btn-small">Fit to Screen</button>
-            </div>
+        </div>
 
-        <canvas id="memory-canvas"></canvas>
+        <div id="memory-viewport" class="view-content active">
+            <canvas id="memory-canvas"></canvas>
 
-        <div id="thought-details" class="details-panel hidden">
-            <button class="close-btn" onclick="closeDetails()">&times;</button>
-            <h3 id="details-type">Thought</h3>
-            <div class="details-content">
-                <p id="details-placeholder">Click on any thought to see details here.</p>
-                <div id="details-info" class="hidden">
-                    <p><strong>Content:</strong></p>
-                    <p id="details-content" class="thought-content"></p>
-                    <p><strong>Created:</strong> <span id="details-created"></span></p>
-                    <p><strong>Project:</strong> <span id="details-project"></span></p>
-                    <p><strong>Connections:</strong> <span id="details-connections"></span></p>
-                    <p><strong>Machine:</strong> <span id="details-machine"></span></p>
-                    <div id="details-related">
-                        <h4>Related Thoughts</h4>
-                        <ul id="related-list"></ul>
+            <div id="thought-details" class="details-panel hidden">
+                <button class="close-btn" onclick="closeDetails()">&times;</button>
+                <h3 id="details-type">Thought</h3>
+                <div class="details-content">
+                    <p id="details-placeholder">Click on any thought to see details here.</p>
+                    <div id="details-info" class="hidden">
+                        <p><strong>Content:</strong></p>
+                        <p id="details-content" class="thought-content"></p>
+                        <p><strong>Created:</strong> <span id="details-created"></span></p>
+                        <p><strong>Project:</strong> <span id="details-project"></span></p>
+                        <p><strong>Connections:</strong> <span id="details-connections"></span></p>
+                        <p><strong>Machine:</strong> <span id="details-machine"></span></p>
+                        <div id="details-related">
+                            <h4>Related Thoughts</h4>
+                            <ul id="related-list"></ul>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <div id="memory-svg-view" class="view-content hidden">
-        <svg id="memory-svg" style="width:100%;height:100%"></svg>
+        <div id="memory-svg-view" class="view-content hidden">
+            <svg id="memory-svg" style="width:100%;height:100%"></svg>
+        </div>
     </div>
 
     <div id="memory-heatmap-view" class="view-content hidden">
