@@ -480,7 +480,6 @@ async def dashboard(request: Request):
             total_projects=len(projects),
             indexed_count=indexed_count,
             compliance_pct=compliance_pct,
-            audit_available=audit_available,
             agents=agents_data,
             backup_status=backup_status,
             current_scaffolding_version=current_scaffolding,

@@ -26,13 +26,6 @@
 {% endblock %}
 
 {% block shell_notice %}
-{% if not audit_available %}
-<div class="system-warning">
-    <span class="warning-icon">⚠️</span>
-    <span class="warning-text">audit-agent not found. Health scores and advanced validation disabled.</span>
-    <a href="https://github.com/eriksjaastad/audit-agent" target="_blank" class="warning-link">Install →</a>
-</div>
-{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -309,15 +302,6 @@
                         <span class="meta-label">Type:</span>
                         <span class="meta-value">{{ project.project_type|capitalize }}</span>
                     </div>
-
-                    {% if project.health_score is not none %}
-                    <div class="meta-row space-between">
-                        <span class="meta-label">Health:</span>
-                        <span class="health-badge grade-{{ project.health_grade|lower }}">
-                            {{ project.health_grade }} ({{ project.health_score }})
-                        </span>
-                    </div>
-                    {% endif %}
 
                     <div class="meta-row space-between">
                         <span class="meta-label">Scaffolding:</span>
