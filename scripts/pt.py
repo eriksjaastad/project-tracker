@@ -915,6 +915,8 @@ def tasks_done(task_ids):
         except Exception as e:
             print(f"Failed to complete task #{task_id}: {e}")
     if len(task_ids) > 1: print(f"\nCompleted {success_count}/{len(task_ids)} tasks")
+    if success_count > 0:
+        print("💡 Tip: Run /compound to journal what you learned from this task")
 
 
 @tasks_group.command(name="start")
