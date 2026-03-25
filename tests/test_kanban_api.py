@@ -24,15 +24,8 @@ from hypothesis import given, strategies as st, assume, settings
 from fastapi.testclient import TestClient
 from fastapi import FastAPI, HTTPException
 
-# Add scripts to path
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from db.manager import DatabaseManager
-from db.schema import create_database
-
-
-# Import validation functions
+from scripts.db.manager import DatabaseManager
+from scripts.db.schema import create_database
 from scripts.utils.validation import (
     validate_task_input,
     validate_task_text,
