@@ -337,37 +337,32 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
     if project.get("index_updated_at"):
         project["index_updated_human"] = format_time_ago(project["index_updated_at"])
     
-    # Calculate version status
-    # Exclude certain projects from scaffolding checks
-    excluded_from_scaffolding = {
-        'writing',           # Book/writing project - no code
-        'ai-journal',        # Journal entries - has some code but shouldn't be scaffolded
-        '_configs',          # Configuration files only
-        '__knowledge',       # Knowledge base - no code
-        '_tools',            # Tools directory - no code
-        'fci-plugins',       # FCI plugins - don't scaffold
-        'openclaw',          # External project - not ours
-        'nanoclaw',          # External project - not ours
-        'model-proving-ground'  # Renamed/stale project
-    }
-    
+    # Calculate version status (opt-in: only check projects with .scaffolding-version)
     project_id = project.get("id", "")
     project_path = Path(project.get("path", ""))
     if project_path.exists():
         project["agent_config_health"] = get_agent_config_health(project_path)
     else:
         project["agent_config_health"] = build_empty_agent_config_health(project.get("name", project_id))
-    
-    if project_id in excluded_from_scaffolding:
-        # Mark as current to hide from scaffolding alerts
-        project["version_status"] = "current"
-    elif not project_path.exists():
-        # Project directory doesn't exist (stale/deleted)
-        project["version_status"] = "current"
+
+    try:
+        path_exists = project_path.exists()
+        version_file = project_path / ".scaffolding-version" if path_exists else None
+        has_scaffolding_file = version_file is not None and version_file.exists()
+    except OSError:
+        path_exists = False
+        has_scaffolding_file = False
+
+    if not path_exists:
+        # Project directory doesn't exist (stale/deleted) or inaccessible
+        project["version_status"] = "unmanaged"
+    elif not has_scaffolding_file:
+        # No .scaffolding-version file — project is not managed by scaffolding
+        project["version_status"] = "unmanaged"
     else:
         project_version = project.get("scaffolding_version")
         scaffolding_issues = []
-        
+
         # Check for {placeholder} content in CLAUDE.md
         claude_md = project_path / "CLAUDE.md"
         if claude_md.exists():
@@ -375,14 +370,14 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
                 content = claude_md.read_text(errors='ignore')
                 if '{project_description}' in content or '{language}' in content or '{framework}' in content:
                     scaffolding_issues.append("CLAUDE.md has unfilled placeholders")
-            except Exception:
-                pass
-        
+            except Exception as e:
+                logger.warning(f"Could not check CLAUDE.md for placeholders in {claude_md}: {e}")
+
         # Check for rogue 00-full-content.md in .agentsync/rules/
         rogue_file = project_path / ".agentsync" / "rules" / "00-full-content.md"
         if rogue_file.exists():
             scaffolding_issues.append("rogue 00-full-content.md in .agentsync/rules/")
-        
+
         if scaffolding_issues:
             project["scaffolding_issues"] = scaffolding_issues
             # If version is also outdated, keep 'outdated' — it captures both problems
