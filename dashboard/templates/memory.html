@@ -17,6 +17,7 @@
 <div class="header-actions">
     <div class="view-tabs">
         <button onclick="switchView('graph')" id="tab-graph" class="tab-btn active">📊 Graph</button>
+        <button onclick="switchView('svg')" id="tab-svg" class="tab-btn">🎨 Classic</button>
         <button onclick="switchView('heatmap')" id="tab-heatmap" class="tab-btn">🌡️ Heatmap</button>
         <button onclick="switchView('list')" id="tab-list" class="tab-btn">📋 List</button>
     </div>
@@ -91,6 +92,10 @@
         </div>
     </div>
 
+    <div id="memory-svg-view" class="view-content hidden">
+        <svg id="memory-svg" style="width:100%;height:100%"></svg>
+    </div>
+
     <div id="memory-heatmap-view" class="view-content hidden">
         <div id="heatmap-container">
             <!-- Populated by memory_heatmap.js -->
@@ -145,6 +150,7 @@
 
 {% block scripts %}
     <script src="/static/memory.js"></script>
+    <script src="/static/memory_svg.js"></script>
     <script src="/static/memory_list.js"></script>
     <script src="/static/memory_heatmap.js"></script>
 {% endblock %}

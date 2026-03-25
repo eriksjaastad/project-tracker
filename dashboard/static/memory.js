@@ -253,6 +253,13 @@ function applyFilters() {
     currentFilters.thoughtType = document.getElementById('type-filter').value;
     currentFilters.machine = document.getElementById('machine-filter').value;
 
+    // If SVG view is active, apply SVG filters instead
+    const svgView = document.getElementById('memory-svg-view');
+    if (svgView && !svgView.classList.contains('hidden')) {
+        if (typeof applySvgFilters === 'function') applySvgFilters();
+        return;
+    }
+
     // Dim canvas to signal recomputation
     isRecomputing = true;
     canvas.style.opacity = '0.35';
