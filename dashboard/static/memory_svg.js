@@ -61,7 +61,10 @@
 
     function initSvg() {
         svgEl = document.getElementById('memory-svg');
-        if (!svgEl) return;
+        if (!svgEl) {
+            console.warn('SVG: #memory-svg element not found in DOM');
+            return;
+        }
 
         svgWidth = svgEl.clientWidth || window.innerWidth - 280;
         svgHeight = svgEl.clientHeight || window.innerHeight - 80;
@@ -124,12 +127,17 @@
     // ─── Filtering (client-side, same logic as Canvas) ───────────────────────────
 
     function applySvgFilters() {
-        if (!svgDataLoaded) return;
+        if (!svgDataLoaded) {
+            console.warn('SVG: Data not loaded yet, skipping filter apply');
+            return;
+        }
 
-        const typeVal = document.getElementById('type-filter').value;
-        const machineVal = document.getElementById('machine-filter').value;
-        const minSim = parseInt(document.getElementById('min-similarity').value) / 100;
-        const maxEdges = parseInt(document.getElementById('max-edges').value);
+        const typeVal = document.getElementById('type-filter').value || '';
+        const machineVal = document.getElementById('machine-filter').value || '';
+        const rawMinSim = parseInt(document.getElementById('min-similarity').value);
+        const minSim = (isNaN(rawMinSim) ? 30 : rawMinSim) / 100;
+        const rawMaxEdges = parseInt(document.getElementById('max-edges').value);
+        const maxEdges = isNaN(rawMaxEdges) ? 10 : rawMaxEdges;
 
         // Filter nodes
         let filteredNodes = svgMemoryData.nodes;
@@ -189,7 +197,10 @@
     // ─── SVG Rendering ───────────────────────────────────────────────────────────
 
     function renderSvgGraph(nodes, edges) {
-        if (!svgContainer) return;
+        if (!svgContainer) {
+            console.warn('SVG: Container not initialized, cannot render');
+            return;
+        }
 
         // Clear previous
         svgContainer.selectAll('*').remove();
