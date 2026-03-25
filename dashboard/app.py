@@ -48,7 +48,7 @@ from discovery.agent_registry import (
 from pydantic import BaseModel
 
 # Import config
-from scripts.config import REINDEX_SCRIPT_PATH
+from scripts.config import PROJECTS_BASE_DIR, REINDEX_SCRIPT_PATH
 
 # Import scaffolding version helpers
 from scripts.pt import get_current_scaffolding_version, compare_versions, rebuild_knowledge_graph
@@ -632,12 +632,30 @@ async def refresh_data():
                 scaffolding_applied_at=project.get("scaffolding_applied_at")
             )
 
+        # Clean up stale projects whose directories no longer exist on disk.
+        # Only remove projects whose path is under the local PROJECTS_BASE_DIR
+        # so we don't accidentally delete remote/Turso entries from other machines.
+        disk_paths = {p["path"] for p in projects}
+        local_prefix = str(PROJECTS_BASE_DIR)
+        all_db_projects = db.get_all_projects()
+        removed = 0
+        for db_proj in all_db_projects:
+            proj_path = db_proj.get("path", "")
+            if (
+                proj_path.startswith(local_prefix)
+                and proj_path not in disk_paths
+                and not Path(proj_path).exists()
+            ):
+                logger.info(f"Removing stale project from DB: {db_proj['id']} ({proj_path})")
+                db.delete_project(db_proj["id"])
+                removed += 1
+
         # Rebuild knowledge graph so dashboard is up to date
         rebuild_knowledge_graph()
 
         return JSONResponse({
             "status": "success",
-            "message": f"Refreshed {len(projects)} projects and rebuilt graph"
+            "message": f"Refreshed {len(projects)} projects, removed {removed} stale, rebuilt graph"
         })
     except Exception as e:
         logger.error(f"Error refreshing data: {e}")
