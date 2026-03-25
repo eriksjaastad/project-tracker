@@ -74,7 +74,7 @@
 
         // Zoom + pan
         const zoom = d3.zoom()
-            .scaleExtent([0.05, 15])
+            .scaleExtent([0.01, 20])
             .on('zoom', (event) => {
                 svgContainer.attr('transform', event.transform);
             });
@@ -193,6 +193,9 @@
 
     // Expose for external filter change events
     window.applySvgFilters = applySvgFilters;
+
+    // Expose fit-to-screen for the sidebar button
+    window.svgFitToScreen = svgFitToScreen;
 
     // ─── SVG Rendering ───────────────────────────────────────────────────────────
 

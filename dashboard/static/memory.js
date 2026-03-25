@@ -111,7 +111,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('labels-toggle').addEventListener('change', () => {
         if (rafId === null) startLoop();
     });
-    document.getElementById('reset-view').addEventListener('click', fitToScreen);
+    document.getElementById('reset-view').addEventListener('click', () => {
+        const svgView = document.getElementById('memory-svg-view');
+        if (svgView && !svgView.classList.contains('hidden') && typeof svgFitToScreen === 'function') {
+            svgFitToScreen();
+        } else {
+            fitToScreen();
+        }
+    });
 
     // Canvas mouse events
     canvas.addEventListener('mousemove', onMouseMove);
