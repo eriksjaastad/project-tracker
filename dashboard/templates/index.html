@@ -319,6 +319,7 @@
                     </div>
                     {% endif %}
 
+                    {% if project.version_status != 'unmanaged' %}
                     <div class="meta-row space-between">
                         <span class="meta-label">Scaffolding:</span>
                         <span class="meta-value">
@@ -333,6 +334,7 @@
                             {% endif %}
                         </span>
                     </div>
+                    {% endif %}
 
                     <div class="meta-row space-between">
                         <span class="meta-label">Last work:</span>
