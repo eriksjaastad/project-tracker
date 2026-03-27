@@ -892,12 +892,12 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
         _notify_inbox(task["id"], project_id, status, text)
     except BlockedTaskProjectError:
         console.print(
-            f"[yellow]Task creation is intentionally blocked for '{project_id}' on the Mac mini.[/yellow]"
+            f"[yellow]Failed to create task: task creation is intentionally blocked for '{project_id}' on the Mac mini.[/yellow]"
         )
         console.print(
             "[yellow]Use PT for visibility on that project, but do not create Kanban cards there.[/yellow]"
-            )
-            return
+        )
+        return
     except Exception as e:
         console.print(f"[red]Failed to create task: {e}[/red]")
 

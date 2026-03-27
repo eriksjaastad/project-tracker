@@ -28,6 +28,8 @@ from scripts.db.manager import DatabaseManager
 from scripts.db.schema import create_database
 from scripts.utils.validation import (
     EXCLUDED_CARD_PROJECT_IDS,
+    get_blocked_card_project_ids,
+    is_card_creation_allowed,
     validate_task_input,
     validate_task_text,
     validate_status,
@@ -297,6 +299,14 @@ def test_validate_task_input_rejects_excluded_projects():
         assert "project-tracker" in EXCLUDED_CARD_PROJECT_IDS
     finally:
         db_path.unlink()
+
+
+def test_blocked_card_policy_helpers():
+    blocked_ids = get_blocked_card_project_ids()
+
+    assert blocked_ids == sorted(EXCLUDED_CARD_PROJECT_IDS)
+    assert is_card_creation_allowed("smart-invoice-workflow") is True
+    assert is_card_creation_allowed("project-tracker") is False
 
 
 def test_api_rejects_card_creation_for_excluded_project():

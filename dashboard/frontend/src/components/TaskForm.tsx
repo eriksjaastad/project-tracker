@@ -57,8 +57,7 @@ export function TaskForm({
         setBlockedProjectReasons(taskPolicy.blocked_project_reasons || {});
         const allowedProjects = projectData.filter((project) => project.can_create_cards !== false);
 
-        const initialProject = projectData.find((project) => project.id === initialProjectId);
-        if (initialProjectId && initialProject?.can_create_cards !== false) {
+        if (initialProjectId) {
           setProjectId(initialProjectId);
         } else if (allowedProjects.length > 0) {
           setProjectId(allowedProjects[0].id);
@@ -89,8 +88,12 @@ export function TaskForm({
     }
 
     const selectedProject = projects.find((project) => project.id === projectId);
-    if (selectedProject?.can_create_cards === false) {
-      setError(selectedProject.blocked_card_reason || blockedProjectReasons[projectId] || `Cards cannot be created for project '${projectId}'`);
+    const blockedReason =
+      selectedProject?.can_create_cards === false
+        ? selectedProject.blocked_card_reason
+        : blockedProjectReasons[projectId];
+    if (blockedReason) {
+      setError(blockedReason || `Cards cannot be created for project '${projectId}'`);
       return;
     }
 
