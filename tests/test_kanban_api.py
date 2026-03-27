@@ -37,6 +37,17 @@ from scripts.utils.validation import (
     contains_secret
 )
 
+TEST_PROJECT_IDS = [
+    "project-tracker",
+    "image-workflow",
+    "trading-copilot",
+    "test-project-1",
+    "test-project-2",
+]
+CARD_ELIGIBLE_TEST_PROJECT_IDS = [
+    project_id for project_id in TEST_PROJECT_IDS if project_id not in EXCLUDED_CARD_PROJECT_IDS
+]
+
 
 def _setup_fresh_database():
     """Create a fresh database for each Hypothesis example.
@@ -201,7 +212,7 @@ def _create_test_app(db_manager: DatabaseManager) -> FastAPI:
 # querying the API with filter parameters should return only tasks matching all specified filters
 @given(
     num_tasks=st.integers(min_value=5, max_value=20),
-    filter_project_id=st.one_of(st.none(), st.sampled_from(["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"])),
+    filter_project_id=st.one_of(st.none(), st.sampled_from(TEST_PROJECT_IDS)),
     filter_status=st.one_of(st.none(), st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]))
 )
 @settings(max_examples=50)
@@ -223,7 +234,7 @@ def test_property_2_api_filtering_accuracy(num_tasks, filter_project_id, filter_
         client = TestClient(app)
         
         # Create a diverse set of tasks via API
-        all_projects = ["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"]
+        all_projects = CARD_ELIGIBLE_TEST_PROJECT_IDS
         all_statuses = ["Backlog", "To Do", "In Progress", "Done"]
         all_priorities = [None, "Critical", "High", "Medium", "Low"]
         
@@ -334,7 +345,7 @@ def test_api_rejects_card_creation_for_excluded_project():
 @given(
     initial_text=st.text(min_size=1, max_size=100).map(lambda s: s.strip()).filter(lambda s: len(s) > 0),
     new_text=st.text(min_size=1, max_size=100).map(lambda s: s.strip()).filter(lambda s: len(s) > 0),
-    project_id=st.sampled_from(["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"]),
+    project_id=st.sampled_from(CARD_ELIGIBLE_TEST_PROJECT_IDS),
     status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
@@ -431,7 +442,7 @@ def test_property_8_task_edit_persistence(initial_text, new_text, project_id, st
 # in its pre-operation state
 @given(
     text=st.text(min_size=1, max_size=100).map(lambda s: s.strip()).filter(lambda s: len(s) > 0),
-    project_id=st.sampled_from(["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"]),
+    project_id=st.sampled_from(CARD_ELIGIBLE_TEST_PROJECT_IDS),
     status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
@@ -580,7 +591,7 @@ def test_property_18_transaction_rollback_on_api_error(text, project_id, status,
 # the system should retry with exponential backoff until success or max retries reached
 @given(
     text=st.text(min_size=1, max_size=100).map(lambda s: s.strip()).filter(lambda s: len(s) > 0),
-    project_id=st.sampled_from(["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"]),
+    project_id=st.sampled_from(CARD_ELIGIBLE_TEST_PROJECT_IDS),
     status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
