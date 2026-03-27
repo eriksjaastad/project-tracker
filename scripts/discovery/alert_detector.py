@@ -225,13 +225,17 @@ def _get_clean_lines(section_content: str) -> List[str]:
 
 
 def detect_cron_failures(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Detect cron job failures and issues."""
+    """Detect cron job failures and issues.
+
+    Expects projects pre-enriched with ``cron_jobs`` key via _bulk_enrich.
+    """
     alerts = []
-    db = DatabaseManager()
-    
+    if projects and "cron_jobs" not in projects[0]:
+        logger.warning("detect_cron_failures: projects missing cron_jobs key — was _bulk_enrich called?")
+        return alerts
+
     for project in projects:
-        # Fetch cron jobs from database
-        cron_jobs = db.get_cron_jobs(project["id"])
+        cron_jobs = project.get("cron_jobs", [])
         if not cron_jobs:
             continue
         

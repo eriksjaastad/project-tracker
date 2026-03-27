@@ -21,6 +21,15 @@
         </span>
     </div>
     <span class="project-count">{{ total_projects }} projects</span>
+    <span id="cache-status" class="cache-status {% if cache_refreshing %}refreshing{% endif %}">
+        {% if cache_refreshing %}
+            <span class="cache-spinner"></span> Updating...
+        {% elif cache_age is defined and cache_age > 0 %}
+            {{ cache_age }}s ago
+        {% else %}
+            Fresh
+        {% endif %}
+    </span>
     <button onclick="refreshData()" class="btn-refresh">🔄 Refresh</button>
 </div>
 {% endblock %}
@@ -29,6 +38,41 @@
 {% endblock %}
 
 {% block content %}
+        <!-- GitHub Activity Feed -->
+        {% if activity_feed %}
+        <div class="activity-feed-section">
+            <div class="activity-feed-header">
+                <h2>GitHub Activity</h2>
+                <span class="activity-feed-subtitle">Live feed from monitored repos</span>
+            </div>
+            <div class="activity-feed-grid">
+                {% for repo in activity_feed %}
+                <div class="activity-repo-card {% if repo.idle_hours > 48 %}repo-idle{% elif repo.idle_hours > 12 %}repo-quiet{% else %}repo-active{% endif %}">
+                    <div class="repo-card-header">
+                        <span class="repo-name">{{ repo.repo_slug }}</span>
+                        <span class="repo-status-dot {% if repo.idle_hours > 48 %}dot-idle{% elif repo.idle_hours > 12 %}dot-quiet{% else %}dot-active{% endif %}" title="{% if repo.idle_hours > 48 %}Idle ({{ repo.idle_hours|round(0)|int }}h){% elif repo.idle_hours > 12 %}Quiet{% else %}Active{% endif %}"></span>
+                    </div>
+                    <div class="repo-last-active">
+                        Last active: {{ repo.last_active|friendly_time }}
+                        {% if repo.idle_hours > 0 %}
+                        <span class="idle-badge {% if repo.idle_hours > 48 %}idle-warn{% endif %}">{{ repo.idle_hours|round(0)|int }}h ago</span>
+                        {% endif %}
+                    </div>
+                    <ul class="repo-events">
+                        {% for event in repo.events %}
+                        <li class="repo-event">
+                            <span class="event-time">{{ event.occurred_at|friendly_time }}</span>
+                            <span class="event-type event-{{ event.event_type|default('unknown') }}">{{ event.event_type }}</span>
+                            <span class="event-title">{{ event.title|truncate(60) }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Outdated Projects Section -->
         {% if outdated_count > 0 or unscaffolded_count > 0 or structural_count > 0 %}
         <div class="alerts-section" style="border-left-color: #ff9800;">
@@ -535,6 +579,44 @@
 
 {% block scripts %}
     <script src="/static/script.js"></script>
+    <script>
+    // Poll cache status and auto-reload when a background refresh completes
+    (function() {
+        var lastTimestamp = {{ cache_age|default(0) }};
+        var wasRefreshing = {{ 'true' if cache_refreshing else 'false' }};
+
+        function pollCache() {
+            fetch('/api/dashboard-cache-status')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var el = document.getElementById('cache-status');
+                    if (!el) return;
+
+                    if (data.refreshing) {
+                        el.className = 'cache-status refreshing';
+                        el.innerHTML = '<span class="cache-spinner"></span> Updating\u2026';
+                        wasRefreshing = true;
+                    } else if (wasRefreshing) {
+                        // Refresh just finished — reload to show fresh data
+                        window.location.reload();
+                    } else {
+                        var age = data.age || 0;
+                        el.className = 'cache-status';
+                        if (age < 5) {
+                            el.textContent = 'Fresh';
+                        } else if (age < 60) {
+                            el.textContent = age + 's ago';
+                        } else {
+                            el.textContent = Math.round(age / 60) + 'm ago';
+                        }
+                    }
+                })
+                .catch(function() {});
+        }
+
+        setInterval(pollCache, 3000);
+    })();
+    </script>
     <style>
         .agent-dispatcher {
             margin-top: 20px;
