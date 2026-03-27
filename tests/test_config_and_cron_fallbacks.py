@@ -1,6 +1,7 @@
 """Regression tests for config and cron fallback behavior."""
 
 import importlib
+import logging
 import sqlite3
 import sys
 import types
@@ -11,6 +12,8 @@ import pytest
 import scripts.discovery.cron_monitor as cron_monitor
 import scripts.db.schema as schema
 from scripts.db.schema import _check_fresh_database
+
+logger = logging.getLogger(__name__)
 
 
 def test_config_uses_external_backup_dir_override(tmp_path, monkeypatch):

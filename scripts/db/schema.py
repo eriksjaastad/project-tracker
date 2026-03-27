@@ -36,11 +36,19 @@ if str(PROJECT_ROOT) not in sys.path:
 
 try:
     from scripts.config import DATABASE_PATH, DB_FINGERPRINT_PATH, EXTERNAL_BACKUP_DIR
+    from scripts.logger import get_logger
 except ImportError:
     # Fallback for when scripts/config.py is not in path (e.g. during some test setups)
     DATABASE_PATH = Path("data/tracker.db")
     DB_FINGERPRINT_PATH = Path("data/.db-fingerprint")
     EXTERNAL_BACKUP_DIR = Path.home() / ".project-tracker" / "backups"
+
+    def get_logger(_name: str):
+        import logging
+        return logging.getLogger(_name)
+
+
+logger = get_logger(__name__)
 
 
 class SafetyError(Exception):
@@ -56,13 +64,17 @@ def _prune_safety_backups(backup_dir: Path, keep: int = 10) -> None:
         return
 
     if send2trash is None:
+        logger.warning(
+            "send2trash unavailable; retaining old safety backups in %s",
+            backup_dir,
+        )
         return
 
     for old in files_to_prune:
         try:
             send2trash(str(old))
         except Exception as e:
-            print(f"⚠️  Warning: Could not send old safety backup to Trash: {e}")
+            logger.warning("Could not send old safety backup to Trash: %s", e)
 
 
 def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
