@@ -48,6 +48,28 @@ EXCLUDED_CARD_PROJECT_IDS = {
 }
 
 
+class BlockedTaskProjectError(ValueError):
+    """Raised when task/card creation is intentionally blocked for a project."""
+
+
+def get_blocked_card_project_ids() -> list[str]:
+    """Return sorted project IDs that are intentionally excluded from card creation."""
+    return sorted(EXCLUDED_CARD_PROJECT_IDS)
+
+
+def get_blocked_card_reason(project_id: str) -> Optional[str]:
+    """Return the user-facing reason a project is blocked, if any."""
+    if project_id in EXCLUDED_CARD_PROJECT_IDS:
+        return f"Cards cannot be created for project '{project_id}'"
+
+    return None
+
+
+def is_card_creation_allowed(project_id: str) -> bool:
+    """Return True when task/card creation is allowed for a project."""
+    return get_blocked_card_reason(project_id) is None
+
+
 def contains_secret(text: str) -> Tuple[bool, str]:
     """Check if text contains secret patterns.
     
@@ -136,8 +158,9 @@ def validate_project_exists(project_id: str, db_manager: Optional[Any] = None) -
 
 def validate_card_creation_project(project_id: str) -> Tuple[bool, Optional[str]]:
     """Validate that a project is allowed to receive Kanban cards/tasks."""
-    if project_id in EXCLUDED_CARD_PROJECT_IDS:
-        return (False, f"Cards cannot be created for project '{project_id}'")
+    blocked_reason = get_blocked_card_reason(project_id)
+    if blocked_reason:
+        return (False, blocked_reason)
 
     return (True, None)
 

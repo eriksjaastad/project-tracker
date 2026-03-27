@@ -97,21 +97,8 @@ export interface Project {
   name: string;
   path: string;
   status: string;
-}
-
-export const EXCLUDED_CARD_PROJECT_IDS = new Set([
-  'ai-journal',
-  'ai-memory',
-  'project-scaffolding',
-  'project-tracker',
-]);
-
-export function shouldAllowCardsForProject(projectId?: string | null): boolean {
-  if (!projectId) {
-    return true;
-  }
-
-  return !EXCLUDED_CARD_PROJECT_IDS.has(projectId);
+  can_create_cards?: boolean;
+  blocked_card_reason?: string | null;
 }
 
 export interface NavigationItem {

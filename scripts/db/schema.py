@@ -258,6 +258,18 @@ def _check_fresh_database(db_path: Path) -> None:
         task_count = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM projects")
         project_count = cursor.fetchone()[0]
+
+        history_count = 0
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='task_history'")
+        if cursor.fetchone():
+            cursor.execute("SELECT COUNT(*) FROM task_history")
+            history_count = cursor.fetchone()[0]
+
+        delete_audit_count = 0
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='delete_audit_log'")
+        if cursor.fetchone():
+            cursor.execute("SELECT COUNT(*) FROM delete_audit_log")
+            delete_audit_count = cursor.fetchone()[0]
         conn.close()
         
         if task_count == 0:
@@ -275,6 +287,21 @@ def _check_fresh_database(db_path: Path) -> None:
                     f"\n"
                     f"   If this IS intentional (first run after clean install):\n"
                     f"   Delete {fingerprint_path} and try again."
+                )
+
+            backup_dir = db_path.parent / "backups"
+            prior_task_backups = list(backup_dir.glob("tasks_*.json")) if backup_dir.exists() else []
+            suspicious_missing_tasks = history_count > 0 or (bool(prior_task_backups) and delete_audit_count == 0)
+
+            if fingerprint_path.exists() and project_count > 0 and suspicious_missing_tasks:
+                raise FreshDatabaseError(
+                    f"⛔ SUSPICIOUS EMPTY TASK BOARD DETECTED!\n"
+                    f"   Database has 0 tasks but {project_count} projects.\n"
+                    f"   Prior task activity exists without a matching delete trail.\n"
+                    f"   This suggests tasks may have been wiped while project metadata survived.\n"
+                    f"\n"
+                    f"   To proceed anyway: PT_ALLOW_FRESH_DB=1 ./pt <command>\n"
+                    f"   To restore: check data/backups/ or ~/.project-tracker/backups/"
                 )
     except FreshDatabaseError:
         raise

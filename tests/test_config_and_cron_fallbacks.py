@@ -2,10 +2,14 @@
 
 import importlib
 import sqlite3
+import sys
+import types
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytest
 import scripts.discovery.cron_monitor as cron_monitor
+import scripts.db.schema as schema
 from scripts.db.schema import _check_fresh_database
 
 
@@ -68,6 +72,7 @@ def test_fresh_database_check_allows_scanned_projects_without_tasks(tmp_path, mo
 
     monkeypatch.delenv("PT_ALLOW_FRESH_DB", raising=False)
     monkeypatch.delenv("PT_TEST_MODE", raising=False)
+    monkeypatch.setattr(schema, "sys", types.SimpleNamespace(modules={k: v for k, v in sys.modules.items() if k != "pytest"}))
 
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -80,3 +85,32 @@ def test_fresh_database_check_allows_scanned_projects_without_tasks(tmp_path, mo
     fingerprint_path.write_text("test-fingerprint")
 
     _check_fresh_database(Path(db_path))
+
+
+def test_fresh_database_check_blocks_when_prior_task_activity_exists(tmp_path, monkeypatch):
+    db_path = tmp_path / "tracker.db"
+    fingerprint_path = tmp_path / ".db-fingerprint"
+    backup_dir = tmp_path / "backups"
+
+    monkeypatch.delenv("PT_ALLOW_FRESH_DB", raising=False)
+    monkeypatch.delenv("PT_TEST_MODE", raising=False)
+    monkeypatch.setattr(schema, "sys", types.SimpleNamespace(modules={k: v for k, v in sys.modules.items() if k != "pytest"}))
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT)")
+    cursor.execute("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT)")
+    cursor.execute("CREATE TABLE task_history (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, project_id TEXT, event_type TEXT, timestamp TEXT)")
+    cursor.execute("INSERT INTO projects (id, name) VALUES ('smart-invoice-workflow', 'Smart Invoice Workflow')")
+    cursor.execute("INSERT INTO task_history (task_id, project_id, event_type, timestamp) VALUES (1, 'smart-invoice-workflow', 'created', '2026-03-26T00:00:00')")
+    conn.commit()
+    conn.close()
+
+    fingerprint_path.write_text("test-fingerprint")
+    backup_dir.mkdir()
+    (backup_dir / "tasks_safety_backup_20260327_000000.json").write_text("{}")
+
+    with pytest.raises(Exception) as excinfo:
+        _check_fresh_database(Path(db_path))
+
+    assert "SUSPICIOUS EMPTY TASK BOARD DETECTED" in str(excinfo.value)

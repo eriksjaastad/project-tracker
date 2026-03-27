@@ -44,7 +44,7 @@ from discovery.hygiene_detector import fix_hygiene_issues, detect_hygiene_issues
 from discovery.graph_builder import GraphBuilder
 from discovery.librarian import update_directory_index
 from discovery.journal_specialist import JournalSpecialist
-from utils.validation import EXCLUDED_CARD_PROJECT_IDS
+from utils.validation import BlockedTaskProjectError
 
 console = Console()
 
@@ -890,16 +890,15 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
         if blocked_by: msg += f" [dim](blocked by {blocked_by})[/dim]"
         console.print(msg)
         _notify_inbox(task["id"], project_id, status, text)
-    except Exception as e:
-        error_message = str(e)
-        if project_id in EXCLUDED_CARD_PROJECT_IDS and "Cards cannot be created for project" in error_message:
-            console.print(
-                f"[yellow]Task creation is intentionally blocked for '{project_id}' on the Mac mini.[/yellow]"
-            )
-            console.print(
-                "[yellow]Use PT for visibility on that project, but do not create Kanban cards there.[/yellow]"
+    except BlockedTaskProjectError:
+        console.print(
+            f"[yellow]Task creation is intentionally blocked for '{project_id}' on the Mac mini.[/yellow]"
+        )
+        console.print(
+            "[yellow]Use PT for visibility on that project, but do not create Kanban cards there.[/yellow]"
             )
             return
+    except Exception as e:
         console.print(f"[red]Failed to create task: {e}[/red]")
 
 
