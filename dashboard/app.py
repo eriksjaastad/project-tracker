@@ -437,7 +437,7 @@ _dashboard_refreshing = False
 
 
 def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, List[Dict]]:
-    """Group a list of row dicts by project_id."""
+    """Group a flat list of row dicts by project_id for O(1) per-project lookup."""
     grouped: Dict[str, List[Dict]] = {}
     for row in rows:
         pid = row.get(key, "")
@@ -446,7 +446,11 @@ def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, Li
 
 
 def _bulk_enrich(projects: List[dict], db: DatabaseManager, current_scaffolding: Optional[str]) -> List[dict]:
-    """Enrich all projects using bulk-fetched data (4 queries instead of 4N)."""
+    """Enrich all projects using bulk-fetched data (4 DB queries instead of 4N).
+
+    Populates: ai_agents, cron_jobs, services, tasks, code_review,
+    version_status, agent_config_health, and time formatting fields.
+    """
     all_agents = _group_by_project(db.get_ai_agents())
     all_crons = _group_by_project(db.get_cron_jobs())
     all_services = _group_by_project(db.get_services())
@@ -570,17 +574,16 @@ def _build_dashboard_data() -> Dict:
 
     backup_status = get_backup_status()
 
+    # Collect code reviews populated by _bulk_enrich (see line ~483 for identical
+    # exists() + parse + completion_pct guards — removes duplicate file reads)
     code_reviews = []
     for project in enriched_projects:
-        review_path = Path(project["path"]) / "CODE_REVIEW.md"
-        if review_path.exists():
-            review_data = parse_code_review(review_path)
-            if review_data and review_data.get("completion_pct", 100) < 100:
-                code_reviews.append({
-                    "project_id": project["id"],
-                    "project_name": project["name"],
-                    **review_data
-                })
+        if project.get("code_review"):
+            code_reviews.append({
+                "project_id": project["id"],
+                "project_name": project["name"],
+                **project["code_review"],
+            })
 
     activity_feed = get_activity_feed(limit_per_repo=4)
 
@@ -891,13 +894,13 @@ async def api_projects():
     # Get current scaffolding version
     current_scaffolding, _ = get_current_scaffolding_version()
     
-    # Enrich with related data
-    enriched_projects = [enrich_project_data(p, db, current_scaffolding) for p in projects]
+    # Enrich with related data (bulk — 4 queries instead of 4N)
+    enriched_projects = _bulk_enrich(projects, db, current_scaffolding)
 
     for project in enriched_projects:
         project["can_create_cards"] = is_card_creation_allowed(project["id"])
         project["blocked_card_reason"] = get_blocked_card_reason(project["id"])
-    
+
     return {"projects": enriched_projects}
 
 
@@ -921,7 +924,7 @@ async def api_alerts():
     # Get current scaffolding version
     current_scaffolding, _ = get_current_scaffolding_version()
     
-    enriched_projects = [enrich_project_data(p, db, current_scaffolding) for p in projects]
+    enriched_projects = _bulk_enrich(projects, db, current_scaffolding)
     alerts = get_all_alerts(enriched_projects)
     return {"alerts": alerts}
 
@@ -938,25 +941,16 @@ async def api_stats():
         status = project["status"]
         status_counts[status] = status_counts.get(status, 0) + 1
     
-    # Count projects with cron jobs
-    projects_with_cron = 0
-    for project in projects:
-        jobs = db.get_cron_jobs(project["id"])
-        if jobs:
-            projects_with_cron += 1
-    
-    # Count projects with AI agents
-    projects_with_ai = 0
-    for project in projects:
-        agents = db.get_ai_agents(project["id"])
-        if agents:
-            projects_with_ai += 1
-    
+    # Bulk-fetch cron and agent counts (2 queries instead of 2N)
+    all_crons = _group_by_project(db.get_cron_jobs())
+    all_agents_map = _group_by_project(db.get_ai_agents())
+    projects_with_cron = sum(1 for p in projects if p["id"] in all_crons)
+    projects_with_ai = sum(1 for p in projects if p["id"] in all_agents_map)
+
     # Get alert counts
-    # Get current scaffolding version
     current_scaffolding, _ = get_current_scaffolding_version()
-    
-    enriched_projects = [enrich_project_data(p, db, current_scaffolding) for p in projects]
+
+    enriched_projects = _bulk_enrich(projects, db, current_scaffolding)
     alerts = get_all_alerts(enriched_projects)
     alert_counts = {
         "critical": len([a for a in alerts if a["severity"] == "critical"]),
