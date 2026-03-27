@@ -437,7 +437,7 @@ _dashboard_refreshing = False
 
 
 def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, List[Dict]]:
-    """Group a list of row dicts by project_id."""
+    """Group a flat list of row dicts by project_id for O(1) per-project lookup."""
     grouped: Dict[str, List[Dict]] = {}
     for row in rows:
         pid = row.get(key, "")
@@ -446,7 +446,11 @@ def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, Li
 
 
 def _bulk_enrich(projects: List[dict], db: DatabaseManager, current_scaffolding: Optional[str]) -> List[dict]:
-    """Enrich all projects using bulk-fetched data (4 queries instead of 4N)."""
+    """Enrich all projects using bulk-fetched data (4 DB queries instead of 4N).
+
+    Populates: ai_agents, cron_jobs, services, tasks, code_review,
+    version_status, agent_config_health, and time formatting fields.
+    """
     all_agents = _group_by_project(db.get_ai_agents())
     all_crons = _group_by_project(db.get_cron_jobs())
     all_services = _group_by_project(db.get_services())
