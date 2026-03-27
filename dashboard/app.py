@@ -570,7 +570,8 @@ def _build_dashboard_data() -> Dict:
 
     backup_status = get_backup_status()
 
-    # Collect code reviews already populated by _bulk_enrich (no duplicate file reads)
+    # Collect code reviews populated by _bulk_enrich (see line ~483 for identical
+    # exists() + parse + completion_pct guards — removes duplicate file reads)
     code_reviews = []
     for project in enriched_projects:
         if project.get("code_review"):
