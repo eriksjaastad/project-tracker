@@ -100,5 +100,5 @@ def get_activity_feed(limit_per_repo: int = 4) -> List[Dict[str, Any]]:
     finally:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Activity feed connection close error: {e}")
