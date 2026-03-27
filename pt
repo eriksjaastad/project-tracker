@@ -20,7 +20,7 @@ if command -v doppler >/dev/null 2>&1; then
       "$HOME/.local/bin/uv" run scripts/pt.py "$@"
   fi
   case "$subcommand" in
-    tasks|calendar)
+    tasks|calendar|refresh|scan|list|status)
       exec doppler run --project "$doppler_project" --config "$doppler_config" -- \
         "$HOME/.local/bin/uv" run scripts/pt.py "$@"
       ;;

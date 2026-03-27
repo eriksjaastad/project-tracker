@@ -66,6 +66,69 @@ def _print_banner() -> None:
     console.print(_PT_BANNER)
 
 
+def _notify_inbox(card_id: int, project_id: str, card_status: str, description: str, triggered_by: str = "pt") -> None:
+    """Write an inbox message after a task mutation (opt-in per project).
+
+    Only fires on MacBook (not Mac Mini) and if ~/.claude/inbox/<project>/ exists.
+    """
+    import os, socket, logging
+    _log = logging.getLogger(__name__)
+    if socket.gethostname().startswith("eriks-mac-mini"):
+        return
+    # Sanitize project_id to prevent path traversal
+    safe_id = project_id.replace("/", "").replace("\\", "").replace("..", "")
+    if not safe_id or safe_id != project_id:
+        _log.warning(f"Skipping inbox notification: unsafe project_id '{project_id}'")
+        return
+    inbox_dir = Path(os.path.expanduser("~")) / ".claude" / "inbox" / safe_id
+    if not inbox_dir.is_dir():
+        return
+
+    from datetime import timezone
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    filename_ts = now.strftime("%Y%m%dT%H%M%SZ")
+    filepath = inbox_dir / f"{filename_ts}-kanban.md"
+
+    # Determine action hint based on status
+    action_hints = {
+        "Backlog": "This task is in the backlog. No action needed yet.",
+        "To Do": f"Start this task when ready. Use `pt tasks start {card_id}` to begin.",
+        "In Progress": "This task is now in progress.",
+        "Review": "This task is ready for review.",
+        "Done": "This task has been completed.",
+        "Cancelled": "This task has been cancelled.",
+    }
+    action = action_hints.get(card_status, f"Status changed to {card_status}.")
+
+    content = f"""---
+from: kanban
+to: {project_id}
+timestamp: {timestamp}
+priority: normal
+type: card-notification
+card_id: {card_id}
+card_status: {card_status}
+---
+
+Card #{card_id} — {card_status}
+
+**Description:** {description}
+
+**Status:** {card_status}
+**Action:** {action}
+"""
+    try:
+        import tempfile
+        # Atomic write: temp file then rename
+        fd, tmp_path = tempfile.mkstemp(dir=str(inbox_dir), suffix=".tmp")
+        with os.fdopen(fd, 'w') as f:
+            f.write(content)
+        os.rename(tmp_path, str(filepath))
+    except Exception as e:
+        _log.warning(f"Inbox notification failed for #{card_id}: {e}")
+
+
 @click.group(invoke_without_command=True)
 @click.pass_context
 def cli(ctx):
@@ -813,6 +876,7 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
         if parent: msg += f" [dim](subtask of #{parent})[/dim]"
         if blocked_by: msg += f" [dim](blocked by {blocked_by})[/dim]"
         console.print(msg)
+        _notify_inbox(task["id"], project_id, status, text)
     except Exception as e:
         console.print(f"[red]Failed to create task: {e}[/red]")
 
@@ -866,6 +930,10 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes,
         console.print(f"[green]Updated task #{task_id}[/green]")
         for key, value in updates.items():
             console.print(f"  {key}: {value}")
+        if "status" in updates:
+            task = db.get_task(task_id)
+            if task:
+                _notify_inbox(task_id, task["project_id"], updates["status"], task["text"])
     except Exception as e:
         console.print(f"[red]Failed to update task #{task_id}: {e}[/red]")
 
@@ -893,6 +961,7 @@ def tasks_move(project, task_ids):
                 cursor.execute("UPDATE tasks SET project_id = ?, updated_at = ? WHERE id = ?", (target_project_id, datetime.now().isoformat(), task_id))
                 conn.commit()
             print(f"Moved: #{task_id} from '{old_project}' to '{target_name}'")
+            _notify_inbox(task_id, target_project_id, task.get("status", "Backlog"), task["text"])
             success_count += 1
         except Exception as e:
             print(f"Failed to move task #{task_id}: {e}")
@@ -911,6 +980,7 @@ def tasks_done(task_ids):
             if not task: print(f"Task #{task_id} not found"); continue
             db.update_task(task_id, status="Done")
             print(f"Done: #{task_id} - {task['text'][:50]}")
+            _notify_inbox(task_id, task["project_id"], "Done", task["text"])
             success_count += 1
         except Exception as e:
             print(f"Failed to complete task #{task_id}: {e}")
@@ -938,6 +1008,7 @@ def tasks_start(task_ids):
                 continue
             db.update_task(task_id, status="In Progress")
             print(f"Started: #{task_id} - {task['text'][:50]}")
+            _notify_inbox(task_id, task["project_id"], "In Progress", task["text"])
             success_count += 1
         except Exception as e:
             print(f"Failed to start task #{task_id}: {e}")
@@ -956,6 +1027,7 @@ def tasks_review(task_ids):
             if not task: print(f"Task #{task_id} not found"); continue
             db.update_task(task_id, status="Review")
             print(f"Review: #{task_id} - {task['text'][:50]}")
+            _notify_inbox(task_id, task["project_id"], "Review", task["text"])
             success_count += 1
         except Exception as e:
             print(f"Failed to review task #{task_id}: {e}")
@@ -974,6 +1046,7 @@ def tasks_cancel(task_ids):
             if not task: print(f"Task #{task_id} not found"); continue
             db.update_task(task_id, status="Cancelled")
             print(f"Cancelled: #{task_id} - {task['text'][:50]}")
+            _notify_inbox(task_id, task["project_id"], "Cancelled", task["text"])
             success_count += 1
         except Exception as e:
             print(f"Failed to cancel task #{task_id}: {e}")
