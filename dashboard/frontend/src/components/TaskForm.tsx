@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { TaskStatus, TaskPriority, Project, Task, TaskType } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
-import { fetchProjects, fetchTasks } from '../api';
+import { fetchProjects, fetchTaskPolicy, fetchTasks } from '../api';
 import { Spinner } from './Spinner';
 import './TaskForm.css';
 
@@ -35,23 +35,34 @@ export function TaskForm({
   const [blockedByInput, setBlockedByInput] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [blockedProjectReasons, setBlockedProjectReasons] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const PRIORITIES: TaskPriority[] = ['Critical', 'High', 'Medium', 'Low'];
+  const eligibleProjects = [...projects]
+    .filter((project) => project.can_create_cards !== false)
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [fetchedProjects, fetchedTasks] = await Promise.all([
+        const [projectData, taskData, taskPolicy] = await Promise.all([
           fetchProjects(),
-          fetchTasks()
+          fetchTasks(),
+          fetchTaskPolicy(),
         ]);
-        setProjects(fetchedProjects);
-        setTasks(fetchedTasks);
-        // If no initial project ID and projects exist, select first one
-        if (!initialProjectId && fetchedProjects.length > 0) {
-          setProjectId(fetchedProjects[0].id);
+        setProjects(projectData);
+        setTasks(taskData);
+        setBlockedProjectReasons(taskPolicy.blocked_project_reasons || {});
+        const allowedProjects = projectData.filter((project) => project.can_create_cards !== false);
+
+        if (initialProjectId) {
+          setProjectId(initialProjectId);
+        } else if (allowedProjects.length > 0) {
+          setProjectId(allowedProjects[0].id);
+        } else {
+          setProjectId('');
         }
       } catch (err) {
         console.error('Failed to load data:', err);
@@ -73,6 +84,16 @@ export function TaskForm({
 
     if (!projectId) {
       setError('Please select a project');
+      return;
+    }
+
+    const selectedProject = projects.find((project) => project.id === projectId);
+    const blockedReason =
+      selectedProject?.can_create_cards === false
+        ? selectedProject.blocked_card_reason
+        : blockedProjectReasons[projectId];
+    if (blockedReason) {
+      setError(blockedReason || `Cards cannot be created for project '${projectId}'`);
       return;
     }
 
@@ -165,14 +186,15 @@ export function TaskForm({
             disabled={loading}
           >
             <option value="">Select a project...</option>
-            {[...projects].sort((a, b) =>
-              a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-            ).map((project) => (
+            {eligibleProjects.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name || project.id}
               </option>
             ))}
           </select>
+          {eligibleProjects.length === 0 && (
+            <div className="task-form-char-count">No card-enabled projects are available.</div>
+          )}
         </div>
 
         <div className="task-form-field">

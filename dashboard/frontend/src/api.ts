@@ -16,6 +16,11 @@ import type {
 
 const API_BASE = '/api';
 
+export interface TaskPolicyResponse {
+  blocked_project_ids: string[];
+  blocked_project_reasons: Record<string, string | null>;
+}
+
 /**
  * Enhanced fetch with error handling and retry logic.
  */
@@ -209,6 +214,24 @@ export async function fetchProjects(): Promise<Project[]> {
       throw error;
     }
     throw new Error('Failed to fetch projects');
+  }
+}
+
+export async function fetchTaskPolicy(): Promise<TaskPolicyResponse> {
+  try {
+    const response = await fetchWithErrorHandling(`${API_BASE}/task-policy`);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || errorData.detail || `Failed to fetch task policy: ${response.statusText}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to fetch task policy');
   }
 }
 

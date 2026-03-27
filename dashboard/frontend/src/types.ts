@@ -97,6 +97,8 @@ export interface Project {
   name: string;
   path: string;
   status: string;
+  can_create_cards?: boolean;
+  blocked_card_reason?: string | null;
 }
 
 export interface NavigationItem {

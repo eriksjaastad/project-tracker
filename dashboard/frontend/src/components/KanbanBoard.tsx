@@ -2,9 +2,9 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { DndContext, rectIntersection, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
-import type { Task, TaskStatus, TaskPriority, TaskType } from '../types';
+import type { Project, Task, TaskStatus, TaskPriority, TaskType } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS } from '../types';
-import { fetchTasks, updateTask, createTask, deleteTask } from '../api';
+import { fetchProjects, fetchTasks, updateTask, createTask, deleteTask } from '../api';
 import { Column } from './Column';
 import { Notification } from './Notification';
 import { AddTaskButton } from './AddTaskButton';
@@ -35,6 +35,7 @@ interface SystemWarning {
 export function KanbanBoard() {
   const { project } = useParams<{ project?: string }>();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -70,6 +71,19 @@ export function KanbanBoard() {
   useEffect(() => {
     loadTasks();
   }, [loadTasks]);
+
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        const fetchedProjects = await fetchProjects();
+        setProjects(fetchedProjects);
+      } catch {
+        // Optional for button state only.
+      }
+    };
+
+    loadProjects();
+  }, []);
 
   useEffect(() => {
     const loadWarnings = async () => {
@@ -244,6 +258,8 @@ export function KanbanBoard() {
       },
     })
   );
+  const currentProject = project ? projects.find((entry) => entry.id === project) : undefined;
+  const canCreateCards = !project || currentProject?.can_create_cards !== false;
 
   const headerActions = (
     <>
@@ -272,7 +288,7 @@ export function KanbanBoard() {
           🔍
         </button>
       </div>
-      <AddTaskButton onClick={() => setShowTaskForm(true)} />
+      {canCreateCards && <AddTaskButton onClick={() => setShowTaskForm(true)} />}
       <button onClick={loadTasks} className="refresh-button" type="button">
         Refresh
       </button>

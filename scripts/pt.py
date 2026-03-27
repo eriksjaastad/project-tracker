@@ -44,6 +44,7 @@ from discovery.hygiene_detector import fix_hygiene_issues, detect_hygiene_issues
 from discovery.graph_builder import GraphBuilder
 from discovery.librarian import update_directory_index
 from discovery.journal_specialist import JournalSpecialist
+from utils.validation import BlockedTaskProjectError
 
 console = Console()
 
@@ -749,6 +750,12 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
         ./pt tasks -s "In Progress"      # Filter by status
         ./pt tasks --all                 # Include completed tasks
         ./pt tasks create "Fix bug" -p myproject
+
+    \b
+    Card creation policy:
+        On the Mac mini, these projects are intentionally blocked for new cards:
+        ai-journal, ai-memory, project-scaffolding, project-tracker
+        That is policy, not a PT system error.
     """
     if ctx.invoked_subcommand is not None: return
     db = DatabaseManager()
@@ -840,7 +847,13 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs that block this task")
 @click.option("-m", "--machine", default=None, help="Machine: MacBook, OpenClaw, Both")
 def tasks_create(text, project, status, priority, prompt, description, parent, blocked_by, machine):
-    """Create a new task. Auto-detects project from current directory."""
+    """Create a new task.
+
+    Auto-detects project from current directory.
+
+    On the Mac mini, card creation is intentionally blocked for:
+    ai-journal, ai-memory, project-scaffolding, and project-tracker.
+    """
     import json
     db = DatabaseManager()
     if project: project_id = _resolve_project_id(db, project)
@@ -877,6 +890,14 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
         if blocked_by: msg += f" [dim](blocked by {blocked_by})[/dim]"
         console.print(msg)
         _notify_inbox(task["id"], project_id, status, text)
+    except BlockedTaskProjectError:
+        console.print(
+            f"[yellow]Failed to create task: task creation is intentionally blocked for '{project_id}' on the Mac mini.[/yellow]"
+        )
+        console.print(
+            "[yellow]Use PT for visibility on that project, but do not create Kanban cards there.[/yellow]"
+        )
+        return
     except Exception as e:
         console.print(f"[red]Failed to create task: {e}[/red]")
 

@@ -6,9 +6,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Any
 
+from scripts.config import PROJECTS_BASE_DIR
 
 # Configuration
-PROJECTS_ROOT = os.getenv("PROJECTS_ROOT", str(Path(__file__).resolve().parents[3]))
+PROJECTS_ROOT = str(PROJECTS_BASE_DIR)
 
 
 @dataclass

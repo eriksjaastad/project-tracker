@@ -67,8 +67,10 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from collections import Counter
 
+from scripts.config import PROJECTS_BASE_DIR
+
 # Template location
-PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", Path.home() / "projects"))
+PROJECTS_ROOT = PROJECTS_BASE_DIR
 TEMPLATE_PATH = PROJECTS_ROOT / "project-scaffolding" / "templates" / "00_Index.md.template"
 
 # Load config from shared YAML file (lives in project-scaffolding)

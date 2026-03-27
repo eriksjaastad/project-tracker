@@ -51,6 +51,7 @@ from pydantic import BaseModel
 
 # Import config
 from scripts.config import PROJECTS_BASE_DIR, REINDEX_SCRIPT_PATH
+from scripts.utils.validation import get_blocked_card_reason, get_blocked_card_project_ids, is_card_creation_allowed
 
 # Import scaffolding version helpers
 from scripts.pt import get_current_scaffolding_version, compare_versions, rebuild_knowledge_graph
@@ -892,8 +893,23 @@ async def api_projects():
     
     # Enrich with related data
     enriched_projects = [enrich_project_data(p, db, current_scaffolding) for p in projects]
+
+    for project in enriched_projects:
+        project["can_create_cards"] = is_card_creation_allowed(project["id"])
+        project["blocked_card_reason"] = get_blocked_card_reason(project["id"])
     
     return {"projects": enriched_projects}
+
+
+@app.get("/api/task-policy")
+async def api_task_policy():
+    """Return backend-owned task creation policy metadata for clients."""
+    blocked_ids = get_blocked_card_project_ids()
+    blocked_reasons = {project_id: get_blocked_card_reason(project_id) for project_id in blocked_ids}
+    return {
+        "blocked_project_ids": blocked_ids,
+        "blocked_project_reasons": blocked_reasons,
+    }
 
 
 @app.get("/api/alerts")
