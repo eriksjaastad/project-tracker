@@ -227,11 +227,10 @@ def _get_clean_lines(section_content: str) -> List[str]:
 def detect_cron_failures(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Detect cron job failures and issues."""
     alerts = []
-    db = DatabaseManager()
-    
+
     for project in projects:
-        # Fetch cron jobs from database
-        cron_jobs = db.get_cron_jobs(project["id"])
+        # Use pre-enriched cron jobs if available, else skip
+        cron_jobs = project.get("cron_jobs", [])
         if not cron_jobs:
             continue
         
