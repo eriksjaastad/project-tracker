@@ -36,11 +36,19 @@ if str(PROJECT_ROOT) not in sys.path:
 
 try:
     from scripts.config import DATABASE_PATH, DB_FINGERPRINT_PATH, EXTERNAL_BACKUP_DIR
+    from scripts.logger import get_logger
 except ImportError:
     # Fallback for when scripts/config.py is not in path (e.g. during some test setups)
     DATABASE_PATH = Path("data/tracker.db")
     DB_FINGERPRINT_PATH = Path("data/.db-fingerprint")
     EXTERNAL_BACKUP_DIR = Path.home() / ".project-tracker" / "backups"
+
+    def get_logger(_name: str):
+        import logging
+        return logging.getLogger(_name)
+
+
+logger = get_logger(__name__)
 
 
 class SafetyError(Exception):
@@ -56,14 +64,17 @@ def _prune_safety_backups(backup_dir: Path, keep: int = 10) -> None:
         return
 
     if send2trash is None:
-        print("⚠️  Warning: send2trash is unavailable; retaining old safety backups instead of deleting them")
+        logger.warning(
+            "send2trash unavailable; retaining old safety backups in %s",
+            backup_dir,
+        )
         return
 
     for old in files_to_prune:
         try:
             send2trash(str(old))
         except Exception as e:
-            print(f"⚠️  Warning: Could not send old safety backup to Trash: {e}")
+            logger.warning("Could not send old safety backup to Trash: %s", e)
 
 
 def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
@@ -254,18 +265,32 @@ def _check_fresh_database(db_path: Path) -> None:
             conn.close()
             return  # No tasks table yet - this is a truly new database
         
-        # Check task count
+        # Check task and project counts
         cursor.execute("SELECT COUNT(*) FROM tasks")
         task_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM projects")
+        project_count = cursor.fetchone()[0]
+
+        history_count = 0
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='task_history'")
+        if cursor.fetchone():
+            cursor.execute("SELECT COUNT(*) FROM task_history")
+            history_count = cursor.fetchone()[0]
+
+        delete_audit_count = 0
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='delete_audit_log'")
+        if cursor.fetchone():
+            cursor.execute("SELECT COUNT(*) FROM delete_audit_log")
+            delete_audit_count = cursor.fetchone()[0]
         conn.close()
         
         if task_count == 0:
             # Check if fingerprint file exists - if so, we expected data!
             fingerprint_path = db_path.parent / ".db-fingerprint"
-            if fingerprint_path.exists():
+            if fingerprint_path.exists() and project_count == 0:
                 raise FreshDatabaseError(
                     f"⛔ UNEXPECTED FRESH DATABASE DETECTED!\n"
-                    f"   Database has tasks table but 0 tasks.\n"
+                    f"   Database has tasks table but 0 tasks and 0 projects.\n"
                     f"   Fingerprint file exists - we expected existing data.\n"
                     f"   This suggests the database file was replaced.\n"
                     f"\n"
@@ -274,6 +299,21 @@ def _check_fresh_database(db_path: Path) -> None:
                     f"\n"
                     f"   If this IS intentional (first run after clean install):\n"
                     f"   Delete {fingerprint_path} and try again."
+                )
+
+            backup_dir = db_path.parent / "backups"
+            prior_task_backups = list(backup_dir.glob("tasks_*.json")) if backup_dir.exists() else []
+            suspicious_missing_tasks = history_count > 0 or (bool(prior_task_backups) and delete_audit_count == 0)
+
+            if fingerprint_path.exists() and project_count > 0 and suspicious_missing_tasks:
+                raise FreshDatabaseError(
+                    f"⛔ SUSPICIOUS EMPTY TASK BOARD DETECTED!\n"
+                    f"   Database has 0 tasks but {project_count} projects.\n"
+                    f"   Prior task activity exists without a matching delete trail.\n"
+                    f"   This suggests tasks may have been wiped while project metadata survived.\n"
+                    f"\n"
+                    f"   To proceed anyway: PT_ALLOW_FRESH_DB=1 ./pt <command>\n"
+                    f"   To restore: check data/backups/ or ~/.project-tracker/backups/"
                 )
     except FreshDatabaseError:
         raise

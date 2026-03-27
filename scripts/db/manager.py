@@ -19,6 +19,8 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from .schema import get_db_path, create_database, ensure_schema
 from scripts.utils.validation import (
+    BlockedTaskProjectError,
+    get_blocked_card_reason,
     validate_task_input,
     validate_task_text,
     validate_status,
@@ -880,6 +882,9 @@ class DatabaseManager:
             db_manager=self
         )
         if not is_valid:
+            blocked_reason = get_blocked_card_reason(project_id)
+            if blocked_reason and error_message == blocked_reason:
+                raise BlockedTaskProjectError(error_message)
             raise ValueError(error_message)
         
         # Sanitize text to prevent XSS attacks
