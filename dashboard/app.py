@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 import subprocess
+import threading
 
 from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File
 from fastapi.templating import Jinja2Templates
@@ -38,6 +39,7 @@ from discovery.code_review_parser import parse_code_review
 from discovery.providers import get_provider, LegacyProvider
 from discovery.telemetry_reader import get_telemetry_stats
 from discovery.backup_reader import get_backup_status
+from discovery.activity_feed import get_activity_feed
 from discovery.agent_registry import (
     get_available_agents,
     run_agent_command,
@@ -66,6 +68,22 @@ except Exception as _mig_err:
 # Setup templates and static files
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+
+
+def _friendly_time(value: str) -> str:
+    """Convert ISO timestamp to '3:14 PM  Mar 26' style."""
+    if not value:
+        return ""
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        # Convert to local time
+        local_dt = dt.astimezone()
+        return local_dt.strftime("%-I:%M %p  %b %-d")
+    except (ValueError, TypeError):
+        return value
+
+
+templates.env.filters["friendly_time"] = _friendly_time
 
 # Mount React frontend build
 frontend_dist = Path(__file__).parent / "frontend" / "dist"
@@ -408,30 +426,136 @@ async def react_frontend():
     """Redirect the legacy SPA entry to the canonical Kanban route."""
     return RedirectResponse(url="/kanban", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    """Main dashboard view."""
+# ---------------------------------------------------------------------------
+# Dashboard cache — stale-while-revalidate
+# ---------------------------------------------------------------------------
+_dashboard_cache: Dict = {"data": None, "timestamp": 0}
+_DASHBOARD_CACHE_TTL = 300  # 5 minutes — matches the page auto-refresh
+_dashboard_refresh_lock = threading.Lock()
+_dashboard_refreshing = False
+
+
+def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, List[Dict]]:
+    """Group a list of row dicts by project_id."""
+    grouped: Dict[str, List[Dict]] = {}
+    for row in rows:
+        pid = row.get(key, "")
+        grouped.setdefault(pid, []).append(row)
+    return grouped
+
+
+def _bulk_enrich(projects: List[dict], db: DatabaseManager, current_scaffolding: Optional[str]) -> List[dict]:
+    """Enrich all projects using bulk-fetched data (4 queries instead of 4N)."""
+    all_agents = _group_by_project(db.get_ai_agents())
+    all_crons = _group_by_project(db.get_cron_jobs())
+    all_services = _group_by_project(db.get_services())
+    all_tasks = _group_by_project(db.get_tasks())
+
+    for project in projects:
+        pid = project["id"]
+
+        # AI agents
+        agents = all_agents.get(pid, [])
+        project["ai_agents"] = [a["agent_name"] for a in agents]
+
+        # Cron jobs
+        jobs = all_crons.get(pid, [])
+        project["has_cron"] = len(jobs) > 0
+        project["cron_jobs"] = jobs
+
+        # Services
+        services = all_services.get(pid, [])
+        project["services"] = [s["service_name"] for s in services]
+        project["service_details"] = services
+        project["services_by_category"] = categorize_services(services)
+
+        # Tasks
+        tasks = all_tasks.get(pid, [])
+        open_tasks = [t for t in tasks if t.get("status") != "Done"]
+        project["task_count"] = len(open_tasks)
+        project["total_tasks"] = len(tasks)
+        project["backlog_count"] = len([t for t in tasks if t.get("status") == "Backlog"])
+        project["todo_count"] = len([t for t in tasks if t.get("status") == "To Do"])
+        project["in_progress_count"] = len([t for t in tasks if t.get("status") == "In Progress"])
+        project["review_count"] = len([t for t in tasks if t.get("status") == "Review"])
+
+        # Code review (filesystem — kept per-project, cheap)
+        review_path = Path(project["path"]) / "CODE_REVIEW.md"
+        if review_path.exists():
+            review_data = parse_code_review(review_path)
+            if review_data and review_data.get("completion_pct", 100) < 100:
+                project["code_review"] = review_data
+
+        # Time formatting
+        project["last_modified_human"] = format_time_ago(project.get("last_modified", ""))
+        if project.get("index_updated_at"):
+            project["index_updated_human"] = format_time_ago(project["index_updated_at"])
+
+        # Agent config health
+        project_path = Path(project.get("path", ""))
+        if project_path.exists():
+            project["agent_config_health"] = get_agent_config_health(project_path)
+        else:
+            project["agent_config_health"] = build_empty_agent_config_health(project.get("name", pid))
+
+        # Version status
+        try:
+            path_exists = project_path.exists()
+            version_file = project_path / ".scaffolding-version" if path_exists else None
+            has_scaffolding_file = version_file is not None and version_file.exists()
+        except OSError:
+            path_exists = False
+            has_scaffolding_file = False
+
+        if not path_exists or not has_scaffolding_file:
+            project["version_status"] = "unmanaged"
+        else:
+            project_version = project.get("scaffolding_version")
+            scaffolding_issues = []
+
+            claude_md = project_path / "CLAUDE.md"
+            if claude_md.exists():
+                try:
+                    content = claude_md.read_text(errors='ignore')
+                    if '{project_description}' in content or '{language}' in content or '{framework}' in content:
+                        scaffolding_issues.append("CLAUDE.md has unfilled placeholders")
+                except Exception:
+                    pass
+
+            rogue_file = project_path / ".agentsync" / "rules" / "00-full-content.md"
+            if rogue_file.exists():
+                scaffolding_issues.append("rogue 00-full-content.md in .agentsync/rules/")
+
+            if scaffolding_issues:
+                project["scaffolding_issues"] = scaffolding_issues
+                if project_version is None:
+                    project["version_status"] = "unscaffolded"
+                elif current_scaffolding and compare_versions(project_version, current_scaffolding) < 0:
+                    project["version_status"] = "outdated"
+                else:
+                    project["version_status"] = "structural_issue"
+            elif project_version is None:
+                project["version_status"] = "unscaffolded"
+            elif current_scaffolding and compare_versions(project_version, current_scaffolding) < 0:
+                project["version_status"] = "outdated"
+            else:
+                project["version_status"] = "current"
+
+    return projects
+
+
+def _build_dashboard_data() -> Dict:
+    """Compute all dashboard context data (the expensive part)."""
     db = DatabaseManager()
     projects = db.get_all_projects(order_by="last_modified DESC")
-    
-    # Get current scaffolding version
+
     current_scaffolding, _ = get_current_scaffolding_version()
-    
-    # Enrich with related data
-    enriched_projects = [enrich_project_data(p, db, current_scaffolding) for p in projects]
-    
-    # Get alerts
+    enriched_projects = _bulk_enrich(projects, db, current_scaffolding)
     alerts = get_all_alerts(enriched_projects)
-    
-    # Calculate index compliance
+
     indexed_count = len([p for p in enriched_projects if p.get("has_index") and p.get("index_is_valid")])
     compliance_pct = int((indexed_count / len(projects)) * 100) if projects else 0
-    
-    # Check if audit binary is available
-    provider = get_provider()
-    audit_available = not isinstance(provider, LegacyProvider)
-    
-    # Get available agents for dispatcher
+
     agents = get_available_agents()
     agents_data = [
         {
@@ -442,11 +566,9 @@ async def dashboard(request: Request):
         }
         for a in agents
     ]
-    
-    # Get backup status
+
     backup_status = get_backup_status()
-    
-    # Collect code reviews separately for prominent display
+
     code_reviews = []
     for project in enriched_projects:
         review_path = Path(project["path"]) / "CODE_REVIEW.md"
@@ -458,34 +580,102 @@ async def dashboard(request: Request):
                     "project_name": project["name"],
                     **review_data
                 })
-    
-    # Calculate version status counts
+
+    activity_feed = get_activity_feed(limit_per_repo=4)
+
     outdated_projects = [p for p in enriched_projects if p.get("version_status") == "outdated"]
     unscaffolded_projects = [p for p in enriched_projects if p.get("version_status") == "unscaffolded"]
     structural_projects = [p for p in enriched_projects if p.get("version_status") == "structural_issue"]
-    
+
+    return {
+        "projects": enriched_projects,
+        "alerts": alerts,
+        "code_reviews": code_reviews,
+        "total_projects": len(projects),
+        "indexed_count": indexed_count,
+        "compliance_pct": compliance_pct,
+        "agents": agents_data,
+        "backup_status": backup_status,
+        "current_scaffolding_version": current_scaffolding,
+        "outdated_projects": outdated_projects,
+        "unscaffolded_projects": unscaffolded_projects,
+        "structural_projects": structural_projects,
+        "outdated_count": len(outdated_projects),
+        "unscaffolded_count": len(unscaffolded_projects),
+        "structural_count": len(structural_projects),
+        "activity_feed": activity_feed,
+    }
+
+
+def _refresh_dashboard_cache() -> None:
+    """Refresh the dashboard cache in a background thread."""
+    global _dashboard_refreshing
+    try:
+        data = _build_dashboard_data()
+        _dashboard_cache["data"] = data
+        _dashboard_cache["timestamp"] = _time()
+    except Exception as exc:
+        logger.error(f"Background dashboard refresh failed: {exc}")
+    finally:
+        _dashboard_refreshing = False
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    """Main dashboard view — serves cached data, refreshes in background."""
+    global _dashboard_refreshing
+    now = _time()
+    cached = _dashboard_cache["data"]
+    age = now - _dashboard_cache["timestamp"]
+
+    if cached is not None:
+        # Serve the cache immediately
+        # If stale, kick off a background refresh
+        if age > _DASHBOARD_CACHE_TTL:
+            with _dashboard_refresh_lock:
+                if not _dashboard_refreshing:
+                    _dashboard_refreshing = True
+                    threading.Thread(
+                        target=_refresh_dashboard_cache, daemon=True
+                    ).start()
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            build_template_context(
+                request,
+                **cached,
+                cache_age=int(age),
+                cache_refreshing=_dashboard_refreshing,
+            ),
+        )
+
+    # Cold start — no cache yet, must compute synchronously
+    data = _build_dashboard_data()
+    _dashboard_cache["data"] = data
+    _dashboard_cache["timestamp"] = _time()
+
     return templates.TemplateResponse(
         request,
         "index.html",
         build_template_context(
             request,
-            projects=enriched_projects,
-            alerts=alerts,
-            code_reviews=code_reviews,
-            total_projects=len(projects),
-            indexed_count=indexed_count,
-            compliance_pct=compliance_pct,
-            agents=agents_data,
-            backup_status=backup_status,
-            current_scaffolding_version=current_scaffolding,
-            outdated_projects=outdated_projects,
-            unscaffolded_projects=unscaffolded_projects,
-            structural_projects=structural_projects,
-            outdated_count=len(outdated_projects),
-            unscaffolded_count=len(unscaffolded_projects),
-            structural_count=len(structural_projects),
+            **data,
+            cache_age=0,
+            cache_refreshing=False,
         ),
     )
+
+
+@app.get("/api/dashboard-cache-status")
+async def dashboard_cache_status():
+    """Lightweight endpoint for the frontend to poll refresh progress."""
+    ts = _dashboard_cache["timestamp"]
+    return {
+        "cached": _dashboard_cache["data"] is not None,
+        "age": int(_time() - ts) if ts else None,
+        "refreshing": _dashboard_refreshing,
+        "timestamp": int(ts) if ts else None,
+    }
 
 
 @app.get("/project/{project_id}", response_class=HTMLResponse)
