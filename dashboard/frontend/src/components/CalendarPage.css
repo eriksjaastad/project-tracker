@@ -146,6 +146,12 @@
   flex-direction: column;
   gap: 2px;
   transition: background 0.12s;
+  min-width: 0;
+  overflow: hidden;
+}
+.cal-day-events {
+  min-width: 0;
+  overflow: hidden;
 }
 .cal-day:hover { background: var(--cal-pill-hover); }
 .cal-day--other { opacity: 0.35; }
@@ -191,6 +197,11 @@
 .cal-event-pill--milestone { border-left-color: #ffd43b; }
 .cal-event-pill--meeting { border-left-color: #51cf66; }
 .cal-event-pill--recurring { border-left-color: #c084fc; }
+.cal-event-pill--mine {
+  background: rgba(79, 157, 255, 0.12);
+  font-weight: 600;
+  border-left-width: 4px;
+}
 .cal-more {
   font-size: 0.63rem;
   color: var(--text-secondary, #94a3b8);

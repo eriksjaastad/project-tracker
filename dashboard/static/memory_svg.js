@@ -68,20 +68,60 @@
 
         svgWidth = svgEl.clientWidth || window.innerWidth - 280;
         svgHeight = svgEl.clientHeight || window.innerHeight - 80;
+        console.log('SVG init dimensions:', svgWidth, 'x', svgHeight);
 
         const d3Svg = d3.select('#memory-svg');
         svgContainer = d3Svg.append('g');
 
-        // Zoom + pan
-        const zoom = d3.zoom()
-            .scaleExtent([0.01, 20])
-            .on('zoom', (event) => {
-                svgContainer.attr('transform', event.transform);
-            });
-        d3Svg.call(zoom);
+        // Manual zoom + pan (bypasses d3.zoom which crashes with
+        // "s.invert is not a function" on CSS-sized hidden-then-shown SVGs)
+        var svgTransform = { x: 0, y: 0, k: 1 };
+        var isPanning = false, panStart = { x: 0, y: 0 };
 
-        // Store zoom reference for fitToScreen
-        svgEl.__zoom = zoom;
+        function applySvgTransform() {
+            svgContainer.attr('transform',
+                'translate(' + svgTransform.x + ',' + svgTransform.y + ') scale(' + svgTransform.k + ')');
+        }
+
+        svgEl.addEventListener('wheel', function (e) {
+            e.preventDefault();
+            var rect = svgEl.getBoundingClientRect();
+            var mx = e.clientX - rect.left;
+            var my = e.clientY - rect.top;
+            var delta = -e.deltaY * 0.001;
+            var factor = Math.exp(delta * 2.5);
+            var newK = Math.max(0.01, Math.min(20, svgTransform.k * factor));
+            // Zoom towards cursor
+            svgTransform.x = mx - (mx - svgTransform.x) * (newK / svgTransform.k);
+            svgTransform.y = my - (my - svgTransform.y) * (newK / svgTransform.k);
+            svgTransform.k = newK;
+            applySvgTransform();
+        }, { passive: false });
+
+        svgEl.addEventListener('mousedown', function (e) {
+            isPanning = true;
+            panStart.x = e.clientX - svgTransform.x;
+            panStart.y = e.clientY - svgTransform.y;
+            svgEl.style.cursor = 'grabbing';
+        });
+
+        window.addEventListener('mousemove', function (e) {
+            if (!isPanning) return;
+            svgTransform.x = e.clientX - panStart.x;
+            svgTransform.y = e.clientY - panStart.y;
+            applySvgTransform();
+        });
+
+        window.addEventListener('mouseup', function () {
+            if (isPanning) {
+                isPanning = false;
+                svgEl.style.cursor = 'grab';
+            }
+        });
+
+        // Store transform reference for fitToScreen
+        svgEl.__svgTransform = svgTransform;
+        svgEl.__applySvgTransform = applySvgTransform;
 
         // Resize handler
         window.addEventListener('resize', () => {
@@ -303,6 +343,7 @@
         svgSimulation.on('end', () => {
             svgFitToScreen();
         });
+
     }
 
     // ─── Fit to screen ───────────────────────────────────────────────────────────
@@ -317,14 +358,14 @@
         const midX = bounds.x + bounds.width / 2;
         const midY = bounds.y + bounds.height / 2;
         const scale = 0.85 / Math.max(bounds.width / fullWidth, bounds.height / fullHeight);
-        const translate = [fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY];
+        const tx = fullWidth / 2 - scale * midX;
+        const ty = fullHeight / 2 - scale * midY;
 
-        const zoom = svgEl.__zoom;
-        if (zoom) {
-            d3.select('#memory-svg').transition().duration(750).call(
-                zoom.transform,
-                d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
-            );
+        var t = svgEl.__svgTransform;
+        var apply = svgEl.__applySvgTransform;
+        if (t && apply) {
+            t.x = tx; t.y = ty; t.k = scale;
+            apply();
         }
     }
 
