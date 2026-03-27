@@ -3,26 +3,35 @@
 This connects to a *separate* Turso database that stores GitHub webhook
 events synced by the github-activity-feed service.  Environment variables:
 
-    TURSO_ACTIVITY_URL   – libsql URL  (required)
-    TURSO_ACTIVITY_TOKEN – auth token   (required)
+    TURSO_ACTIVITY_URL   – libsql URL  (falls back to TURSO_KANBAN_URL)
+    TURSO_ACTIVITY_TOKEN – auth token   (falls back to TURSO_KANBAN_TOKEN)
 
-If either is missing the feed is silently empty so the dashboard still loads.
+If neither pair is set, the feed is empty and a debug log is emitted.
 """
 
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
 
 def _connect() -> Optional[Any]:
     """Return a libsql connection to the activity DB, or None."""
     url = os.environ.get("TURSO_ACTIVITY_URL") or os.environ.get("TURSO_KANBAN_URL", "")
     token = os.environ.get("TURSO_ACTIVITY_TOKEN") or os.environ.get("TURSO_KANBAN_TOKEN", "")
     if not url or not token:
+        logger.debug("Activity feed disabled: no TURSO_ACTIVITY_URL/TOKEN or TURSO_KANBAN_URL/TOKEN set")
         return None
     try:
         import libsql
         return libsql.connect(url, auth_token=token)
-    except Exception:
+    except ImportError:
+        logger.warning("Activity feed unavailable: libsql package not installed")
+        return None
+    except Exception as e:
+        logger.error(f"Activity feed connection failed: {e}")
         return None
 
 
@@ -85,7 +94,8 @@ def get_activity_feed(limit_per_repo: int = 4) -> List[Dict[str, Any]]:
         feed.sort(key=lambda r: r["last_active"] or "", reverse=True)
         return feed
 
-    except Exception:
+    except Exception as e:
+        logger.error(f"Activity feed query failed: {e}")
         return []
     finally:
         try:

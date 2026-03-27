@@ -631,7 +631,7 @@ async def dashboard(request: Request):
     if cached is not None:
         # Serve the cache immediately
         # If stale, kick off a background refresh
-        if age > _DASHBOARD_CACHE_TTL and not _dashboard_refreshing:
+        if age > _DASHBOARD_CACHE_TTL:
             with _dashboard_refresh_lock:
                 if not _dashboard_refreshing:
                     _dashboard_refreshing = True

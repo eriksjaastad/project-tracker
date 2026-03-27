@@ -71,10 +71,16 @@ def _notify_inbox(card_id: int, project_id: str, card_status: str, description: 
 
     Only fires on MacBook (not Mac Mini) and if ~/.claude/inbox/<project>/ exists.
     """
-    import os, socket
+    import os, socket, logging
+    _log = logging.getLogger(__name__)
     if socket.gethostname().startswith("eriks-mac-mini"):
         return
-    inbox_dir = Path(os.path.expanduser("~")) / ".claude" / "inbox" / project_id
+    # Sanitize project_id to prevent path traversal
+    safe_id = project_id.replace("/", "").replace("\\", "").replace("..", "")
+    if not safe_id or safe_id != project_id:
+        _log.warning(f"Skipping inbox notification: unsafe project_id '{project_id}'")
+        return
+    inbox_dir = Path(os.path.expanduser("~")) / ".claude" / "inbox" / safe_id
     if not inbox_dir.is_dir():
         return
 
@@ -113,9 +119,14 @@ Card #{card_id} — {card_status}
 **Action:** {action}
 """
     try:
-        filepath.write_text(content)
-    except Exception:
-        pass  # Best-effort — don't break pt if inbox write fails
+        import tempfile
+        # Atomic write: temp file then rename
+        fd, tmp_path = tempfile.mkstemp(dir=str(inbox_dir), suffix=".tmp")
+        with os.fdopen(fd, 'w') as f:
+            f.write(content)
+        os.rename(tmp_path, str(filepath))
+    except Exception as e:
+        _log.warning(f"Inbox notification failed for #{card_id}: {e}")
 
 
 @click.group(invoke_without_command=True)
