@@ -27,6 +27,7 @@ from fastapi import FastAPI, HTTPException
 from scripts.db.manager import DatabaseManager
 from scripts.db.schema import create_database
 from scripts.utils.validation import (
+    EXCLUDED_CARD_PROJECT_IDS,
     validate_task_input,
     validate_task_text,
     validate_status,
@@ -276,6 +277,44 @@ def test_property_2_api_filtering_accuracy(num_tasks, filter_project_id, filter_
             f"Expected {expected_count} tasks matching filters, got {len(results)}"
     finally:
         # Cleanup
+        db_path.unlink()
+
+
+def test_validate_task_input_rejects_excluded_projects():
+    db_path, db_manager, _ = _setup_fresh_database()
+
+    try:
+        is_valid, error = validate_task_input(
+            text="Do not allow this card",
+            project_id="project-tracker",
+            status="Backlog",
+            priority=None,
+            db_manager=db_manager,
+        )
+
+        assert not is_valid
+        assert error == "Cards cannot be created for project 'project-tracker'"
+        assert "project-tracker" in EXCLUDED_CARD_PROJECT_IDS
+    finally:
+        db_path.unlink()
+
+
+def test_api_rejects_card_creation_for_excluded_project():
+    db_path, db_manager, _ = _setup_fresh_database()
+
+    try:
+        app = _create_test_app(db_manager)
+        client = TestClient(app)
+
+        response = client.post("/api/tasks", json={
+            "text": "Should be rejected",
+            "project_id": "project-tracker",
+            "status": "Backlog",
+        })
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Cards cannot be created for project 'project-tracker'"
+    finally:
         db_path.unlink()
 
 

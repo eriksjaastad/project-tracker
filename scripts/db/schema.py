@@ -56,7 +56,6 @@ def _prune_safety_backups(backup_dir: Path, keep: int = 10) -> None:
         return
 
     if send2trash is None:
-        print("⚠️  Warning: send2trash is unavailable; retaining old safety backups instead of deleting them")
         return
 
     for old in files_to_prune:
@@ -254,18 +253,20 @@ def _check_fresh_database(db_path: Path) -> None:
             conn.close()
             return  # No tasks table yet - this is a truly new database
         
-        # Check task count
+        # Check task and project counts
         cursor.execute("SELECT COUNT(*) FROM tasks")
         task_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM projects")
+        project_count = cursor.fetchone()[0]
         conn.close()
         
         if task_count == 0:
             # Check if fingerprint file exists - if so, we expected data!
             fingerprint_path = db_path.parent / ".db-fingerprint"
-            if fingerprint_path.exists():
+            if fingerprint_path.exists() and project_count == 0:
                 raise FreshDatabaseError(
                     f"⛔ UNEXPECTED FRESH DATABASE DETECTED!\n"
-                    f"   Database has tasks table but 0 tasks.\n"
+                    f"   Database has tasks table but 0 tasks and 0 projects.\n"
                     f"   Fingerprint file exists - we expected existing data.\n"
                     f"   This suggests the database file was replaced.\n"
                     f"\n"

@@ -15,6 +15,7 @@ from .providers import get_provider
 from .telemetry_reader import get_telemetry_stats, get_critical_errors
 from .cron_health import get_stale_crons
 from db.manager import DatabaseManager
+from scripts.config import PROJECTS_BASE_DIR
 
 # Add parent directory to path for logger import
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -26,8 +27,7 @@ logger = get_logger(__name__)
 
 def get_current_scaffolding_version() -> Optional[str]:
     """Get the current scaffolding version from the source of truth."""
-    projects_root = os.environ.get("PROJECTS_ROOT", str(Path.home() / "projects"))
-    version_file = Path(projects_root) / "project-scaffolding" / "templates" / ".agentsync" / "RULES_VERSION"
+    version_file = PROJECTS_BASE_DIR / "project-scaffolding" / "templates" / ".agentsync" / "RULES_VERSION"
 
     if version_file.exists():
         return version_file.read_text().strip()

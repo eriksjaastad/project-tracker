@@ -1,9 +1,12 @@
 """Regression tests for config and cron fallback behavior."""
 
 import importlib
+import sqlite3
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import scripts.discovery.cron_monitor as cron_monitor
+from scripts.db.schema import _check_fresh_database
 
 
 def test_config_uses_external_backup_dir_override(tmp_path, monkeypatch):
@@ -57,3 +60,23 @@ def test_get_expected_next_run_handles_missing_or_broken_croniter(monkeypatch):
 
     monkeypatch.setattr(cron_monitor, "croniter", broken_croniter)
     assert cron_monitor.get_expected_next_run("0 * * * *", last_run) is None
+
+
+def test_fresh_database_check_allows_scanned_projects_without_tasks(tmp_path, monkeypatch):
+    db_path = tmp_path / "tracker.db"
+    fingerprint_path = tmp_path / ".db-fingerprint"
+
+    monkeypatch.delenv("PT_ALLOW_FRESH_DB", raising=False)
+    monkeypatch.delenv("PT_TEST_MODE", raising=False)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT)")
+    cursor.execute("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT)")
+    cursor.execute("INSERT INTO projects (id, name) VALUES ('smart-invoice-workflow', 'Smart Invoice Workflow')")
+    conn.commit()
+    conn.close()
+
+    fingerprint_path.write_text("test-fingerprint")
+
+    _check_fresh_database(Path(db_path))

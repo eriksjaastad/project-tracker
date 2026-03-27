@@ -4,6 +4,7 @@ import { DndContext, rectIntersection, useSensor, useSensors, PointerSensor } fr
 import type { DragEndEvent } from '@dnd-kit/core';
 import type { Task, TaskStatus, TaskPriority, TaskType } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS } from '../types';
+import { shouldAllowCardsForProject } from '../types';
 import { fetchTasks, updateTask, createTask, deleteTask } from '../api';
 import { Column } from './Column';
 import { Notification } from './Notification';
@@ -244,6 +245,7 @@ export function KanbanBoard() {
       },
     })
   );
+  const canCreateCards = !project || shouldAllowCardsForProject(project);
 
   const headerActions = (
     <>
@@ -272,7 +274,7 @@ export function KanbanBoard() {
           🔍
         </button>
       </div>
-      <AddTaskButton onClick={() => setShowTaskForm(true)} />
+      {canCreateCards && <AddTaskButton onClick={() => setShowTaskForm(true)} />}
       <button onClick={loadTasks} className="refresh-button" type="button">
         Refresh
       </button>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { TaskStatus, TaskPriority, Project, Task, TaskType } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
+import { shouldAllowCardsForProject } from '../types';
 import { fetchProjects, fetchTasks } from '../api';
 import { Spinner } from './Spinner';
 import './TaskForm.css';
@@ -39,6 +40,9 @@ export function TaskForm({
   const [error, setError] = useState<string | null>(null);
 
   const PRIORITIES: TaskPriority[] = ['Critical', 'High', 'Medium', 'Low'];
+  const eligibleProjects = [...projects]
+    .filter((project) => shouldAllowCardsForProject(project.id))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
   useEffect(() => {
     const loadData = async () => {
@@ -49,9 +53,16 @@ export function TaskForm({
         ]);
         setProjects(fetchedProjects);
         setTasks(fetchedTasks);
-        // If no initial project ID and projects exist, select first one
-        if (!initialProjectId && fetchedProjects.length > 0) {
-          setProjectId(fetchedProjects[0].id);
+        const allowedProjects = fetchedProjects.filter((project) =>
+          shouldAllowCardsForProject(project.id)
+        );
+
+        if (initialProjectId && shouldAllowCardsForProject(initialProjectId)) {
+          setProjectId(initialProjectId);
+        } else if (allowedProjects.length > 0) {
+          setProjectId(allowedProjects[0].id);
+        } else {
+          setProjectId('');
         }
       } catch (err) {
         console.error('Failed to load data:', err);
@@ -73,6 +84,11 @@ export function TaskForm({
 
     if (!projectId) {
       setError('Please select a project');
+      return;
+    }
+
+    if (!shouldAllowCardsForProject(projectId)) {
+      setError(`Cards cannot be created for project '${projectId}'`);
       return;
     }
 
@@ -165,14 +181,15 @@ export function TaskForm({
             disabled={loading}
           >
             <option value="">Select a project...</option>
-            {[...projects].sort((a, b) =>
-              a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-            ).map((project) => (
+            {eligibleProjects.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name || project.id}
               </option>
             ))}
           </select>
+          {eligibleProjects.length === 0 && (
+            <div className="task-form-char-count">No card-enabled projects are available.</div>
+          )}
         </div>
 
         <div className="task-form-field">
