@@ -73,16 +73,16 @@ This document serves as the index for the Project Tracker, providing a high-leve
 
 ## Recent Activity
 
-- 2026-03-23: fix: Run brain.py from ai-memory cwd so uv resolves correct virtualenv
-- 2026-03-23: feat: Add pt memory command — cross-agent brain search/write via pt CLI
-- 2026-03-23: Merge pull request #19 from eriksjaastad/fix/reusable-claude-review
-- 2026-03-23: chore: point shared review workflow at main
-- 2026-03-23: chore: use shared claude review workflow
-- 2026-03-23: fix: Separate schema DDL from local DB init so migrations run on Turso (#5256)
-- 2026-03-23: fix: Add missing dependencies to pyproject.toml for uv run
-- 2026-03-23: ci: Add Claude auto-review workflow
-- 2026-03-23: Merge pull request #18 from eriksjaastad/fix/scripts-init-conftest
-- 2026-03-23: fix: add scripts/__init__.py and root conftest.py for sandbox imports
+- 2026-03-25: fix: Classic SVG view auto-fit, sidebar controls, zoom (#5252) (#34)
+- 2026-03-25: perf: Numpy vectorized cosine similarity + TTL cache (#5258) (#33)
+- 2026-03-25: fix: Classic SVG view fills viewport height (#5295) (#32)
+- 2026-03-25: feat: Add Classic D3+SVG memory graph view (#31)
+- 2026-03-24: feat: Add /compound reminder to pt tasks done output (#29)
+- 2026-03-25: fix: Add missing __init__.py files and hypothesis test dep (#5238) (#30)
+- 2026-03-24: fix: Add Cancelled to valid statuses and state transitions (#5241) (#28)
+- 2026-03-24: fix: run all pt commands through doppler (#5233) (#27)
+- 2026-03-24: fix: wrap pt memory with doppler (#5233) (#26)
+- 2026-03-24: fix: run pt launcher through doppler (#5233) (#25)
 ## Related Documentation
 
 - [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
@@ -108,7 +108,7 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | :--- | :---: | :--- |
 | [dashboard/](dashboard/) | 2 | No description available. |
 | [patterns/](patterns/) | 0 | No description available. |
-| [project-graph-screenshots-movies/](project-graph-screenshots-movies/) | 80 | No description available. |
+| [project-graph-screenshots-movies/](project-graph-screenshots-movies/) | 113 | No description available. |
 | [project-tracker/](project-tracker/) | 0 | No description available. |
 | [prompts/](prompts/) | 0 | No description available. |
 
@@ -147,6 +147,7 @@ This document serves as the index for the Project Tracker, providing a high-leve
 | [dashboard/static/memory.js](dashboard/static/memory.js) | No description available. |
 | [dashboard/static/memory_heatmap.js](dashboard/static/memory_heatmap.js) | No description available. |
 | [dashboard/static/memory_list.js](dashboard/static/memory_list.js) | No description available. |
+| [dashboard/static/memory_svg.js](dashboard/static/memory_svg.js) | No description available. |
 | [dashboard/static/script.js](dashboard/static/script.js) | No description available. |
 | [dashboard/static/style.css](dashboard/static/style.css) | No description available. |
 | [find_orphans.py](find_orphans.py) | No description available. |

@@ -332,7 +332,7 @@ export function CalendarPage() {
                               <button
                                 key={ev.id}
                                 type="button"
-                                className={`cal-event-pill cal-event-pill--${ev.event_type}`}
+                                className={`cal-event-pill cal-event-pill--${ev.event_type}${ev.machine === 'MacBook' ? ' cal-event-pill--mine' : ''}`}
                                 style={{ borderLeftColor: MACHINE_COLOR[ev.machine ?? ''] || 'var(--cal-default)' }}
                                 onClick={e => handleEventClick(ev, e)}
                                 title={`${EVENT_TYPE_EMOJI[ev.event_type] ?? ''} ${ev.title}`}
