@@ -445,6 +445,56 @@ def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, Li
     return grouped
 
 
+_ALERT_TYPE_LABELS = {
+    "scaffolding_drift": "Scaffolding Drift",
+    "rules_drift": "Rules Drift",
+    "agent_config_health": "Agent Config Health",
+    "missing_index": "Missing Index",
+    "stalled": "Stalled Projects",
+    "blocked": "Project Blocked",
+    "code_review": "Code Review",
+    "cron_execution_error": "Cron Errors",
+    "cron_missed_run": "Cron Missed Runs",
+    "stale_heartbeat": "Stale Heartbeats",
+    "telemetry_error": "Telemetry Errors",
+    "missing_todo": "Missing TODO",
+    "unknown_status": "Unknown Status",
+}
+
+_SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2}
+
+
+def _group_alerts_by_type(alerts: List[Dict]) -> List[Dict]:
+    """Group flat alerts into collapsible type groups for the template.
+
+    Returns a list of groups sorted by worst severity then count, each with:
+        type, label, severity (worst in group), count, items, collapsed (bool).
+    """
+    groups_map: Dict[str, Dict] = {}
+    for alert in alerts:
+        atype = alert["type"]
+        if atype not in groups_map:
+            groups_map[atype] = {
+                "type": atype,
+                "label": _ALERT_TYPE_LABELS.get(atype, atype.replace("_", " ").title()),
+                "severity": alert["severity"],
+                "items": [],
+            }
+        group = groups_map[atype]
+        group["items"].append(alert)
+        # Escalate group severity to worst member
+        if _SEVERITY_ORDER.get(alert["severity"], 9) < _SEVERITY_ORDER.get(group["severity"], 9):
+            group["severity"] = alert["severity"]
+
+    groups = list(groups_map.values())
+    for g in groups:
+        g["count"] = len(g["items"])
+        g["collapsed"] = g["severity"] != "critical"
+
+    groups.sort(key=lambda g: (_SEVERITY_ORDER.get(g["severity"], 9), -g["count"]))
+    return groups
+
+
 def _bulk_enrich(projects: List[dict], db: DatabaseManager, current_scaffolding: Optional[str]) -> List[dict]:
     """Enrich all projects using bulk-fetched data (4 DB queries instead of 4N).
 
@@ -591,9 +641,13 @@ def _build_dashboard_data() -> Dict:
     unscaffolded_projects = [p for p in enriched_projects if p.get("version_status") == "unscaffolded"]
     structural_projects = [p for p in enriched_projects if p.get("version_status") == "structural_issue"]
 
+    # Group alerts by type for collapsible display
+    alert_groups = _group_alerts_by_type(alerts)
+
     return {
         "projects": enriched_projects,
         "alerts": alerts,
+        "alert_groups": alert_groups,
         "code_reviews": code_reviews,
         "total_projects": len(projects),
         "indexed_count": indexed_count,

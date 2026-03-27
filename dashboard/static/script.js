@@ -121,25 +121,11 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Toggle alert visibility by severity
-function toggleAlerts(severity) {
-    const alerts = document.querySelectorAll(`.alert-${severity}`);
-    const toggle = document.getElementById(`toggle-${severity}`);
-    
-    // Check if alerts are currently visible
-    const isVisible = alerts[0] && alerts[0].style.display !== 'none';
-    
-    // Toggle visibility
-    alerts.forEach(alert => {
-        alert.style.display = isVisible ? 'none' : 'block';
-    });
-    
-    // Update toggle link style
-    if (isVisible) {
-        toggle.style.opacity = '0.5';
-        toggle.style.textDecoration = 'line-through';
-    } else {
-        toggle.style.opacity = '1';
-        toggle.style.textDecoration = 'none';
-    }
+function toggleAlertGroup(header) {
+    const items = header.nextElementSibling;
+    const chevron = header.querySelector('.alert-group-chevron');
+    const isHidden = items.style.display === 'none';
+    items.style.display = isHidden ? '' : 'none';
+    chevron.innerHTML = isHidden ? '&#9660;' : '&#9654;';
 }
 

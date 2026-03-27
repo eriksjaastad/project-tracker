@@ -73,74 +73,35 @@
         </div>
         {% endif %}
 
-        <!-- Outdated Projects Section -->
-        {% if outdated_count > 0 or unscaffolded_count > 0 or structural_count > 0 %}
-        <div class="alerts-section" style="border-left-color: #ff9800;">
-            <div class="alerts-header">
-                <h2>🔧 Scaffolding Updates Needed</h2>
-                <span class="alerts-count">
-                    {{ outdated_count }} outdated, {{ structural_count }} structural, {{ unscaffolded_count }} not scaffolded
-                </span>
-            </div>
-            <div class="alerts-grid">
-                {% for project in outdated_projects %}
-                <a href="/project/{{ project.id }}" class="alert-item alert-warning">
-                    <span class="alert-icon-small">⚠️</span>
-                    <span class="alert-project-name">{{ project.name }}</span>
-                    <span class="alert-msg">v{{ project.scaffolding_version }} → v{{ current_scaffolding_version
-                        }}</span>
-                </a>
-                {% endfor %}
-                {% for project in structural_projects %}
-                <a href="/project/{{ project.id }}" class="alert-item alert-warning">
-                    <span class="alert-icon-small">🔧</span>
-                    <span class="alert-project-name">{{ project.name }}</span>
-                    <span class="alert-msg">{{ project.scaffolding_issues | join(', ') }}</span>
-                </a>
-                {% endfor %}
-                {% for project in unscaffolded_projects %}
-                <a href="/project/{{ project.id }}" class="alert-item alert-warning">
-                    <span class="alert-icon-small">❌</span>
-                    <span class="alert-project-name">{{ project.name }}</span>
-                    <span class="alert-msg">Not scaffolded</span>
-                </a>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-
-        {% if alerts %}
+        <!-- Alerts — grouped by type, collapsible -->
+        {% if alert_groups %}
         <div class="alerts-section">
             <div class="alerts-header">
-                <h2>⚠️ Alerts</h2>
-                <div class="alerts-tools">
-                    <span class="tool-label">Tools:</span>
-                    <a href="https://github.com/eriksjaastad/project-scaffolding" target="_blank"
-                        class="tool-link">Scaffolding Docs</a>
-                </div>
+                <h2>Alerts</h2>
                 <span class="alerts-count">
-                    <a href="#" onclick="toggleAlerts('critical'); return false;" class="alert-toggle"
-                        id="toggle-critical">
-                        {{ alerts|selectattr('severity', 'equalto', 'critical')|list|length }} critical</a>,
-                    <a href="#" onclick="toggleAlerts('warning'); return false;" class="alert-toggle"
-                        id="toggle-warning">
-                        {{ alerts|selectattr('severity', 'equalto', 'warning')|list|length }} warnings</a>,
-                    <a href="#" onclick="toggleAlerts('info'); return false;" class="alert-toggle" id="toggle-info">
-                        {{ alerts|selectattr('severity', 'equalto', 'info')|list|length }} info</a>
+                    {{ alerts|length }} total across {{ alert_groups|length }} categories
                 </span>
             </div>
-            <div class="alerts-grid">
-                {% for alert in alerts %}
-                <a href="/project/{{ alert.project_id }}" class="alert-item alert-{{ alert.severity }}">
-                    <span class="alert-icon-small">
-                        {% if alert.severity == 'critical' %}🔴{% elif alert.severity == 'warning' %}⚠️{% else %}ℹ️{%
-                        endif %}
+            {% for group in alert_groups %}
+            <div class="alert-group alert-group-{{ group.severity }}" data-alert-type="{{ group.type }}">
+                <div class="alert-group-header" onclick="toggleAlertGroup(this)">
+                    <span class="alert-group-chevron">{% if group.collapsed %}&#9654;{% else %}&#9660;{% endif %}</span>
+                    <span class="alert-group-icon">
+                        {% if group.severity == 'critical' %}🔴{% elif group.severity == 'warning' %}⚠️{% else %}ℹ️{% endif %}
                     </span>
-                    <span class="alert-project-name">{{ alert.project_name }}</span>
-                    <span class="alert-msg">{{ alert.message }}</span>
-                </a>
-                {% endfor %}
+                    <span class="alert-group-label">{{ group.label }}</span>
+                    <span class="alert-group-badge alert-badge-{{ group.severity }}">{{ group.count }}</span>
+                </div>
+                <div class="alerts-grid alert-group-items" {% if group.collapsed %}style="display: none;"{% endif %}>
+                    {% for alert in group.items %}
+                    <a href="/project/{{ alert.project_id }}" class="alert-item alert-{{ alert.severity }}">
+                        <span class="alert-project-name">{{ alert.project_name }}</span>
+                        <span class="alert-msg">{{ alert.message }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
             </div>
+            {% endfor %}
         </div>
         {% endif %}
 

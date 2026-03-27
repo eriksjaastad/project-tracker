@@ -536,6 +536,75 @@ body {
     text-overflow: ellipsis;
 }
 
+/* Alert Groups — collapsible */
+
+.alert-group {
+    margin-bottom: 0.25rem;
+}
+
+.alert-group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+    user-select: none;
+    transition: background 0.15s;
+}
+
+.alert-group-header:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.alert-group-chevron {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    width: 1rem;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.alert-group-icon {
+    font-size: 0.85rem;
+    flex-shrink: 0;
+}
+
+.alert-group-label {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+.alert-group-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.1rem 0.5rem;
+    border-radius: 10px;
+    margin-left: 0.25rem;
+}
+
+.alert-badge-critical {
+    background: rgba(244, 67, 54, 0.2);
+    color: #f44336;
+}
+
+.alert-badge-warning {
+    background: rgba(255, 152, 0, 0.2);
+    color: #ff9800;
+}
+
+.alert-badge-info {
+    background: rgba(33, 150, 243, 0.15);
+    color: #64b5f6;
+}
+
+.alert-group-items {
+    margin-left: 1.5rem;
+    margin-top: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+
 /* Projects Grid */
 
 .projects-grid {
