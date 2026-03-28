@@ -42,7 +42,6 @@ class TestDashboardCache:
                 with patch("dashboard.app.get_all_alerts", return_value=[]):
                     with patch("dashboard.app.get_available_agents", return_value=[]):
                         with patch("dashboard.app.get_backup_status", return_value={}):
-                            with patch("dashboard.app.get_activity_feed", return_value=[]):
                                 data = _build_dashboard_data()
 
         required_keys = [
@@ -51,7 +50,6 @@ class TestDashboardCache:
             "current_scaffolding_version", "outdated_projects",
             "unscaffolded_projects", "structural_projects",
             "outdated_count", "unscaffolded_count", "structural_count",
-            "activity_feed",
         ]
         for key in required_keys:
             assert key in data, f"Missing key: {key}"

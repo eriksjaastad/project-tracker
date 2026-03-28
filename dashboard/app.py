@@ -39,7 +39,6 @@ from discovery.code_review_parser import parse_code_review
 from discovery.providers import get_provider, LegacyProvider
 from discovery.telemetry_reader import get_telemetry_stats
 from discovery.backup_reader import get_backup_status
-from discovery.activity_feed import get_activity_feed
 from discovery.agent_registry import (
     get_available_agents,
     run_agent_command,
@@ -635,8 +634,6 @@ def _build_dashboard_data() -> Dict:
                 **project["code_review"],
             })
 
-    activity_feed = get_activity_feed(limit_per_repo=4)
-
     outdated_projects = [p for p in enriched_projects if p.get("version_status") == "outdated"]
     unscaffolded_projects = [p for p in enriched_projects if p.get("version_status") == "unscaffolded"]
     structural_projects = [p for p in enriched_projects if p.get("version_status") == "structural_issue"]
@@ -661,7 +658,6 @@ def _build_dashboard_data() -> Dict:
         "outdated_count": len(outdated_projects),
         "unscaffolded_count": len(unscaffolded_projects),
         "structural_count": len(structural_projects),
-        "activity_feed": activity_feed,
     }
 
 
