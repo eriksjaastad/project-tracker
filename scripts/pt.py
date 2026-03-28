@@ -67,7 +67,7 @@ def _print_banner() -> None:
     console.print(_PT_BANNER)
 
 
-def _notify_inbox(card_id: int, project_id: str, card_status: str, description: str, triggered_by: str = "pt") -> None:
+def _notify_inbox(card_id: int, project_id: str, card_status: str, description: str) -> None:
     """Write an inbox message after a task mutation (opt-in per project).
 
     Only fires on MacBook (not Mac Mini) and if ~/.claude/inbox/<project>/ exists.
@@ -99,6 +99,7 @@ def _notify_inbox(card_id: int, project_id: str, card_status: str, description: 
         "Review": "This task is ready for review.",
         "Done": "This task has been completed.",
         "Cancelled": "This task has been cancelled.",
+        "Deleted": "This task has been permanently deleted.",
     }
     action = action_hints.get(card_status, f"Status changed to {card_status}.")
 
@@ -1092,6 +1093,7 @@ def tasks_delete(task_id, yes):
     try:
         db.delete_task(task_id)
         print(f"Deleted: #{task_id}")
+        _notify_inbox(task_id, task.get("project_id", "unknown"), "Deleted", task["text"])
     except Exception as e:
         print(f"Failed to delete task #{task_id}: {e}")
 
@@ -1265,6 +1267,9 @@ def tasks_clear_done(project, yes):
         confirm = click.confirm(f"Delete {count} Done task(s)?", default=False)
         if not confirm: console.print("[dim]Cancelled[/dim]"); return
     try:
+        # Capture task info before deletion for notifications
+        for t in done_tasks:
+            _notify_inbox(t["id"], t.get("project_id", "unknown"), "Deleted", t["text"])
         deleted_count = db.delete_done_tasks(project_id=project_id)
         console.print(f"[green]Deleted {deleted_count} Done task(s)[/green]")
     except Exception as e:
