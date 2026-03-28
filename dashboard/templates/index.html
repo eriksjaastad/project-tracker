@@ -38,40 +38,6 @@
 {% endblock %}
 
 {% block content %}
-        <!-- GitHub Activity Feed -->
-        {% if activity_feed %}
-        <div class="activity-feed-section">
-            <div class="activity-feed-header">
-                <h2>GitHub Activity</h2>
-                <span class="activity-feed-subtitle">Live feed from monitored repos</span>
-            </div>
-            <div class="activity-feed-grid">
-                {% for repo in activity_feed %}
-                <div class="activity-repo-card {% if repo.idle_hours > 48 %}repo-idle{% elif repo.idle_hours > 12 %}repo-quiet{% else %}repo-active{% endif %}">
-                    <div class="repo-card-header">
-                        <span class="repo-name">{{ repo.repo_slug }}</span>
-                        <span class="repo-status-dot {% if repo.idle_hours > 48 %}dot-idle{% elif repo.idle_hours > 12 %}dot-quiet{% else %}dot-active{% endif %}" title="{% if repo.idle_hours > 48 %}Idle ({{ repo.idle_hours|round(0)|int }}h){% elif repo.idle_hours > 12 %}Quiet{% else %}Active{% endif %}"></span>
-                    </div>
-                    <div class="repo-last-active">
-                        Last active: {{ repo.last_active|friendly_time }}
-                        {% if repo.idle_hours > 0 %}
-                        <span class="idle-badge {% if repo.idle_hours > 48 %}idle-warn{% endif %}">{{ repo.idle_hours|round(0)|int }}h ago</span>
-                        {% endif %}
-                    </div>
-                    <ul class="repo-events">
-                        {% for event in repo.events %}
-                        <li class="repo-event">
-                            <span class="event-time">{{ event.occurred_at|friendly_time }}</span>
-                            <span class="event-type event-{{ event.event_type|default('unknown') }}">{{ event.event_type }}</span>
-                            <span class="event-title">{{ event.title|truncate(60) }}</span>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
 
         <!-- Alerts — grouped by type, collapsible -->
         {% if alert_groups %}
