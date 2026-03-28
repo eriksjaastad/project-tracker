@@ -37,8 +37,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from scripts.config import PROJECTS_BASE_DIR
 from db.schema import init_db, get_db_path
-from db.manager import DatabaseManager
-from discovery.project_scanner import discover_projects, scan_health_parallel
+from db.manager import DatabaseManager, _USE_TURSO
+from discovery.project_scanner import discover_projects, extract_project_metadata, scan_health_parallel
 from discovery.external_resources_parser import parse_external_resources
 from discovery.hygiene_detector import fix_hygiene_issues, detect_hygiene_issues
 from discovery.graph_builder import GraphBuilder
@@ -315,14 +315,16 @@ def _has_complete_prompt(prompt):
 def _display_tasks(task_list, project=None, json_output=False, db=None):
     import json as json_lib
     if json_output:
-        print(json_lib.dumps({"tasks": task_list, "total": len(task_list)}, indent=2))
+        backend = "turso" if _USE_TURSO else "local"
+        print(json_lib.dumps({"tasks": task_list, "total": len(task_list), "backend": backend}, indent=2))
         return
     if not task_list:
         filter_msg = f" for project '{project}'" if project else ""
         print(f"No tasks found{filter_msg}.")
         return
+    backend_tag = "turso" if _USE_TURSO else "local"
     title = f"Tasks - {project}" if project else "Tasks"
-    print(f"{title}\n")
+    print(f"{title} [{backend_tag}]\n")
     for task in task_list:
         priority = task.get("priority") or "-"
         status = task["status"]
@@ -510,10 +512,111 @@ def orphans(project, json_output):
 
 
 @cli.command()
-def refresh():
+@click.option("--no-graph", is_flag=True, help="Skip rebuilding the knowledge graph")
+def refresh(no_graph):
     """Refresh all project metadata."""
     console.print("[bold blue]Refreshing project data...[/bold blue]")
-    _scan_impl()
+    _scan_impl(no_graph=no_graph)
+
+
+@cli.command()
+@click.argument("project_name")
+@click.option("--no-graph", is_flag=True, help="Skip rebuilding the knowledge graph")
+def sync(project_name, no_graph):
+    """Sync a single project to the database (fast alternative to full scan).
+
+    PROJECT_NAME is the directory name under the projects root.
+    """
+    base_path = Path(PROJECTS_BASE_DIR)
+    project_dir = base_path / project_name
+
+    if not project_dir.exists() or not project_dir.is_dir():
+        console.print(f"[red]Directory not found: {project_dir}[/red]")
+        raise SystemExit(1)
+
+    db_path = get_db_path()
+    if not db_path.exists():
+        console.print("[red]Database not initialized. Run './pt init' first.[/red]")
+        raise SystemExit(1)
+
+    console.print(f"[bold blue]Syncing project: {project_name}...[/bold blue]")
+
+    # 1. Extract metadata (same as full scan)
+    project = extract_project_metadata(project_dir)
+    if not project:
+        console.print(f"[red]Could not extract metadata from {project_dir}[/red]")
+        raise SystemExit(1)
+
+    # 2. Health check
+    health_results = scan_health_parallel([project])
+
+    # 3. Hygiene fixes on TODO.md
+    todo_path = project_dir / "TODO.md"
+    if todo_path.exists():
+        fixes = fix_hygiene_issues(todo_path)
+        if fixes > 0:
+            console.print(f"  [yellow]Hygiene: applied {fixes} auto-fixes to TODO.md[/yellow]")
+            # Re-extract metadata after hygiene fixes
+            project = extract_project_metadata(project_dir)
+
+    # 4. Load external services for this project
+    services_by_project = parse_external_resources()
+
+    # 5. Upsert to database
+    db = DatabaseManager()
+    with db._get_conn() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("BEGIN")
+            db._add_project_with_cursor(
+                cursor=cursor,
+                project_id=project["id"],
+                name=project["name"],
+                path=project["path"],
+                status=project["status"],
+                description=project.get("description"),
+                phase=project.get("phase"),
+                last_modified=project["last_modified"],
+                completion_pct=project.get("completion_pct", 0),
+                is_infrastructure=project.get("is_infrastructure", False),
+                has_index=project.get("has_index", False),
+                index_is_valid=project.get("index_is_valid", False),
+                index_updated_at=project.get("index_updated_at"),
+                project_type=project.get("project_type", "standard"),
+                scaffolding_version=project.get("scaffolding_version"),
+                rules_version=project.get("rules_version"),
+                scaffolding_applied_at=project.get("scaffolding_applied_at"),
+            )
+            db._sync_ai_agents_with_cursor(
+                cursor=cursor, project_id=project["id"],
+                agents=project.get("ai_agents", []),
+            )
+            db._sync_cron_jobs_with_cursor(
+                cursor=cursor, project_id=project["id"],
+                cron_jobs=project.get("cron_jobs", []),
+            )
+            db._sync_services_with_cursor(
+                cursor=cursor, project_id=project["id"],
+                services=services_by_project.get(project["id"], []),
+            )
+            health = health_results.get(project["id"])
+            if health:
+                db._update_health_with_cursor(
+                    cursor=cursor, project_id=project["id"],
+                    score=health["score"], grade=health["grade"],
+                )
+            conn.commit()
+            console.print(f"  [green]✓ {project['name']}[/green]")
+        except Exception as e:
+            conn.rollback()
+            console.print(f"  [red]✗ Failed to sync {project['name']}: {e}[/red]")
+            raise SystemExit(1)
+
+    # 6. Optionally rebuild knowledge graph
+    if not no_graph:
+        rebuild_knowledge_graph()
+
+    console.print(f"\n[bold green]✅ Synced: {project['name']}[/bold green]")
 
 
 @cli.command()
@@ -1956,6 +2059,178 @@ def memory_stats() -> None:
 
 
 # =============================================================================
+# Worktrees management
+# =============================================================================
+
+@click.group(name="worktrees", invoke_without_command=True)
+@click.pass_context
+def worktrees_group(ctx):
+    """Manage .claude/worktrees/ created by sub-agents."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(worktrees_list)
+
+
+@worktrees_group.command(name="list")
+def worktrees_list():
+    """List all worktrees in .claude/worktrees/."""
+    repo_root = _find_repo_root()
+    if repo_root is None:
+        console.print("[red]Not inside a git repository[/red]")
+        return
+    wt_dir = repo_root / ".claude" / "worktrees"
+    if not wt_dir.exists():
+        console.print("[dim]No .claude/worktrees/ directory found[/dim]")
+        return
+    entries = sorted(p for p in wt_dir.iterdir() if p.is_dir())
+    if not entries:
+        console.print("[dim]No worktrees found[/dim]")
+        return
+    # Get merged branches
+    merged = _get_merged_branches(repo_root)
+    console.print(f"\n[bold]Worktrees ({len(entries)})[/bold]\n")
+    for entry in entries:
+        branch = _worktree_branch(repo_root, entry)
+        status = "[green]merged[/green]" if branch and branch in merged else "[yellow]active[/yellow]"
+        branch_label = branch or "[dim]detached[/dim]"
+        console.print(f"  {entry.name}  {branch_label}  {status}")
+    console.print()
+
+
+@worktrees_group.command(name="clean")
+@click.option("--dry-run", is_flag=True, help="Show what would be removed without removing")
+@click.option("--force", is_flag=True, help="Also remove worktrees with uncommitted changes")
+def worktrees_clean(dry_run, force):
+    """Remove worktrees whose branches are merged to main or orphaned."""
+    repo_root = _find_repo_root()
+    if repo_root is None:
+        console.print("[red]Not inside a git repository[/red]")
+        return
+    wt_dir = repo_root / ".claude" / "worktrees"
+    if not wt_dir.exists():
+        console.print("[dim]No .claude/worktrees/ directory found[/dim]")
+        return
+    entries = sorted(p for p in wt_dir.iterdir() if p.is_dir())
+    if not entries:
+        console.print("[dim]No worktrees to clean[/dim]")
+        return
+
+    merged = _get_merged_branches(repo_root)
+    removed = []
+    kept = []
+
+    for entry in entries:
+        branch = _worktree_branch(repo_root, entry)
+        is_merged = branch and branch in merged
+        is_orphaned = branch is None  # no branch ref found
+
+        if is_merged or is_orphaned:
+            reason = "merged" if is_merged else "orphaned"
+            if dry_run:
+                console.print(f"  [yellow]would remove[/yellow] {entry.name} ({reason}, branch: {branch or 'none'})")
+                removed.append(entry.name)
+            else:
+                ok = _remove_worktree(repo_root, entry, force=force)
+                if ok:
+                    console.print(f"  [green]removed[/green] {entry.name} ({reason})")
+                    removed.append(entry.name)
+                    # Clean up the branch if it was a worktree-specific branch
+                    if branch and branch.startswith("worktree-"):
+                        _delete_local_branch(repo_root, branch)
+                else:
+                    console.print(f"  [red]failed to remove[/red] {entry.name} (use --force?)")
+                    kept.append(entry.name)
+        else:
+            console.print(f"  [cyan]keeping[/cyan] {entry.name} (branch: {branch}, not merged)")
+            kept.append(entry.name)
+
+    prefix = "[bold yellow]Dry run:[/bold yellow] " if dry_run else ""
+    console.print(f"\n{prefix}Removed {len(removed)}, kept {len(kept)}")
+
+
+def _find_repo_root() -> Optional[Path]:
+    """Find the git repo root from cwd or the project-tracker directory."""
+    # Try project-tracker's own root first
+    pt_root = Path(__file__).resolve().parent.parent
+    if (pt_root / ".git").exists():
+        return pt_root
+    # Fallback: walk up from cwd
+    cwd = Path.cwd()
+    while cwd != cwd.parent:
+        if (cwd / ".git").exists():
+            return cwd
+        cwd = cwd.parent
+    return None
+
+
+def _get_merged_branches(repo_root: Path) -> set:
+    """Return set of branch names that are merged into main."""
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--merged", "main"],
+            cwd=str(repo_root),
+            capture_output=True, text=True, timeout=10,
+        )
+        branches = set()
+        for line in result.stdout.splitlines():
+            name = line.strip().lstrip("* ").lstrip("+ ")
+            if name and name != "main":
+                branches.add(name)
+        return branches
+    except Exception:
+        return set()
+
+
+def _worktree_branch(repo_root: Path, wt_path: Path) -> Optional[str]:
+    """Get the branch name for a worktree, or None if detached/missing."""
+    try:
+        result = subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            cwd=str(repo_root),
+            capture_output=True, text=True, timeout=10,
+        )
+        # Parse porcelain output: blocks separated by blank lines
+        current_path = None
+        for line in result.stdout.splitlines():
+            if line.startswith("worktree "):
+                current_path = line[len("worktree "):]
+            elif line.startswith("branch ") and current_path:
+                if Path(current_path).resolve() == wt_path.resolve():
+                    # branch refs/heads/foo -> foo
+                    ref = line[len("branch "):]
+                    return ref.replace("refs/heads/", "")
+        return None
+    except Exception:
+        return None
+
+
+def _remove_worktree(repo_root: Path, wt_path: Path, force: bool = False) -> bool:
+    """Remove a worktree using git worktree remove."""
+    cmd = ["git", "worktree", "remove", str(wt_path)]
+    if force:
+        cmd.append("--force")
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(repo_root),
+            capture_output=True, text=True, timeout=30,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _delete_local_branch(repo_root: Path, branch: str) -> None:
+    """Delete a local branch (merged only, safe -d flag)."""
+    try:
+        subprocess.run(
+            ["git", "branch", "-d", branch],
+            cwd=str(repo_root),
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        pass
+
+
+# =============================================================================
 # Register subgroups and run
 # =============================================================================
 
@@ -1963,6 +2238,7 @@ cli.add_command(tasks_group)
 cli.add_command(inbox_group)
 cli.add_command(calendar_group)
 cli.add_command(memory_group)
+cli.add_command(worktrees_group)
 
 if __name__ == "__main__":
     cli()
