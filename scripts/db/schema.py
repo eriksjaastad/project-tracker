@@ -335,14 +335,22 @@ def ensure_schema(cursor: Any) -> None:
     All statements are idempotent (CREATE IF NOT EXISTS, ALTER ADD COLUMN
     wrapped in try/except). Safe to run on every startup.
     """
-    # 0. Schema Versioning
+    # 0. Schema Versioning — check if already current to skip 100+ migration queries
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER PRIMARY KEY,
             updated_at TEXT NOT NULL
         )
     """)
-    
+    CURRENT_SCHEMA_VERSION = 5
+    try:
+        cursor.execute("SELECT MAX(version) FROM schema_version")
+        row = cursor.fetchone()
+        if row and row[0] and row[0] >= CURRENT_SCHEMA_VERSION:
+            return  # Schema is current, skip all migrations
+    except Exception:
+        pass  # Table might be empty or broken — run migrations
+
     # 1. Core projects table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS projects (
