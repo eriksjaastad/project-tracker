@@ -510,10 +510,11 @@ def orphans(project, json_output):
 
 
 @cli.command()
-def refresh():
+@click.option("--no-graph", is_flag=True, help="Skip rebuilding the knowledge graph")
+def refresh(no_graph):
     """Refresh all project metadata."""
     console.print("[bold blue]Refreshing project data...[/bold blue]")
-    _scan_impl()
+    _scan_impl(no_graph=no_graph)
 
 
 @cli.command()
