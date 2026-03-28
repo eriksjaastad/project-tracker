@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
+import os
+import shutil
 import subprocess
 import threading
 
@@ -97,7 +99,7 @@ NAVIGATION_ITEMS = [
         "label": "Dashboard",
         "href": "/dashboard",
         "match_prefixes": ["/dashboard", "/project"],
-        "navigation_type": "document",
+        "navigation_type": "spa",
     },
     {
         "id": "kanban",
@@ -192,10 +194,14 @@ async def serve_spa_shell(request: Request):
     if index_path.exists():
         return HTMLResponse(content=build_spa_shell_html(index_path.read_text(), request.url.path), status_code=200)
 
-    # Fallback to dashboard when the frontend bundle is not built.
-    return await dashboard(request)
+    # Fallback when the frontend bundle is not built.
+    return HTMLResponse(
+        content="<h1>Frontend not built</h1><p>Run <code>npm run build</code> in dashboard/frontend/</p>",
+        status_code=503,
+    )
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
 @app.get("/kanban", response_class=HTMLResponse)
 @app.get("/kanban/{project}", response_class=HTMLResponse)
 @app.get("/agentic", response_class=HTMLResponse)
@@ -674,50 +680,9 @@ def _refresh_dashboard_cache() -> None:
         _dashboard_refreshing = False
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    """Main dashboard view — serves cached data, refreshes in background."""
-    global _dashboard_refreshing
-    now = _time()
-    cached = _dashboard_cache["data"]
-    age = now - _dashboard_cache["timestamp"]
-
-    if cached is not None:
-        # Serve the cache immediately
-        # If stale, kick off a background refresh
-        if age > _DASHBOARD_CACHE_TTL:
-            with _dashboard_refresh_lock:
-                if not _dashboard_refreshing:
-                    _dashboard_refreshing = True
-                    threading.Thread(
-                        target=_refresh_dashboard_cache, daemon=True
-                    ).start()
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            build_template_context(
-                request,
-                **cached,
-                cache_age=int(age),
-                cache_refreshing=_dashboard_refreshing,
-            ),
-        )
-
-    # Cold start — no cache yet, must compute synchronously
-    data = _build_dashboard_data()
-    _dashboard_cache["data"] = data
-    _dashboard_cache["timestamp"] = _time()
-
-    return templates.TemplateResponse(
-        request,
-        "index.html",
-        build_template_context(
-            request,
-            **data,
-            cache_age=0,
-            cache_refreshing=False,
-        ),
-    )
+# NOTE: The /dashboard HTML route is now served by the React SPA via serve_react_app().
+# The Jinja2 template rendering was removed as part of the SPA migration (#5372).
+# Dashboard data APIs (e.g. /api/dashboard-cache-status) are preserved below.
 
 
 @app.get("/api/dashboard-cache-status")
@@ -2518,3 +2483,240 @@ async def delete_idea(idea_id: int):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete idea"
         )
+
+
+# ---------------------------------------------------------------------------
+# GitHub API  (#5373)
+# ---------------------------------------------------------------------------
+
+_github_cache: Dict = {"data": None, "timestamp": 0}
+_GITHUB_CACHE_TTL = 300  # 5 minutes
+
+
+_GH_BIN = shutil.which("gh") or os.environ.get("GH_PATH", "gh")
+
+
+def _gh_json(args: List[str], timeout: int = 30) -> any:
+    """Run a gh CLI command and return parsed JSON, or None on failure."""
+    try:
+        result = subprocess.run(
+            [_GH_BIN] + args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            logger.warning(f"gh command failed: gh {' '.join(args)} — {result.stderr.strip()}")
+            return None
+        return json.loads(result.stdout) if result.stdout.strip() else None
+    except FileNotFoundError:
+        logger.error("gh CLI not found on PATH")
+        return None
+    except subprocess.TimeoutExpired:
+        logger.warning(f"gh command timed out: gh {' '.join(args)}")
+        return None
+    except json.JSONDecodeError as e:
+        logger.warning(f"gh returned non-JSON: {e}")
+        return None
+
+
+def _get_tracked_repo_names() -> List[str]:
+    """Get repo names from the kanban board's project list.
+
+    Includes top-level projects and subdirectories of github-repos/.
+    Excludes internal prefixes (_tools, __knowledge, etc.).
+    """
+    try:
+        db = DatabaseManager()
+        projects = db.get_all_projects()
+        names: List[str] = []
+        for p in projects:
+            pid = p.get("id", "")
+            # Skip internal/infrastructure projects
+            if pid.startswith("_") or pid.startswith("__"):
+                continue
+            # github-repos is a container — its children are the actual repos
+            if pid == "github-repos":
+                github_repos_dir = Path(os.environ.get("PROJECTS_ROOT", str(Path.home() / "projects"))) / "github-repos"
+                if github_repos_dir.is_dir():
+                    for child in github_repos_dir.iterdir():
+                        if child.is_dir() and not child.name.startswith(".") and not child.name.startswith("00_"):
+                            names.append(child.name)
+                continue
+            names.append(pid)
+        return sorted(set(names))
+    except Exception as e:
+        logger.warning(f"Failed to get tracked projects: {e}")
+        return []
+
+
+def _fetch_github_data() -> Dict:
+    """Fetch GitHub data for tracked projects only (from kanban board)."""
+
+    # 1. Account info
+    user = _gh_json(["api", "/user"])
+    if user is None:
+        return {"error": "gh CLI not available or not authenticated", "cached": False}
+
+    owner = user.get("login", "")
+
+    # 2. Get repo list from kanban board, then fetch details from GitHub
+    tracked_names = _get_tracked_repo_names()
+    if not tracked_names:
+        return {"error": "No tracked projects found in kanban board", "cached": False}
+
+    repos: List[Dict] = []
+    for name in tracked_names:
+        repo_info = _gh_json([
+            "repo", "view", f"{owner}/{name}",
+            "--json", "name,url,pushedAt,defaultBranchRef,isPrivate,description,stargazerCount,forkCount,isArchived",
+        ], timeout=10)
+        if repo_info:
+            repos.append(repo_info)
+        else:
+            logger.info(f"Skipped tracked project '{name}' — not found on GitHub or fetch failed")
+
+    # 3. Open PRs across tracked repos
+    all_prs: List[Dict] = []
+    pr_fields = "title,number,url,author,createdAt,statusCheckRollup,reviewDecision,headRefName,baseRefName,isDraft,repository"
+    for repo in repos:
+        repo_name = repo.get("name", "")
+        if repo.get("isArchived"):
+            continue
+        prs = _gh_json([
+            "pr", "list",
+            "--repo", f"{owner}/{repo_name}",
+            "--json", pr_fields,
+            "--state", "open",
+            "--limit", "50",
+        ], timeout=15)
+        if prs:
+            all_prs.extend(prs)
+
+    # 4. Recent commits (last 7 days) — only from tracked repos
+    seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat() + "Z"
+    recent_commits: List[Dict] = []
+    for repo in repos:
+        pushed = repo.get("pushedAt", "")
+        if pushed and pushed >= seven_days_ago and not repo.get("isArchived"):
+            repo_name = repo.get("name", "")
+            default_branch = (repo.get("defaultBranchRef") or {}).get("name", "main")
+            commits = _gh_json([
+                "api", f"/repos/{owner}/{repo_name}/commits",
+                "-q", ".",
+                "--method", "GET",
+                "-f", f"since={seven_days_ago}",
+                "-f", f"sha={default_branch}",
+                "-f", "per_page=20",
+            ], timeout=15)
+            if commits and isinstance(commits, list):
+                for c in commits[:20]:
+                    recent_commits.append({
+                        "repo": repo_name,
+                        "sha": c.get("sha", "")[:7],
+                        "message": (c.get("commit", {}).get("message") or "").split("\n")[0],
+                        "author": (c.get("commit", {}).get("author") or {}).get("name", ""),
+                        "date": (c.get("commit", {}).get("author") or {}).get("date", ""),
+                        "url": c.get("html_url", ""),
+                    })
+
+    # 5. Workflow runs (CI status) — recent runs across tracked repos
+    workflow_runs: List[Dict] = []
+    for repo in repos:
+        if repo.get("isArchived"):
+            continue
+        repo_name = repo.get("name", "")
+        runs = _gh_json([
+            "api", f"/repos/{owner}/{repo_name}/actions/runs",
+            "-q", ".",
+            "--method", "GET",
+            "-f", "per_page=5",
+        ], timeout=10)
+        if runs and isinstance(runs, dict):
+            for run in (runs.get("workflow_runs") or [])[:5]:
+                workflow_runs.append({
+                    "repo": repo_name,
+                    "name": run.get("name", ""),
+                    "status": run.get("status", ""),
+                    "conclusion": run.get("conclusion"),
+                    "branch": run.get("head_branch", ""),
+                    "created_at": run.get("created_at", ""),
+                    "url": run.get("html_url", ""),
+                })
+
+    # 6. Branch info — only tracked repos
+    branch_info: List[Dict] = []
+    for repo in repos:
+        if repo.get("isArchived"):
+            continue
+        repo_name = repo.get("name", "")
+        branches = _gh_json([
+            "api", f"/repos/{owner}/{repo_name}/branches",
+            "-q", ".",
+            "--method", "GET",
+            "-f", "per_page=100",
+        ], timeout=10)
+        if branches and isinstance(branches, list):
+            for b in branches:
+                branch_info.append({
+                    "repo": repo_name,
+                    "name": b.get("name", ""),
+                    "protected": b.get("protected", False),
+                })
+
+    return {
+        "user": {
+            "login": user.get("login"),
+            "name": user.get("name"),
+            "avatar_url": user.get("avatar_url"),
+            "public_repos": user.get("public_repos"),
+            "private_repos": user.get("total_private_repos"),
+            "followers": user.get("followers"),
+            "following": user.get("following"),
+        },
+        "repos": repos,
+        "tracked_projects": tracked_names,
+        "open_pull_requests": all_prs,
+        "recent_commits": recent_commits,
+        "workflow_runs": workflow_runs,
+        "branches": branch_info,
+        "summary": {
+            "total_repos": len(repos),
+            "tracked_projects": len(tracked_names),
+            "repos_found_on_github": len(repos),
+            "repos_not_on_github": len(tracked_names) - len(repos),
+            "archived_repos": sum(1 for r in repos if r.get("isArchived")),
+            "open_prs": len(all_prs),
+            "draft_prs": sum(1 for p in all_prs if p.get("isDraft")),
+            "recent_commit_count": len(recent_commits),
+            "repos_with_ci": len(set(r["repo"] for r in workflow_runs)),
+            "failing_ci": sum(1 for r in workflow_runs if r.get("conclusion") == "failure"),
+        },
+        "fetched_at": datetime.utcnow().isoformat() + "Z",
+        "cached": False,
+    }
+
+
+@app.get("/api/github")
+async def api_github():
+    """Comprehensive GitHub account data via gh CLI.
+
+    Returns repos, open PRs, recent commits, branches, and CI status.
+    Cached for 5 minutes to avoid hammering the GitHub API.
+    """
+    now = _time()
+    if (_github_cache["data"] is not None
+            and now - _github_cache["timestamp"] < _GITHUB_CACHE_TTL):
+        data = _github_cache["data"].copy()
+        data["cached"] = True
+        return data
+
+    try:
+        data = _fetch_github_data()
+        if "error" not in data:
+            _github_cache["data"] = data
+            _github_cache["timestamp"] = _time()
+        return data
+    except Exception as e:
+        logger.error(f"Error fetching GitHub data: {e}", exc_info=True)
+        return {"error": str(e), "cached": False}
