@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from scripts.config import PROJECTS_BASE_DIR
 from db.schema import init_db, get_db_path
 from db.manager import DatabaseManager, _USE_TURSO
-from discovery.project_scanner import discover_projects, scan_health_parallel
+from discovery.project_scanner import discover_projects, extract_project_metadata, scan_health_parallel
 from discovery.external_resources_parser import parse_external_resources
 from discovery.hygiene_detector import fix_hygiene_issues, detect_hygiene_issues
 from discovery.graph_builder import GraphBuilder
@@ -518,6 +518,106 @@ def refresh(no_graph):
     """Refresh all project metadata."""
     console.print("[bold blue]Refreshing project data...[/bold blue]")
     _scan_impl(no_graph=no_graph)
+
+
+@cli.command()
+@click.argument("project_name")
+@click.option("--no-graph", is_flag=True, help="Skip rebuilding the knowledge graph")
+def sync(project_name, no_graph):
+    """Sync a single project to the database (fast alternative to full scan).
+
+    PROJECT_NAME is the directory name under the projects root.
+    """
+    base_path = Path(PROJECTS_BASE_DIR)
+    project_dir = base_path / project_name
+
+    if not project_dir.exists() or not project_dir.is_dir():
+        console.print(f"[red]Directory not found: {project_dir}[/red]")
+        raise SystemExit(1)
+
+    db_path = get_db_path()
+    if not db_path.exists():
+        console.print("[red]Database not initialized. Run './pt init' first.[/red]")
+        raise SystemExit(1)
+
+    console.print(f"[bold blue]Syncing project: {project_name}...[/bold blue]")
+
+    # 1. Extract metadata (same as full scan)
+    project = extract_project_metadata(project_dir)
+    if not project:
+        console.print(f"[red]Could not extract metadata from {project_dir}[/red]")
+        raise SystemExit(1)
+
+    # 2. Health check
+    health_results = scan_health_parallel([project])
+
+    # 3. Hygiene fixes on TODO.md
+    todo_path = project_dir / "TODO.md"
+    if todo_path.exists():
+        fixes = fix_hygiene_issues(todo_path)
+        if fixes > 0:
+            console.print(f"  [yellow]Hygiene: applied {fixes} auto-fixes to TODO.md[/yellow]")
+            # Re-extract metadata after hygiene fixes
+            project = extract_project_metadata(project_dir)
+
+    # 4. Load external services for this project
+    services_by_project = parse_external_resources()
+
+    # 5. Upsert to database
+    db = DatabaseManager()
+    with db._get_conn() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("BEGIN")
+            db._add_project_with_cursor(
+                cursor=cursor,
+                project_id=project["id"],
+                name=project["name"],
+                path=project["path"],
+                status=project["status"],
+                description=project.get("description"),
+                phase=project.get("phase"),
+                last_modified=project["last_modified"],
+                completion_pct=project.get("completion_pct", 0),
+                is_infrastructure=project.get("is_infrastructure", False),
+                has_index=project.get("has_index", False),
+                index_is_valid=project.get("index_is_valid", False),
+                index_updated_at=project.get("index_updated_at"),
+                project_type=project.get("project_type", "standard"),
+                scaffolding_version=project.get("scaffolding_version"),
+                rules_version=project.get("rules_version"),
+                scaffolding_applied_at=project.get("scaffolding_applied_at"),
+            )
+            db._sync_ai_agents_with_cursor(
+                cursor=cursor, project_id=project["id"],
+                agents=project.get("ai_agents", []),
+            )
+            db._sync_cron_jobs_with_cursor(
+                cursor=cursor, project_id=project["id"],
+                cron_jobs=project.get("cron_jobs", []),
+            )
+            db._sync_services_with_cursor(
+                cursor=cursor, project_id=project["id"],
+                services=services_by_project.get(project["id"], []),
+            )
+            health = health_results.get(project["id"])
+            if health:
+                db._update_health_with_cursor(
+                    cursor=cursor, project_id=project["id"],
+                    score=health["score"], grade=health["grade"],
+                )
+            conn.commit()
+            console.print(f"  [green]✓ {project['name']}[/green]")
+        except Exception as e:
+            conn.rollback()
+            console.print(f"  [red]✗ Failed to sync {project['name']}: {e}[/red]")
+            raise SystemExit(1)
+
+    # 6. Optionally rebuild knowledge graph
+    if not no_graph:
+        rebuild_knowledge_graph()
+
+    console.print(f"\n[bold green]✅ Synced: {project['name']}[/bold green]")
 
 
 @cli.command()
