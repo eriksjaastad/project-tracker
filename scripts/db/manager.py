@@ -311,7 +311,7 @@ class DatabaseManager:
         scaffolding_version: Optional[str] = None,
         rules_version: Optional[str] = None,
         scaffolding_applied_at: Optional[str] = None,
-        machine: Optional[str] = None
+        machine: Optional[str] = None  # Deprecated: machine designation removed (#5366), param kept for API compat
     ) -> None:
         """Add or update a project."""
         with self._get_conn() as conn:
@@ -337,7 +337,6 @@ class DatabaseManager:
                 scaffolding_version=scaffolding_version,
                 rules_version=rules_version,
                 scaffolding_applied_at=scaffolding_applied_at,
-                machine=machine
             )
 
             conn.commit()
@@ -363,7 +362,6 @@ class DatabaseManager:
         scaffolding_version: Optional[str] = None,
         rules_version: Optional[str] = None,
         scaffolding_applied_at: Optional[str] = None,
-        machine: Optional[str] = None
     ) -> None:
         """Add or update a project using an existing cursor."""
         # 🛡️ Preserve created_at, health_score, and health_grade on update
@@ -383,8 +381,8 @@ class DatabaseManager:
             INSERT INTO projects
             (id, name, path, status, description, phase, last_modified, created_at, completion_pct,
              is_infrastructure, has_index, index_is_valid, index_updated_at, health_score, health_grade, project_type,
-             scaffolding_version, rules_version, scaffolding_applied_at, machine)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             scaffolding_version, rules_version, scaffolding_applied_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 path = excluded.path,
@@ -402,11 +400,10 @@ class DatabaseManager:
                 project_type = excluded.project_type,
                 scaffolding_version = excluded.scaffolding_version,
                 rules_version = excluded.rules_version,
-                scaffolding_applied_at = excluded.scaffolding_applied_at,
-                machine = COALESCE(excluded.machine, projects.machine)
+                scaffolding_applied_at = excluded.scaffolding_applied_at
         """, (project_id, name, path, status, description, phase, last_modified, created_at, completion_pct,
               is_infrastructure, has_index, index_is_valid, index_updated_at, final_health_score, final_health_grade, project_type,
-              scaffolding_version, rules_version, scaffolding_applied_at, machine))
+              scaffolding_version, rules_version, scaffolding_applied_at))
     
     def get_project(self, project_id: str) -> Optional[Dict[str, Any]]:
         """Get a single project by ID."""
@@ -446,8 +443,7 @@ class DatabaseManager:
             "name", "path", "status", "phase", "description",
             "completion_pct", "last_modified", "is_infrastructure",
             "has_index", "index_is_valid", "index_updated_at",
-            "health_score", "health_grade", "project_type",
-            "machine"
+            "health_score", "health_grade", "project_type"
         }
         
         # Validate all field names
@@ -841,10 +837,9 @@ class DatabaseManager:
         parent_id: Optional[int] = None,
         blocked_by: Optional[Any] = None,
         sequence_order: Optional[int] = None,
-        machine: Optional[str] = None
     ) -> Dict[str, Any]:
         """Create a new task.
-        
+
         Args:
             text: Task description (1-1000 characters)
             project_id: Project identifier
@@ -856,20 +851,14 @@ class DatabaseManager:
             parent_id: Parent task ID for subtasks (optional)
             blocked_by: JSON string or list of blocking task IDs (optional)
             sequence_order: Ordering hint for subtasks (optional)
-            
+
         Returns:
             Task dictionary with all fields including generated id and timestamps
-            
+
         Raises:
             ValueError: If validation fails (invalid input, secret detected, etc.)
         """
         effective_task_type = task_type or ("agent" if prompt and prompt.strip() else "manual")
-
-        # Inherit machine from project if not specified
-        if machine is None:
-            project = self.get_project(project_id)
-            if project and project.get("machine"):
-                machine = project["machine"]
 
         # Comprehensive validation including secret detection
         is_valid, error_message = validate_task_input(
@@ -878,7 +867,6 @@ class DatabaseManager:
             status=status,
             priority=priority,
             task_type=effective_task_type,
-            machine=machine,
             db_manager=self
         )
         if not is_valid:
@@ -920,10 +908,9 @@ class DatabaseManager:
                     notes,
                     parent_id,
                     blocked_by,
-                    sequence_order,
-                    machine
+                    sequence_order
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 sanitized_text,
                 status,
@@ -939,7 +926,6 @@ class DatabaseManager:
                 parent_id,
                 blocked_by_value,
                 sequence_order,
-                machine
             ))
             
             task_id = cursor.lastrowid
@@ -959,14 +945,12 @@ class DatabaseManager:
         self,
         project_id: Optional[str] = None,
         status: Optional[str] = None,
-        machine: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Get tasks with optional filtering.
 
         Args:
             project_id: Filter by project ID (optional)
             status: Filter by status (optional)
-            machine: Filter by machine designation (optional)
 
         Returns:
             List of task dictionaries
@@ -984,10 +968,6 @@ class DatabaseManager:
             if status:
                 query += " AND status = ?"
                 params.append(status)
-
-            if machine:
-                query += " AND machine = ?"
-                params.append(machine)
 
             query += " ORDER BY CASE priority WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 WHEN 'Low' THEN 3 ELSE 4 END, created_at DESC"
 
@@ -1096,13 +1076,6 @@ class DatabaseManager:
         if "task_type" in updates:
             from scripts.utils.validation import validate_task_type
             is_valid, error_message = validate_task_type(updates["task_type"])
-            if not is_valid:
-                raise ValueError(error_message)
-
-        # Validate machine if provided
-        if "machine" in updates:
-            from scripts.utils.validation import validate_machine
-            is_valid, error_message = validate_machine(updates["machine"])
             if not is_valid:
                 raise ValueError(error_message)
 

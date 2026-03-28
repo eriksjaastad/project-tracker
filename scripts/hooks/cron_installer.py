@@ -28,9 +28,6 @@ SENTINEL = "# pt-calendar-poller"
 LOG_PATH = _ROOT / "data" / "logs" / "poller.log"
 POLLER_SCRIPT = _ROOT / "scripts" / "hooks" / "calendar_poller.py"
 
-# Allowlist used to validate machine before shell interpolation
-_VALID_MACHINES = {"MacBook", "OpenClaw", "Both", "web"}
-
 
 def _get_crontab() -> str:
     try:
@@ -59,22 +56,15 @@ def _set_crontab(content: str) -> None:
 
 def _build_cron_line(
     interval: int,
-    machine: str | None,
     within: int,
 ) -> str:
     """Build the crontab line."""
-    # Validate machine against allowlist before shell interpolation
-    if machine is not None and machine not in _VALID_MACHINES:
-        raise ValueError(
-            f"Invalid machine '{machine}'. Must be one of: {', '.join(sorted(_VALID_MACHINES))}"
-        )
-    machine_flag = f" --machine {machine}" if machine else ""
     # uv run is the ecosystem standard for Python script execution
     script = str(POLLER_SCRIPT)
     log = str(LOG_PATH)
     cmd = (
         f"$HOME/.local/bin/uv run {script}"
-        f"{machine_flag} --within {within} --quiet"
+        f" --within {within} --quiet"
         f" >> {log} 2>&1"
     )
     cron_expr = f"*/{interval} * * * *"
@@ -83,7 +73,6 @@ def _build_cron_line(
 
 def install(
     interval: int = 10,
-    machine: str | None = None,
     within: int = 60,
     dry_run: bool = False,
     remove: bool = False,
@@ -110,7 +99,7 @@ def install(
             "dry_run": dry_run,
         }
 
-    new_line = _build_cron_line(interval, machine, within)
+    new_line = _build_cron_line(interval, within)
 
     # Append the new line
     new_crontab = "".join(cleaned)
@@ -126,7 +115,6 @@ def install(
         "line": new_line,
         "interval_minutes": interval,
         "within_minutes": within,
-        "machine": machine,
         "log_path": str(LOG_PATH),
         "previous_lines_removed": removed_count,
         "dry_run": dry_run,
@@ -137,14 +125,12 @@ if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--interval", type=int, default=10)
-    p.add_argument("--machine", default=None)
     p.add_argument("--within", type=int, default=60)
     p.add_argument("--remove", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()
     result = install(
         interval=a.interval,
-        machine=a.machine,
         within=a.within,
         dry_run=a.dry_run,
         remove=a.remove,
