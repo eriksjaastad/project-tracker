@@ -47,9 +47,8 @@ Good candidates for entries:
 
 ### 2026-03-22: tracker.db → Turso (libsql) for Cross-Machine Shared Kanban
 
-**Context:** tracker.db is local to each machine. Working across laptop and Mac Mini
-means the Kanban state is fragmented — changes made on one machine are invisible on
-the other.
+**Context:** tracker.db was local to each machine. Turso provides a cloud-hosted
+SQLite database accessible from anywhere.
 
 **Decision:** Migrate tracker.db to Turso (libsql cloud) as the "open-kanban" database.
 The `pt` CLI and dashboard use `DatabaseManager._get_conn()`, which now uses libsql

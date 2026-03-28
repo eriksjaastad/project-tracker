@@ -16,17 +16,6 @@ from scripts.pt import _notify_inbox
 class TestNotifyInbox:
     """Tests for _notify_inbox()."""
 
-    def test_skips_on_mac_mini(self):
-        """Should not write anything on eriks-mac-mini."""
-        with patch("socket.gethostname", return_value="eriks-mac-mini.local"):
-            with tempfile.TemporaryDirectory() as tmpdir:
-                inbox = Path(tmpdir) / ".claude" / "inbox" / "test-project"
-                inbox.mkdir(parents=True)
-                with patch("os.path.expanduser", return_value=tmpdir):
-                    _notify_inbox(1, "test-project", "Backlog", "Test task")
-                files = list(inbox.glob("*.md"))
-                assert len(files) == 0
-
     def test_skips_when_no_inbox_dir(self):
         """Should not create inbox dir — only writes if it exists."""
         with patch("socket.gethostname", return_value="MacBook-Pro.local"):
