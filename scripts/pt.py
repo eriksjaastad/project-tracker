@@ -2067,6 +2067,7 @@ def _get_merged_branches(repo_root: Path) -> set:
             ["git", "branch", "--merged", "main"],
             cwd=str(repo_root),
             capture_output=True, text=True, timeout=10,
+            check=True,
         )
         branches = set()
         for line in result.stdout.splitlines():
@@ -2074,7 +2075,11 @@ def _get_merged_branches(repo_root: Path) -> set:
             if name and name != "main":
                 branches.add(name)
         return branches
-    except Exception:
+    except subprocess.CalledProcessError as e:
+        console.print(f"[yellow]Warning: Failed to check merged branches: {e.stderr.strip()}[/yellow]")
+        return set()
+    except subprocess.TimeoutExpired:
+        console.print("[yellow]Warning: Timed out checking merged branches[/yellow]")
         return set()
 
 
@@ -2085,6 +2090,7 @@ def _worktree_branch(repo_root: Path, wt_path: Path) -> Optional[str]:
             ["git", "worktree", "list", "--porcelain"],
             cwd=str(repo_root),
             capture_output=True, text=True, timeout=10,
+            check=True,
         )
         # Parse porcelain output: blocks separated by blank lines
         current_path = None
@@ -2097,7 +2103,11 @@ def _worktree_branch(repo_root: Path, wt_path: Path) -> Optional[str]:
                     ref = line[len("branch "):]
                     return ref.replace("refs/heads/", "")
         return None
-    except Exception:
+    except subprocess.CalledProcessError as e:
+        console.print(f"[yellow]Warning: Failed to determine branch for {wt_path.name}: {e.stderr.strip()}[/yellow]")
+        return None
+    except subprocess.TimeoutExpired:
+        console.print(f"[yellow]Warning: Timed out determining branch for {wt_path.name}[/yellow]")
         return None
 
 
@@ -2111,21 +2121,27 @@ def _remove_worktree(repo_root: Path, wt_path: Path, force: bool = False) -> boo
             cmd, cwd=str(repo_root),
             capture_output=True, text=True, timeout=30,
         )
-        return result.returncode == 0
-    except Exception:
+        if result.returncode != 0:
+            console.print(f"[yellow]Warning: git worktree remove failed for {wt_path.name}: {result.stderr.strip()}[/yellow]")
+            return False
+        return True
+    except subprocess.TimeoutExpired:
+        console.print(f"[yellow]Warning: Timed out removing worktree {wt_path.name}[/yellow]")
         return False
 
 
 def _delete_local_branch(repo_root: Path, branch: str) -> None:
     """Delete a local branch (merged only, safe -d flag)."""
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["git", "branch", "-d", branch],
             cwd=str(repo_root),
             capture_output=True, text=True, timeout=10,
         )
-    except Exception:
-        pass
+        if result.returncode != 0:
+            console.print(f"[yellow]Warning: Failed to delete branch {branch}: {result.stderr.strip()}[/yellow]")
+    except subprocess.TimeoutExpired:
+        console.print(f"[yellow]Warning: Timed out deleting branch {branch}[/yellow]")
 
 
 # =============================================================================
