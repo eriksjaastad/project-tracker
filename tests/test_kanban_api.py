@@ -27,7 +27,6 @@ from fastapi import FastAPI, HTTPException
 from scripts.db.manager import DatabaseManager
 from scripts.db.schema import create_database
 from scripts.utils.validation import (
-    EXCLUDED_CARD_PROJECT_IDS,
     get_blocked_card_project_ids,
     is_card_creation_allowed,
     validate_task_input,
@@ -44,9 +43,8 @@ TEST_PROJECT_IDS = [
     "test-project-1",
     "test-project-2",
 ]
-CARD_ELIGIBLE_TEST_PROJECT_IDS = [
-    project_id for project_id in TEST_PROJECT_IDS if project_id not in EXCLUDED_CARD_PROJECT_IDS
-]
+# All projects are card-eligible now (no machine-based blocking)
+CARD_ELIGIBLE_TEST_PROJECT_IDS = TEST_PROJECT_IDS
 
 
 def _setup_fresh_database():
@@ -293,48 +291,29 @@ def test_property_2_api_filtering_accuracy(num_tasks, filter_project_id, filter_
         db_path.unlink()
 
 
-def test_validate_task_input_rejects_excluded_projects():
+def test_no_projects_blocked_on_macbook():
+    """With Mac Mini disconnected, no projects are blocked on the MacBook."""
+    blocked_ids = get_blocked_card_project_ids()
+    assert blocked_ids == []
+    assert is_card_creation_allowed("project-tracker") is True
+    assert is_card_creation_allowed("smart-invoice-workflow") is True
+
+
+def test_card_creation_allowed_for_all_projects():
+    """All projects accept card creation now that machine blocking is removed."""
     db_path, db_manager, _ = _setup_fresh_database()
 
     try:
         is_valid, error = validate_task_input(
-            text="Do not allow this card",
+            text="Cards should work everywhere",
             project_id="project-tracker",
             status="Backlog",
             priority=None,
             db_manager=db_manager,
         )
 
-        assert not is_valid
-        assert error == "Cards cannot be created for project 'project-tracker'"
-        assert "project-tracker" in EXCLUDED_CARD_PROJECT_IDS
-    finally:
-        db_path.unlink()
-
-
-def test_blocked_card_policy_helpers():
-    blocked_ids = get_blocked_card_project_ids()
-
-    assert blocked_ids == sorted(EXCLUDED_CARD_PROJECT_IDS)
-    assert is_card_creation_allowed("smart-invoice-workflow") is True
-    assert is_card_creation_allowed("project-tracker") is False
-
-
-def test_api_rejects_card_creation_for_excluded_project():
-    db_path, db_manager, _ = _setup_fresh_database()
-
-    try:
-        app = _create_test_app(db_manager)
-        client = TestClient(app)
-
-        response = client.post("/api/tasks", json={
-            "text": "Should be rejected",
-            "project_id": "project-tracker",
-            "status": "Backlog",
-        })
-
-        assert response.status_code == 400
-        assert response.json()["detail"] == "Cards cannot be created for project 'project-tracker'"
+        assert is_valid
+        assert error is None
     finally:
         db_path.unlink()
 
