@@ -2493,7 +2493,7 @@ _github_cache: Dict = {"data": None, "timestamp": 0}
 _GITHUB_CACHE_TTL = 300  # 5 minutes
 
 
-_GH_BIN = shutil.which("gh") or "/opt/homebrew/bin/gh"
+_GH_BIN = shutil.which("gh") or os.environ.get("GH_PATH", "gh")
 
 
 def _gh_json(args: List[str], timeout: int = 30) -> any:
@@ -2573,6 +2573,8 @@ def _fetch_github_data() -> Dict:
         ], timeout=10)
         if repo_info:
             repos.append(repo_info)
+        else:
+            logger.info(f"Skipped tracked project '{name}' — not found on GitHub or fetch failed")
 
     # 3. Open PRs across tracked repos
     all_prs: List[Dict] = []
