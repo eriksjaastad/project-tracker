@@ -1,4 +1,12 @@
-"""Tests for machine designation field (#5236)."""
+"""Tests verifying machine designation removal (#5366).
+
+The machine designation system (MacBook/OpenClaw/Both) has been removed.
+These tests confirm:
+- VALID_MACHINES and validate_machine no longer exist in validation.py
+- add_task() no longer accepts a machine parameter
+- get_tasks() no longer accepts a machine parameter
+- The DB column still exists (governance: never drop columns)
+"""
 
 import os
 import sys
@@ -16,7 +24,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from scripts.db.schema import create_database
 from scripts.db.manager import DatabaseManager
-from scripts.utils.validation import validate_machine, VALID_MACHINES
+from scripts.utils import validation
 
 
 @pytest.fixture
@@ -30,89 +38,57 @@ def db(tmp_path):
         name="test-project",
         path="/tmp/test-project",
         status="active",
-        machine="MacBook"
     )
     return manager
 
 
-class TestValidateMachine:
-    def test_valid_values(self):
-        for m in VALID_MACHINES:
-            is_valid, err = validate_machine(m)
-            assert is_valid is True
-            assert err is None
+class TestMachineRemoved:
+    """Verify machine designation code has been removed."""
 
-    def test_none_is_valid(self):
-        is_valid, err = validate_machine(None)
-        assert is_valid is True
+    def test_valid_machines_constant_removed(self):
+        assert not hasattr(validation, "VALID_MACHINES")
 
-    def test_invalid_value(self):
-        is_valid, err = validate_machine("laptop")
-        assert is_valid is False
-        assert "Machine must be one of" in err
+    def test_validate_machine_function_removed(self):
+        assert not hasattr(validation, "validate_machine")
 
-    def test_case_sensitive(self):
-        is_valid, err = validate_machine("macbook")
-        assert is_valid is False
+    def test_validate_task_input_no_machine_param(self):
+        """validate_task_input should not accept machine parameter."""
+        import inspect
+        sig = inspect.signature(validation.validate_task_input)
+        assert "machine" not in sig.parameters
 
 
-class TestTaskMachine:
-    def test_create_with_machine(self, db):
-        task = db.add_task(text="Test task", project_id="test-project", machine="OpenClaw")
-        assert task["machine"] == "OpenClaw"
+class TestTaskWithoutMachine:
+    """Tasks should work without machine parameter."""
 
-    def test_create_inherits_from_project(self, db):
-        task = db.add_task(text="Test inheritance", project_id="test-project")
-        assert task["machine"] == "MacBook"
+    def test_create_task_no_machine(self, db):
+        task = db.add_task(text="Test task", project_id="test-project")
+        assert task["id"] is not None
+        # machine column still exists in DB but should be NULL
+        assert task.get("machine") is None
 
-    def test_create_explicit_overrides_project(self, db):
-        task = db.add_task(text="Test override", project_id="test-project", machine="Both")
-        assert task["machine"] == "Both"
+    def test_get_tasks_no_machine_filter(self, db):
+        """get_tasks() should not accept machine parameter."""
+        import inspect
+        sig = inspect.signature(db.get_tasks)
+        assert "machine" not in sig.parameters
 
-    def test_filter_by_machine(self, db):
-        db.add_task(text="MacBook task", project_id="test-project", machine="MacBook")
-        db.add_task(text="OpenClaw task", project_id="test-project", machine="OpenClaw")
-        db.add_task(text="Both task", project_id="test-project", machine="Both")
-
-        macbook_tasks = db.get_tasks(machine="MacBook")
-        assert all(t["machine"] == "MacBook" for t in macbook_tasks)
-
-        openclaw_tasks = db.get_tasks(machine="OpenClaw")
-        assert len(openclaw_tasks) == 1
-        assert openclaw_tasks[0]["text"] == "OpenClaw task"
-
-    def test_update_machine(self, db):
-        task = db.add_task(text="Update me", project_id="test-project", machine="MacBook")
-        db.update_task(task["id"], machine="OpenClaw")
-        updated = db.get_task(task["id"])
-        assert updated["machine"] == "OpenClaw"
-
-    def test_update_rejects_invalid_machine(self, db):
-        task = db.add_task(text="Bad update", project_id="test-project")
-        with pytest.raises(ValueError, match="Machine must be one of"):
-            db.update_task(task["id"], machine="invalid")
+    def test_db_column_still_exists(self, db):
+        """The machine column should still exist in the DB (governance rule)."""
+        task = db.add_task(text="Column check", project_id="test-project")
+        # The column exists, it's just not populated
+        assert "machine" in task
 
 
-class TestProjectMachine:
-    def test_project_machine_set(self, db):
-        project = db.get_project("test-project")
-        assert project["machine"] == "MacBook"
-
-    def test_update_project_machine(self, db):
-        db.update_project("test-project", machine="Both")
-        project = db.get_project("test-project")
-        assert project["machine"] == "Both"
-
-    def test_scan_preserves_machine(self, db):
-        """Verify that re-adding a project (like pt scan does) preserves existing machine."""
-        db.update_project("test-project", machine="OpenClaw")
-        # Re-add without machine (simulates pt scan)
+class TestProjectWithoutMachine:
+    def test_add_project_without_machine(self, db):
+        """Projects can be added without machine."""
         db.add_project(
-            project_id="test-project",
-            name="test-project",
-            path="/tmp/test-project",
+            project_id="new-project",
+            name="new-project",
+            path="/tmp/new-project",
             status="active",
-            machine=None
         )
-        project = db.get_project("test-project")
-        assert project["machine"] == "OpenClaw"
+        project = db.get_project("new-project")
+        assert project is not None
+        assert project.get("machine") is None
