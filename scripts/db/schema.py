@@ -461,7 +461,7 @@ def ensure_schema(cursor: Any) -> None:
 
     # Migration: add machine designation field (#5236)
     try:
-        cursor.execute("ALTER TABLE projects ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both
+        cursor.execute("ALTER TABLE projects ADD COLUMN machine TEXT")  # deprecated: machine designation removed
     except Exception:
         pass
 
@@ -482,7 +482,7 @@ def ensure_schema(cursor: Any) -> None:
     """)
     # Migration: add machine designation to cron_jobs (must run AFTER CREATE TABLE above)
     try:
-        cursor.execute("ALTER TABLE cron_jobs ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both, web
+        cursor.execute("ALTER TABLE cron_jobs ADD COLUMN machine TEXT")  # deprecated: machine designation removed, web
     except Exception:
         pass  # Column already exists
     
@@ -661,7 +661,7 @@ def ensure_schema(cursor: Any) -> None:
 
     # Migration: add machine designation field (#5236)
     try:
-        cursor.execute("ALTER TABLE tasks ADD COLUMN machine TEXT")  # MacBook, OpenClaw, Both
+        cursor.execute("ALTER TABLE tasks ADD COLUMN machine TEXT")  # deprecated: machine designation removed
     except Exception:
         pass
     
