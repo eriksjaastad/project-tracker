@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from scripts.config import PROJECTS_BASE_DIR
 from db.schema import init_db, get_db_path
-from db.manager import DatabaseManager
+from db.manager import DatabaseManager, _USE_TURSO
 from discovery.project_scanner import discover_projects, scan_health_parallel
 from discovery.external_resources_parser import parse_external_resources
 from discovery.hygiene_detector import fix_hygiene_issues, detect_hygiene_issues
@@ -315,14 +315,16 @@ def _has_complete_prompt(prompt):
 def _display_tasks(task_list, project=None, json_output=False, db=None):
     import json as json_lib
     if json_output:
-        print(json_lib.dumps({"tasks": task_list, "total": len(task_list)}, indent=2))
+        backend = "turso" if _USE_TURSO else "local"
+        print(json_lib.dumps({"tasks": task_list, "total": len(task_list), "backend": backend}, indent=2))
         return
     if not task_list:
         filter_msg = f" for project '{project}'" if project else ""
         print(f"No tasks found{filter_msg}.")
         return
+    backend_tag = "turso" if _USE_TURSO else "local"
     title = f"Tasks - {project}" if project else "Tasks"
-    print(f"{title}\n")
+    print(f"{title} [{backend_tag}]\n")
     for task in task_list:
         priority = task.get("priority") or "-"
         status = task["status"]
