@@ -38,7 +38,6 @@ import argparse
 import json
 import logging
 import os
-import socket
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -64,19 +63,6 @@ NOTIFICATIONS_LOG = DATA_DIR / "calendar_notifications.ndjson"
 POLLER_LOG = LOG_DIR / "calendar_poller.ndjson"
 
 
-def _detect_machine() -> str:
-    """Best-effort machine name from hostname or env."""
-    override = os.getenv("PT_MACHINE")
-    if override:
-        return override
-    hostname = socket.gethostname().lower()
-    if "mini" in hostname or "openclaw" in hostname:
-        return "OpenClaw"
-    if "macbook" in hostname or "mac-book" in hostname:
-        return "MacBook"
-    return hostname
-
-
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -87,7 +73,7 @@ def _append_ndjson(path: Path, record: dict) -> None:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def _write_brain(event: dict, machine: str) -> bool:
+def _write_brain(event: dict) -> bool:
     """Write a memory to open-brain via the brain CLI or MCP subprocess.
 
     Strategy:
@@ -97,17 +83,10 @@ def _write_brain(event: dict, machine: str) -> bool:
 
     Returns True if an external write succeeded, False otherwise (graceful degradation).
     """
-    # Derive agent_family from machine rather than hardcoding 'claude'
-    machine_to_family = {
-        "MacBook": "claude",
-        "OpenClaw": "codex",
-        "Both": "claude",
-        "web": "claude",
-    }
-    agent_family = machine_to_family.get(machine, "claude")
+    agent_family = "claude"
 
     content = (
-        f"\U0001f4c5 Calendar event fired on {machine}: "
+        f"\U0001f4c5 Calendar event fired: "
         f"{event['title']} ({event['event_type']}) \u2014 "
         f"{event['event_date']}"
         + (f" at {event['event_time']}" if event.get("event_time") else "")
@@ -216,7 +195,6 @@ def _run_agent_prompt(event: dict, dry_run: bool) -> dict:
 
 def poll(
     *,
-    machine: str | None = None,
     within_minutes: int = 60,
     dry_run: bool = False,
     quiet: bool = False,
@@ -226,12 +204,10 @@ def poll(
 
     This function is importable from pt.py and called by the CLI command.
     """
-    effective_machine = machine or _detect_machine()
     started_at = _now_iso()
 
     results = {
         "started_at": started_at,
-        "machine": effective_machine,
         "within_minutes": within_minutes,
         "dry_run": dry_run,
         "events_fired": [],
@@ -244,7 +220,6 @@ def poll(
         cm.ensure_tables()
         events = cm.get_upcoming_reminders(
             within_minutes=within_minutes,
-            machine=effective_machine,
         )
     except Exception as exc:
         msg = f"CalendarManager error: {exc}"
@@ -262,7 +237,6 @@ def poll(
             "event_type": event["event_type"],
             "event_date": event["event_date"],
             "event_time": event.get("event_time"),
-            "machine": event.get("machine"),
             "project_id": event.get("project_id"),
             "has_prompt": bool(event.get("prompt")),
             "brain_written": False,
@@ -271,14 +245,13 @@ def poll(
         }
 
         # 1. Write to open-brain / fallback NDJSON
-        brain_ok = _write_brain(event, effective_machine)
+        brain_ok = _write_brain(event)
         event_result["brain_written"] = brain_ok
 
         if not brain_ok:
             # Fallback: local notification log
             notification = {
                 "timestamp": _now_iso(),
-                "machine": effective_machine,
                 "event_id": event["id"],
                 "event_title": event["title"],
                 "event_type": event["event_type"],
@@ -339,9 +312,8 @@ def poll(
 
 def _print_summary(results: dict) -> None:
     total = results["events_total"]
-    machine = results["machine"]
     dry = " [DRY RUN]" if results.get("dry_run") else ""
-    print(f"\n📅 Calendar poller — {machine}{dry}")
+    print(f"\n📅 Calendar poller{dry}")
     print(f"   Window: {results['within_minutes']} min  |  Events fired: {total}")
 
     if total == 0:
@@ -373,11 +345,6 @@ def _print_summary(results: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Poll calendar events and trigger agent hooks."
-    )
-    parser.add_argument(
-        "--machine",
-        default=None,
-        help="Machine to filter events for (default: auto-detect from hostname or PT_MACHINE env).",
     )
     parser.add_argument(
         "--within",
@@ -415,7 +382,6 @@ def main() -> int:
     )
 
     results = poll(
-        machine=args.machine,
         within_minutes=args.within,
         dry_run=args.dry_run,
         quiet=args.quiet,

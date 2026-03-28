@@ -339,12 +339,10 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
             is_blocked, blocking_ids = db.is_blocked(task_id)
             if is_blocked:
                 blocked_marker = f"[B:{','.join(str(i) for i in blocking_ids)}] "
-        machine_str = task.get("machine") or ""
-        machine_marker = f" | {machine_str}" if machine_str else ""
         if project:
-            print(f"#{task_id} {prompt_marker}{blocked_marker}| {status} | {priority}{machine_marker} | {task_text}")
+            print(f"#{task_id} {prompt_marker}{blocked_marker}| {status} | {priority} | {task_text}")
         else:
-            print(f"#{task_id} {prompt_marker}{blocked_marker}| {task['project_id']} | {status} | {priority}{machine_marker} | {task_text}")
+            print(f"#{task_id} {prompt_marker}{blocked_marker}| {task['project_id']} | {status} | {priority} | {task_text}")
     status_counts = {}
     for task in task_list:
         status_counts[task["status"]] = status_counts.get(task["status"], 0) + 1
@@ -807,22 +805,6 @@ def remove_project(project):
     console.print(f"[green]✅ Removed '{target['name']}' from the database.[/green]")
 
 
-@cli.command(name="set-machine")
-@click.argument("project")
-@click.argument("machine_value", type=click.Choice(["MacBook", "OpenClaw", "Both", "none"], case_sensitive=True))
-def set_machine(project, machine_value):
-    """Set the default machine for a project."""
-    db = DatabaseManager()
-    project_id = _resolve_project_id(db, project)
-    if not project_id:
-        console.print(f"[red]Project '{project}' not found[/red]"); return
-    value = None if machine_value == "none" else machine_value
-    db.update_project(project_id, machine=value)
-    if value:
-        console.print(f"[green]Set {project} machine to {value}[/green]")
-    else:
-        console.print(f"[green]Cleared machine designation for {project}[/green]")
-
 
 @cli.command()
 @click.pass_context
@@ -843,8 +825,7 @@ def help(ctx):
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
 @click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)")
-@click.option("-m", "--machine", default=None, help="Filter by machine: MacBook, OpenClaw, Both")
-def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready, machine):
+def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready):
     """Manage Kanban board tasks.
 
     \b
@@ -874,7 +855,7 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
         if project_id:
             detected = db.get_project(project_id)
             project_label = detected["name"] if detected else None
-    task_list = db.get_tasks(project_id=project_id, status=status, machine=machine)
+    task_list = db.get_tasks(project_id=project_id, status=status)
     if not show_all and not status:
         task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
     if needs_prompt:
@@ -892,8 +873,7 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
 @click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts")
-@click.option("-m", "--machine", default=None, help="Filter by machine: MacBook, OpenClaw, Both")
-def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready, machine):
+def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready):
     """List tasks from the Kanban board."""
     db = DatabaseManager()
     if project:
@@ -907,7 +887,7 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
         if project_id:
             detected = db.get_project(project_id)
             project_label = detected["name"] if detected else None
-    task_list = db.get_tasks(project_id=project_id, status=status, machine=machine)
+    task_list = db.get_tasks(project_id=project_id, status=status)
     if not show_all and not status:
         task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
     if needs_prompt:
@@ -949,8 +929,7 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
 @click.option("-d", "--description", default=None, help="Rich description / acceptance criteria (stored in notes field)")
 @click.option("--parent", type=int, default=None, help="Parent task ID (creates subtask)")
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs that block this task")
-@click.option("-m", "--machine", default=None, help="Machine: MacBook, OpenClaw, Both")
-def tasks_create(text, project, status, priority, prompt, description, parent, blocked_by, machine):
+def tasks_create(text, project, status, priority, prompt, description, parent, blocked_by):
     """Create a new task.
 
     Auto-detects project from current directory.
@@ -971,11 +950,6 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
         console.print(f"[red]Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}[/red]"); return
     if priority and priority not in ["Critical", "High", "Medium", "Low"]:
         console.print(f"[red]Invalid priority '{priority}'. Must be one of: Critical, High, Medium, Low[/red]"); return
-    if machine:
-        from scripts.utils.validation import validate_machine
-        is_valid, err = validate_machine(machine)
-        if not is_valid:
-            console.print(f"[red]{err}[/red]"); return
     blocked_by_json = None
     if blocked_by:
         try:
@@ -987,7 +961,7 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
     try:
         final_prompt = prompt
         if prompt: final_prompt = prompt.rstrip() + WORKFLOW_FOOTER
-        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, parent_id=parent, blocked_by=blocked_by_json, notes=description, machine=machine)
+        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, parent_id=parent, blocked_by=blocked_by_json, notes=description)
         msg = f"[green]Created task #{task['id']}: {text[:50]}{'...' if len(text) > 50 else ''}[/green]"
         if description: msg += f" [dim](+ description)[/dim]"
         if parent: msg += f" [dim](subtask of #{parent})[/dim]"
@@ -1015,8 +989,7 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
 @click.option("--review-comment", default=None, help="Reviewer feedback")
 @click.option("--notes", default=None, help="Internal notes/comments")
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs (empty string clears)")
-@click.option("-m", "--machine", default=None, help="Machine: MacBook, OpenClaw, Both")
-def tasks_update(task_id, status, text, priority, prompt, review_comment, notes, blocked_by, machine):
+def tasks_update(task_id, status, text, priority, prompt, review_comment, notes, blocked_by):
     """Update an existing task."""
     import json as json_lib
     db = DatabaseManager()
@@ -1034,12 +1007,6 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes,
     if prompt: updates["prompt"] = prompt
     if review_comment is not None: updates["review_comment"] = review_comment
     if notes is not None: updates["notes"] = notes
-    if machine:
-        from scripts.utils.validation import validate_machine
-        is_valid, err = validate_machine(machine)
-        if not is_valid:
-            console.print(f"[red]{err}[/red]"); return
-        updates["machine"] = machine
     if blocked_by is not None:
         if blocked_by == "": updates["blocked_by"] = None
         else:
@@ -1473,17 +1440,15 @@ def _display_events(events, json_output=False, cron_jobs=None):
     if events:
         for ev in events:
             time_str = f" {ev['event_time']}" if ev.get("event_time") else ""
-            machine_str = f" | {ev['machine']}" if ev.get("machine") else ""
             project_str = f" | {ev['project_id']}" if ev.get("project_id") else ""
             prompt_marker = " [prompt]" if ev.get("prompt") else ""
-            print(f"#{ev['id']} | {ev['event_date']}{time_str} | {ev['event_type']} | {ev['status']}{machine_str}{project_str}{prompt_marker} | {ev['title']}")
+            print(f"#{ev['id']} | {ev['event_date']}{time_str} | {ev['event_type']} | {ev['status']}{project_str}{prompt_marker} | {ev['title']}")
         print(f"\nEvents: {len(events)}")
     if cron_jobs:
         print(f"\n── Cron Jobs ──")
         for cj in cron_jobs:
-            machine_str = f" | {cj['machine']}" if cj.get("machine") else " | machine:?"
             desc_str = f" | {cj['description']}" if cj.get("description") else ""
-            print(f"  cron/{cj['id']} | {cj['schedule']}{machine_str} | {cj['project_id']}{desc_str} | {cj['command']}")
+            print(f"  cron/{cj['id']} | {cj['schedule']} | {cj['project_id']}{desc_str} | {cj['command']}")
         print(f"\nCron jobs: {len(cron_jobs)}")
 
 
@@ -1491,11 +1456,10 @@ def _display_events(events, json_output=False, cron_jobs=None):
 @click.pass_context
 @click.option("--days", default=7, type=int, help="Days ahead to show (default: 7)")
 @click.option("-p", "--project", default=None, help="Filter by project")
-@click.option("-m", "--machine", default=None, help="Filter by machine: MacBook, OpenClaw, Both")
 @click.option("-t", "--type", "event_type", default=None, help="Filter by type: reminder, deadline, milestone, meeting")
 @click.option("--all", "show_all", is_flag=True, help="Show all events (no date window)")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def calendar_group(ctx, days, project, machine, event_type, show_all, json_output):
+def calendar_group(ctx, days, project, event_type, show_all, json_output):
     """Manage the AI-first calendar.
 
     \b
@@ -1503,7 +1467,6 @@ def calendar_group(ctx, days, project, machine, event_type, show_all, json_outpu
         ./pt calendar                        # Upcoming 7 days
         ./pt calendar --days 30              # Next 30 days
         ./pt calendar -p ai-memory-replay    # Filter by project
-        ./pt calendar --machine MacBook      # Filter by machine
         ./pt calendar add "Sprint review" --date 2026-03-28
         ./pt calendar show 1
         ./pt calendar remind --json          # For cron agent polling
@@ -1516,46 +1479,42 @@ def calendar_group(ctx, days, project, machine, event_type, show_all, json_outpu
     events = cm.get_events(
         days=days,
         project_id=project_id,
-        machine=machine,
         event_type=event_type,
         include_all=show_all,
     )
-    cron_jobs = cm.get_cron_jobs(project_id=project_id, machine=machine)
+    cron_jobs = cm.get_cron_jobs(project_id=project_id)
     _display_events(events, json_output=json_output, cron_jobs=cron_jobs)
 
 
 @calendar_group.command(name="list")
 @click.option("--days", default=7, type=int, help="Days ahead to show (default: 7)")
 @click.option("-p", "--project", default=None, help="Filter by project")
-@click.option("-m", "--machine", default=None, help="Filter by machine")
 @click.option("-t", "--type", "event_type", default=None, help="Filter by event type")
 @click.option("--all", "show_all", is_flag=True, help="Show all events ignoring date window")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def calendar_list(days, project, machine, event_type, show_all, json_output):
+def calendar_list(days, project, event_type, show_all, json_output):
     """List upcoming calendar events and active cron jobs."""
     db = DatabaseManager()
     project_id = _resolve_project_id(db, project) if project else None
     cm = _get_calendar_manager()
     events = cm.get_events(
-        days=days, project_id=project_id, machine=machine,
+        days=days, project_id=project_id,
         event_type=event_type, include_all=show_all,
     )
-    cron_jobs = cm.get_cron_jobs(project_id=project_id, machine=machine)
+    cron_jobs = cm.get_cron_jobs(project_id=project_id)
     _display_events(events, json_output=json_output, cron_jobs=cron_jobs)
 
 
 @calendar_group.command(name="crons")
 @click.option("-p", "--project", default=None, help="Filter by project")
-@click.option("-m", "--machine", default=None, help="Filter by machine: MacBook, OpenClaw, Both, web")
 @click.option("--all", "show_all", is_flag=True, help="Include inactive cron jobs")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def calendar_crons(project, machine, show_all, json_output):
-    """List all cron jobs with their machine designations.
+def calendar_crons(project, show_all, json_output):
+    """List all cron jobs.
 
     \b
     Examples:
         ./pt calendar crons
-        ./pt calendar crons --machine MacBook
         ./pt calendar crons -p project-tracker --json
     """
     import json as json_lib
@@ -1563,7 +1522,7 @@ def calendar_crons(project, machine, show_all, json_output):
     project_id = _resolve_project_id(db, project) if project else None
     cm = _get_calendar_manager()
     cron_jobs = cm.get_cron_jobs(
-        project_id=project_id, machine=machine, active_only=not show_all
+        project_id=project_id, active_only=not show_all
     )
     if json_output:
         print(json_lib.dumps({"cron_jobs": cron_jobs, "total": len(cron_jobs)}, indent=2))
@@ -1573,10 +1532,9 @@ def calendar_crons(project, machine, show_all, json_output):
         return
     print("Cron Jobs\n")
     for cj in cron_jobs:
-        machine_str = f" | {cj['machine']}" if cj.get("machine") else " | machine:?"
         desc_str = f" | {cj['description']}" if cj.get("description") else ""
         active_str = "" if cj.get("is_active", 1) else " [inactive]"
-        print(f"  cron/{cj['id']} | {cj['schedule']}{machine_str} | {cj['project_id']}{desc_str}{active_str}")
+        print(f"  cron/{cj['id']} | {cj['schedule']} | {cj['project_id']}{desc_str}{active_str}")
         print(f"    {cj['command']}")
     print(f"\nTotal: {len(cron_jobs)} cron job(s)")
 
@@ -1586,18 +1544,15 @@ def calendar_crons(project, machine, show_all, json_output):
 @click.argument("schedule")
 @click.argument("command")
 @click.option("--description", default="", help="What this cron job does")
-@click.option("-m", "--machine", default=None,
-              type=click.Choice(["MacBook", "OpenClaw", "Both", "web"]),
-              help="Which machine runs this job")
-def calendar_add_cron(project, schedule, command, description, machine):
-    """Add a cron job from the calendar (with machine designation).
+def calendar_add_cron(project, schedule, command, description):
+    """Add a cron job from the calendar.
 
     \b
     Examples:
         ./pt calendar add-cron project-tracker "*/15 * * * *" "./pt calendar remind --json" \\
-            --machine MacBook --description "Agent reminder poller"
+            --description "Agent reminder poller"
         ./pt calendar add-cron ai-memory-replay "0 9 * * 1" "bash scripts/render_replay.sh" \\
-            --machine MacBook --description "Weekly brain replay render"
+            --description "Weekly brain replay render"
     """
     from datetime import datetime, timezone as _tz
     db = DatabaseManager()
@@ -1609,15 +1564,14 @@ def calendar_add_cron(project, schedule, command, description, machine):
     # Insert directly so we can capture lastrowid atomically — avoids duplicate-command race
     with cm._conn() as conn:
         cursor = conn.execute(
-            """INSERT INTO cron_jobs (project_id, schedule, command, description, machine, is_active)
-               VALUES (?, ?, ?, ?, ?, 1)""",
-            (project_id, schedule, command, description or None, machine),
+            """INSERT INTO cron_jobs (project_id, schedule, command, description, is_active)
+               VALUES (?, ?, ?, ?, 1)""",
+            (project_id, schedule, command, description or None),
         )
         conn.commit()
         new_id = cursor.lastrowid
 
-    machine_note = f" on {machine}" if machine else ""
-    console.print(f"[green]✅ Added cron job #{new_id} to {project}{machine_note}[/green]")
+    console.print(f"[green]✅ Added cron job #{new_id} to {project}[/green]")
     console.print(f"   Schedule: {schedule}")
     console.print(f"   Command:  {command}")
 
@@ -1630,7 +1584,6 @@ def calendar_add_cron(project, schedule, command, description, machine):
               type=click.Choice(["reminder", "deadline", "milestone", "meeting", "recurring"]),
               help="Event type (default: reminder)")
 @click.option("-p", "--project", default=None, help="Project name or ID")
-@click.option("-m", "--machine", default=None, help="Machine: MacBook, OpenClaw, Both")
 @click.option("--prompt", default=None, help="Agent instructions when event fires")
 @click.option("--description", default=None, help="Human-readable description")
 @click.option("--notify", "notify_before_minutes", default=60, type=int,
@@ -1639,7 +1592,7 @@ def calendar_add_cron(project, schedule, command, description, machine):
               type=click.Choice(["daily", "weekly", "monthly"]),
               help="Recurrence pattern")
 @click.option("--json", "json_output", is_flag=True, help="Output new event as JSON")
-def calendar_add(title, event_date, event_time, event_type, project, machine,
+def calendar_add(title, event_date, event_time, event_type, project,
                  prompt, description, notify_before_minutes, recurrence, json_output):
     """Add a calendar event.
 
@@ -1647,7 +1600,7 @@ def calendar_add(title, event_date, event_time, event_type, project, machine,
     Examples:
         ./pt calendar add "Ship v2" --date 2026-03-28 --type milestone
         ./pt calendar add "Weekly review" --date 2026-03-25 --time 10:00 --recurrence weekly
-        ./pt calendar add "Check cards" --date 2026-03-24 --prompt "Review all In Progress cards" --machine Both
+        ./pt calendar add "Check cards" --date 2026-03-24 --prompt "Review all In Progress cards"
     """
     import json as json_lib
     db = DatabaseManager()
@@ -1663,7 +1616,6 @@ def calendar_add(title, event_date, event_time, event_type, project, machine,
             event_time=event_time,
             event_type=event_type,
             project_id=project_id,
-            machine=machine,
             prompt=prompt,
             description=description,
             notify_before_minutes=notify_before_minutes,
@@ -1695,7 +1647,6 @@ def calendar_show(event_id, json_output):
     console.print(f"Date:    {event['event_date']}" + (f" {event['event_time']}" if event.get("event_time") else ""))
     console.print(f"Type:    {event['event_type']}")
     console.print(f"Status:  {event['status']}")
-    if event.get("machine"):       console.print(f"Machine: {event['machine']}")
     if event.get("project_id"):    console.print(f"Project: {event['project_id']}")
     if event.get("recurrence"):    console.print(f"Recurs:  {event['recurrence']}")
     if event.get("description"):   console.print(f"\n{event['description']}")
@@ -1763,12 +1714,11 @@ def calendar_cancel(event_id):
 @click.option("--time", "event_time", default=None)
 @click.option("-t", "--type", "event_type", default=None)
 @click.option("-p", "--project", default=None)
-@click.option("-m", "--machine", default=None)
 @click.option("--prompt", default=None)
 @click.option("--description", default=None)
 @click.option("--notify", "notify_before_minutes", default=None, type=int)
 def calendar_update(event_id, title, event_date, event_time, event_type, project,
-                    machine, prompt, description, notify_before_minutes):
+                    prompt, description, notify_before_minutes):
     """Update any fields on a calendar event."""
     db = DatabaseManager()
     cm = _get_calendar_manager()
@@ -1777,7 +1727,6 @@ def calendar_update(event_id, title, event_date, event_time, event_type, project
     if event_date is not None:            updates["event_date"] = event_date
     if event_time is not None:            updates["event_time"] = event_time
     if event_type is not None:            updates["event_type"] = event_type
-    if machine is not None:               updates["machine"] = machine
     if prompt is not None:                updates["prompt"] = prompt
     if description is not None:           updates["description"] = description
     if notify_before_minutes is not None: updates["notify_before_minutes"] = notify_before_minutes
@@ -1801,20 +1750,19 @@ def calendar_update(event_id, title, event_date, event_time, event_type, project
 @calendar_group.command(name="remind")
 @click.option("--within", "within_minutes", default=60, type=int,
               help="Alert window in minutes (default: 60)")
-@click.option("-m", "--machine", default=None, help="Filter by machine")
 @click.option("--dry-run", is_flag=True, help="Print what would fire without marking as notified")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON (for cron/agent polling)")
-def calendar_remind(within_minutes, machine, dry_run, json_output):
+def calendar_remind(within_minutes, dry_run, json_output):
     """Show events firing soon — designed for cron/agent polling.
 
     \b
     Run every 15 min:
         */15 * * * * cd ~/projects/project-tracker && \\
-          doppler run -- ./pt calendar remind --machine MacBook --json
+          doppler run -- ./pt calendar remind --json
     """
     import json as json_lib
     cm = _get_calendar_manager()
-    events = cm.get_upcoming_reminders(within_minutes=within_minutes, machine=machine)
+    events = cm.get_upcoming_reminders(within_minutes=within_minutes)
     if json_output:
         print(json_lib.dumps({"events": events, "total": len(events), "within_minutes": within_minutes}, indent=2))
     else:
@@ -1832,8 +1780,7 @@ def calendar_remind(within_minutes, machine, dry_run, json_output):
 @click.option("--ical", is_flag=True, help="Export as iCal (.ics) format")
 @click.option("-o", "--output", default=None, help="Output file path (default: stdout)")
 @click.option("-p", "--project", default=None, help="Filter by project")
-@click.option("-m", "--machine", default=None, help="Filter by machine")
-def calendar_export(ical, output, project, machine):
+def calendar_export(ical, output, project):
     """Export calendar events.
 
     \b
@@ -1845,7 +1792,7 @@ def calendar_export(ical, output, project, machine):
     cm = _get_calendar_manager()
 
     if ical:
-        content = cm.export_ical(project_id=project_id, machine=machine, include_all=True)
+        content = cm.export_ical(project_id=project_id, include_all=True)
         if output:
             Path(output).write_text(content)
             console.print(f"[green]✅ Exported to {output}[/green]")
@@ -1858,13 +1805,12 @@ def calendar_export(ical, output, project, machine):
 
 
 @calendar_group.command(name="poll")
-@click.option("-m", "--machine", default=None, help="Machine to filter events for (default: auto-detect)")
 @click.option("--within", "within_minutes", default=60, type=int,
               help="Notify events firing within this many minutes (default: 60)")
 @click.option("--dry-run", is_flag=True, help="Show what would fire without marking as notified or writing to brain")
 @click.option("--quiet", is_flag=True, help="Suppress human-readable output")
 @click.option("--json", "as_json", is_flag=True, help="Output results as JSON")
-def calendar_poll(machine, within_minutes, dry_run, quiet, as_json):
+def calendar_poll(within_minutes, dry_run, quiet, as_json):
     """Run one calendar poll cycle — fire events, write to brain, run agent prompts.
 
     \b
@@ -1873,8 +1819,7 @@ def calendar_poll(machine, within_minutes, dry_run, quiet, as_json):
 
     \b
     Examples:
-        ./pt calendar poll                          # auto-detect machine, 60 min window
-        ./pt calendar poll --machine MacBook        # explicit machine filter
+        ./pt calendar poll                          # 60 min window
         ./pt calendar poll --within 15 --dry-run    # preview without side effects
         ./pt calendar poll --json                   # structured output for agents
     """
@@ -1882,7 +1827,6 @@ def calendar_poll(machine, within_minutes, dry_run, quiet, as_json):
     _sys.path.insert(0, str(Path(__file__).parent.parent))
     from scripts.hooks.calendar_poller import poll as _poll
     results = _poll(
-        machine=machine,
         within_minutes=within_minutes,
         dry_run=dry_run,
         quiet=quiet,
@@ -1894,14 +1838,11 @@ def calendar_poll(machine, within_minutes, dry_run, quiet, as_json):
 
 @calendar_group.command(name="install-poll-cron")
 @click.option("--interval", default=10, type=int, help="Run every N minutes (default: 10)")
-@click.option("-m", "--machine", default=None,
-              type=click.Choice(["MacBook", "OpenClaw", "Both", "web"]),
-              help="Machine to filter events for in the cron job")
 @click.option("--within", "within_minutes", default=60, type=int,
               help="Notify events firing within N minutes (default: 60)")
 @click.option("--remove", is_flag=True, help="Remove the poller cron job instead of installing")
 @click.option("--dry-run", is_flag=True, help="Print the crontab line without installing it")
-def calendar_install_poll_cron(interval, machine, within_minutes, remove, dry_run):
+def calendar_install_poll_cron(interval, within_minutes, remove, dry_run):
     """Install (or remove) the calendar_poller cron job in the current user's crontab.
 
     \b
@@ -1910,8 +1851,7 @@ def calendar_install_poll_cron(interval, machine, within_minutes, remove, dry_ru
 
     \b
     Examples:
-        ./pt calendar install-poll-cron                          # every 10 min, auto-detect machine
-        ./pt calendar install-poll-cron --machine MacBook        # explicit machine
+        ./pt calendar install-poll-cron                          # every 10 min
         ./pt calendar install-poll-cron --interval 5 --within 15
         ./pt calendar install-poll-cron --remove                 # uninstall
         ./pt calendar install-poll-cron --dry-run                # preview
@@ -1922,7 +1862,6 @@ def calendar_install_poll_cron(interval, machine, within_minutes, remove, dry_ru
 
     result = _install(
         interval=interval,
-        machine=machine,
         within=within_minutes,
         dry_run=dry_run,
         remove=remove,
@@ -1944,7 +1883,6 @@ def calendar_install_poll_cron(interval, machine, within_minutes, remove, dry_ru
     console.print(f"[green]Calendar poller installed[/green]")
     console.print(f"   Interval : every {result['interval_minutes']} min")
     console.print(f"   Window   : {result['within_minutes']} min lookahead")
-    console.print(f"   Machine  : {result['machine'] or 'auto-detect'}")
     console.print(f"   Log      : {result['log_path']}")
     if result["previous_lines_removed"]:
         console.print(f"   Replaced : {result['previous_lines_removed']} old poller line(s)")

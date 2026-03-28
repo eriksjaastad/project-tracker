@@ -45,7 +45,6 @@ def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
 
 
 VALID_EVENT_TYPES = {"reminder", "deadline", "milestone", "meeting", "recurring"}
-VALID_MACHINE_VALUES = {"MacBook", "OpenClaw", "Both", "web"}
 VALID_RECURRENCE = {None, "daily", "weekly", "monthly"}
 
 
@@ -54,13 +53,6 @@ def validate_event_type(event_type: str) -> tuple[bool, str]:
         return False, f"Invalid event_type '{event_type}'. Must be one of: {', '.join(sorted(VALID_EVENT_TYPES))}"
     return True, ""
 
-
-def validate_calendar_machine(machine: Optional[str]) -> tuple[bool, str]:
-    if machine is None:
-        return True, ""
-    if machine not in VALID_MACHINE_VALUES:
-        return False, f"Invalid machine '{machine}'. Must be one of: {', '.join(sorted(VALID_MACHINE_VALUES))}"
-    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +138,6 @@ class CalendarManager:
         event_type: str = "reminder",
         recurrence: Optional[str] = None,
         project_id: Optional[str] = None,
-        machine: Optional[str] = None,
         prompt: Optional[str] = None,
         notify_before_minutes: int = 60,
         created_by: Optional[str] = None,
@@ -154,9 +145,6 @@ class CalendarManager:
     ) -> int:
         """Add a calendar event. Returns the new event ID."""
         ok, err = validate_event_type(event_type)
-        if not ok:
-            raise ValueError(err)
-        ok, err = validate_calendar_machine(machine)
         if not ok:
             raise ValueError(err)
         if recurrence not in VALID_RECURRENCE:
@@ -168,13 +156,13 @@ class CalendarManager:
                 """
                 INSERT INTO calendar_events
                     (title, description, event_date, event_time, event_type, recurrence,
-                     project_id, machine, prompt, notify_before_minutes,
+                     project_id, prompt, notify_before_minutes,
                      created_by, metadata, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     title, description, event_date, event_time, event_type, recurrence,
-                    project_id, machine, prompt, notify_before_minutes,
+                    project_id, prompt, notify_before_minutes,
                     created_by, json.dumps(metadata or {}), now, now,
                 ),
             )
@@ -196,10 +184,6 @@ class CalendarManager:
 
         if "event_type" in updates:
             ok, err = validate_event_type(updates["event_type"])
-            if not ok:
-                raise ValueError(err)
-        if "machine" in updates:
-            ok, err = validate_calendar_machine(updates["machine"])
             if not ok:
                 raise ValueError(err)
         if "metadata" in updates and isinstance(updates["metadata"], dict):
@@ -263,7 +247,6 @@ class CalendarManager:
         days: int = 7,
         from_date: Optional[str] = None,
         project_id: Optional[str] = None,
-        machine: Optional[str] = None,
         event_type: Optional[str] = None,
         status: str = "active",
         include_all: bool = False,
@@ -286,9 +269,6 @@ class CalendarManager:
         if project_id:
             query += " AND project_id = ?"
             params.append(project_id)
-        if machine:
-            query += " AND (machine = ? OR machine IS NULL OR machine = 'Both')"
-            params.append(machine)
         if event_type:
             query += " AND event_type = ?"
             params.append(event_type)
@@ -300,7 +280,7 @@ class CalendarManager:
         return [_row_to_dict(r) for r in rows]
 
     def get_upcoming_reminders(
-        self, within_minutes: int = 60, machine: Optional[str] = None
+        self, within_minutes: int = 60,
     ) -> List[Dict[str, Any]]:
         """Return events whose notification window is now open and haven't been notified yet.
 
@@ -334,10 +314,6 @@ class CalendarManager:
               )
         """
         params: list = [now_naive, end_naive, today, end_date]
-
-        if machine:
-            query += " AND (machine = ? OR machine IS NULL OR machine = 'Both')"
-            params.append(machine)
 
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
@@ -386,10 +362,9 @@ class CalendarManager:
         self,
         *,
         project_id: Optional[str] = None,
-        machine: Optional[str] = None,
         active_only: bool = True,
     ) -> List[Dict[str, Any]]:
-        """Return cron jobs, filtered by project/machine. Shown alongside calendar events."""
+        """Return cron jobs, filtered by project. Shown alongside calendar events."""
         query = "SELECT * FROM cron_jobs WHERE 1=1"
         params: list = []
 
@@ -398,27 +373,12 @@ class CalendarManager:
         if project_id:
             query += " AND project_id = ?"
             params.append(project_id)
-        if machine:
-            query += " AND (machine = ? OR machine IS NULL)"
-            params.append(machine)
 
         query += " ORDER BY project_id, schedule"
 
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
-
-    def set_cron_machine(self, cron_id: int, machine: Optional[str]) -> bool:
-        """Tag a cron job with its machine designation."""
-        ok, err = validate_calendar_machine(machine)
-        if not ok:
-            raise ValueError(err)
-        with self._conn() as conn:
-            cursor = conn.execute(
-                "UPDATE cron_jobs SET machine = ? WHERE id = ?", (machine, cron_id)
-            )
-            conn.commit()
-            return cursor.rowcount > 0
 
     # ------------------------------------------------------------------
     # iCal export
@@ -428,12 +388,11 @@ class CalendarManager:
         self,
         *,
         project_id: Optional[str] = None,
-        machine: Optional[str] = None,
         include_all: bool = True,
     ) -> str:
         """Export events as iCal (.ics) format for Apple/Google Calendar import."""
         events = self.get_events(
-            project_id=project_id, machine=machine, include_all=include_all
+            project_id=project_id, include_all=include_all
         )
 
         lines = [
