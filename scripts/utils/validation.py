@@ -37,12 +37,7 @@ VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"]
 VALID_TASK_TYPES = ["manual", "agent"]
 
 # Projects that should not receive Kanban cards/tasks.
-EXCLUDED_CARD_PROJECT_IDS = {
-    "ai-journal",
-    "ai-memory",
-    "project-scaffolding",
-    "project-tracker",
-}
+EXCLUDED_CARD_PROJECT_IDS: set[str] = set()
 
 
 class BlockedTaskProjectError(ValueError):
