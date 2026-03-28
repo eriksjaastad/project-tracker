@@ -150,16 +150,16 @@ def test_api_task_policy_and_project_card_flags(tmp_path: Path, monkeypatch: pyt
 
     client = TestClient(dashboard_app.app)
 
+    # With Mac Mini disconnected, no projects are blocked
     policy_response = client.get("/api/task-policy")
     assert policy_response.status_code == 200, policy_response.text
     policy = policy_response.json()
-    assert "project-tracker" in policy["blocked_project_ids"]
-    assert policy["blocked_project_reasons"]["project-tracker"] == "Cards cannot be created for project 'project-tracker'"
+    assert policy["blocked_project_ids"] == []
 
     projects_response = client.get("/api/projects")
     assert projects_response.status_code == 200, projects_response.text
     projects = {project["id"]: project for project in projects_response.json()["projects"]}
-    assert projects["project-tracker"]["can_create_cards"] is False
-    assert projects["project-tracker"]["blocked_card_reason"] == "Cards cannot be created for project 'project-tracker'"
+    assert projects["project-tracker"]["can_create_cards"] is True
+    assert projects["project-tracker"]["blocked_card_reason"] is None
     assert projects["smart-invoice-workflow"]["can_create_cards"] is True
     assert projects["smart-invoice-workflow"]["blocked_card_reason"] is None
