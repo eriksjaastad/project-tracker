@@ -74,3 +74,19 @@ class TestNotifyInbox:
                 files = list(inbox.glob("*-kanban.md"))
                 content = files[0].read_text()
                 assert "pt tasks start 99" in content
+
+    def test_writes_deleted_notification(self):
+        """Should write a notification with Deleted status and action hint."""
+        with patch("socket.gethostname", return_value="MacBook-Pro.local"):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                inbox = Path(tmpdir) / ".claude" / "inbox" / "test-project"
+                inbox.mkdir(parents=True)
+                with patch("os.path.expanduser", return_value=str(Path(tmpdir))):
+                    _notify_inbox(55, "test-project", "Deleted", "Old task to remove")
+                files = list(inbox.glob("*-kanban.md"))
+                assert len(files) == 1
+                content = files[0].read_text()
+                assert "card_id: 55" in content
+                assert "card_status: Deleted" in content
+                assert "Old task to remove" in content
+                assert "permanently deleted" in content
