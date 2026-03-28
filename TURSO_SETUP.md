@@ -83,21 +83,6 @@ doppler run -- ./pt tasks show 5232
 
 ---
 
-## Step 5 — Deploy to Mac Mini (card #5233)
-
-SSH into the Mac Mini, then:
-
-```bash
-cd ~/projects/project-tracker
-git pull
-uv sync   # installs libsql
-doppler run -- ./pt tasks list
-# Should show the same tasks — shared Kanban confirmed!
-# CEO sees laptop cards, laptop sees CEO completions ✅
-```
-
----
-
 ## Notes
 
 - **Offline mode:** If `TURSO_KANBAN_URL` / `TURSO_KANBAN_TOKEN` are not set, the `pt` CLI automatically falls back to the local `tracker.db` file.

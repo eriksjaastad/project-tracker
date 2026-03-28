@@ -57,12 +57,7 @@ See `TURSO_SETUP.md` for full setup + Doppler instructions.
 
 ### 4. The Workers (Low-cost Subagents)
 - **Role:** Primary implementers of logic and code generation
-- **Which workers to use depends on which machine you're on:**
-  ```bash
-  hostname
-  # "eriks-mac-mini" → local Ollama models (Qwen, DeepSeek-R1, etc.)
-  # Anything else → cloud subagents (Claude Haiku, Gemini Flash, GPT-mini)
-  ```
+- **Workers:** Cloud subagents (Claude Haiku, Gemini Flash, GPT-mini)
 - **Mandate:** Generate code, report completion to Floor Manager for inspection
 
 ## Workflow Steps

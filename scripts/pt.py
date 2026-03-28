@@ -70,12 +70,12 @@ def _print_banner() -> None:
 def _notify_inbox(card_id: int, project_id: str, card_status: str, description: str) -> None:
     """Write an inbox message after a task mutation (opt-in per project).
 
-    Only fires on MacBook (not Mac Mini) and if ~/.claude/inbox/<project>/ exists.
+    Only fires if ~/.claude/inbox/<project>/ exists.
+    Called from: tasks_create, tasks_update, tasks_move, tasks_done,
+    tasks_start, tasks_review, tasks_cancel, tasks_delete, tasks_clear_done.
     """
-    import os, socket, logging
+    import os, logging
     _log = logging.getLogger(__name__)
-    if socket.gethostname().startswith("eriks-mac-mini"):
-        return
     # Sanitize project_id to prevent path traversal
     safe_id = project_id.replace("/", "").replace("\\", "").replace("..", "")
     if not safe_id or safe_id != project_id:
@@ -836,11 +836,6 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
         ./pt tasks --all                 # Include completed tasks
         ./pt tasks create "Fix bug" -p myproject
 
-    \b
-    Card creation policy:
-        On the Mac mini, these projects are intentionally blocked for new cards:
-        ai-journal, ai-memory, project-scaffolding, project-tracker
-        That is policy, not a PT system error.
     """
     if ctx.invoked_subcommand is not None: return
     db = DatabaseManager()
@@ -933,9 +928,6 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
     """Create a new task.
 
     Auto-detects project from current directory.
-
-    On the Mac mini, card creation is intentionally blocked for:
-    ai-journal, ai-memory, project-scaffolding, and project-tracker.
     """
     import json
     db = DatabaseManager()
@@ -970,10 +962,7 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
         _notify_inbox(task["id"], project_id, status, text)
     except BlockedTaskProjectError:
         console.print(
-            f"[yellow]Failed to create task: task creation is intentionally blocked for '{project_id}' on the Mac mini.[/yellow]"
-        )
-        console.print(
-            "[yellow]Use PT for visibility on that project, but do not create Kanban cards there.[/yellow]"
+            f"[yellow]Failed to create task: task creation is blocked for '{project_id}'.[/yellow]"
         )
         return
     except Exception as e:

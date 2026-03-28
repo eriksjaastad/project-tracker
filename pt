@@ -5,7 +5,6 @@
 
 cd "$(dirname "$0")"
 
-subcommand="${1:-}"
 if command -v doppler >/dev/null 2>&1; then
   doppler_project="${PT_DOPPLER_PROJECT:-openclaw}"
   doppler_config="${PT_DOPPLER_CONFIG:-dev}"
@@ -13,18 +12,8 @@ if command -v doppler >/dev/null 2>&1; then
     echo "pt launcher requires non-empty Doppler project and config" >&2
     exit 1
   fi
-  hostname_lc="$(hostname | tr '[:upper:]' '[:lower:]')"
-  force_all_doppler="${PT_ALL_DOPPLER:-}"
-  if [ "$force_all_doppler" = "1" ] || [ "$hostname_lc" = "eriks-mac-mini.local" ]; then
-    exec doppler run --project "$doppler_project" --config "$doppler_config" -- \
-      "$HOME/.local/bin/uv" run scripts/pt.py "$@"
-  fi
-  case "$subcommand" in
-    tasks|calendar|refresh|scan|list|status)
-      exec doppler run --project "$doppler_project" --config "$doppler_config" -- \
-        "$HOME/.local/bin/uv" run scripts/pt.py "$@"
-      ;;
-  esac
+  exec doppler run --project "$doppler_project" --config "$doppler_config" -- \
+    "$HOME/.local/bin/uv" run scripts/pt.py "$@"
 fi
 
 exec "$HOME/.local/bin/uv" run scripts/pt.py "$@"
