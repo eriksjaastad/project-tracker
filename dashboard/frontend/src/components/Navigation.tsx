@@ -47,9 +47,9 @@ export function Navigation() {
     <nav className="navigation">
       <div className="navigation-container">
         <div className="navigation-brand">
-          <a href="/dashboard" className="navigation-title">
+          <Link to="/dashboard" className="navigation-title">
             {navigation.title}
-          </a>
+          </Link>
         </div>
         <div className="navigation-links">
           {navigation.items.map((item) => {
