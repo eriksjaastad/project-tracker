@@ -814,6 +814,13 @@ def ensure_schema(cursor: Any) -> None:
             create_sql = f"CREATE TABLE tasks_new ({', '.join(col_defs)})"
             cursor.execute(create_sql)
             cursor.execute(f"INSERT INTO tasks_new SELECT {col_list} FROM tasks")
+
+            # Verify data integrity before dropping original
+            cursor.execute("SELECT COUNT(*) FROM tasks_new")
+            new_count = cursor.fetchone()[0]
+            if new_count != task_count:
+                raise RuntimeError(f"Data integrity check failed: expected {task_count} rows, got {new_count}. Backup preserved in tasks_backup_proposal_migration.")
+
             cursor.execute("DROP TABLE tasks")
             cursor.execute("ALTER TABLE tasks_new RENAME TO tasks")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
@@ -864,7 +871,9 @@ def ensure_schema(cursor: Any) -> None:
             """)
             print(f"  ✓ Recreated audit triggers after migration")
     except Exception as e:
-        print(f"⚠️  Warning: Could not migrate task_type CHECK constraint: {e}")
+        print(f"❌ CRITICAL: Proposal migration failed: {e}")
+        print(f"   Backup table 'tasks_backup_proposal_migration' may contain your data.")
+        raise
 
     # Loop executions table for monitoring autonomous loops
     cursor.execute("""
