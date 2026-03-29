@@ -779,6 +779,11 @@ def ensure_schema(cursor: Any) -> None:
             task_count = cursor.fetchone()[0]
             print(f"ℹ️  Migrating tasks table CHECK constraint to add 'proposal' task_type ({task_count} tasks)")
 
+            # Create backup before destructive migration
+            cursor.execute("DROP TABLE IF EXISTS tasks_backup_proposal_migration")
+            cursor.execute("CREATE TABLE tasks_backup_proposal_migration AS SELECT * FROM tasks")
+            print(f"  ✓ Backup created: tasks_backup_proposal_migration ({task_count} rows)")
+
             # Get current column names dynamically
             cursor.execute("PRAGMA table_info(tasks)")
             all_columns = [col[1] for col in cursor.fetchall()]
