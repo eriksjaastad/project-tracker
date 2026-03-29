@@ -342,7 +342,7 @@ def ensure_schema(cursor: Any) -> None:
             updated_at TEXT NOT NULL
         )
     """)
-    CURRENT_SCHEMA_VERSION = 5
+    CURRENT_SCHEMA_VERSION = 6
     try:
         cursor.execute("SELECT MAX(version) FROM schema_version")
         row = cursor.fetchone()
@@ -557,7 +557,7 @@ def ensure_schema(cursor: Any) -> None:
             updated_at TEXT NOT NULL,
             completed_at TEXT,
             prompt TEXT,
-            task_type TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent')),
+            task_type TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent', 'proposal')),
             review_comment TEXT,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )
@@ -767,6 +767,114 @@ def ensure_schema(cursor: Any) -> None:
     except Exception as e:
         print(f"⚠️  Warning: Could not migrate tasks CHECK constraint: {e}")
     
+    # Migration: add 'proposal' to task_type CHECK constraint (Task #5361)
+    # SQLite cannot ALTER CHECK constraints, so we recreate the table if needed.
+    # Only runs if the current schema has a task_type CHECK that excludes 'proposal'.
+    try:
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
+        tasks_sql = cursor.fetchone()
+        if tasks_sql and "task_type" in tasks_sql[0] and "'proposal'" not in tasks_sql[0] and "CHECK" in tasks_sql[0]:
+            # The table has a task_type CHECK constraint that doesn't include 'proposal'
+            cursor.execute("SELECT COUNT(*) FROM tasks")
+            task_count = cursor.fetchone()[0]
+            print(f"ℹ️  Migrating tasks table CHECK constraint to add 'proposal' task_type ({task_count} tasks)")
+
+            # Create backup before destructive migration
+            cursor.execute("DROP TABLE IF EXISTS tasks_backup_proposal_migration")
+            cursor.execute("CREATE TABLE tasks_backup_proposal_migration AS SELECT * FROM tasks")
+            print(f"  ✓ Backup created: tasks_backup_proposal_migration ({task_count} rows)")
+
+            # Get current column names dynamically
+            cursor.execute("PRAGMA table_info(tasks)")
+            all_columns = [col[1] for col in cursor.fetchall()]
+
+            # Build the new table with updated CHECK constraint
+            # We include all columns that exist in the current table
+            col_defs = []
+            for col in all_columns:
+                if col == "id":
+                    col_defs.append("id INTEGER PRIMARY KEY AUTOINCREMENT")
+                elif col == "text":
+                    col_defs.append("text TEXT NOT NULL")
+                elif col == "status":
+                    col_defs.append("status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done', 'Cancelled', 'TRIAGED', 'READY_FOR_PATCH', 'PR_READY'))")
+                elif col == "project_id":
+                    col_defs.append("project_id TEXT NOT NULL")
+                elif col == "priority":
+                    col_defs.append("priority TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL))")
+                elif col == "task_type":
+                    col_defs.append("task_type TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent', 'proposal'))")
+                elif col == "parent_id":
+                    col_defs.append("parent_id INTEGER REFERENCES tasks_new(id) ON DELETE CASCADE")
+                else:
+                    col_defs.append(f"{col} TEXT")
+            col_defs.append("FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE")
+
+            col_list = ", ".join(all_columns)
+            create_sql = f"CREATE TABLE tasks_new ({', '.join(col_defs)})"
+            cursor.execute(create_sql)
+            cursor.execute(f"INSERT INTO tasks_new SELECT {col_list} FROM tasks")
+
+            # Verify data integrity before dropping original
+            cursor.execute("SELECT COUNT(*) FROM tasks_new")
+            new_count = cursor.fetchone()[0]
+            if new_count != task_count:
+                raise RuntimeError(f"Data integrity check failed: expected {task_count} rows, got {new_count}. Backup preserved in tasks_backup_proposal_migration.")
+
+            cursor.execute("DROP TABLE tasks")
+            cursor.execute("ALTER TABLE tasks_new RENAME TO tasks")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)")
+            print(f"  ✓ Migrated {task_count} tasks successfully")
+
+            # CRITICAL: Recreate triggers after migration
+            cursor.execute("DROP TRIGGER IF EXISTS audit_task_delete")
+            cursor.execute("""
+                CREATE TRIGGER audit_task_delete
+                BEFORE DELETE ON tasks
+                WHEN (SELECT enabled FROM _delete_permissions WHERE id = 1) = 1
+                BEGIN
+                    INSERT INTO delete_audit_log (table_name, deleted_id, deleted_data, deleted_at, source)
+                    VALUES (
+                        'tasks',
+                        OLD.id,
+                        json_object(
+                            'id', OLD.id,
+                            'text', OLD.text,
+                            'status', OLD.status,
+                            'project_id', OLD.project_id,
+                            'priority', OLD.priority,
+                            'created_at', OLD.created_at,
+                            'updated_at', OLD.updated_at,
+                            'completed_at', OLD.completed_at,
+                            'parent_id', OLD.parent_id,
+                            'blocked_by', OLD.blocked_by,
+                            'sequence_order', OLD.sequence_order
+                        ),
+                        datetime('now'),
+                        'application'
+                    );
+                END
+            """)
+
+            cursor.execute("DROP TRIGGER IF EXISTS block_task_delete")
+            cursor.execute("""
+                CREATE TRIGGER block_task_delete
+                BEFORE DELETE ON tasks
+                WHEN (SELECT enabled FROM _delete_permissions WHERE id = 1) = 0
+                BEGIN
+                    INSERT INTO delete_attempt_log (table_name, attempted_at, reason)
+                    VALUES ('tasks', datetime('now'), 'blocked: _delete_permissions.enabled = 0');
+                    SELECT RAISE(FAIL, 'Task deletes are blocked. Set _delete_permissions.enabled=1 first (application only).');
+                END
+            """)
+            print(f"  ✓ Recreated audit triggers after migration")
+    except Exception as e:
+        print(f"❌ CRITICAL: Proposal migration failed: {e}")
+        print(f"   Backup table 'tasks_backup_proposal_migration' may contain your data.")
+        raise
+
     # Loop executions table for monitoring autonomous loops
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS loop_executions (
@@ -946,7 +1054,7 @@ def ensure_schema(cursor: Any) -> None:
     """)
 
     # Update schema version
-    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (5, ?)", (datetime.now().isoformat(),))
+    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (6, ?)", (datetime.now().isoformat(),))
 
 
 def create_database(db_path: Optional[Path] = None) -> None:

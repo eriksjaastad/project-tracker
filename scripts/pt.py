@@ -825,7 +825,8 @@ def help(ctx):
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
 @click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)")
-def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready):
+@click.option("--proposals", is_flag=True, help="Show only proposal tasks")
+def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready, proposals):
     """Manage Kanban board tasks.
 
     \b
@@ -834,6 +835,7 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
         ./pt tasks -p project-tracker    # Tasks for a specific project
         ./pt tasks -s "In Progress"      # Filter by status
         ./pt tasks --all                 # Include completed tasks
+        ./pt tasks --proposals           # Show only proposals
         ./pt tasks create "Fix bug" -p myproject
 
     """
@@ -851,8 +853,14 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
             detected = db.get_project(project_id)
             project_label = detected["name"] if detected else None
     task_list = db.get_tasks(project_id=project_id, status=status)
-    if not show_all and not status:
-        task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
+    if proposals:
+        task_list = [t for t in task_list if t.get("task_type") == "proposal"]
+    else:
+        # Hide proposals from default listing unless --all is used
+        if not show_all:
+            task_list = [t for t in task_list if t.get("task_type") != "proposal"]
+        if not show_all and not status:
+            task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
     if needs_prompt:
         task_list = [t for t in task_list if not t.get("prompt")]
     if ready:
@@ -868,7 +876,8 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
 @click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts")
-def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready):
+@click.option("--proposals", is_flag=True, help="Show only proposal tasks")
+def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready, proposals):
     """List tasks from the Kanban board."""
     db = DatabaseManager()
     if project:
@@ -883,8 +892,13 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
             detected = db.get_project(project_id)
             project_label = detected["name"] if detected else None
     task_list = db.get_tasks(project_id=project_id, status=status)
-    if not show_all and not status:
-        task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
+    if proposals:
+        task_list = [t for t in task_list if t.get("task_type") == "proposal"]
+    else:
+        if not show_all:
+            task_list = [t for t in task_list if t.get("task_type") != "proposal"]
+        if not show_all and not status:
+            task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
     if needs_prompt:
         task_list = [t for t in task_list if not t.get("prompt")]
     if ready:
@@ -924,7 +938,8 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
 @click.option("-d", "--description", default=None, help="Rich description / acceptance criteria (stored in notes field)")
 @click.option("--parent", type=int, default=None, help="Parent task ID (creates subtask)")
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs that block this task")
-def tasks_create(text, project, status, priority, prompt, description, parent, blocked_by):
+@click.option("--proposal", is_flag=True, help="Create as a proposal (hidden from default listing until approved)")
+def tasks_create(text, project, status, priority, prompt, description, parent, blocked_by, proposal):
     """Create a new task.
 
     Auto-detects project from current directory.
@@ -953,8 +968,9 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
     try:
         final_prompt = prompt
         if prompt: final_prompt = prompt.rstrip() + WORKFLOW_FOOTER
-        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, parent_id=parent, blocked_by=blocked_by_json, notes=description)
-        msg = f"[green]Created task #{task['id']}: {text[:50]}{'...' if len(text) > 50 else ''}[/green]"
+        task_type = "proposal" if proposal else None
+        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, task_type=task_type, parent_id=parent, blocked_by=blocked_by_json, notes=description)
+        msg = f"[green]Created {'proposal' if proposal else 'task'} #{task['id']}: {text[:50]}{'...' if len(text) > 50 else ''}[/green]"
         if description: msg += f" [dim](+ description)[/dim]"
         if parent: msg += f" [dim](subtask of #{parent})[/dim]"
         if blocked_by: msg += f" [dim](blocked by {blocked_by})[/dim]"
@@ -1132,6 +1148,52 @@ def tasks_cancel(task_ids):
         except Exception as e:
             print(f"Failed to cancel task #{task_id}: {e}")
     if len(task_ids) > 1: print(f"\nCancelled {success_count}/{len(task_ids)} tasks")
+
+
+@tasks_group.command(name="approve")
+@click.argument("task_ids", type=int, nargs=-1, required=True)
+def tasks_approve(task_ids):
+    """Approve one or more proposals, converting them to regular backlog tasks."""
+    db = DatabaseManager()
+    success_count = 0
+    for task_id in task_ids:
+        try:
+            task = db.get_task(task_id)
+            if not task:
+                print(f"Task #{task_id} not found"); continue
+            if task.get("task_type") != "proposal":
+                print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})"); continue
+            db.update_task(task_id, task_type="manual")
+            print(f"Approved: #{task_id} - {task['text'][:50]}")
+            _notify_inbox(task_id, task["project_id"], task["status"], task["text"])
+            success_count += 1
+        except Exception as e:
+            print(f"Failed to approve task #{task_id}: {e}")
+    if len(task_ids) > 1:
+        print(f"\nApproved {success_count}/{len(task_ids)} proposals")
+
+
+@tasks_group.command(name="reject")
+@click.argument("task_ids", type=int, nargs=-1, required=True)
+def tasks_reject(task_ids):
+    """Reject one or more proposals (cancels them)."""
+    db = DatabaseManager()
+    success_count = 0
+    for task_id in task_ids:
+        try:
+            task = db.get_task(task_id)
+            if not task:
+                print(f"Task #{task_id} not found"); continue
+            if task.get("task_type") != "proposal":
+                print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})"); continue
+            db.update_task(task_id, status="Cancelled")
+            print(f"Rejected: #{task_id} - {task['text'][:50]}")
+            _notify_inbox(task_id, task["project_id"], "Cancelled", task["text"])
+            success_count += 1
+        except Exception as e:
+            print(f"Failed to reject task #{task_id}: {e}")
+    if len(task_ids) > 1:
+        print(f"\nRejected {success_count}/{len(task_ids)} proposals")
 
 
 @tasks_group.command(name="delete")
