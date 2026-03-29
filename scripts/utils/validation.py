@@ -34,7 +34,7 @@ VALID_STATUSES = [
 VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"]
 
 # Valid task types
-VALID_TASK_TYPES = ["manual", "agent"]
+VALID_TASK_TYPES = ["manual", "agent", "proposal"]
 
 # Projects that should not receive Kanban cards/tasks.
 EXCLUDED_CARD_PROJECT_IDS: set[str] = set()
@@ -210,21 +210,23 @@ def validate_priority(priority: Optional[str]) -> Tuple[bool, Optional[str]]:
 
 def validate_task_type(task_type: Optional[str]) -> Tuple[bool, Optional[str]]:
     """Validate task type.
-    
+
     Args:
-        task_type: Task type to validate (manual or agent)
-        
+        task_type: Task type to validate (manual, agent, or proposal)
+
     Returns:
         A tuple of (is_valid, error_message). If valid, returns (True, None).
         If invalid, returns (False, error_message).
-        
+
     Examples:
         >>> validate_task_type("manual")
         (True, None)
         >>> validate_task_type("agent")
         (True, None)
+        >>> validate_task_type("proposal")
+        (True, None)
         >>> validate_task_type("invalid")
-        (False, 'Task type must be one of: manual, agent')
+        (False, 'Task type must be one of: manual, agent, proposal')
     """
     if task_type is None:
         return (True, None)
