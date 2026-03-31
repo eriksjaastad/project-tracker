@@ -1604,10 +1604,20 @@ class DatabaseManager:
         now = datetime.now(timezone.utc).isoformat()
         with self._get_conn() as conn:
             cursor = conn.cursor()
+            # SQLite treats NULL != NULL in UNIQUE constraints, so upsert via
+            # delete-then-insert for global (NULL project_id) entries.
+            if project_id is None:
+                cursor.execute(
+                    "DELETE FROM project_info WHERE project_id IS NULL AND key = ?",
+                    (key,),
+                )
+            else:
+                cursor.execute(
+                    "DELETE FROM project_info WHERE project_id = ? AND key = ?",
+                    (project_id, key),
+                )
             cursor.execute(
-                """INSERT INTO project_info (project_id, key, value, updated_at)
-                   VALUES (?, ?, ?, ?)
-                   ON CONFLICT(project_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at""",
+                "INSERT INTO project_info (project_id, key, value, updated_at) VALUES (?, ?, ?, ?)",
                 (project_id, key, value, now),
             )
             conn.commit()
