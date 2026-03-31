@@ -342,7 +342,7 @@ def ensure_schema(cursor: Any) -> None:
             updated_at TEXT NOT NULL
         )
     """)
-    CURRENT_SCHEMA_VERSION = 6
+    CURRENT_SCHEMA_VERSION = 7
     try:
         cursor.execute("SELECT MAX(version) FROM schema_version")
         row = cursor.fetchone()
@@ -1053,8 +1053,21 @@ def ensure_schema(cursor: Any) -> None:
         )
     """)
 
+    # Project info: centralized key-value reference store for project/global metadata
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS project_info (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(project_id, key)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_info_project ON project_info(project_id)")
+
     # Update schema version
-    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (6, ?)", (datetime.now().isoformat(),))
+    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (7, ?)", (datetime.now().isoformat(),))
 
 
 def create_database(db_path: Optional[Path] = None) -> None:
