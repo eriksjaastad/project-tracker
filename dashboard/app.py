@@ -2493,7 +2493,18 @@ _github_cache: Dict = {"data": None, "timestamp": 0}
 _GITHUB_CACHE_TTL = 300  # 5 minutes
 
 
-_GH_BIN = shutil.which("gh") or os.environ.get("GH_PATH", "gh")
+def _find_gh() -> str:
+    """Find gh binary, checking common Homebrew paths if not on PATH."""
+    found = shutil.which("gh") or os.environ.get("GH_PATH")
+    if found:
+        return found
+    for candidate in ("/opt/homebrew/bin/gh", "/usr/local/bin/gh"):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return "gh"
+
+
+_GH_BIN = _find_gh()
 
 
 def _gh_json(args: List[str], timeout: int = 30) -> any:
