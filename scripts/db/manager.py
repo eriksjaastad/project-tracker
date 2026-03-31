@@ -1548,3 +1548,86 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM ideas WHERE id = ?", (idea_id,))
             conn.commit()
+
+    # -----------------------------------------------------------------
+    # Project Info (key-value reference store)
+    # -----------------------------------------------------------------
+
+    def get_info(
+        self,
+        project_id: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get info entries. Filter by project_id and/or key.
+
+        project_id=None returns global entries (where project_id IS NULL).
+        project_id="__all__" returns everything.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            if project_id == "__all__":
+                if key:
+                    cursor.execute(
+                        "SELECT project_id, key, value, updated_at FROM project_info WHERE key = ? ORDER BY project_id, key",
+                        (key,),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT project_id, key, value, updated_at FROM project_info ORDER BY project_id, key"
+                    )
+            elif project_id is not None:
+                if key:
+                    cursor.execute(
+                        "SELECT project_id, key, value, updated_at FROM project_info WHERE project_id = ? AND key = ? ORDER BY key",
+                        (project_id, key),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT project_id, key, value, updated_at FROM project_info WHERE project_id = ? ORDER BY key",
+                        (project_id,),
+                    )
+            else:
+                if key:
+                    cursor.execute(
+                        "SELECT project_id, key, value, updated_at FROM project_info WHERE project_id IS NULL AND key = ? ORDER BY key",
+                        (key,),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT project_id, key, value, updated_at FROM project_info WHERE project_id IS NULL ORDER BY key"
+                    )
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    def set_info(self, key: str, value: str, project_id: Optional[str] = None) -> None:
+        """Set (upsert) an info entry."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO project_info (project_id, key, value, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(project_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at""",
+                (project_id, key, value, now),
+            )
+            conn.commit()
+
+    def delete_info(self, key: str, project_id: Optional[str] = None) -> bool:
+        """Delete an info entry. Returns True if a row was deleted."""
+        existing = self.get_info(project_id=project_id, key=key)
+        if not existing:
+            return False
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            if project_id is not None:
+                cursor.execute(
+                    "DELETE FROM project_info WHERE project_id = ? AND key = ?",
+                    (project_id, key),
+                )
+            else:
+                cursor.execute(
+                    "DELETE FROM project_info WHERE project_id IS NULL AND key = ?",
+                    (key,),
+                )
+            conn.commit()
+            return True
