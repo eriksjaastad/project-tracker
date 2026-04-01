@@ -54,8 +54,7 @@ from pydantic import BaseModel
 from scripts.config import PROJECTS_BASE_DIR, REINDEX_SCRIPT_PATH
 from scripts.utils.validation import get_blocked_card_reason, get_blocked_card_project_ids, is_card_creation_allowed
 
-# Import scaffolding version helpers
-from scripts.pt import get_current_scaffolding_version, compare_versions, rebuild_knowledge_graph
+from scripts.pt import rebuild_knowledge_graph
 
 logger = get_logger(__name__)
 
@@ -318,7 +317,7 @@ def categorize_services(services):
     return {k: v for k, v in categories.items() if v}
 
 
-def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_version: Optional[str] = None) -> dict:
+def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
     """Add related data to project."""
     # Get AI agents
     agents = db.get_ai_agents(project["id"])
@@ -361,7 +360,7 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
     if project.get("index_updated_at"):
         project["index_updated_human"] = format_time_ago(project["index_updated_at"])
     
-    # Calculate version status (opt-in: only check projects with .scaffolding-version)
+    # Agent config health check
     project_id = project.get("id", "")
     project_path = Path(project.get("path", ""))
     if project_path.exists():
@@ -369,56 +368,8 @@ def enrich_project_data(project: dict, db: DatabaseManager, current_scaffolding_
     else:
         project["agent_config_health"] = build_empty_agent_config_health(project.get("name", project_id))
 
-    try:
-        path_exists = project_path.exists()
-        version_file = project_path / ".scaffolding-version" if path_exists else None
-        has_scaffolding_file = version_file is not None and version_file.exists()
-    except OSError:
-        path_exists = False
-        has_scaffolding_file = False
+    project["version_status"] = "unmanaged"
 
-    if not path_exists:
-        # Project directory doesn't exist (stale/deleted) or inaccessible
-        project["version_status"] = "unmanaged"
-    elif not has_scaffolding_file:
-        # No .scaffolding-version file — project is not managed by scaffolding
-        project["version_status"] = "unmanaged"
-    else:
-        project_version = project.get("scaffolding_version")
-        scaffolding_issues = []
-
-        # Check for {placeholder} content in CLAUDE.md
-        claude_md = project_path / "CLAUDE.md"
-        if claude_md.exists():
-            try:
-                content = claude_md.read_text(errors='ignore')
-                if '{project_description}' in content or '{language}' in content or '{framework}' in content:
-                    scaffolding_issues.append("CLAUDE.md has unfilled placeholders")
-            except Exception as e:
-                logger.warning(f"Could not check CLAUDE.md for placeholders in {claude_md}: {e}")
-
-        # Check for rogue 00-full-content.md in .agentsync/rules/
-        rogue_file = project_path / ".agentsync" / "rules" / "00-full-content.md"
-        if rogue_file.exists():
-            scaffolding_issues.append("rogue 00-full-content.md in .agentsync/rules/")
-
-        if scaffolding_issues:
-            project["scaffolding_issues"] = scaffolding_issues
-            # If version is also outdated, keep 'outdated' — it captures both problems
-            # Only use 'structural_issue' when version is actually current
-            if project_version is None:
-                project["version_status"] = "unscaffolded"
-            elif current_scaffolding_version and compare_versions(project_version, current_scaffolding_version) < 0:
-                project["version_status"] = "outdated"
-            else:
-                project["version_status"] = "structural_issue"
-        elif project_version is None:
-            project["version_status"] = "unscaffolded"
-        elif current_scaffolding_version and compare_versions(project_version, current_scaffolding_version) < 0:
-            project["version_status"] = "outdated"
-        else:
-            project["version_status"] = "current"
-    
     return project
 
 
@@ -451,7 +402,6 @@ def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, Li
 
 
 _ALERT_TYPE_LABELS = {
-    "scaffolding_drift": "Scaffolding Drift",
     "rules_drift": "Rules Drift",
     "agent_config_health": "Agent Config Health",
     "missing_index": "Missing Index",
@@ -500,11 +450,11 @@ def _group_alerts_by_type(alerts: List[Dict]) -> List[Dict]:
     return groups
 
 
-def _bulk_enrich(projects: List[dict], db: DatabaseManager, current_scaffolding: Optional[str]) -> List[dict]:
+def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
     """Enrich all projects using bulk-fetched data (4 DB queries instead of 4N).
 
     Populates: ai_agents, cron_jobs, services, tasks, code_review,
-    version_status, agent_config_health, and time formatting fields.
+    agent_config_health, and time formatting fields.
     """
     all_agents = _group_by_project(db.get_ai_agents())
     all_crons = _group_by_project(db.get_cron_jobs())
@@ -558,48 +508,7 @@ def _bulk_enrich(projects: List[dict], db: DatabaseManager, current_scaffolding:
         else:
             project["agent_config_health"] = build_empty_agent_config_health(project.get("name", pid))
 
-        # Version status
-        try:
-            path_exists = project_path.exists()
-            version_file = project_path / ".scaffolding-version" if path_exists else None
-            has_scaffolding_file = version_file is not None and version_file.exists()
-        except OSError:
-            path_exists = False
-            has_scaffolding_file = False
-
-        if not path_exists or not has_scaffolding_file:
-            project["version_status"] = "unmanaged"
-        else:
-            project_version = project.get("scaffolding_version")
-            scaffolding_issues = []
-
-            claude_md = project_path / "CLAUDE.md"
-            if claude_md.exists():
-                try:
-                    content = claude_md.read_text(errors='ignore')
-                    if '{project_description}' in content or '{language}' in content or '{framework}' in content:
-                        scaffolding_issues.append("CLAUDE.md has unfilled placeholders")
-                except Exception:
-                    pass
-
-            rogue_file = project_path / ".agentsync" / "rules" / "00-full-content.md"
-            if rogue_file.exists():
-                scaffolding_issues.append("rogue 00-full-content.md in .agentsync/rules/")
-
-            if scaffolding_issues:
-                project["scaffolding_issues"] = scaffolding_issues
-                if project_version is None:
-                    project["version_status"] = "unscaffolded"
-                elif current_scaffolding and compare_versions(project_version, current_scaffolding) < 0:
-                    project["version_status"] = "outdated"
-                else:
-                    project["version_status"] = "structural_issue"
-            elif project_version is None:
-                project["version_status"] = "unscaffolded"
-            elif current_scaffolding and compare_versions(project_version, current_scaffolding) < 0:
-                project["version_status"] = "outdated"
-            else:
-                project["version_status"] = "current"
+        project["version_status"] = "unmanaged"
 
     return projects
 
@@ -609,8 +518,7 @@ def _build_dashboard_data() -> Dict:
     db = DatabaseManager()
     projects = db.get_all_projects(order_by="last_modified DESC")
 
-    current_scaffolding, _ = get_current_scaffolding_version()
-    enriched_projects = _bulk_enrich(projects, db, current_scaffolding)
+    enriched_projects = _bulk_enrich(projects, db)
     alerts = get_all_alerts(enriched_projects)
 
     indexed_count = len([p for p in enriched_projects if p.get("has_index") and p.get("index_is_valid")])
@@ -640,10 +548,6 @@ def _build_dashboard_data() -> Dict:
                 **project["code_review"],
             })
 
-    outdated_projects = [p for p in enriched_projects if p.get("version_status") == "outdated"]
-    unscaffolded_projects = [p for p in enriched_projects if p.get("version_status") == "unscaffolded"]
-    structural_projects = [p for p in enriched_projects if p.get("version_status") == "structural_issue"]
-
     # Group alerts by type for collapsible display
     alert_groups = _group_alerts_by_type(alerts)
 
@@ -657,13 +561,6 @@ def _build_dashboard_data() -> Dict:
         "compliance_pct": compliance_pct,
         "agents": agents_data,
         "backup_status": backup_status,
-        "current_scaffolding_version": current_scaffolding,
-        "outdated_projects": outdated_projects,
-        "unscaffolded_projects": unscaffolded_projects,
-        "structural_projects": structural_projects,
-        "outdated_count": len(outdated_projects),
-        "unscaffolded_count": len(unscaffolded_projects),
-        "structural_count": len(structural_projects),
     }
 
 
@@ -706,11 +603,8 @@ async def project_detail(request: Request, project_id: str):
     if not project:
         return HTMLResponse(content="<h1>Project not found</h1>", status_code=404)
     
-    # Get current scaffolding version
-    current_scaffolding, _ = get_current_scaffolding_version()
-    
     # Enrich with related data
-    project = enrich_project_data(project, db, current_scaffolding)
+    project = enrich_project_data(project, db)
     
     return templates.TemplateResponse(
         request,
@@ -830,9 +724,6 @@ async def refresh_data():
                 index_is_valid=project.get("index_is_valid", False),
                 index_updated_at=project.get("index_updated_at"),
                 project_type=project.get("project_type", "standard"),
-                scaffolding_version=project.get("scaffolding_version"),
-                rules_version=project.get("rules_version"),
-                scaffolding_applied_at=project.get("scaffolding_applied_at")
             )
 
         # Clean up stale projects whose directories no longer exist on disk.
@@ -890,27 +781,14 @@ async def api_backup():
         return {"error": str(e), "status": "error"}
 
 
-@app.get("/api/scaffolding/version")
-async def api_scaffolding_version():
-    """Get current scaffolding and rules versions."""
-    scaffolding_version, rules_version = get_current_scaffolding_version()
-    return {
-        "scaffolding_version": scaffolding_version,
-        "rules_version": rules_version
-    }
-
-
 @app.get("/api/projects")
 async def api_projects():
     """JSON API for projects."""
     db = DatabaseManager()
     projects = db.get_all_projects(order_by="last_modified DESC")
     
-    # Get current scaffolding version
-    current_scaffolding, _ = get_current_scaffolding_version()
-    
     # Enrich with related data (bulk — 4 queries instead of 4N)
-    enriched_projects = _bulk_enrich(projects, db, current_scaffolding)
+    enriched_projects = _bulk_enrich(projects, db)
 
     for project in enriched_projects:
         project["can_create_cards"] = is_card_creation_allowed(project["id"])
@@ -936,10 +814,7 @@ async def api_alerts():
     db = DatabaseManager()
     projects = db.get_all_projects()
     
-    # Get current scaffolding version
-    current_scaffolding, _ = get_current_scaffolding_version()
-    
-    enriched_projects = _bulk_enrich(projects, db, current_scaffolding)
+    enriched_projects = _bulk_enrich(projects, db)
     alerts = get_all_alerts(enriched_projects)
     return {"alerts": alerts}
 
@@ -963,9 +838,7 @@ async def api_stats():
     projects_with_ai = sum(1 for p in projects if p["id"] in all_agents_map)
 
     # Get alert counts
-    current_scaffolding, _ = get_current_scaffolding_version()
-
-    enriched_projects = _bulk_enrich(projects, db, current_scaffolding)
+    enriched_projects = _bulk_enrich(projects, db)
     alerts = get_all_alerts(enriched_projects)
     alert_counts = {
         "critical": len([a for a in alerts if a["severity"] == "critical"]),

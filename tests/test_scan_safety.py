@@ -68,9 +68,6 @@ def _project_metadata(project_dir: Path, project_id: str, status: str = "active"
         "index_is_valid": False,
         "index_updated_at": None,
         "project_type": "standard",
-        "scaffolding_version": None,
-        "rules_version": None,
-        "scaffolding_applied_at": None,
     }
 
 

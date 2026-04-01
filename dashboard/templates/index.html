@@ -274,23 +274,6 @@
                         <span class="meta-value">{{ project.project_type|capitalize }}</span>
                     </div>
 
-                    {% if project.version_status != 'unmanaged' %}
-                    <div class="meta-row space-between">
-                        <span class="meta-label">Scaffolding:</span>
-                        <span class="meta-value">
-                            {% if project.version_status == 'outdated' %}
-                            <span style="color: #ff9800;">⚠️ v{{ project.scaffolding_version }}</span>
-                            {% elif project.version_status == 'structural_issue' %}
-                            <span style="color: #ff9800;">🔧 v{{ project.scaffolding_version }}</span>
-                            {% elif project.version_status == 'unscaffolded' %}
-                            <span style="color: #888;">❌ Not scaffolded</span>
-                            {% elif project.version_status == 'current' %}
-                            <span style="color: #4caf50;">✓ v{{ project.scaffolding_version }}</span>
-                            {% endif %}
-                        </span>
-                    </div>
-                    {% endif %}
-
                     <div class="meta-row space-between">
                         <span class="meta-label">Last work:</span>
                         <span class="meta-value">{{ project.last_modified_human }}</span>
