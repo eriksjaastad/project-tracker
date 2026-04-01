@@ -308,10 +308,6 @@ class DatabaseManager:
         health_score: Optional[int] = None,
         health_grade: Optional[str] = None,
         project_type: str = 'standard',
-        scaffolding_version: Optional[str] = None,
-        rules_version: Optional[str] = None,
-        scaffolding_applied_at: Optional[str] = None,
-        machine: Optional[str] = None  # Deprecated: machine designation removed (#5366), param kept for API compat
     ) -> None:
         """Add or update a project."""
         with self._get_conn() as conn:
@@ -334,9 +330,6 @@ class DatabaseManager:
                 health_score=health_score,
                 health_grade=health_grade,
                 project_type=project_type,
-                scaffolding_version=scaffolding_version,
-                rules_version=rules_version,
-                scaffolding_applied_at=scaffolding_applied_at,
             )
 
             conn.commit()
@@ -359,9 +352,6 @@ class DatabaseManager:
         health_score: Optional[int] = None,
         health_grade: Optional[str] = None,
         project_type: str = 'standard',
-        scaffolding_version: Optional[str] = None,
-        rules_version: Optional[str] = None,
-        scaffolding_applied_at: Optional[str] = None,
     ) -> None:
         """Add or update a project using an existing cursor."""
         # 🛡️ Preserve created_at, health_score, and health_grade on update
@@ -380,9 +370,8 @@ class DatabaseManager:
         cursor.execute("""
             INSERT INTO projects
             (id, name, path, status, description, phase, last_modified, created_at, completion_pct,
-             is_infrastructure, has_index, index_is_valid, index_updated_at, health_score, health_grade, project_type,
-             scaffolding_version, rules_version, scaffolding_applied_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             is_infrastructure, has_index, index_is_valid, index_updated_at, health_score, health_grade, project_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 path = excluded.path,
@@ -397,13 +386,9 @@ class DatabaseManager:
                 index_updated_at = excluded.index_updated_at,
                 health_score = excluded.health_score,
                 health_grade = excluded.health_grade,
-                project_type = excluded.project_type,
-                scaffolding_version = excluded.scaffolding_version,
-                rules_version = excluded.rules_version,
-                scaffolding_applied_at = excluded.scaffolding_applied_at
+                project_type = excluded.project_type
         """, (project_id, name, path, status, description, phase, last_modified, created_at, completion_pct,
-              is_infrastructure, has_index, index_is_valid, index_updated_at, final_health_score, final_health_grade, project_type,
-              scaffolding_version, rules_version, scaffolding_applied_at))
+              is_infrastructure, has_index, index_is_valid, index_updated_at, final_health_score, final_health_grade, project_type))
     
     def get_project(self, project_id: str) -> Optional[Dict[str, Any]]:
         """Get a single project by ID."""

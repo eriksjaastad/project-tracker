@@ -150,34 +150,6 @@ def cli(ctx):
         click.echo(ctx.get_help())
 
 
-def compare_versions(v1, v2):
-    if v1 is None and v2 is None: return 0
-    if v1 is None: return -1
-    if v2 is None: return 1
-    try:
-        parts1 = [int(x) for x in v1.split('.')]
-        parts2 = [int(x) for x in v2.split('.')]
-        while len(parts1) < len(parts2): parts1.append(0)
-        while len(parts2) < len(parts1): parts2.append(0)
-        for p1, p2 in zip(parts1, parts2):
-            if p1 < p2: return -1
-            elif p1 > p2: return 1
-        return 0
-    except (ValueError, AttributeError):
-        return -1 if v1 < v2 else (1 if v1 > v2 else 0)
-
-
-def get_current_scaffolding_version():
-    import json
-    version_file = Path(PROJECTS_BASE_DIR) / "project-scaffolding" / ".scaffolding-version"
-    if not version_file.exists(): return None, None
-    try:
-        data = json.loads(version_file.read_text())
-        return data.get("scaffolding_version"), data.get("rules_version")
-    except Exception:
-        return None, None
-
-
 def rebuild_knowledge_graph():
     console.print("[bold blue]Rebuilding knowledge graph & analysis...[/bold blue]")
     try:
@@ -275,9 +247,6 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
                     index_is_valid=project.get("index_is_valid", False),
                     index_updated_at=project.get("index_updated_at"),
                     project_type=project.get("project_type", "standard"),
-                    scaffolding_version=project.get("scaffolding_version"),
-                    rules_version=project.get("rules_version"),
-                    scaffolding_applied_at=project.get("scaffolding_applied_at")
                 )
                 db._sync_ai_agents_with_cursor(cursor=cursor, project_id=project["id"], agents=project.get("ai_agents", []))
                 db._sync_cron_jobs_with_cursor(cursor=cursor, project_id=project["id"], cron_jobs=project.get("cron_jobs", []))
@@ -393,39 +362,19 @@ def scan_cli(no_graph, dry_run, force):
 
 
 @cli.command(name="list")
-@click.option("--outdated", is_flag=True, help="Show only projects with outdated scaffolding")
-def list_projects(outdated):
+def list_projects():
     """List all projects."""
     db = DatabaseManager()
     projects = db.get_all_projects()
     if not projects:
         print("No projects found. Run 'pt scan' first.")
         return
-    if outdated:
-        current_scaffolding, current_rules = get_current_scaffolding_version()
-        filtered_projects = []
-        for p in projects:
-            project_version = p.get("scaffolding_version")
-            if project_version is None:
-                filtered_projects.append(p)
-            elif current_scaffolding and compare_versions(project_version, current_scaffolding) < 0:
-                filtered_projects.append(p)
-        projects = filtered_projects
-        if not projects:
-            print("No outdated projects found. All projects are up to date!")
-            return
     print("Projects\n")
     for project in projects:
         idx = "✓" if project.get("has_index") and project.get("index_is_valid") else "!"
         phase = project.get("phase") or "-"
         pct = project.get("completion_pct", 0)
-        version_info = ""
-        if "scaffolding_version" in project:
-            if project["scaffolding_version"]:
-                version_info = f" | v{project['scaffolding_version']}"
-            else:
-                version_info = " | no scaffolding"
-        print(f"{project['name']} | {project['status']} | {phase} | {pct}% | {idx}{version_info}")
+        print(f"{project['name']} | {project['status']} | {phase} | {pct}% | {idx}")
     print(f"\nTotal: {len(projects)} projects")
 
 
@@ -582,9 +531,6 @@ def sync(project_name, no_graph):
                 index_is_valid=project.get("index_is_valid", False),
                 index_updated_at=project.get("index_updated_at"),
                 project_type=project.get("project_type", "standard"),
-                scaffolding_version=project.get("scaffolding_version"),
-                rules_version=project.get("rules_version"),
-                scaffolding_applied_at=project.get("scaffolding_applied_at"),
             )
             db._sync_ai_agents_with_cursor(
                 cursor=cursor, project_id=project["id"],
