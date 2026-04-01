@@ -1,6 +1,5 @@
 """Alert detection for project tracker."""
 
-import json
 import os
 import sys
 from datetime import datetime, timedelta
@@ -14,8 +13,6 @@ from .code_review_parser import parse_code_review
 from .providers import get_provider
 from .telemetry_reader import get_telemetry_stats, get_critical_errors
 from .cron_health import get_stale_crons
-from db.manager import DatabaseManager
-from scripts.config import PROJECTS_BASE_DIR
 
 # Add parent directory to path for logger import
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -23,68 +20,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scripts.logger import get_logger
 
 logger = get_logger(__name__)
-
-
-def get_current_scaffolding_version() -> Optional[str]:
-    """Get the current scaffolding version from the source of truth."""
-    version_file = PROJECTS_BASE_DIR / "project-scaffolding" / "templates" / ".agentsync" / "RULES_VERSION"
-
-    if version_file.exists():
-        return version_file.read_text().strip()
-    return None
-
-
-def detect_scaffolding_drift(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Detect projects with outdated scaffolding versions.
-
-    Compares each project's .scaffolding-version against the current
-    template version. Alerts when a project is behind.
-    """
-    alerts = []
-    current_version = get_current_scaffolding_version()
-
-    if not current_version:
-        logger.warning("Could not determine current scaffolding version")
-        return alerts
-
-    for project in projects:
-        project_path = Path(project["path"])
-        version_file = project_path / ".scaffolding-version"
-
-        if not version_file.exists():
-            # No scaffolding - not an error, just not scaffolded
-            continue
-
-        try:
-            version_data = json.loads(version_file.read_text())
-            project_version = version_data.get("scaffolding_version", "unknown")
-            rules_version = version_data.get("rules_version", "unknown")
-
-            # Check scaffolding version
-            if project_version != current_version:
-                alerts.append({
-                    "project_id": project["id"],
-                    "project_name": project["name"],
-                    "type": "scaffolding_drift",
-                    "severity": "warning",
-                    "message": f"Scaffolding outdated: {project_version} → {current_version}",
-                    "details": f"Run: uv run $PROJECTS_ROOT/project-scaffolding/scaffold/cli.py {project['name']}"
-                })
-            # Check rules version separately
-            elif rules_version != current_version:
-                alerts.append({
-                    "project_id": project["id"],
-                    "project_name": project["name"],
-                    "type": "rules_drift",
-                    "severity": "warning",
-                    "message": f"Rules outdated: {rules_version} → {current_version}",
-                    "details": f"Run: uv run $PROJECTS_ROOT/project-scaffolding/agentsync/sync_rules.py {project['name']}"
-                })
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.debug(f"Could not parse scaffolding version for {project['name']}: {e}")
-
-    return alerts
-
 
 
 def detect_stalled_projects(projects: List[Dict[str, Any]], days_threshold: int = 60) -> List[Dict[str, Any]]:
@@ -460,7 +395,7 @@ def get_all_alerts(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     # Detect different types of issues
     all_alerts.extend(detect_telemetry_errors())
     all_alerts.extend(detect_stale_cron_heartbeats())
-    all_alerts.extend(detect_scaffolding_drift(projects))  # Version sync check
+
     all_alerts.extend(detect_blocked_projects(projects))
     all_alerts.extend(detect_code_reviews(projects))
     all_alerts.extend(detect_cron_failures(projects))
