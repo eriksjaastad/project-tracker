@@ -1,22 +1,60 @@
 # CRON_JOBS.md — Scheduled Jobs Registry
 
-All scheduled automation across the ecosystem. Every launchd plist is listed here with install instructions and links to the owning project.
+All scheduled automation across the ecosystem. Covers launchd plists and crontab entries.
 
-> **Last updated:** 2026-03-21
-> **Platform:** macOS (launchd + `~/Library/LaunchAgents/`)
+> **Last updated:** 2026-03-31
+> **Platform:** macOS (launchd + crontab + `~/Library/LaunchAgents/`)
+
+---
+
+## Peak-Hour Audit (2026-03-31, card #5354)
+
+Peak hours to avoid: **5-11 AM GMT** and **1-7 PM GMT** (= 1-7 AM EDT and 9 AM-3 PM EDT).
+Off-peak windows: 7 PM-1 AM GMT (3-9 PM EDT) and 11 AM-1 PM GMT (7-9 AM EDT).
+
+| Job | Current (EDT) | GMT | Peak? | Action |
+|-----|--------------|-----|-------|--------|
+| ai-memory daily-backup (launchd) | 03:00 | 07:00 | YES | Reschedule to 23:00 EDT (03:00 GMT) |
+| trading-copilot briefing (cron) | 07:55 M-F | 11:55 | YES | Intentional — runs before market open, keep as-is |
+| pt maintenance (cron) | 05:00 Sun | 09:00 | YES | Reschedule to 20:00 EDT (00:00 GMT) |
+| calendar poller (cron) | */10 min | 24/7 | partial | Lightweight polling, acceptable as-is |
+| ai-memory sync-pending (launchd) | */5 min | 24/7 | partial | Lightweight polling, acceptable as-is |
+| open-brain-sync (launchd) | always-on | 24/7 | partial | Daemon, must stay running |
+| journal-personal (launchd) | 22:00 | 02:00 | no | Safe |
+| cortana daily (launchd) | 13:00+22:00 | 17:00+02:00 | no | Safe |
+| model-updater (cron) | 12:00 Sun | 16:00 | no | Safe |
+| muffinpanrecipes (cron) | 12:00 daily | 16:00 | no | Safe |
+
+Launchd plist and crontab changes are out of scope for this repo — tracked separately.
 
 ---
 
 ## Jobs Overview
 
+### Launchd (~/Library/LaunchAgents/)
+
 | Label | Project | Schedule | Status |
 |-------|---------|----------|--------|
-| `com.erik.journal-personal` | [ai-journal](#ai-journal--personal-journal) | Daily 22:00 | ✅ Installed |
-| `com.eriksjaastad.open-brain-antigravity-sync` | [ai-memory](#ai-memory--open-brain-sync) | Always-on daemon | ✅ Installed |
-| `com.user.cortana_daily_update` | [cortana-personal-ai](#cortana-personal-ai--daily-data-update) | Daily 13:00 + 22:00 | ⚠️ Template path |
-| `com.eriksjaastad.doc-audit` | [project-tracker](#project-tracker--doc-audit) | Daily 03:00 | ⚠️ Not installed |
-| `com.user.ecosystem_maintenance` | [project-tracker](#project-tracker--ecosystem-maintenance) | Daily 06:00 | ⚠️ Not installed |
-| `com.user.sherlock_watchlist` | [sherlock-holmes](#sherlock-holmes--watchlist-monitor) | Weekly Sun 09:00 | ⚠️ Not installed |
+| `com.erik.journal-personal` | [ai-journal](#ai-journal--personal-journal) | Daily 22:00 | Installed |
+| `com.eriksjaastad.open-brain-antigravity-sync` | [ai-memory](#ai-memory--open-brain-sync) | Always-on daemon | Installed |
+| `com.ai-memory.daily-backup` | [ai-memory](#ai-memory--daily-backup) | Daily 03:00 | Installed |
+| `com.ai-memory.sync-pending` | [ai-memory](#ai-memory--sync-pending) | Every 5 min | Installed |
+| `com.user.cortana_daily_update` | [cortana-personal-ai](#cortana-personal-ai--daily-data-update) | Daily 13:00 + 22:00 | Template path |
+| `com.eriksjaastad.doc-audit` | [project-tracker](#project-tracker--doc-audit) | Daily 03:00 | Not installed |
+| `com.user.ecosystem_maintenance` | [project-tracker](#project-tracker--ecosystem-maintenance) | Daily 06:00 | Not installed |
+| `com.user.sherlock_watchlist` | [sherlock-holmes](#sherlock-holmes--watchlist-monitor) | Weekly Sun 09:00 | Not installed |
+| `com.eriksjaastad.project-tracker` | [project-tracker](#project-tracker--dashboard) | Always-on daemon | Installed |
+| `com.eriksjaastad.slack-listener` | slack-listener | Always-on daemon | Installed |
+
+### Crontab
+
+| Schedule | Project | Command |
+|----------|---------|---------|
+| `55 7 * * 1-5` (7:55 AM M-F) | trading-copilot | `morning_briefing_discord.py` |
+| `0 5 * * 0` (5:00 AM Sun) | project-tracker | `maintenance.sh` |
+| `0 12 * * 0` (noon Sun) | model-updater | `mu check` |
+| `0 12 * * *` (noon daily) | muffinpanrecipes | `run_compressed_week.py` |
+| `*/10 * * * *` (every 10 min) | project-tracker | `calendar_poller.py` |
 
 ---
 
