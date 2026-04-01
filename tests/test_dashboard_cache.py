@@ -38,18 +38,14 @@ class TestDashboardCache:
             mock_db.get_tasks.return_value = []
             MockDB.return_value = mock_db
 
-            with patch("dashboard.app.get_current_scaffolding_version", return_value=("1.0", None)):
-                with patch("dashboard.app.get_all_alerts", return_value=[]):
-                    with patch("dashboard.app.get_available_agents", return_value=[]):
-                        with patch("dashboard.app.get_backup_status", return_value={}):
-                                data = _build_dashboard_data()
+            with patch("dashboard.app.get_all_alerts", return_value=[]):
+                with patch("dashboard.app.get_available_agents", return_value=[]):
+                    with patch("dashboard.app.get_backup_status", return_value={}):
+                            data = _build_dashboard_data()
 
         required_keys = [
             "projects", "alerts", "code_reviews", "total_projects",
             "indexed_count", "compliance_pct", "agents", "backup_status",
-            "current_scaffolding_version", "outdated_projects",
-            "unscaffolded_projects", "structural_projects",
-            "outdated_count", "unscaffolded_count", "structural_count",
         ]
         for key in required_keys:
             assert key in data, f"Missing key: {key}"

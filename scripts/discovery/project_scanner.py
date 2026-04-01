@@ -253,22 +253,6 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Failed to get metadata from index file {index_file}: {e}")
     
-    # Read scaffolding version if exists
-    version_file = project_path / ".scaffolding-version"
-    if version_file.exists():
-        try:
-            import json
-            version_data = json.loads(version_file.read_text())
-            metadata["scaffolding_version"] = version_data.get("scaffolding_version")
-            metadata["rules_version"] = version_data.get("rules_version")
-            metadata["scaffolding_applied_at"] = version_data.get("applied_at")
-        except Exception as e:
-            logger.debug(f"Failed to read .scaffolding-version for {project_path.name}: {e}")
-    else:
-        metadata["scaffolding_version"] = None
-        metadata["rules_version"] = None
-        metadata["scaffolding_applied_at"] = None
-    
     # Parse TODO.md if exists
     todo_path = project_path / "TODO.md"
     todo_content = ""

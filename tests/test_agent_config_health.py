@@ -22,7 +22,6 @@ def test_get_all_alerts_includes_agent_config_health_warning(monkeypatch: pytest
     for detector_name in (
         "detect_telemetry_errors",
         "detect_stale_cron_heartbeats",
-        "detect_scaffolding_drift",
         "detect_blocked_projects",
         "detect_code_reviews",
         "detect_cron_failures",
@@ -51,8 +50,6 @@ def test_api_projects_include_agent_config_health(tmp_path: Path, monkeypatch: p
     db_path = tmp_path / "test.db"
     create_database(db_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
-    monkeypatch.setattr(dashboard_app, "get_current_scaffolding_version", lambda: (None, None))
-
     project_path = tmp_path / "sample-project"
     project_path.mkdir()
     (project_path / "CLAUDE.md").write_text("\n".join([f"- rule {i}" for i in range(205)]) + "\n")
@@ -80,8 +77,6 @@ def test_api_alerts_include_agent_config_health(tmp_path: Path, monkeypatch: pyt
     db_path = tmp_path / "test.db"
     create_database(db_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
-    monkeypatch.setattr(dashboard_app, "get_current_scaffolding_version", lambda: (None, None))
-
     project_path = tmp_path / "sample-project"
     project_path.mkdir()
     (project_path / "CLAUDE.md").write_text("\n".join([f"- rule {i}" for i in range(205)]) + "\n")
@@ -99,7 +94,6 @@ def test_api_alerts_include_agent_config_health(tmp_path: Path, monkeypatch: pyt
     for detector_name in (
         "detect_telemetry_errors",
         "detect_stale_cron_heartbeats",
-        "detect_scaffolding_drift",
         "detect_blocked_projects",
         "detect_code_reviews",
         "detect_cron_failures",
@@ -127,8 +121,6 @@ def test_api_task_policy_and_project_card_flags(tmp_path: Path, monkeypatch: pyt
     db_path = tmp_path / "test.db"
     create_database(db_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
-    monkeypatch.setattr(dashboard_app, "get_current_scaffolding_version", lambda: (None, None))
-
     blocked_path = tmp_path / "project-tracker"
     blocked_path.mkdir()
     allowed_path = tmp_path / "smart-invoice-workflow"
