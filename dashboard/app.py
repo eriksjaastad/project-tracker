@@ -2606,7 +2606,14 @@ def _fetch_github_data() -> Dict:
             "draft_prs": sum(1 for p in all_prs if p.get("isDraft")),
             "recent_commit_count": len(recent_commits),
             "repos_with_ci": len(set(r["repo"] for r in workflow_runs)),
-            "failing_ci": sum(1 for r in workflow_runs if r.get("conclusion") == "failure"),
+            "failing_ci": sum(
+                1 for r in workflow_runs
+                if r.get("conclusion") == "failure"
+                and (r.get("branch") in ("main", "master")
+                     or any(pr.get("headRefName") == r.get("branch")
+                            and pr.get("repository", {}).get("name") == r.get("repo")
+                            for pr in all_prs))
+            ),
         },
         "fetched_at": datetime.utcnow().isoformat() + "Z",
         "cached": False,
