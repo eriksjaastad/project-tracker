@@ -247,6 +247,7 @@ class CalendarManager:
         days: int = 7,
         from_date: Optional[str] = None,
         project_id: Optional[str] = None,
+        machine: Optional[str] = None,
         event_type: Optional[str] = None,
         status: str = "active",
         include_all: bool = False,
@@ -272,6 +273,9 @@ class CalendarManager:
         if event_type:
             query += " AND event_type = ?"
             params.append(event_type)
+        if machine:
+            query += " AND machine = ?"
+            params.append(machine)
 
         query += " ORDER BY event_date ASC, event_time ASC NULLS LAST"
 
