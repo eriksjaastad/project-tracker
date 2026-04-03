@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import threading
+import httpx
 
 from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File
 from fastapi.templating import Jinja2Templates
@@ -898,10 +899,17 @@ _COST_TRACKER_BASE = "https://api.synthinsightlabs.com/costs"
 _COST_TRACKER_KEY = os.getenv("COST_TRACKER_API_KEY", "")
 
 
+_COST_PROXY_ALLOWED_PATHS = {"daily", "providers", "projects", "models", "callers", "usage"}
+
+
 @app.get("/api/costs/{path:path}")
 async def proxy_costs(path: str, request: Request):
     """Proxy requests to the SIL cost tracker API."""
-    import httpx
+
+    # Validate path against allowlist to prevent SSRF
+    root_segment = path.split("/")[0]
+    if root_segment not in _COST_PROXY_ALLOWED_PATHS:
+        raise HTTPException(status_code=400, detail=f"Unknown cost endpoint: {path}")
 
     url = f"{_COST_TRACKER_BASE}/{path}"
     if request.query_params:
@@ -915,7 +923,10 @@ async def proxy_costs(path: str, request: Request):
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, headers=headers)
             return JSONResponse(resp.json(), status_code=resp.status_code)
-    except Exception as e:
+    except httpx.TimeoutException:
+        logger.warning("Cost tracker proxy timed out")
+        return JSONResponse({"error": "Cost tracker timed out", "data": []}, status_code=504)
+    except httpx.RequestError as e:
         logger.warning(f"Cost tracker proxy error: {e}")
         return JSONResponse({"error": "Cost tracker unavailable", "data": []}, status_code=502)
 
