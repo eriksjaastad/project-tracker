@@ -13,11 +13,14 @@ Usage:
 
 import argparse
 import json
+import logging
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+logger = logging.getLogger("card-factory-scan")
 
 # Directories/files to always skip
 SKIP_DIRS = {
@@ -76,8 +79,12 @@ def check_ruff(project_path: Path) -> list[dict]:
                     "code": item.get("code", ""),
                     "message": item.get("message", ""),
                 })
-    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
-        pass
+    except FileNotFoundError:
+        logger.info("ruff not installed, skipping lint check")
+    except subprocess.TimeoutExpired:
+        logger.warning("ruff timed out on %s", project_path)
+    except json.JSONDecodeError as e:
+        logger.warning("ruff output not valid JSON: %s", e)
     return findings
 
 
@@ -108,7 +115,8 @@ def check_orphans(project_path: Path) -> list[dict]:
                     imported_modules.add(".".join(parts[:i+1]))
                 # Also add the leaf name alone for relative-style matching
                 imported_modules.add(parts[-1])
-        except Exception:
+        except Exception as e:
+            logger.debug("Could not read %s: %s", f, e)
             continue
 
     # Check each Python file: is its module name imported anywhere?
@@ -139,7 +147,8 @@ def check_orphans(project_path: Path) -> list[dict]:
                     if stem in text:
                         referenced = True
                         break
-                except Exception:
+                except Exception as e:
+                    logger.debug("Could not read %s: %s", other, e)
                     continue
             if not referenced:
                 findings.append({
@@ -207,7 +216,8 @@ def check_stale_tests(project_path: Path) -> list[dict]:
     for test_file in test_dir.glob("test_*.py"):
         try:
             text = test_file.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
+        except Exception as e:
+            logger.debug("Could not read %s: %s", f, e)
             continue
         for m in import_pattern.finditer(text):
             mod = m.group(1) or m.group(2)
@@ -237,7 +247,8 @@ def check_governance(project_path: Path) -> list[dict]:
     for f in find_project_files(project_path, source_extensions):
         try:
             lines = f.read_text(encoding="utf-8", errors="ignore").splitlines()
-        except Exception:
+        except Exception as e:
+            logger.debug("Could not read %s: %s", f, e)
             continue
         for i, line in enumerate(lines, 1):
             if path_pattern.search(line):
@@ -294,7 +305,8 @@ def check_missing_info(project_path: Path) -> list[dict]:
     for f in find_project_files(project_path, {".py", ".sh"}):
         try:
             lines = f.read_text(encoding="utf-8", errors="ignore").splitlines()
-        except Exception:
+        except Exception as e:
+            logger.debug("Could not read %s: %s", f, e)
             continue
 
         if f.suffix == ".py":
@@ -330,8 +342,8 @@ def check_missing_info(project_path: Path) -> list[dict]:
         if result.stdout.strip():
             for entry in json.loads(result.stdout):
                 documented_vars.add(entry.get("key", "").upper())
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Could not query pt info for %s: %s", project_name, e)
 
     for var, location in env_vars_in_code.items():
         if var not in documented_vars:
@@ -362,7 +374,8 @@ def check_dead_deps(project_path: Path) -> list[dict]:
             text = f.read_text(encoding="utf-8", errors="ignore")
             for m in import_pattern.finditer(text):
                 all_imports.add((m.group(1) or m.group(2)).lower())
-        except Exception:
+        except Exception as e:
+            logger.debug("Could not read %s: %s", f, e)
             continue
 
     # Map of package names to their import names (common mismatches)
@@ -396,8 +409,8 @@ def check_dead_deps(project_path: Path) -> list[dict]:
                         "code": "DEAD_DEP",
                         "message": f"Package '{pkg}' is listed but never imported",
                     })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Could not parse requirements.txt: %s", e)
 
     # Parse pyproject.toml dependencies
     pyproject = project_path / "pyproject.toml"
@@ -428,8 +441,8 @@ def check_dead_deps(project_path: Path) -> list[dict]:
                                 "code": "DEAD_DEP",
                                 "message": f"Package '{pkg}' is listed but never imported",
                             })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Could not parse pyproject.toml: %s", e)
 
     return findings
 
@@ -452,7 +465,8 @@ def check_empty_files(project_path: Path) -> list[dict]:
             continue
         try:
             text = f.read_text(encoding="utf-8", errors="ignore").strip()
-        except Exception:
+        except Exception as e:
+            logger.debug("Could not read %s: %s", f, e)
             continue
         if not text:
             findings.append({
@@ -500,6 +514,8 @@ def main():
     parser.add_argument("--check", default=None,
                         help="Comma-separated list of checks to run (default: all)")
     args = parser.parse_args()
+
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
     project_path = Path(args.project_path).resolve()
     if not project_path.is_dir():
