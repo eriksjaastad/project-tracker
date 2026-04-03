@@ -2327,6 +2327,180 @@ def info_list(json_output):
 
 
 # =============================================================================
+# Message group (Agent Chat)
+# =============================================================================
+
+def _load_chat_config() -> dict:
+    """Load Agent Chat config from ~/.claude/agent-chat.env or environment."""
+    import os
+    config = {
+        "url": os.environ.get("AGENT_CHAT_URL", ""),
+        "key": os.environ.get("AGENT_CHAT_API_KEY", ""),
+        "sender": os.environ.get("AGENT_CHAT_SENDER", ""),
+    }
+    env_file = Path.home() / ".claude" / "agent-chat.env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                k, _, v = line.partition("=")
+                k, v = k.strip(), v.strip()
+                if k == "AGENT_CHAT_URL":
+                    config["url"] = v
+                elif k == "AGENT_CHAT_API_KEY":
+                    config["key"] = v
+                elif k == "AGENT_CHAT_SENDER":
+                    config["sender"] = v
+    if not config["url"] or not config["key"]:
+        raise click.ClickException(
+            "Agent Chat not configured. Set AGENT_CHAT_URL and AGENT_CHAT_API_KEY "
+            "in ~/.claude/agent-chat.env"
+        )
+    return config
+
+
+def _chat_api_request(method: str, path: str, config: dict,
+                      data: dict | None = None, params: dict | None = None) -> dict:
+    """Make an HTTP request to the Agent Chat API. Returns parsed JSON."""
+    from urllib.request import Request, urlopen
+    from urllib.error import URLError, HTTPError
+    import json as json_mod
+
+    url = config["url"].rstrip("/") + path
+    if params:
+        qs = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
+        if qs:
+            url += "?" + qs
+
+    payload = json_mod.dumps(data).encode("utf-8") if data else None
+    headers = {"X-API-Key": config["key"]}
+    if data:
+        headers["Content-Type"] = "application/json"
+
+    req = Request(url, data=payload, headers=headers, method=method)
+    try:
+        resp = urlopen(req, timeout=15)
+        return json_mod.loads(resp.read())
+    except HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise click.ClickException(f"Agent Chat API error {e.code}: {body}")
+    except (URLError, OSError, TimeoutError) as e:
+        raise click.ClickException(f"Agent Chat API unreachable: {e}")
+
+
+def _format_message_line(m: dict) -> str:
+    """Format a single message as a pipe-delimited line."""
+    sender = m.get("sender", "?")
+    recipient = m.get("recipient")
+    arrow = f"{sender} -> {recipient}" if recipient else sender
+    priority = m.get("priority", "normal")
+    body_preview = (m.get("body") or "").replace("\n", " ")[:80]
+    ts = m.get("ts", "")
+    msg_id = m.get("id", "?")
+    reply = f" (reply to #{m['reply_to']})" if m.get("reply_to") else ""
+    return f"#{msg_id} | {ts} | {arrow}{reply} | {priority} | {body_preview}"
+
+
+@click.group(name="message", invoke_without_command=True)
+@click.pass_context
+def message_group(ctx):
+    """Agent Chat — send and read messages between agents.
+
+    \b
+    Quick start:
+      pt message                           # Recent messages
+      pt message send "Deploy looks good"  # Send to chat
+      pt message list --limit 10           # List with filters
+      pt message list --sender mini-claude # Filter by sender
+      pt message send "Check status" --to mini-claude  # Direct message
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    ctx.invoke(message_list)
+
+
+@message_group.command(name="send")
+@click.argument("text")
+@click.option("--to", "recipient", default=None, help="Direct message to a specific agent")
+@click.option("--priority", type=click.Choice(["low", "normal", "high", "urgent"]),
+              default="normal", help="Message priority")
+@click.option("--reply-to", "reply_to", type=int, default=None,
+              help="Message ID to reply to")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def message_send(text, recipient, priority, reply_to, json_output):
+    """Send a message to Agent Chat.
+
+    \b
+    Examples:
+      pt message send "SIW launch prep complete"
+      pt message send "Check your inbox" --to mini-claude
+      pt message send "Acknowledged" --reply-to 19 --priority high
+    """
+    import json as json_mod
+    config = _load_chat_config()
+    payload = {
+        "sender": config["sender"],
+        "body": text,
+        "priority": priority,
+    }
+    if recipient:
+        payload["to"] = recipient
+    if reply_to:
+        payload["reply_to"] = reply_to
+
+    result = _chat_api_request("POST", "/send", config, data=payload)
+
+    if json_output:
+        print(json_mod.dumps(result, indent=2))
+    else:
+        click.echo(f"Sent #{result.get('id', '?')} as {config['sender']}")
+
+
+@message_group.command(name="list")
+@click.option("--limit", "-n", default=20, type=int, help="Number of messages (default: 20)")
+@click.option("--since", default=None, help="Show messages after this ISO timestamp")
+@click.option("--sender", default=None, help="Filter by sender")
+@click.option("--for", "for_recipient", default=None,
+              help="Show messages visible to this agent (broadcasts + DMs)")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def message_list(limit, since, sender, for_recipient, json_output):
+    """List messages from Agent Chat.
+
+    \b
+    Examples:
+      pt message list                        # Recent 20 messages
+      pt message list --limit 5              # Last 5
+      pt message list --sender mini-claude   # From mini-claude
+      pt message list --for claude-architect # Visible to architect
+      pt message list --since 2026-04-03T00:00:00Z
+    """
+    import json as json_mod
+    config = _load_chat_config()
+    params = {"limit": str(limit)}
+    if since:
+        params["since"] = since
+    if sender:
+        params["sender"] = sender
+    if for_recipient:
+        params["for"] = for_recipient
+
+    result = _chat_api_request("GET", "/messages", config, params=params)
+    messages = result.get("messages", [])
+
+    if json_output:
+        print(json_mod.dumps(result, indent=2))
+        return
+    if not messages:
+        click.echo("No messages found.")
+        return
+    for m in messages:
+        click.echo(_format_message_line(m))
+    click.echo(f"\nMessages: {len(messages)}")
+
+
+# =============================================================================
 # Register subgroups and run
 # =============================================================================
 
@@ -2336,6 +2510,7 @@ cli.add_command(calendar_group)
 cli.add_command(memory_group)
 cli.add_command(worktrees_group)
 cli.add_command(info_group)
+cli.add_command(message_group)
 
 if __name__ == "__main__":
     cli()
