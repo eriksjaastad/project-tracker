@@ -2405,8 +2405,23 @@ _GITHUB_CACHE_TTL = 300  # 5 minutes
 
 
 def _find_gh() -> str:
-    """Find gh binary, checking common Homebrew paths if not on PATH."""
-    return shutil.which("gh") or os.environ.get("GH_PATH", "gh")
+    """Find gh binary, checking common install locations if not on PATH.
+
+    launchd services have a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin),
+    so shutil.which() alone won't find Homebrew-installed gh.
+    """
+    found = shutil.which("gh") or os.environ.get("GH_PATH")
+    if found:
+        return found
+    # Check standard install locations (launchd PATH doesn't include these)
+    homebrew_paths = [
+        os.path.expanduser("~/.local/bin/gh"),
+        os.path.join(os.environ.get("HOMEBREW_PREFIX", "/opt/homebrew"), "bin", "gh"),
+    ]
+    for candidate in homebrew_paths:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return "gh"
 
 
 _GH_BIN = _find_gh()
