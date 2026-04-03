@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { PageShell } from './PageShell';
+import { CostPanel } from './CostPanel';
 import './DashboardPage.css';
 
 interface GitHubData {
@@ -188,6 +189,9 @@ export function DashboardPage() {
       subtitle={`${summary?.total_repos} repos · ${summary?.recent_commit_count} commits this week · ${data.cached ? 'cached' : 'fresh'}`}
     >
       <div className="dashboard-grid">
+        {/* API Cost Overview */}
+        <CostPanel />
+
         {/* Summary Cards */}
         <div className="dashboard-summary">
           <div className="summary-card">
