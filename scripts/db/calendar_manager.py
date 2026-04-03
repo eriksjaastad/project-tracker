@@ -366,9 +366,10 @@ class CalendarManager:
         self,
         *,
         project_id: Optional[str] = None,
+        machine: Optional[str] = None,
         active_only: bool = True,
     ) -> List[Dict[str, Any]]:
-        """Return cron jobs, filtered by project. Shown alongside calendar events."""
+        """Return cron jobs, filtered by project and/or machine."""
         query = "SELECT * FROM cron_jobs WHERE 1=1"
         params: list = []
 
@@ -377,6 +378,9 @@ class CalendarManager:
         if project_id:
             query += " AND project_id = ?"
             params.append(project_id)
+        if machine:
+            query += " AND machine = ?"
+            params.append(machine)
 
         query += " ORDER BY project_id, schedule"
 
