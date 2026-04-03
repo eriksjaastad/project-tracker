@@ -892,6 +892,34 @@ async def api_learning_stats():
         }
 
 
+# --- API Cost Proxy (#5447) ---
+
+_COST_TRACKER_BASE = "https://api.synthinsightlabs.com/costs"
+_COST_TRACKER_KEY = os.getenv("COST_TRACKER_API_KEY", "")
+
+
+@app.get("/api/costs/{path:path}")
+async def proxy_costs(path: str, request: Request):
+    """Proxy requests to the SIL cost tracker API."""
+    import httpx
+
+    url = f"{_COST_TRACKER_BASE}/{path}"
+    if request.query_params:
+        url += f"?{request.query_params}"
+
+    headers = {}
+    if _COST_TRACKER_KEY:
+        headers["X-API-Key"] = _COST_TRACKER_KEY
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, headers=headers)
+            return JSONResponse(resp.json(), status_code=resp.status_code)
+    except Exception as e:
+        logger.warning(f"Cost tracker proxy error: {e}")
+        return JSONResponse({"error": "Cost tracker unavailable", "data": []}, status_code=502)
+
+
 # --- Section ---
 # Calendar API
 # --- Section ---
