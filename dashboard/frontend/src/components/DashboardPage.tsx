@@ -167,9 +167,18 @@ export function DashboardPage() {
     .filter(r => !r.isArchived && r.pushedAt)
     .sort((a, b) => new Date(b.pushedAt).getTime() - new Date(a.pushedAt).getTime());
 
-  // Failing CI runs (dedupe by repo, show most recent)
+  // Failing CI — only show failures on main/master or branches with open PRs
+  // (filters out stale failures on merged/closed branches)
+  const openPrBranches = new Set(
+    (open_pull_requests || []).map(pr => `${pr.repository?.name}:${pr.headRefName}`)
+  );
   const failingRuns = (workflow_runs || [])
-    .filter(r => r.conclusion === 'failure')
+    .filter(r => {
+      if (r.conclusion !== 'failure') return false;
+      const isDefaultBranch = r.branch === 'main' || r.branch === 'master';
+      const hasOpenPr = openPrBranches.has(`${r.repo}:${r.branch}`);
+      return isDefaultBranch || hasOpenPr;
+    })
     .slice(0, 10);
 
   // Stale branches (non-main, non-protected)
