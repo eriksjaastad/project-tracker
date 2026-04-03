@@ -33,7 +33,7 @@ if [[ -f "$THROTTLE_FILE" ]]; then
         exit 0
     fi
 fi
-date +%s > "$THROTTLE_FILE"
+date +%s > "$THROTTLE_FILE.tmp" && mv "$THROTTLE_FILE.tmp" "$THROTTLE_FILE"
 
 # Read last cursor
 since=""
@@ -72,7 +72,7 @@ fi
 
 # Update cursor to latest timestamp
 last_ts="$(echo "$response" | jq -r '.messages[-1].ts')"
-echo "$last_ts" > "$CURSOR_FILE"
+echo "$last_ts" > "$CURSOR_FILE.tmp" && mv "$CURSOR_FILE.tmp" "$CURSOR_FILE"
 
 # Build output
 output="=== AGENT CHAT: $count new message(s) ==="

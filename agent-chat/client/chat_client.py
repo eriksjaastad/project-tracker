@@ -56,7 +56,9 @@ class AgentChat:
             )
             resp = urlopen(req, timeout=10)
             return json.loads(resp.read())
-        except (URLError, OSError, TimeoutError):
+        except (URLError, OSError, TimeoutError) as e:
+            import logging
+            logging.getLogger(__name__).warning("Agent Chat send failed: %s", e)
             return None
 
     def read(self, limit: int = 20) -> list[dict]:
@@ -74,5 +76,7 @@ class AgentChat:
             if messages:
                 self._last_ts = messages[-1]["ts"]
             return messages
-        except (URLError, OSError, TimeoutError):
+        except (URLError, OSError, TimeoutError) as e:
+            import logging
+            logging.getLogger(__name__).warning("Agent Chat read failed: %s", e)
             return []
