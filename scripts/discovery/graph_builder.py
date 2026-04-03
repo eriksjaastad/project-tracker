@@ -1,5 +1,6 @@
 """Graph builder for project-tracker ecosystem."""
 
+import gc
 import os
 import re
 import json
@@ -101,6 +102,7 @@ class GraphBuilder:
         self.root = root_path
         self.nodes = []
         self.edges = []
+        self.edge_set = set()  # (source, target, type) for O(1) dedup
         self.node_map = {}  # id -> node index
         self.stats = {
             "total_nodes": 0,
@@ -125,6 +127,14 @@ class GraphBuilder:
             return str(path.relative_to(self.root))
         except ValueError:
             return str(path)
+
+    def _build_indexes(self):
+        """Build lookup indexes for O(1) node resolution."""
+        from collections import defaultdict
+        self.node_by_id = {node["id"]: node for node in self.nodes}
+        self.node_by_name = defaultdict(list)
+        for node in self.nodes:
+            self.node_by_name[node["name"]].append(node)
 
     def scan(self):
         """Scan the ecosystem for files and build nodes."""
@@ -187,9 +197,15 @@ class GraphBuilder:
         self.stats["projects_scanned"] = len(self.projects)
         logger.info(f"Found {len(self.nodes)} files across {len(self.projects)} projects")
 
+        # Build lookup indexes for O(1) node resolution (replaces O(n) linear scans)
+        self._build_indexes()
+
         # Now process each file for edges
         for file_path in file_list:
             self._process_file(file_path)
+
+        # Free temporary data and collect garbage between phases
+        gc.collect()
 
         # Update stats and orphan status
         self._finalize_graph()
@@ -246,15 +262,16 @@ class GraphBuilder:
     def _add_edge(self, source_id: str, target_id: str, edge_type: str, label: str = ""):
         """Add an edge if the target exists."""
         if target_id in self.node_map and source_id != target_id:
-            edge = {
-                "source": source_id,
-                "target": target_id,
-                "type": edge_type,
-                "label": label
-            }
-            # Avoid duplicate edges
-            if edge not in self.edges:
-                self.edges.append(edge)
+            # O(1) dedup via set instead of O(n) linear search
+            key = (source_id, target_id, edge_type)
+            if key not in self.edge_set:
+                self.edge_set.add(key)
+                self.edges.append({
+                    "source": source_id,
+                    "target": target_id,
+                    "type": edge_type,
+                    "label": label
+                })
                 
             # Update sizes and orphan status (always do this if target exists)
             source_idx = self.node_map[source_id]
@@ -280,10 +297,9 @@ class GraphBuilder:
                 self._add_edge(source_id, target_id, "markdown_link", f"[{text}]({path})")
             except Exception:
                 target_name = Path(path).name
-                for node in self.nodes:
-                    if node["name"] == target_name:
-                        self._add_edge(source_id, node["id"], "markdown_link", f"[{text}]({path})")
-                        break
+                for node in self.node_by_name.get(target_name, []):
+                    self._add_edge(source_id, node["id"], "markdown_link", f"[{text}]({path})")
+                    break
 
     def _extract_python_relationships(self, source_id: str, content: str):
         for match in PYTHON_IMPORT_FROM.findall(content):
@@ -298,15 +314,15 @@ class GraphBuilder:
 
     def _resolve_python_module(self, source_id: str, module_path: str, edge_type: str):
         path_parts = module_path.split('.')
-        potential_files = [
+        potential_suffixes = [
             os.path.join(*path_parts) + ".py",
             os.path.join(*path_parts, "__init__.py")
         ]
-        
-        for pf in potential_files:
-            for node in self.nodes:
-                if node["path"].endswith(pf):
-                    self._add_edge(source_id, node["id"], edge_type, f"import {module_path}")
+        # Check node_map keys (which are paths) for suffix matches
+        for suffix in potential_suffixes:
+            for node_id in self.node_map:
+                if node_id.endswith(suffix):
+                    self._add_edge(source_id, node_id, edge_type, f"import {module_path}")
                     return
 
     def _extract_js_ts_relationships(self, source_id: str, content: str):
@@ -318,14 +334,20 @@ class GraphBuilder:
     def _resolve_js_module(self, source_id: str, module_path: str, edge_type: str):
         if module_path.startswith('.'):
             target_name = Path(module_path).name
-            for node in self.nodes:
-                if node["name"].startswith(target_name):
-                    self._add_edge(source_id, node["id"], edge_type, f"import {module_path}")
+            # Check exact name match first, then prefix match
+            for node in self.node_by_name.get(target_name, []):
+                self._add_edge(source_id, node["id"], edge_type, f"import {module_path}")
+                return
+            # Prefix match — check names starting with target_name
+            for name, nodes in self.node_by_name.items():
+                if name.startswith(target_name):
+                    self._add_edge(source_id, nodes[0]["id"], edge_type, f"import {module_path}")
                     return
         else:
-            for node in self.nodes:
-                if module_path in node["path"]:
-                    self._add_edge(source_id, node["id"], edge_type, f"import {module_path}")
+            # Path contains — must scan node_map keys
+            for node_id in self.node_map:
+                if module_path in node_id:
+                    self._add_edge(source_id, node_id, edge_type, f"import {module_path}")
                     return
 
     def _extract_go_relationships(self, source_id: str, content: str):
@@ -341,11 +363,10 @@ class GraphBuilder:
                     self._resolve_go_module(source_id, inner_match.group(1))
 
     def _resolve_go_module(self, source_id: str, module_path: str):
-        target_name = Path(module_path).name
-        for node in self.nodes:
-            if node["name"] == target_name + ".go":
-                self._add_edge(source_id, node["id"], "go_import", f"import {module_path}")
-                return
+        target_name = Path(module_path).name + ".go"
+        for node in self.node_by_name.get(target_name, []):
+            self._add_edge(source_id, node["id"], "go_import", f"import {module_path}")
+            return
 
     def _extract_file_references(self, source_id: str, content: str, file_path: Path):
         """Extract generic 'See: path' references."""
@@ -369,10 +390,9 @@ class GraphBuilder:
 
             # Try as filename match
             target_name = Path(path_str).name
-            for node in self.nodes:
-                if node["name"] == target_name:
-                    self._add_edge(source_id, node["id"], "file_reference", f"See: {path_str}")
-                    break
+            for node in self.node_by_name.get(target_name, []):
+                self._add_edge(source_id, node["id"], "file_reference", f"See: {path_str}")
+                break
 
     def _extract_wikilinks(self, source_id: str, content: str, file_path: Path):
         """Extract Obsidian wikilinks [[Document Name]]."""
@@ -393,11 +413,18 @@ class GraphBuilder:
                     pass
 
             # Try as filename match (with or without .md extension)
-            for node in self.nodes:
-                node_name_no_ext = Path(node["name"]).stem
-                if node["name"] == link_text or node["name"] == f"{link_text}.md" or node_name_no_ext == link_text:
-                    self._add_edge(source_id, node["id"], "wikilink", f"[[{link_text}]]")
-                    break
+            candidates = (
+                self.node_by_name.get(link_text, [])
+                or self.node_by_name.get(f"{link_text}.md", [])
+            )
+            if candidates:
+                self._add_edge(source_id, candidates[0]["id"], "wikilink", f"[[{link_text}]]")
+            else:
+                # Fallback: match by stem (filename without extension)
+                for name, nodes in self.node_by_name.items():
+                    if Path(name).stem == link_text:
+                        self._add_edge(source_id, nodes[0]["id"], "wikilink", f"[[{link_text}]]")
+                        break
 
     def _extract_python_cli_from_markdown(self, source_id: str, content: str, file_path: Path):
         """Extract Python CLI invocations from markdown code blocks."""
@@ -415,10 +442,9 @@ class GraphBuilder:
 
             # Try as filename match
             target_name = Path(script_path).name
-            for node in self.nodes:
-                if node["name"] == target_name:
-                    self._add_edge(source_id, node["id"], "python_cli", f"`python {script_path}`")
-                    break
+            for node in self.node_by_name.get(target_name, []):
+                self._add_edge(source_id, node["id"], "python_cli", f"`python {script_path}`")
+                break
 
     def _extract_shell_relationships(self, source_id: str, content: str, file_path: Path):
         """Extract shell script sourcing and execution."""
@@ -446,10 +472,9 @@ class GraphBuilder:
 
         # Try as filename match
         target_name = Path(script_path).name
-        for node in self.nodes:
-            if node["name"] == target_name:
-                self._add_edge(source_id, node["id"], edge_type, script_path)
-                return
+        for node in self.node_by_name.get(target_name, []):
+            self._add_edge(source_id, node["id"], edge_type, script_path)
+            return
 
     def _extract_dockerfile_relationships(self, source_id: str, content: str, file_path: Path):
         """Extract COPY/ADD directives from Dockerfile."""
@@ -471,10 +496,9 @@ class GraphBuilder:
 
             # Try as filename match
             target_name = Path(copy_path).name
-            for node in self.nodes:
-                if node["name"] == target_name:
-                    self._add_edge(source_id, node["id"], "dockerfile_copy", f"COPY {copy_path}")
-                    break
+            for node in self.node_by_name.get(target_name, []):
+                self._add_edge(source_id, node["id"], "dockerfile_copy", f"COPY {copy_path}")
+                break
 
     def _extract_yaml_relationships(self, source_id: str, content: str, file_path: Path):
         """Extract YAML $ref and extends references."""
@@ -502,10 +526,9 @@ class GraphBuilder:
 
         # Try as filename match
         target_name = Path(yaml_path).name
-        for node in self.nodes:
-            if node["name"] == target_name:
-                self._add_edge(source_id, node["id"], edge_type, yaml_path)
-                return
+        for node in self.node_by_name.get(target_name, []):
+            self._add_edge(source_id, node["id"], edge_type, yaml_path)
+            return
 
     def _extract_makefile_relationships(self, source_id: str, content: str, file_path: Path):
         """Extract Makefile include statements."""
@@ -523,10 +546,9 @@ class GraphBuilder:
 
             # Try as filename match
             target_name = Path(include_path).name
-            for node in self.nodes:
-                if node["name"] == target_name:
-                    self._add_edge(source_id, node["id"], "makefile_include", f"include {include_path}")
-                    break
+            for node in self.node_by_name.get(target_name, []):
+                self._add_edge(source_id, node["id"], "makefile_include", f"include {include_path}")
+                break
 
     def _finalize_graph(self):
         """Calculate final stats and status."""
@@ -578,7 +600,7 @@ class GraphBuilder:
         lines.append("Files referenced from multiple projects:")
         target_projects = defaultdict(set)
         for edge in self.edges:
-            source_node = next((n for n in self.nodes if n["id"] == edge["source"]), None)
+            source_node = self.node_by_id.get(edge["source"])
             if source_node:
                 target_projects[edge["target"]].add(source_node["project"])
         
@@ -598,7 +620,7 @@ class GraphBuilder:
         lines.append("Which projects are most depended upon:")
         depended_on = defaultdict(int)
         for target_id, projects in target_projects.items():
-            target_node = next((n for n in self.nodes if n["id"] == target_id), None)
+            target_node = self.node_by_id.get(target_id)
             if target_node:
                 for p in projects:
                     if p != target_node["project"]:
@@ -613,8 +635,8 @@ class GraphBuilder:
         lines.append("Projects with fewest external connections:")
         project_outbound = defaultdict(int)
         for edge in self.edges:
-            source_node = next((n for n in self.nodes if n["id"] == edge["source"]), None)
-            target_node = next((n for n in self.nodes if n["id"] == edge["target"]), None)
+            source_node = self.node_by_id.get(edge["source"])
+            target_node = self.node_by_id.get(edge["target"])
             if source_node and target_node and source_node["project"] != target_node["project"]:
                 project_outbound[source_node["project"]] += 1
         
@@ -685,8 +707,8 @@ class GraphBuilder:
         
         project_outbound = defaultdict(int)
         for edge in self.edges:
-            source_node = next((n for n in self.nodes if n["id"] == edge["source"]), None)
-            target_node = next((n for n in self.nodes if n["id"] == edge["target"]), None)
+            source_node = self.node_by_id.get(edge["source"])
+            target_node = self.node_by_id.get(edge["target"])
             if source_node and target_node and source_node["project"] != target_node["project"]:
                 project_outbound[source_node["project"]] += 1
         
@@ -696,7 +718,7 @@ class GraphBuilder:
         
         target_projects = defaultdict(set)
         for edge in self.edges:
-            source_node = next((n for n in self.nodes if n["id"] == edge["source"]), None)
+            source_node = self.node_by_id.get(edge["source"])
             if source_node:
                 target_projects[edge["target"]].add(source_node["project"])
         

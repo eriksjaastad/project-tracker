@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.background import BackgroundTask
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import (
     http_exception_handler,
@@ -744,13 +745,11 @@ async def refresh_data():
                 db.delete_project(db_proj["id"])
                 removed += 1
 
-        # Rebuild knowledge graph so dashboard is up to date
-        rebuild_knowledge_graph()
-
-        return JSONResponse({
-            "status": "success",
-            "message": f"Refreshed {len(projects)} projects, removed {removed} stale, rebuilt graph"
-        })
+        # Rebuild knowledge graph in background so endpoint returns immediately
+        return JSONResponse(
+            {"status": "success", "message": f"Refreshed {len(projects)} projects, removed {removed} stale. Graph rebuild started in background."},
+            background=BackgroundTask(rebuild_knowledge_graph),
+        )
     except Exception as e:
         logger.error(f"Error refreshing data: {e}")
         return JSONResponse({
@@ -893,9 +892,9 @@ async def api_learning_stats():
         }
 
 
-# =============================================================================
+# --- Section ---
 # Calendar API
-# =============================================================================
+# --- Section ---
 
 class CalendarEventCreate(BaseModel):
     title: str
@@ -1495,7 +1494,7 @@ async def run_agent(request: AgentRunRequest):
     }
 
 
-# ==================== ERROR HANDLING MIDDLEWARE ====================
+# --- Error Handling Middleware ---
 
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
@@ -1636,7 +1635,7 @@ def _extract_pattern_from_error(error_message: str) -> Optional[str]:
     return None
 
 
-# ==================== TASK API ENDPOINTS ====================
+# --- Task API Endpoints ---
 
 @app.post("/api/tasks", status_code=status.HTTP_201_CREATED)
 async def create_task(task_data: TaskCreateRequest):
@@ -1941,7 +1940,7 @@ async def delete_task(task_id: int):
         )
 
 
-# ==================== ATTACHMENT API ENDPOINTS (#5216) ====================
+# --- Attachment API Endpoints (#5216) ---
 
 ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024  # 20 MB
 
@@ -2137,7 +2136,7 @@ async def agentic_summary(days: int = 30, project_id: Optional[str] = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to build agentic summary"
         )
-# ==================== AGENTIC MARKERS API (#5009) ====================
+# --- Agentic Markers API (#5009) ---
 
 MARKERS_PATH = Path(__file__).parent.parent / "data" / "agentic_markers.json"
 
@@ -2241,7 +2240,7 @@ async def delete_marker(marker_id: str):
     return None
 
 
-# ==================== IDEAS API ENDPOINTS (Task #4583) ====================
+# --- Ideas API Endpoints (Task #4583) ---
 
 class IdeaCreateRequest(BaseModel):
     text: str
@@ -2368,13 +2367,7 @@ _GITHUB_CACHE_TTL = 300  # 5 minutes
 
 def _find_gh() -> str:
     """Find gh binary, checking common Homebrew paths if not on PATH."""
-    found = shutil.which("gh") or os.environ.get("GH_PATH")
-    if found:
-        return found
-    for candidate in ("/opt/homebrew/bin/gh", "/usr/local/bin/gh"):
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    return "gh"
+    return shutil.which("gh") or os.environ.get("GH_PATH", "gh")
 
 
 _GH_BIN = _find_gh()
