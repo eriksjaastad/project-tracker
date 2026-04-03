@@ -30,6 +30,7 @@ API_KEY = os.environ.get("AGENT_CHAT_API_KEY")
 def _check_auth():
     if not API_KEY:
         return None
+    # Header auth for API clients; query param for browser web UI only
     provided = request.headers.get("X-API-Key") or request.args.get("key")
     if provided != API_KEY:
         return jsonify({"error": "unauthorized"}), 401
