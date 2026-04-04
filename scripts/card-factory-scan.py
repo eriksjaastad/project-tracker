@@ -26,7 +26,7 @@ logger = logging.getLogger("card-factory-scan")
 SKIP_DIRS = {
     ".git", ".venv", "venv", "node_modules", "__pycache__", ".next",
     "dist", "build", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "project-graph-screenshots-movies", "logs", "data",
+    "project-graph-screenshots-movies", "logs", "data", ".claude",
 }
 SKIP_EXTENSIONS = {
     ".pyc", ".pyo", ".db", ".sqlite", ".wasm", ".png", ".jpg", ".jpeg",
@@ -506,6 +506,81 @@ ALL_CHECKS = {
 }
 
 
+def _print_create_commands(findings: list[dict], project_name: str) -> None:
+    """Group findings and print ready-to-run pt tasks create commands."""
+    from collections import defaultdict
+
+    if not findings:
+        print("# No findings — no cards to create.")
+        return
+
+    # Group by check type, then sub-group ruff by directory
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for f in findings:
+        check = f["check"]
+        if check == "ruff":
+            # Group by top-level directory
+            parts = f["file"].split("/")
+            if len(parts) > 1:
+                key = f"ruff_{parts[0]}"
+            else:
+                key = "ruff_root"
+        else:
+            key = check
+        groups[key].append(f)
+
+    print(f"# Card Factory — {len(groups)} cards for {project_name}")
+    print(f"# Run these commands to create cards:\n")
+
+    priority_map = {
+        "ruff": "Low",
+        "orphan": "Low",
+        "stale_test": "Medium",
+        "governance": "Medium",
+        "missing_info": "Low",
+        "dead_dep": "Low",
+        "empty_file": "Low",
+    }
+
+    for key, items in sorted(groups.items()):
+        check_type = items[0]["check"]
+        priority = priority_map.get(check_type, "Low")
+        count = len(items)
+
+        # Build description based on check type
+        if check_type == "ruff":
+            dir_name = key.replace("ruff_", "")
+            files = set(f["file"] for f in items)
+            desc = f"[Card Factory] Remove {count} unused imports/variables in {dir_name}/ ({len(files)} files)"
+        elif check_type == "orphan":
+            file_list = ", ".join(f["file"] for f in items[:5])
+            desc = f"[Card Factory] Audit {count} orphan Python files: {file_list}"
+        elif check_type == "stale_test":
+            file_list = ", ".join(set(f["file"] for f in items))
+            desc = f"[Card Factory] Fix {count} stale imports in test files: {file_list}"
+        elif check_type == "governance":
+            desc = f"[Card Factory] Fix {count} hardcoded path violations"
+        elif check_type == "missing_info":
+            vars_list = ", ".join(f["message"].split("'")[1] for f in items[:5] if "'" in f["message"])
+            desc = f"[Card Factory] Document {count} undocumented env vars in pt info: {vars_list}"
+        elif check_type == "dead_dep":
+            pkgs = ", ".join(f["message"].split("'")[1] for f in items[:5] if "'" in f["message"])
+            desc = f"[Card Factory] Audit {count} potentially dead dependencies: {pkgs}"
+        elif check_type == "empty_file":
+            desc = f"[Card Factory] Remove or fill {count} empty/placeholder files"
+        else:
+            desc = f"[Card Factory] Fix {count} {check_type} issues"
+
+        # Truncate to 1000 chars (pt limit)
+        if len(desc) > 995:
+            desc = desc[:992] + "..."
+
+        # Escape single quotes in description
+        safe_desc = desc.replace("'", "'\\''")
+        print(f"pt tasks create '{safe_desc}' -p {project_name} --priority {priority}")
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Card Factory Tier 1 Scanner")
     parser.add_argument("project_path", help="Path to project root")
@@ -513,6 +588,9 @@ def main():
                         help="Output as JSON")
     parser.add_argument("--check", default=None,
                         help="Comma-separated list of checks to run (default: all)")
+    parser.add_argument("--create-commands", action="store_true",
+                        dest="create_commands",
+                        help="Output ready-to-run pt tasks create commands")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
@@ -548,6 +626,10 @@ def main():
         "total_findings": len(all_findings),
         "findings": all_findings,
     }
+
+    if args.create_commands:
+        _print_create_commands(all_findings, project_path.name)
+        return
 
     if args.json_output:
         print(json.dumps(output, indent=2))
