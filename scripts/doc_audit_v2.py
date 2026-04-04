@@ -36,10 +36,9 @@ Usage:
 import argparse
 import json
 import os
-import shutil
 from pathlib import Path
 from datetime import datetime
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Optional
 import hashlib
 
@@ -326,7 +325,6 @@ def cmd_atlas_build(auto: bool = False):
 def _auto_process_batches(batches: list[list[dict]]):
     """Process atlas batches automatically via Gemini API."""
     import time
-    import sys
 
     if not GENAI_AVAILABLE:
         print("Error: google-generativeai not installed", flush=True)
@@ -887,7 +885,7 @@ def cmd_audit(project: Optional[str] = None, projects_list: Optional[str] = None
                 success_count += 1
                 time.sleep(1)  # Rate limiting
 
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError:
                 print(f"JSON error ⚠️", flush=True)
                 error_path = ACTIONS_DIR / f"audit_{proj}_raw.txt"
                 error_path.write_text(response.text if response else "No response")
