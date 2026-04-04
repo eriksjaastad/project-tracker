@@ -888,7 +888,7 @@ async def api_learning_stats():
 
 # --- API Cost Proxy (#5447) ---
 
-_COST_TRACKER_BASE = "https://api.synthinsightlabs.com/costs"
+_COST_TRACKER_BASE = "https://api.synthinsightlabs.com"
 _COST_TRACKER_KEY = os.getenv("COST_TRACKER_API_KEY", "")
 
 
