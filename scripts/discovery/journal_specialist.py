@@ -4,11 +4,10 @@ Journal Specialist - Knowledge Graph Enrichment for AI Memories.
 Specifically scans the ai-journal to establish deep links between logs and projects.
 """
 
-import os
 import re
 import json
 from pathlib import Path
-from typing import List, Dict, Set
+from typing import Set
 
 # Configuration
 PROJECTS_ROOT = Path(__file__).resolve().parents[3]

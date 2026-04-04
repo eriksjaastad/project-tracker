@@ -3,7 +3,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +26,6 @@ def detect_hygiene_issues(todo_path: Path) -> List[Dict[str, Any]]:
     lines = content.split('\n')
     
     # 1. Check for Current Phase staleness
-    current_phase = None
-    status = None
-    for line in lines[:30]:
-        if "Current Phase:" in line:
-            current_phase = line.split("Phase:", 1)[1].strip().replace('**', '').replace('*', '')
-        if "Project Status:" in line or "Status:" in line:
-            status = line.lower()
-
     # 2. Find Phase Sections and check task completion
     phase_sections = []
     current_section = None

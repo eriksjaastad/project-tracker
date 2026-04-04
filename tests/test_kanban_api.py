@@ -15,10 +15,10 @@ import time
 import threading
 import html
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional
 from datetime import datetime
 from contextlib import contextmanager
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from hypothesis import given, strategies as st, assume, settings
 from fastapi.testclient import TestClient
@@ -30,9 +30,6 @@ from scripts.utils.validation import (
     get_blocked_card_project_ids,
     is_card_creation_allowed,
     validate_task_input,
-    validate_task_text,
-    validate_status,
-    validate_priority,
     contains_secret
 )
 

@@ -11,7 +11,6 @@ These tests confirm:
 import os
 import sys
 import pytest
-import tempfile
 from pathlib import Path
 
 # Set test mode before imports

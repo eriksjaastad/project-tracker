@@ -1551,7 +1551,6 @@ def calendar_add_cron(project, schedule, command, description):
         ./pt calendar add-cron ai-memory-replay "0 9 * * 1" "bash scripts/render_replay.sh" \\
             --description "Weekly brain replay render"
     """
-    from datetime import datetime, timezone as _tz
     db = DatabaseManager()
     project_id = _resolve_project_id(db, project)
     if not project_id:
