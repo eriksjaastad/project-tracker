@@ -56,10 +56,18 @@ export function CostPanel() {
     ])
       .then(([daily, providers, projects]) => {
         // Handle both direct arrays and wrapped responses
+        const toArray = (v: unknown) => (Array.isArray(v) ? v : (v as Record<string, unknown>).data || []);
+        // API returns total_cost as string and calls instead of total_calls — normalize at the boundary
+        const coerce = <T extends Record<string, unknown>>(rows: T[]): T[] =>
+          rows.map(r => ({
+            ...r,
+            total_cost: parseFloat(r.total_cost as string) || 0,
+            total_calls: Number(r.calls ?? r.total_calls) || 0,
+          }));
         setData({
-          daily: Array.isArray(daily) ? daily : daily.data || [],
-          providers: Array.isArray(providers) ? providers : providers.data || [],
-          projects: Array.isArray(projects) ? projects : projects.data || [],
+          daily: coerce(toArray(daily)),
+          providers: coerce(toArray(providers)),
+          projects: coerce(toArray(projects)),
         });
         setLoading(false);
       })
