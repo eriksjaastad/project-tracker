@@ -37,9 +37,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -n "$PROJECT" ]]; then
-  PROMPT="Scan $PROJECT $DRY_RUN"
+  PROMPT="Scan $PROJECT. $DRY_RUN Run the scan script, parse the output, and create cards for every finding. Do not ask questions or wait for confirmation. Create the cards now."
 else
-  PROMPT="Scan all active projects $DRY_RUN"
+  PROMPT="Scan all active projects. $DRY_RUN Run the scan script on each project, parse the output, and create cards for every finding. Do not ask questions or wait for confirmation. Create the cards now."
 fi
 
 exec claude --agent card-factory -p "$PROMPT"
