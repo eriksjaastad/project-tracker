@@ -6,7 +6,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
@@ -19,7 +18,7 @@ class TestNotifyInbox:
     def test_skips_when_no_inbox_dir(self):
         """Should not create inbox dir — only writes if it exists."""
         with patch("socket.gethostname", return_value="MacBook-Pro.local"):
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with tempfile.TemporaryDirectory():
                 # No inbox dir created
                 _notify_inbox(1, "nonexistent-project", "Backlog", "Test task")
                 # Should not crash

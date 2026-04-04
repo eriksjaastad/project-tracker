@@ -48,7 +48,7 @@ def migrate_add_review_status():
     
     # Check if migration is needed
     cursor.execute("PRAGMA table_info(tasks)")
-    columns = cursor.fetchall()
+    cursor.fetchall()
     
     # Get current CHECK constraint by inspecting schema
     cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")

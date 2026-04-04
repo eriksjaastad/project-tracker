@@ -1,6 +1,4 @@
 import pytest
-import os
-import shutil
 import tempfile
 from pathlib import Path
 from scripts.discovery.project_scanner import extract_project_metadata

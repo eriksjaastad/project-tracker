@@ -1,10 +1,9 @@
 """Agent Registry for the Agent Dispatcher UI."""
-import os
 import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional
 
 from scripts.config import PROJECTS_BASE_DIR
 

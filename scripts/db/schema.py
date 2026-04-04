@@ -96,7 +96,7 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
     
     try:
         external_backup_dir.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
+    except Exception:
         # If we can't even create the directory, we might be sandboxed
         # We don't warn here yet, wait until we actually try to write
         pass

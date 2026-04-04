@@ -1,10 +1,9 @@
 """Alert detection for project tracker."""
 
-import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .cron_monitor import check_cron_health
@@ -97,7 +96,6 @@ def detect_blocked_projects(projects: List[Dict[str, Any]]) -> List[Dict[str, An
                     "## Blockers & Dependencies"
                 ]
                 
-                found_critical = False
                 for section in critical_sections:
                     if section in content:
                         section_content = _extract_section(content, section)
@@ -113,7 +111,6 @@ def detect_blocked_projects(projects: List[Dict[str, Any]]) -> List[Dict[str, An
                                 "message": "Project blocked",
                                 "details": lines[0][:100]
                             })
-                            found_critical = True
                             break
                 
                 # Removed: "Roadmap gaps" alerts - every project has a backlog, not useful
@@ -224,7 +221,6 @@ def detect_code_reviews(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if review_path.exists():
             review_data = parse_code_review(review_path)
             if review_data:
-                status = review_data.get("status", "pending")
                 verdict = review_data.get("verdict", "Unknown")
                 reviewer = review_data.get("reviewer", "Unknown")
                 

@@ -9,13 +9,11 @@ Covers:
 
 import sys
 import os
-import json
 import asyncio
 import subprocess
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 from time import time as _time
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -383,7 +381,7 @@ class TestApiGithubEndpoint:
 
     def test_returns_cached_data_within_ttl(self):
         """Endpoint returns cached data when within TTL."""
-        from dashboard.app import _github_cache, api_github, _GITHUB_CACHE_TTL
+        from dashboard.app import _github_cache, api_github
 
         original = _github_cache.copy()
         cached_data = {

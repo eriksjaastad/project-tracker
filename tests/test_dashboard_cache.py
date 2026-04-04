@@ -2,11 +2,9 @@
 
 import sys
 import os
-import threading
 from unittest.mock import patch, MagicMock
 from time import time as _time
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
