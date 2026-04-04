@@ -130,6 +130,16 @@ def check_orphans(project_path: Path) -> list[dict]:
         # Skip files in the project root that are scripts/entry points
         if rel.parent == Path("."):
             continue
+        # Skip migration files (standalone by design)
+        if "migrations" in str(rel):
+            continue
+        # Skip standalone scripts (have if __name__ == "__main__")
+        try:
+            content = f.read_text(encoding="utf-8", errors="ignore")
+            if '__name__' in content and '__main__' in content:
+                continue
+        except Exception:
+            pass
 
         # Derive module name from file path
         stem = f.stem
@@ -219,18 +229,23 @@ def check_stale_tests(project_path: Path) -> list[dict]:
         except Exception as e:
             logger.debug("Could not read %s: %s", f, e)
             continue
-        for m in import_pattern.finditer(text):
-            mod = m.group(1) or m.group(2)
-            top_level = mod.split(".")[0]
-            # Only flag if the top-level module is not available and not stdlib
-            if top_level not in available_modules:
-                findings.append({
-                    "check": "stale_test",
-                    "file": str(test_file.relative_to(project_path)),
-                    "line": text[:m.start()].count("\n") + 1,
-                    "code": "STALE_TEST",
-                    "message": f"Imports '{mod}' which does not exist in this project",
-                })
+        # Only check actual import lines, not imports inside string literals
+        for line_num, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            # Skip lines that are inside strings (write_text, triple quotes, etc)
+            if stripped.startswith(("'", '"', "(")):
+                continue
+            for m in import_pattern.finditer(line):
+                mod = m.group(1) or m.group(2)
+                top_level = mod.split(".")[0]
+                if top_level not in available_modules:
+                    findings.append({
+                        "check": "stale_test",
+                        "file": str(test_file.relative_to(project_path)),
+                        "line": line_num,
+                        "code": "STALE_TEST",
+                        "message": f"Imports '{mod}' which does not exist in this project",
+                    })
     return findings
 
 
@@ -335,8 +350,10 @@ def check_missing_info(project_path: Path) -> list[dict]:
     # Get documented entries from pt info
     documented_vars: set[str] = set()
     try:
+        # Use full path to pt — bare "pt" may resolve to homebrew's pt (page tool)
+        pt_bin = str(Path(__file__).parent.parent / "pt")
         result = subprocess.run(
-            ["pt", "info", "-p", project_name, "--json"],
+            [pt_bin, "info", "-p", project_name, "--json"],
             capture_output=True, text=True, timeout=10
         )
         if result.stdout.strip():
@@ -391,6 +408,18 @@ def check_dead_deps(project_path: Path) -> list[dict]:
         "uvicorn": "uvicorn",
     }
 
+    # Packages that are runtime/transitive deps — not directly imported but required
+    runtime_deps = {
+        "uvicorn",       # ASGI server for FastAPI
+        "jinja2",        # Template engine used by FastAPI/Starlette
+        "python-multipart",  # Form parsing for FastAPI
+        "python-dateutil",   # Used by many libs at runtime
+        "pygments",      # Used by rich/click at runtime
+        "pytest-playwright", # Playwright test plugin, imported as pytest fixture
+        "libsql",        # Imported as libsql_experimental
+        "libsql-experimental",
+    }
+
     # Parse requirements.txt
     req_file = project_path / "requirements.txt"
     if req_file.exists():
@@ -400,6 +429,8 @@ def check_dead_deps(project_path: Path) -> list[dict]:
                 if not line or line.startswith("#") or line.startswith("-"):
                     continue
                 pkg = re.split(r'[>=<!\[]', line)[0].strip().lower()
+                if pkg in runtime_deps:
+                    continue
                 import_name = pkg_to_import.get(pkg, pkg.replace("-", "_"))
                 if import_name.lower() not in all_imports:
                     findings.append({
@@ -432,6 +463,8 @@ def check_dead_deps(project_path: Path) -> list[dict]:
                     m = re.match(r'\s*"?([a-zA-Z0-9_-]+)', line)
                     if m:
                         pkg = m.group(1).lower()
+                        if pkg in runtime_deps:
+                            continue
                         import_name = pkg_to_import.get(pkg, pkg.replace("-", "_"))
                         if import_name.lower() not in all_imports:
                             findings.append({
