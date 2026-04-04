@@ -14,7 +14,6 @@ import tempfile
 import re
 import html
 from pathlib import Path
-from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from hypothesis import given, strategies as st, assume, settings
@@ -340,7 +339,7 @@ def test_property_12_secret_pattern_detection(secret_type, random_part, project_
         # Attempt to create task with secret text
         # The system should reject this (raise ValueError or similar)
         with pytest.raises((ValueError, Exception)) as exc_info:
-            task = db_manager.add_task(
+            db_manager.add_task(
                 text=secret_text,
                 project_id=project_id,
                 status=status
@@ -395,7 +394,7 @@ def test_property_16_project_validation(invalid_project_id, text, status, priori
         # Attempt to create task with invalid project ID
         # The system should reject this (raise ValueError or similar)
         with pytest.raises((ValueError, Exception)) as exc_info:
-            task = db_manager.add_task(
+            db_manager.add_task(
                 text=text,
                 project_id=invalid_project_id,
                 status=status,

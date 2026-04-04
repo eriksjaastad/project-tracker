@@ -2,7 +2,6 @@
 """Quick test script to view loop execution status."""
 
 import sys
-import json
 from pathlib import Path
 from datetime import datetime, timedelta
 
