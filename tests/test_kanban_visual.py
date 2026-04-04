@@ -6,8 +6,6 @@ like column cutoff, spacing problems, and other visual regressions.
 
 import pytest
 from playwright.sync_api import Page, expect
-import subprocess
-import time
 import os
 
 

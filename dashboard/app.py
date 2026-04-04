@@ -16,10 +16,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.background import BackgroundTask
 from fastapi.exceptions import RequestValidationError
-from fastapi.exception_handlers import (
-    http_exception_handler,
-    request_validation_exception_handler
-)
 import re
 import sqlite3
 import json
@@ -40,15 +36,12 @@ from discovery.agent_config_health import build_empty_agent_config_health, get_a
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
-from discovery.providers import get_provider, LegacyProvider
+from discovery.providers import get_provider
 from discovery.telemetry_reader import get_telemetry_stats
 from discovery.backup_reader import get_backup_status
 from discovery.agent_registry import (
     get_available_agents,
-    run_agent_command,
-    Agent,
-    AgentCommand,
-    CommandResult
+    run_agent_command
 )
 from pydantic import BaseModel
 
@@ -655,7 +648,7 @@ async def create_index(project_id: str):
             
         # Rescan to update DB
         try:
-            rescan_result = subprocess.run(
+            subprocess.run(
                 [sys.executable, str(Path(__file__).parent.parent / "scripts" / "pt.py"), "scan"],
                 capture_output=True,
                 text=True,
@@ -1228,7 +1221,6 @@ async def get_memory_types():
 
     Used by the frontend to populate filter dropdowns dynamically.
     """
-    import json
     import sqlite3
 
     projects_root = Path(__file__).parent.parent.parent
@@ -1268,7 +1260,6 @@ async def get_memory_heatmap():
 
     Returns rows of { date, type, count } sorted chronologically.
     """
-    import json
     import sqlite3
 
     projects_root = Path(__file__).parent.parent.parent
@@ -1708,7 +1699,7 @@ async def create_task(task_data: TaskCreateRequest):
             blocked_by=blocked_by_json
         )
         return task
-    except ValueError as e:
+    except ValueError:
         # Re-raise to be caught by error handler
         raise
     except Exception as e:
@@ -1847,7 +1838,7 @@ async def get_task(task_id: int):
                 pass
         
         return task_dict
-    except ValueError as e:
+    except ValueError:
         # Re-raise to be caught by error handler
         raise
     except Exception as e:
@@ -1935,7 +1926,7 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
         # update_task handles history recording for status changes
         task = db.update_task(task_id, **updates)
         return task
-    except ValueError as e:
+    except ValueError:
         # Re-raise to be caught by error handler
         raise
     except HTTPException:
@@ -1988,7 +1979,6 @@ ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024  # 20 MB
 async def upload_attachment(task_id: int, file: UploadFile = File(...)):
     """Upload a file and attach it to a task."""
     import mimetypes
-    import shutil
 
     db = DatabaseManager()
     task = db.get_task(task_id)
@@ -1996,7 +1986,6 @@ async def upload_attachment(task_id: int, file: UploadFile = File(...)):
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
     # Stream to a temp file so we never hold >ATTACHMENT_MAX_BYTES in RAM
-    import tempfile
     dest_dir = DatabaseManager._attachments_dir(task_id)
     ext = Path(file.filename or "upload").suffix
     stored_name = f"{uuid.uuid4()}{ext}"
@@ -2325,7 +2314,7 @@ async def create_idea(idea_data: IdeaCreateRequest):
         db = DatabaseManager()
         idea = db.add_idea(idea_data.text)
         return idea
-    except ValueError as e:
+    except ValueError:
         # Re-raise to be caught by error handler
         raise
     except Exception as e:
@@ -2354,7 +2343,7 @@ async def update_idea(idea_id: int, idea_data: IdeaUpdateRequest):
         db = DatabaseManager()
         idea = db.update_idea(idea_id, idea_data.text)
         return idea
-    except ValueError as e:
+    except ValueError:
         # Re-raise to be caught by error handler
         raise
     except Exception as e:
@@ -2385,7 +2374,7 @@ async def delete_idea(idea_id: int):
             "success": True,
             "message": f"Idea {idea_id} deleted successfully"
         }
-    except ValueError as e:
+    except ValueError:
         # Re-raise to be caught by error handler
         raise
     except Exception as e:

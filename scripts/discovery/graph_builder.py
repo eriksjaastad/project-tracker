@@ -9,7 +9,7 @@ import argparse
 import yaml
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Set, Any, Optional
+from typing import Dict, Any
 from collections import defaultdict
 
 # Add project root to sys.path for logger
@@ -282,9 +282,6 @@ class GraphBuilder:
             self.nodes[target_idx]["is_orphan"] = False
 
     def _extract_markdown_relationships(self, source_id: str, content: str, file_path: Path):
-        source_node = self.nodes[self.node_map[source_id]]
-        source_project = source_node["project"]
-        
         # Markdown links [text](path)
         for text, path in MD_LINK_PATTERN.findall(content):
             if path.startswith(('http', 'mailto', '#')):
