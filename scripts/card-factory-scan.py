@@ -184,18 +184,29 @@ def check_stale_tests(project_path: Path) -> list[dict]:
 
     # Build set of available modules in the project
     available_modules: set[str] = set()
+    # Common sys.path roots that tests add (e.g., sys.path.insert(0, "scripts/"))
+    sys_path_roots = [Path(".")]
+    for subdir in ["scripts", "src", "lib", "app"]:
+        if (project_path / subdir).is_dir():
+            sys_path_roots.append(Path(subdir))
+
     for f in find_project_files(project_path, {".py"}):
         rel = f.relative_to(project_path)
         if "/tests/" in str(rel) or str(rel).startswith("tests/"):
             continue
         stem = f.stem
-        module_path = str(rel.with_suffix("")).replace(os.sep, ".")
+        # Add module paths relative to project root AND common sys.path roots
+        for root in sys_path_roots:
+            try:
+                rel_to_root = rel.relative_to(root)
+            except ValueError:
+                continue
+            module_path = str(rel_to_root.with_suffix("")).replace(os.sep, ".")
+            available_modules.add(module_path)
+            parts = module_path.split(".")
+            for i in range(len(parts)):
+                available_modules.add(".".join(parts[:i+1]))
         available_modules.add(stem)
-        available_modules.add(module_path)
-        # Add partial paths
-        parts = module_path.split(".")
-        for i in range(len(parts)):
-            available_modules.add(".".join(parts[:i+1]))
 
     # Also add common stdlib/third-party so we don't false-positive on those
     stdlib_prefixes = {
