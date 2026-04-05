@@ -603,8 +603,8 @@ def launch(port, no_scan, reload):
     console.print("[bold green]Launching Project Tracker Dashboard...[/bold green]\n")
     init_db()
     if not no_scan:
-        console.print("[dim]Running quick scan (graph rebuild deferred to background)...[/dim]")
-        _scan_impl(no_graph=True)
+        console.print("[dim]Running quick scan...[/dim]")
+        _scan_impl()
     else:
         console.print("[yellow]Skipping initial scan. Using existing data.[/yellow]")
     dashboard_path = Path(__file__).parent.parent / "dashboard" / "app.py"

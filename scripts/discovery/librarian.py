@@ -247,15 +247,9 @@ created: {created_date}
     return frontmatter + body
 
 
-MAX_FILE_SIZE_BYTES = 1_000_000  # 1 MB — skip oversized files to avoid OOM
-
-
 def extract_description(file_path: Path) -> str:
     """Extract an 'educated' description of what a file does."""
     try:
-        # Skip files larger than 1 MB to prevent OOM during ecosystem scans
-        if file_path.stat().st_size > MAX_FILE_SIZE_BYTES:
-            return "Large file (skipped)."
         content = file_path.read_text(encoding='utf-8', errors='ignore')
         if not content.strip():
             return "Empty file."
