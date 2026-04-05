@@ -1985,6 +1985,11 @@ def memory_write(content: str, entry_type: str, project: str, agent_family: str,
       pt memory write "Bug: pt scan hangs without Discord timeout" --type error --project project-tracker
       pt memory write "Trust layer is the right thesis" --type insight --project data-vault-factory
     """
+    # Auto-detect project from cwd when not explicitly provided
+    if not project:
+        import os
+        cwd = os.environ.get("PT_CALLER_CWD", os.getcwd())
+        project = os.path.basename(cwd)
     args = ["write", content, "--type", entry_type]
     if project:
         args += ["--project", project]
