@@ -1029,6 +1029,10 @@ def tasks_done(task_ids):
             print(f"Failed to complete task #{task_id}: {e}")
     if len(task_ids) > 1: print(f"\nCompleted {success_count}/{len(task_ids)} tasks")
     if success_count > 0:
+        # Trim Done column to keep it manageable
+        trimmed = db.trim_done_tasks(keep=75)
+        if trimmed > 0:
+            print(f"Trimmed {trimmed} oldest Done task(s) (keeping 75 most recent)")
         print("💡 Tip: Run /compound in Claude Code to journal what you learned")
 
 
