@@ -1,6 +1,7 @@
 """FastAPI web dashboard for project tracker."""
 
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
@@ -53,7 +54,25 @@ from scripts.pt import rebuild_knowledge_graph
 
 logger = get_logger(__name__)
 
-app = FastAPI(title="Project Tracker Dashboard")
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    """Lifespan handler: rebuild knowledge graph in background after server starts."""
+    def _rebuild():
+        try:
+            from scripts.pt import rebuild_knowledge_graph
+            logger.info("Background graph rebuild starting...")
+            rebuild_knowledge_graph()
+            logger.info("Background graph rebuild complete.")
+        except Exception as e:
+            logger.error(f"Background graph rebuild failed: {e}")
+
+    thread = threading.Thread(target=_rebuild, daemon=True, name="graph-rebuild")
+    thread.start()
+    yield  # server is running
+    # shutdown: nothing to clean up (daemon thread dies with process)
+
+
+app = FastAPI(title="Project Tracker Dashboard", lifespan=_lifespan)
 
 # Run idempotent migrations on startup
 try:
@@ -1105,7 +1124,8 @@ async def memory_view(request: Request):
 @app.get("/api/memory-graph")
 async def get_memory_graph_data(
     min_similarity: float = 0.3,   # Minimum similarity threshold for edges
-    max_edges_per_node: int = 10   # Limit edges per node to keep response size reasonable
+    max_edges_per_node: int = 10,  # Limit edges per node to keep response size reasonable
+    max_nodes: int = 1000          # Cap nodes to prevent N×N memory explosion
 ):
     """Return full memory graph JSON for client-side rendering.
 
@@ -1116,7 +1136,7 @@ async def get_memory_graph_data(
     pure Python loops on large graphs.
     """
     now = _time()
-    cache_key = (min_similarity, max_edges_per_node)
+    cache_key = (min_similarity, max_edges_per_node, max_nodes)
     if (_graph_cache["data"] is not None
             and now - _graph_cache["timestamp"] < _GRAPH_CACHE_TTL
             and _graph_cache["params"] == cache_key):
@@ -1135,7 +1155,8 @@ async def get_memory_graph_data(
         conn.row_factory = sqlite3.Row
 
         rows = conn.execute(
-            "SELECT id, content, embedding, metadata, created_at, source_machine FROM thoughts WHERE embedding IS NOT NULL"
+            "SELECT id, content, embedding, metadata, created_at, source_machine FROM thoughts WHERE embedding IS NOT NULL ORDER BY created_at DESC LIMIT ?",
+            (max_nodes,)
         ).fetchall()
         conn.close()
 
@@ -1165,18 +1186,22 @@ async def get_memory_graph_data(
 
         if embeddings:
             matrix = np.array(embeddings, dtype=np.float32)
+            # Drop raw Python lists immediately — numpy has its own copy
+            del embeddings
             norms = np.linalg.norm(matrix, axis=1, keepdims=True)
             norms[norms == 0] = 1.0
             normed = matrix / norms
+            del matrix, norms  # free before allocating N×N
             sim_matrix = normed @ normed.T
+            del normed  # free N×D before iterating N×N
             np.fill_diagonal(sim_matrix, 0)
 
             # Edge extraction with threshold + top-k per node
             for i in range(len(nodes)):
-                row = sim_matrix[i, i+1:]
-                mask = row > min_similarity
+                row_slice = sim_matrix[i, i+1:]
+                mask = row_slice > min_similarity
                 indices = np.where(mask)[0]
-                values = row[mask]
+                values = row_slice[mask]
                 if len(values) > max_edges_per_node:
                     top_k = np.argpartition(values, -max_edges_per_node)[-max_edges_per_node:]
                     indices = indices[top_k]
@@ -1190,6 +1215,7 @@ async def get_memory_graph_data(
                     })
                     connection_counts[nodes[i]["id"]] += 1
                     connection_counts[nodes[j]["id"]] += 1
+            del sim_matrix
 
         for node in nodes:
             node["size"] = connection_counts[node["id"]]
