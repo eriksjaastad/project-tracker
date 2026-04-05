@@ -1,6 +1,7 @@
 """FastAPI web dashboard for project tracker."""
 
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
@@ -53,7 +54,25 @@ from scripts.pt import rebuild_knowledge_graph
 
 logger = get_logger(__name__)
 
-app = FastAPI(title="Project Tracker Dashboard")
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    """Lifespan handler: rebuild knowledge graph in background after server starts."""
+    def _rebuild():
+        try:
+            from scripts.pt import rebuild_knowledge_graph
+            logger.info("Background graph rebuild starting...")
+            rebuild_knowledge_graph()
+            logger.info("Background graph rebuild complete.")
+        except Exception as e:
+            logger.error(f"Background graph rebuild failed: {e}")
+
+    thread = threading.Thread(target=_rebuild, daemon=True, name="graph-rebuild")
+    thread.start()
+    yield  # server is running
+    # shutdown: nothing to clean up (daemon thread dies with process)
+
+
+app = FastAPI(title="Project Tracker Dashboard", lifespan=_lifespan)
 
 # Run idempotent migrations on startup
 try:
