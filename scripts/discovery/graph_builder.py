@@ -210,18 +210,10 @@ class GraphBuilder:
         # Update stats and orphan status
         self._finalize_graph()
 
-    # Skip reading file contents for files larger than 1 MB to prevent OOM.
-    # Node metadata (name, path, type, project) is still collected from the
-    # filesystem walk in scan(); only relationship extraction is skipped.
-    MAX_FILE_SIZE_BYTES = 1_000_000
-
     def _process_file(self, file_path: Path):
         """Extract relationships from a single file."""
         node_id = self._get_node_id(file_path)
         try:
-            if file_path.stat().st_size > self.MAX_FILE_SIZE_BYTES:
-                logger.debug(f"Skipping oversized file for relationship scan: {file_path}")
-                return
             content = file_path.read_text(encoding='utf-8', errors='ignore')
         except Exception as e:
             logger.warning(f"Could not read {file_path}: {e}")
