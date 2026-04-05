@@ -48,8 +48,8 @@ def _check_turso_enabled() -> bool:
             import json
             config = json.loads(config_path.read_text())
             return bool(config.get("turso_enabled", False))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to parse Turso config at {config_path}: {e}")
     # Fallback: env var detection (original behavior)
     return bool(_TURSO_URL and _TURSO_TOKEN)
 
