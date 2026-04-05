@@ -945,6 +945,26 @@ async def proxy_costs(path: str, request: Request):
 
 
 # --- Section ---
+# Shadow Pricing API
+# --- Section ---
+
+
+@app.get("/api/shadow-pricing")
+async def shadow_pricing():
+    """Shadow pricing: what Claude Max usage would cost at API rates."""
+    from dashboard.shadow_pricing import get_shadow_pricing_data
+    try:
+        data = get_shadow_pricing_data()
+        return JSONResponse(data)
+    except FileNotFoundError as e:
+        logger.warning(f"Shadow pricing file not found: {e}")
+        return JSONResponse({"error": str(e), "data": {}}, status_code=404)
+    except Exception as e:
+        logger.warning(f"Shadow pricing error: {e}")
+        return JSONResponse({"error": "Shadow pricing unavailable", "data": {}}, status_code=500)
+
+
+# --- Section ---
 # Calendar API
 # --- Section ---
 

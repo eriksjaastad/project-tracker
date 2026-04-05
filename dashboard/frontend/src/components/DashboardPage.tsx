@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { PageShell } from './PageShell';
 import { CostPanel } from './CostPanel';
+import { ShadowPricingPanel } from './ShadowPricingPanel';
 import './DashboardPage.css';
 
 interface GitHubData {
@@ -200,6 +201,9 @@ export function DashboardPage() {
       <div className="dashboard-grid">
         {/* API Cost Overview */}
         <CostPanel />
+
+        {/* Shadow Pricing — subscription value */}
+        <ShadowPricingPanel />
 
         {/* Summary Cards */}
         <div className="dashboard-summary">
