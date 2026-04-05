@@ -366,7 +366,7 @@ function applyFiltersInternal() {
 function updateStats() {
     const stats = memoryData.stats || {};
     document.getElementById('memory-stats').innerHTML = `
-        <div><strong>Shown:</strong> ${visibleNodes.length} / ${stats.total_thoughts || 0}</div>
+        <div><strong>Shown:</strong> ${visibleNodes.length} of ${stats.total_in_db || stats.total_thoughts || 0} total</div>
         <div><strong>Edges:</strong> ${visibleEdges.length}</div>
         <div><strong>Avg conn:</strong> ${stats.avg_connections || 0}</div>
     `;
@@ -456,9 +456,9 @@ function drawFrame() {
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
         ctx.lineTo(tgt.x, tgt.y);
-        ctx.strokeStyle = isHighlighted ? 'rgba(78, 205, 196, 0.85)' : 'rgba(120,120,120,0.35)';
+        ctx.strokeStyle = isHighlighted ? 'rgba(78, 205, 196, 0.85)' : 'rgba(160,160,160,0.55)';
         ctx.lineWidth = isHighlighted ? 2 : e.similarity * 2.5;
-        ctx.globalAlpha = dimmed ? 0.08 : 1;
+        ctx.globalAlpha = dimmed ? 0.25 : 1;
         ctx.stroke();
         ctx.globalAlpha = 1;
     });
