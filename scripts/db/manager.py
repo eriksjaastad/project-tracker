@@ -40,6 +40,128 @@ _TURSO_URL = os.environ.get("TURSO_KANBAN_URL", "")
 _TURSO_TOKEN = os.environ.get("TURSO_KANBAN_TOKEN", "")
 _USE_TURSO: bool = bool(_TURSO_URL and _TURSO_TOKEN)
 
+# ---------------------------------------------------------------------------
+# Connection pool — reuse a single Turso connection across requests
+# ---------------------------------------------------------------------------
+import threading
+
+_CONN_MAX_AGE_SECONDS = 300  # Recycle connection every 5 minutes
+_CONN_LOCK = threading.Lock()
+_turso_conn: Any = None
+_turso_conn_created: float = 0.0
+_schema_ensured: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Turso row/cursor/connection wrappers — defined at module level to avoid
+# creating new class objects on every query (each class object is ~1KB+,
+# and _Row was being created per-row, leaking memory under load).
+# ---------------------------------------------------------------------------
+
+class _TursoRow:
+    """Dict-like row wrapper for libsql results."""
+    __slots__ = ("_cols", "_values")
+
+    def __init__(self, cols: list, values: list) -> None:
+        self._cols = cols
+        self._values = values
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, str):
+            return self._values[self._cols.index(key)]
+        return self._values[key]
+
+    def keys(self) -> list:
+        return self._cols
+
+    def __iter__(self) -> Any:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        try:
+            return self._values[self._cols.index(key)]
+        except ValueError:
+            return default
+
+
+class _TursoDictCursor:
+    """Wrap a libsql cursor so rows are accessible by column name."""
+    __slots__ = ("_cur",)
+
+    def __init__(self, cursor: Any) -> None:
+        self._cur = cursor
+
+    def _make_row(self, row: Any) -> Any:
+        if row is None or self._cur.description is None:
+            return row
+        cols = [d[0] for d in self._cur.description]
+        return _TursoRow(cols, list(row))
+
+    def execute(self, sql: str, params: Any = ()) -> "_TursoDictCursor":
+        self._cur.execute(sql, params)
+        return self
+
+    def executemany(self, sql: str, params: Any) -> "_TursoDictCursor":
+        self._cur.executemany(sql, params)
+        return self
+
+    def fetchone(self) -> Any:
+        return self._make_row(self._cur.fetchone())
+
+    def fetchall(self) -> list:
+        return [self._make_row(r) for r in self._cur.fetchall()]
+
+    def __iter__(self) -> Any:
+        for row in self._cur:
+            yield self._make_row(row)
+
+    @property
+    def lastrowid(self) -> Any:
+        return self._cur.lastrowid
+
+    @property
+    def description(self) -> Any:
+        return self._cur.description
+
+
+class _TursoDictConn:
+    """Wrap a libsql connection so cursor() returns _TursoDictCursor."""
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn: Any) -> None:
+        self._conn = conn
+
+    def cursor(self) -> _TursoDictCursor:
+        return _TursoDictCursor(self._conn.cursor())
+
+    def execute(self, sql: str, params: Any = ()) -> _TursoDictCursor:
+        cur = _TursoDictCursor(self._conn.cursor())
+        cur.execute(sql, params)
+        return cur
+
+    def executemany(self, sql: str, params: Any) -> _TursoDictCursor:
+        cur = _TursoDictCursor(self._conn.cursor())
+        cur.executemany(sql, params)
+        return cur
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def __enter__(self) -> "_TursoDictConn":
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        pass  # pool manages lifecycle
+
 VALID_STATUS_TRANSITIONS = {
     "Backlog": ["To Do", "Cancelled"],
     "To Do": ["Backlog", "In Progress", "Cancelled"],
@@ -58,82 +180,78 @@ def _get_backup_dir(db_path: Path) -> Path:
 
 class DatabaseManager:
     """Manage all database operations."""
-    
+
     def __init__(self, db_path: Optional[Path] = None):
         """Initialize database manager."""
+        global _schema_ensured
         self.db_path = db_path or get_db_path()
         if _USE_TURSO:
-            # Run schema migrations against Turso (no local safety checks needed)
-            with self._get_conn() as conn:
-                cursor = conn.cursor()
-                ensure_schema(cursor)
-                conn.commit()
+            # Only run schema migrations once per process, not per instantiation
+            if not _schema_ensured:
+                with self._get_conn() as conn:
+                    cursor = conn.cursor()
+                    ensure_schema(cursor)
+                    conn.commit()
+                _schema_ensured = True
         else:
             # Local SQLite: safety checks + schema migrations
             create_database(self.db_path)
         
+    @staticmethod
+    def _create_turso_conn() -> Any:
+        """Create a new Turso connection wrapped with dict-row access."""
+        import libsql
+        raw = libsql.connect(_TURSO_URL, auth_token=_TURSO_TOKEN)
+        return _TursoDictConn(raw)
+
     @contextmanager
     def _get_conn(self) -> Generator[Any, None, None]:
         """Get database connection context manager.
 
         Uses Turso (libsql) when TURSO_KANBAN_URL + TURSO_KANBAN_TOKEN are set;
         falls back to local SQLite otherwise (offline/dev/test mode).
+
+        Turso connections are pooled: a single connection is reused across
+        requests and recycled every _CONN_MAX_AGE_SECONDS to prevent stale
+        connections from hanging the server.
         """
+        global _turso_conn, _turso_conn_created
+
         if _USE_TURSO:
             try:
-                import libsql
+                # Hold the lock for the entire connection usage to prevent
+                # concurrent requests from using the same libsql connection
+                # simultaneously (libsql connections are not thread-safe).
+                with _CONN_LOCK:
+                    now = time.monotonic()
+                    # Recycle stale connections
+                    if _turso_conn is not None and (now - _turso_conn_created) > _CONN_MAX_AGE_SECONDS:
+                        try:
+                            _turso_conn.close()
+                        except Exception:
+                            pass
+                        _turso_conn = None
+                        logger.info("Recycled stale Turso connection (age > %ds)", _CONN_MAX_AGE_SECONDS)
 
-                class _DictCursor:
-                    """Wrap a libsql cursor so rows are accessible by column name."""
-                    def __init__(self, cursor: Any) -> None:
-                        self._cur = cursor
-                    def _make_row(self, row: Any) -> Any:
-                        if row is None or self._cur.description is None:
-                            return row
-                        cols = [d[0] for d in self._cur.description]
-                        values = list(row)
-                        class _Row:
-                            def __getitem__(self, key: Any) -> Any:
-                                if isinstance(key, str): return values[cols.index(key)]
-                                return values[key]
-                            def keys(self) -> list: return cols
-                            def __iter__(self) -> Any: return iter(values)
-                            def __len__(self) -> int: return len(values)
-                        return _Row()
-                    def execute(self, sql: str, params: Any = ()) -> "_DictCursor":
-                        self._cur.execute(sql, params); return self
-                    def executemany(self, sql: str, params: Any) -> "_DictCursor":
-                        self._cur.executemany(sql, params); return self
-                    def fetchone(self) -> Any: return self._make_row(self._cur.fetchone())
-                    def fetchall(self) -> list: return [self._make_row(r) for r in self._cur.fetchall()]
-                    def __iter__(self) -> Any:
-                        for row in self._cur: yield self._make_row(row)
-                    @property
-                    def lastrowid(self) -> Any: return self._cur.lastrowid
-                    @property
-                    def description(self) -> Any: return self._cur.description
+                    # Create new connection if needed
+                    if _turso_conn is None:
+                        _turso_conn = self._create_turso_conn()
+                        _turso_conn_created = now
+                        logger.info("Created new Turso connection")
 
-                class _DictConn:
-                    """Wrap a libsql connection so cursor() returns _DictCursor."""
-                    def __init__(self, conn: Any) -> None: self._conn = conn
-                    def cursor(self) -> _DictCursor: return _DictCursor(self._conn.cursor())
-                    def execute(self, sql: str, params: Any = ()) -> _DictCursor:
-                        cur = _DictCursor(self._conn.cursor()); cur.execute(sql, params); return cur
-                    def executemany(self, sql: str, params: Any) -> _DictCursor:
-                        cur = _DictCursor(self._conn.cursor()); cur.executemany(sql, params); return cur
-                    def commit(self) -> None: self._conn.commit()
-                    def rollback(self) -> None: self._conn.rollback()
-                    def close(self) -> None: self._conn.close()
-                    def __enter__(self) -> "_DictConn": return self
-                    def __exit__(self, *args: Any) -> None: self.close()
+                    conn = _turso_conn
 
-                raw = libsql.connect(_TURSO_URL, auth_token=_TURSO_TOKEN)
-                # WAL is managed server-side by Turso.
-                conn = _DictConn(raw)
-                try:
-                    yield conn
-                finally:
-                    conn.close()
+                    try:
+                        yield conn
+                    except Exception:
+                        # On error, discard the connection so next request gets a fresh one
+                        try:
+                            _turso_conn.close()
+                        except Exception:
+                            pass
+                        _turso_conn = None
+                        logger.warning("Discarded Turso connection after error")
+                        raise
                 return
             except ImportError as exc:
                 raise RuntimeError(
