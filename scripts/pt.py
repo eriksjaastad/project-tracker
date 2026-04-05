@@ -42,7 +42,7 @@ from discovery.project_scanner import discover_projects, extract_project_metadat
 from discovery.external_resources_parser import parse_external_resources
 from discovery.hygiene_detector import fix_hygiene_issues, detect_hygiene_issues
 from discovery.graph_builder import GraphBuilder
-from discovery.librarian import update_directory_index
+# update_directory_index removed — 00_Index generation killed (#5530)
 from discovery.journal_specialist import JournalSpecialist
 from utils.validation import BlockedTaskProjectError
 
@@ -157,10 +157,6 @@ def rebuild_knowledge_graph():
         output_path = Path(__file__).parent.parent / "data" / "graph.json"
         analysis_path = Path(__file__).parent.parent / "data" / "graph_analysis.md"
         ecosystem_todo = root_path / "TODO.md"
-        console.print("[bold cyan]  → Running Librarian (Networking projects)...[/bold cyan]")
-        for item in root_path.iterdir():
-            if item.is_dir() and not item.name.startswith(".") and item.name not in ["node_modules", "venv", ".venv", "_trash", "_inbox", "trash"]:
-                update_directory_index(item, recursive=True)
         builder = GraphBuilder(root_path)
         builder.scan()
         builder.save(output_path)
@@ -192,7 +188,7 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
     db = DatabaseManager() if db_exists else None
     with Progress() as progress:
         task = progress.add_task("[cyan]Discovering projects...", total=None)
-        projects = discover_projects(PROJECTS_BASE_DIR, sync_indexes=not dry_run)
+        projects = discover_projects(PROJECTS_BASE_DIR)
         progress.update(task, completed=True)
     console.print(f"\n[green]Found {len(projects)} projects[/green]\n")
     existing_projects = db.get_all_projects() if db_exists else []
@@ -1985,6 +1981,11 @@ def memory_write(content: str, entry_type: str, project: str, agent_family: str,
       pt memory write "Bug: pt scan hangs without Discord timeout" --type error --project project-tracker
       pt memory write "Trust layer is the right thesis" --type insight --project data-vault-factory
     """
+    # Auto-detect project from cwd when not explicitly provided
+    if not project:
+        import os
+        cwd = os.environ.get("PT_CALLER_CWD", os.getcwd())
+        project = os.path.basename(cwd)
     args = ["write", content, "--type", entry_type]
     if project:
         args += ["--project", project]
