@@ -8,6 +8,14 @@ Before modifying code, write a pre-flight check: what does this do, why is it bu
 Run `pt info -p project-tracker` for tech stack, env vars, infrastructure, and project-specific reference data.
 Run `pt memory search "project-tracker"` before starting work for prior decisions and context.
 
+## Session Continuity
+
+If `PROGRESS.md` exists in the project root, read it FIRST before doing anything else. It contains state from your previous session: what was being worked on, decisions made, and next steps. After reading, update or delete it as appropriate — stale PROGRESS.md files are worse than none.
+
+## Card Factory Auto-Validation
+
+When you start a task whose text begins with `[Card Factory]`, run `/validate-card-factory <task-id>` FIRST before doing any work. If the validation cancels the card (issue already resolved), move on to the next task. This prevents wasting sessions on stale findings.
+
 ## AI-First CLI Design
 
 When building or modifying the `pt` CLI, follow these principles:

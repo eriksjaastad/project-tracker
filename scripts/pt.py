@@ -293,7 +293,7 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
         print(f"No tasks found{filter_msg}.")
         return
     backend_tag = "turso" if _USE_TURSO else "local"
-    title = f"Tasks - {project}" if project else "Tasks"
+    title = f"Tasks - {project}" if project else "Tasks - all projects"
     print(f"{title} [{backend_tag}]\n")
     for task in task_list:
         priority = task.get("priority") or "-"
@@ -330,7 +330,7 @@ def _resolve_project_id(db, project):
 
 def _detect_project_from_cwd(db):
     import os
-    cwd = os.getcwd()
+    cwd = os.environ.get("PT_CALLER_CWD", os.getcwd())
     dir_name = os.path.basename(cwd)
     return _resolve_project_id(db, dir_name)
 
