@@ -1178,6 +1178,7 @@ async def get_memory_graph_data(
             "SELECT id, content, embedding, metadata, created_at, source_machine FROM thoughts WHERE embedding IS NOT NULL ORDER BY created_at DESC LIMIT ?",
             (max_nodes,)
         ).fetchall()
+        total_in_db = conn.execute("SELECT COUNT(*) FROM thoughts").fetchone()[0]
         conn.close()
 
         nodes = []
@@ -1244,6 +1245,7 @@ async def get_memory_graph_data(
             "generated_at": datetime.now().isoformat(),
             "stats": {
                 "total_thoughts": len(nodes),
+                "total_in_db": total_in_db,
                 "total_connections": len(edges),
                 "avg_connections": round(sum(connection_counts.values()) / len(nodes), 2) if nodes else 0
             },

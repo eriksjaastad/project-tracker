@@ -11,6 +11,9 @@ permissions:
 
 jobs:
   claude-review:
+    if: >-
+      !contains(github.event.pull_request.title, '[skip ci]') &&
+      !contains(github.event.pull_request.title, '[skip review]')
     uses: eriksjaastad/tools/.github/workflows/claude-review-reusable.yml@main
     with:
       test_command: |
