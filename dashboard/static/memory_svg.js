@@ -386,13 +386,13 @@
                 .style('opacity', e => {
                     const srcId = e.source.id || e.source;
                     const tgtId = e.target.id || e.target;
-                    return (srcId === thought.id || tgtId === thought.id) ? 1 : 0.08;
+                    return (srcId === thought.id || tgtId === thought.id) ? 1 : 0.25;
                 })
                 .attr('stroke', e => {
                     const srcId = e.source.id || e.source;
                     const tgtId = e.target.id || e.target;
                     return (srcId === thought.id || tgtId === thought.id)
-                        ? 'rgba(78, 205, 196, 0.85)' : 'rgba(120,120,120,0.35)';
+                        ? 'rgba(78, 205, 196, 0.85)' : 'rgba(160,160,160,0.55)';
                 });
         } else {
             svgContainer.selectAll('.svg-node').style('opacity', 1);

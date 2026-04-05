@@ -22,10 +22,7 @@ if [ -f "$JOURNAL_INDEXER" ]; then
     cd "$PROJECT_ROOT"
 fi
 
-# Step 2: Network all projects
-echo "📖 Running The Librarian (Networking all projects)..."
-$UV_RUN "$LIBRARIAN" --all-projects
-
+# Step 2: Network all projects (Librarian index generation removed — #5530)
 echo "🧠 Running Journal Specialist (Deep linking memories)..."
 $UV_RUN "$JOURNAL_SPECIALIST"
 
