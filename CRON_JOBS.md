@@ -43,6 +43,7 @@ Launchd plist and crontab changes are out of scope for this repo — tracked sep
 | `com.eriksjaastad.doc-audit` | [project-tracker](#project-tracker--doc-audit) | Daily 03:00 | Not installed |
 | `com.user.ecosystem_maintenance` | [project-tracker](#project-tracker--ecosystem-maintenance) | Daily 06:00 | Not installed |
 | `com.user.sherlock_watchlist` | [sherlock-holmes](#sherlock-holmes--watchlist-monitor) | Weekly Sun 09:00 | Not installed |
+| `com.eriksjaastad.complexity-scan` | [project-tracker](#project-tracker--complexity-scan) | Monthly 1st at 22:00 | Not installed |
 | `com.eriksjaastad.project-tracker` | [project-tracker](#project-tracker--dashboard) | Always-on daemon | Installed |
 | `com.eriksjaastad.slack-listener` | slack-listener | Always-on daemon | Installed |
 
@@ -173,6 +174,34 @@ launchctl load ~/Library/LaunchAgents/com.user.ecosystem_maintenance.plist
 cp ~/projects/sherlock-holmes/scripts/com.user.sherlock_watchlist.plist \
    ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.user.sherlock_watchlist.plist
+```
+
+---
+
+## project-tracker — Complexity Scan
+
+**Label:** `com.eriksjaastad.complexity-scan`  
+**Schedule:** Monthly — 1st of month at 22:00 EDT (off-peak)  
+**Plist:** `~/projects/project-tracker/scripts/launchd/com.eriksjaastad.complexity-scan.plist`  
+**Script:** `uv run scripts/complexity_scan.py --trend`  
+**Logs:** `~/projects/project-tracker/logs/complexity_scan.log`  
+**Project:** [project-tracker/README.md](../project-tracker/README.md)  
+**Card:** #5528
+
+Tracks cognitive complexity (radon), duplication density, and refactoring ratio
+across all active projects. Appends results to `data/complexity_trends.jsonl`.
+
+```bash
+# Install radon first (optional — script degrades gracefully without it)
+uv pip install radon
+
+# Install plist
+cp ~/projects/project-tracker/scripts/launchd/com.eriksjaastad.complexity-scan.plist \
+   ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.eriksjaastad.complexity-scan.plist
+
+# Manual run
+uv run scripts/complexity_scan.py --project project-tracker
 ```
 
 ---
