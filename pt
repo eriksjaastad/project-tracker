@@ -3,6 +3,7 @@
 # Usage: ./pt [command]
 # Example: ./pt launch
 
+export PT_CALLER_CWD="$PWD"
 cd "$(dirname "$0")"
 
 if command -v doppler >/dev/null 2>&1; then
