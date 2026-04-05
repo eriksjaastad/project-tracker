@@ -219,6 +219,9 @@ class DatabaseManager:
 
         if _USE_TURSO:
             try:
+                # Hold the lock for the entire connection usage to prevent
+                # concurrent requests from using the same libsql connection
+                # simultaneously (libsql connections are not thread-safe).
                 with _CONN_LOCK:
                     now = time.monotonic()
                     # Recycle stale connections
@@ -238,19 +241,17 @@ class DatabaseManager:
 
                     conn = _turso_conn
 
-                try:
-                    yield conn
-                except Exception:
-                    # On error, discard the connection so next request gets a fresh one
-                    with _CONN_LOCK:
-                        if _turso_conn is conn:
-                            try:
-                                _turso_conn.close()
-                            except Exception:
-                                pass
-                            _turso_conn = None
-                            logger.warning("Discarded Turso connection after error")
-                    raise
+                    try:
+                        yield conn
+                    except Exception:
+                        # On error, discard the connection so next request gets a fresh one
+                        try:
+                            _turso_conn.close()
+                        except Exception:
+                            pass
+                        _turso_conn = None
+                        logger.warning("Discarded Turso connection after error")
+                        raise
                 return
             except ImportError as exc:
                 raise RuntimeError(

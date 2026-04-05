@@ -15,6 +15,7 @@ from collections import defaultdict
 # Add project root to sys.path for logger
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scripts.config import PROJECTS_BASE_DIR
+from discovery.librarian import MAX_FILE_SIZE_BYTES
 from scripts.logger import get_logger
 
 logger = get_logger(__name__)
@@ -213,13 +214,12 @@ class GraphBuilder:
     # Skip reading file contents for files larger than 1 MB to prevent OOM.
     # Node metadata (name, path, type, project) is still collected from the
     # filesystem walk in scan(); only relationship extraction is skipped.
-    MAX_FILE_SIZE_BYTES = 1_000_000
 
     def _process_file(self, file_path: Path):
         """Extract relationships from a single file."""
         node_id = self._get_node_id(file_path)
         try:
-            if file_path.stat().st_size > self.MAX_FILE_SIZE_BYTES:
+            if file_path.stat().st_size > MAX_FILE_SIZE_BYTES:
                 logger.debug(f"Skipping oversized file for relationship scan: {file_path}")
                 return
             content = file_path.read_text(encoding='utf-8', errors='ignore')
