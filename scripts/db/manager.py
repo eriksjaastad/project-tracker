@@ -38,7 +38,22 @@ logger = get_logger(__name__)
 
 _TURSO_URL = os.environ.get("TURSO_KANBAN_URL", "")
 _TURSO_TOKEN = os.environ.get("TURSO_KANBAN_TOKEN", "")
-_USE_TURSO: bool = bool(_TURSO_URL and _TURSO_TOKEN)
+
+def _check_turso_enabled() -> bool:
+    """Check if Turso is enabled via the shared config at ~/projects/.turso-config.json.
+    Falls back to env var detection if config file doesn't exist."""
+    config_path = Path.home() / "projects" / ".turso-config.json"
+    if config_path.exists():
+        try:
+            import json
+            config = json.loads(config_path.read_text())
+            return bool(config.get("turso_enabled", False))
+        except Exception:
+            pass
+    # Fallback: env var detection (original behavior)
+    return bool(_TURSO_URL and _TURSO_TOKEN)
+
+_USE_TURSO: bool = _check_turso_enabled()
 
 # ---------------------------------------------------------------------------
 # Connection pool — reuse a single Turso connection across requests
@@ -1427,6 +1442,50 @@ class DatabaseManager:
                 return deleted_count
             finally:
                 # Always disable delete permission after
+                cursor.execute("UPDATE _delete_permissions SET enabled = 0 WHERE id = 1")
+                conn.commit()
+
+    def trim_done_tasks(self, keep: int = 75) -> int:
+        """Delete oldest Done tasks beyond the retention cap.
+
+        Keeps the most recent `keep` Done tasks (by completed_at/updated_at),
+        deletes the rest. Runs backup before deletion.
+
+        Returns:
+            Number of tasks trimmed
+        """
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            # Count how many Done tasks exist
+            cursor.execute("SELECT COUNT(*) FROM tasks WHERE status = 'Done'")
+            total_done = cursor.fetchone()[0]
+            if total_done <= keep:
+                return 0
+
+            to_delete = total_done - keep
+            # Backup before trimming
+            self._backup_before_delete(
+                table="tasks",
+                where_clause="status = 'Done'",
+                params=(),
+                reason=f"Trim Done tasks: keeping {keep}, deleting {to_delete}"
+            )
+
+            try:
+                cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
+                # Delete the oldest Done tasks (keep the most recent `keep`)
+                cursor.execute("""
+                    DELETE FROM tasks WHERE id IN (
+                        SELECT id FROM tasks
+                        WHERE status = 'Done'
+                        ORDER BY COALESCE(completed_at, updated_at) ASC
+                        LIMIT ?
+                    )
+                """, (to_delete,))
+                trimmed = cursor.rowcount
+                conn.commit()
+                return trimmed
+            finally:
                 cursor.execute("UPDATE _delete_permissions SET enabled = 0 WHERE id = 1")
                 conn.commit()
 
