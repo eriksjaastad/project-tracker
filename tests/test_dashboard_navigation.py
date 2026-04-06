@@ -56,7 +56,7 @@ def test_graph_view_renders_shared_shell_navigation():
     assert "Kanban" in body
     assert "Agentic" in body
     assert "Graph" in body
-    assert "Knowledge Graph" in body
+    assert "Project Graph" in body
 
 
 def test_build_spa_shell_html_bootstraps_backend_navigation_payload():

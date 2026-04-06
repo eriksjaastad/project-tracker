@@ -14,7 +14,7 @@ memory.js            → Graph view (Canvas 2D + d3-force) — loads FIRST
 memory_svg.js        → Classic view (SVG + d3-force)
 memory_list.js       → List view (table) + switchView() + refreshData()
 memory_heatmap.js    → Heatmap view
-memory_overlay.js    → Overlay view (Knowledge Graph from graph_nodes/graph_edges)
+memory_overlay.js    → Overlay view (Open Brain from graph_nodes/graph_edges)
 memory.css           → All styles for the memory page
 ```
 
@@ -30,7 +30,7 @@ memory.css           → All styles for the memory page
 | memory_list.js | `list` or unique names | `switchView()`, `loadThoughts()` |
 | memory_heatmap.js | `heatmap` or unique names | `loadHeatmap()` |
 
-**2026-04-05 bug:** `memory_overlay.js` defined `nodeColor()` and `nodeRadius()` which overwrote the Graph view's versions. Every node rendered gray because the overlay's color map uses knowledge graph types (project, artifact, concept) not memory types (observation, conversation, decision). Fix: renamed to `overlayNodeColor()` / `overlayNodeRadius()`.
+**2026-04-05 bug:** `memory_overlay.js` defined `nodeColor()` and `nodeRadius()` which overwrote the Graph view's versions. Every node rendered gray because the overlay's color map uses Open Brain types (project, artifact, concept) not memory types (observation, conversation, decision). Fix: renamed to `overlayNodeColor()` / `overlayNodeRadius()`.
 
 ### Shared Elements
 
@@ -64,9 +64,9 @@ default          → #8b949e (gray)
 
 **When new memory template types are added in ai-memory**, both `TYPE_COLORS` (memory.js) and `SVG_TYPE_COLORS` (memory_svg.js) must be updated, or the new types will render as gray.
 
-### Knowledge Graph Types (Overlay view)
+### Open Brain Types (Overlay view)
 
-Defined in `memory_overlay.js` as `NODE_COLORS`. These map knowledge graph node types from brain.db's `graph_nodes` table.
+Defined in `memory_overlay.js` as `NODE_COLORS`. These map Open Brain node types from brain.db's `graph_nodes` table.
 
 ```
 project   → #58a6ff (blue)
@@ -108,7 +108,7 @@ At zoomed-out scales, nodes are tiny (3-5px radius). Options for making type col
 |----------|----------|---------|
 | `/api/memory-graph` | brain.db `thoughts` table | Graph, Classic, Heatmap, List |
 | `/api/memory/types` | brain.db `thoughts` table | Legend builder |
-| `/api/knowledge-graph` | brain.db `graph_nodes` + `graph_edges` | Overlay |
+| `/api/open-brain` | brain.db `graph_nodes` + `graph_edges` | Overlay |
 
 ## Data Flow
 
@@ -118,7 +118,7 @@ brain.db (thoughts)     → /api/memory-graph  → memory.js (Canvas)
                                               → memory_list.js (Table)
                                               → memory_heatmap.js (Heatmap)
 
-brain.db (graph_nodes)  → /api/knowledge-graph → memory_overlay.js (Canvas)
+brain.db (graph_nodes)  → /api/open-brain      → memory_overlay.js (Canvas)
 ```
 
 ## Adding a New View

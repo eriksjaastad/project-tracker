@@ -117,7 +117,7 @@ def _load_gitignore_dirs(project_path: Path) -> set:
 
 
 class GraphBuilder:
-    """Builds a knowledge graph of files and their relationships."""
+    """Builds a project graph of files and their relationships."""
 
     def __init__(self, root_path: Path):
         self.root = root_path
@@ -808,7 +808,7 @@ class GraphBuilder:
 
 def main():
     print("Starting Graph Builder...")
-    parser = argparse.ArgumentParser(description="Ecosystem Knowledge Graph Builder")
+    parser = argparse.ArgumentParser(description="Ecosystem Project Graph Builder")
     default_root = str(Path(__file__).resolve().parents[3])
     parser.add_argument("--root", type=str, default=default_root, help="Root directory to scan")
     parser.add_argument("--output", type=str, default="data/graph.json", help="Output JSON file")

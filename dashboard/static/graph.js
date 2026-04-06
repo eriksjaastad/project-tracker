@@ -1,4 +1,4 @@
-// D3.js Knowledge Graph Visualization
+// D3.js Project Graph Visualization
 
 let width, height;
 let svg, container, simulation;

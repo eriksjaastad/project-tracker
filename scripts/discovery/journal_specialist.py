@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Journal Specialist - Knowledge Graph Enrichment for AI Memories.
+Journal Specialist - Project Graph Enrichment for AI Memories.
 Specifically scans the ai-journal to establish deep links between logs and projects.
 """
 
@@ -146,7 +146,7 @@ class JournalSpecialist:
         if new_edges_count > 0:
             with open(GRAPH_DATA, 'w') as f:
                 json.dump(data, f, indent=2)
-            print(f"✨ Injected {new_edges_count} specialized journal edges into the Knowledge Graph.")
+            print(f"✨ Injected {new_edges_count} specialized journal edges into the Project Graph.")
         else:
             print("No new journal edges to add.")
 
