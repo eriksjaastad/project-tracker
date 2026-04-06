@@ -33,11 +33,11 @@ const NODE_LABELS = {
     tag: 'Tags',
 };
 
-function nodeColor(type) {
+function overlayNodeColor(type) {
     return NODE_COLORS[type] || '#8b949e';
 }
 
-function nodeRadius(node) {
+function overlayNodeRadius(node) {
     const s = node.size || 1;
     if (s > 100) return 12;
     if (s > 20) return 8;
@@ -107,11 +107,11 @@ async function loadOverlay() {
             .strength(d => Math.min(d.weight * 0.1, 0.5))
         )
         .force('charge', d3.forceManyBody()
-            .strength(d => -nodeRadius(d) * 8)
+            .strength(d => -overlayNodeRadius(d) * 8)
             .distanceMax(300)
         )
         .force('center', d3.forceCenter(w / 2, h / 2))
-        .force('collision', d3.forceCollide(d => nodeRadius(d) + 2))
+        .force('collision', d3.forceCollide(d => overlayNodeRadius(d) + 2))
         .alphaDecay(0.02)
         .on('tick', renderOverlay);
 
@@ -202,8 +202,8 @@ function renderOverlay() {
     // Draw nodes
     overlayData.nodes.forEach(n => {
         if (n.x == null) return;
-        const r = nodeRadius(n);
-        const color = nodeColor(n.type);
+        const r = overlayNodeRadius(n);
+        const color = overlayNodeColor(n.type);
         const isDimmed = highlightedIds && !highlightedIds.has(n.id);
         const isHovered = n === overlayHovered;
 
@@ -269,7 +269,7 @@ function setupOverlayInteraction() {
             if (n.x == null) continue;
             const dx = mx - n.x;
             const dy = my - n.y;
-            if (dx * dx + dy * dy < (nodeRadius(n) + 4) ** 2) {
+            if (dx * dx + dy * dy < (overlayNodeRadius(n) + 4) ** 2) {
                 found = n;
                 break;
             }
