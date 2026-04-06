@@ -16,6 +16,14 @@ If `PROGRESS.md` exists in the project root, read it FIRST before doing anything
 
 When you start a task whose text begins with `[Card Factory]`, run `/validate-card-factory <task-id>` FIRST before doing any work. If the validation cancels the card (issue already resolved), move on to the next task. This prevents wasting sessions on stale findings.
 
+## Kanban Task Commands
+
+Use `pt tasks --help` to see all commands. Common mistakes to avoid:
+
+- **Move a card to another project:** `pt tasks move <project> <id>` — NOT `pt tasks update --project`
+- **Lifecycle:** `pt tasks start <id>` → work → `pt tasks review <id>` → `pt tasks done <id>`
+- **Batch ops:** Most commands accept multiple IDs: `pt tasks done 5001 5002 5003`
+
 ## AI-First CLI Design
 
 When building or modifying the `pt` CLI, follow these principles:
