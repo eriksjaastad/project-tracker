@@ -2003,6 +2003,106 @@ def memory_stats() -> None:
 
 
 # =============================================================================
+# Knowledge Graph (wraps brain.py graph subcommands)
+# =============================================================================
+
+
+@click.group(name="graph", invoke_without_command=True)
+@click.pass_context
+def graph_group(ctx: click.Context) -> None:
+    """Query and manage the ambient knowledge graph (Open Brain).
+
+    The knowledge graph extracts structured nodes (projects, people, files,
+    concepts, tasks, decisions) and edges (co_mentioned, belongs_to, relates_to)
+    from all memories in brain.db.
+
+    \b
+    Node types:  project, person, artifact, concept, task, decision, tag
+    Edge types:  co_mentioned, belongs_to, involved_in, tracked_in, relates_to
+
+    \b
+    Quick start:
+      pt graph stats                          # Node/edge counts by type
+      pt graph query project-tracker          # What's connected to a project
+      pt graph query ai-memory --hops 2       # Two degrees of separation
+      pt graph export > graph.json            # Full graph as JSON
+      pt graph build                          # Rebuild from all memories
+    """
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@graph_group.command(name="stats")
+def graph_stats() -> None:
+    """Show knowledge graph statistics — node/edge counts by type.
+
+    \b
+    Example output:
+      Nodes: 1,498 (971 artifacts, 228 tasks, 193 concepts, ...)
+      Edges: 11,225 (co_mentioned, belongs_to, relates_to, ...)
+    """
+    _run_brain("graph", "stats")
+
+
+@graph_group.command(name="query")
+@click.argument("project")
+@click.option("--hops", "-h", default=1, type=int,
+              help="Degrees of separation from project node (default: 1)")
+@click.option("--limit", "-n", default=20, type=int,
+              help="Max nodes to return (default: 20)")
+def graph_query(project: str, hops: int, limit: int) -> None:
+    """Query nodes connected to a project.
+
+    Returns people, files, decisions, concepts, and tasks linked to the
+    given project within N hops. Useful for understanding what a project
+    touches across the knowledge base.
+
+    \b
+    Examples:
+      pt graph query project-tracker              # Direct connections
+      pt graph query ai-memory --hops 2           # Two degrees out
+      pt graph query flo-fi --limit 50 --hops 3   # Wide search
+    """
+    args = ["graph", "query", project, "--hops", str(hops), "--limit", str(limit)]
+    _run_brain(*args)
+
+
+@graph_group.command(name="export")
+def graph_export() -> None:
+    """Export full knowledge graph as JSON (nodes + edges).
+
+    Outputs to stdout. Pipe to a file or tool:
+
+    \b
+    Examples:
+      pt graph export                    # Print to terminal
+      pt graph export > graph.json       # Save to file
+      pt graph export | jq '.nodes | length'  # Count nodes
+    """
+    _run_brain("graph", "export")
+
+
+@graph_group.command(name="build")
+@click.option("--force", is_flag=True, help="Truncate existing graph before rebuild")
+def graph_build(force: bool) -> None:
+    """Rebuild the knowledge graph from all memories.
+
+    Scans every entry in brain.db, extracts entities (projects, people,
+    files, concepts, tasks, decisions), builds edges from co-mentions
+    and semantic similarity, and writes to graph_nodes/graph_edges tables.
+
+    \b
+    Examples:
+      pt graph build           # Incremental update
+      pt graph build --force   # Full rebuild from scratch
+    """
+    args = ["graph", "build"]
+    if force:
+        args.append("--force")
+    _run_brain(*args)
+
+
+# =============================================================================
 # Worktrees management
 # =============================================================================
 
@@ -2512,6 +2612,7 @@ cli.add_command(tasks_group)
 cli.add_command(inbox_group)
 cli.add_command(calendar_group)
 cli.add_command(memory_group)
+cli.add_command(graph_group)
 cli.add_command(worktrees_group)
 cli.add_command(info_group)
 cli.add_command(message_group)
