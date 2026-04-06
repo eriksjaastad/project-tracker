@@ -33,11 +33,11 @@ const NODE_LABELS = {
     tag: 'Tags',
 };
 
-function nodeColor(type) {
+function overlayNodeColor(type) {
     return NODE_COLORS[type] || '#8b949e';
 }
 
-function nodeRadius(node) {
+function overlayNodeRadius(node) {
     const s = node.size || 1;
     if (s > 100) return 12;
     if (s > 20) return 8;
@@ -107,11 +107,11 @@ async function loadOverlay() {
             .strength(d => Math.min(d.weight * 0.1, 0.5))
         )
         .force('charge', d3.forceManyBody()
-            .strength(d => -nodeRadius(d) * 8)
+            .strength(d => -overlayNodeRadius(d) * 8)
             .distanceMax(300)
         )
         .force('center', d3.forceCenter(w / 2, h / 2))
-        .force('collision', d3.forceCollide(d => nodeRadius(d) + 2))
+        .force('collision', d3.forceCollide(d => overlayNodeRadius(d) + 2))
         .alphaDecay(0.02)
         .on('tick', renderOverlay);
 
@@ -120,28 +120,36 @@ async function loadOverlay() {
 }
 
 function updateOverlayStats() {
-    const statsEl = document.getElementById('memory-stats');
-    if (!statsEl) return;
+    // Update the overlay's own status area, NOT the shared sidebar
+    const statusEl = document.getElementById('overlay-status');
+    if (!statusEl) return;
     const stats = overlayData.stats || {};
     const typeCounts = {};
     overlayData.nodes.forEach(n => {
         typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
     });
 
-    statsEl.innerHTML = `
-        <div><strong>Nodes:</strong> ${stats.total_nodes || overlayData.nodes.length}</div>
-        <div><strong>Edges:</strong> ${stats.total_edges || overlayData.edges.length}</div>
-        <div><strong>Types:</strong> ${Object.entries(typeCounts).map(([t, c]) => `${t}:${c}`).join(', ')}</div>
-    `;
+    statusEl.style.display = 'block';
+    statusEl.style.position = 'fixed';
+    statusEl.style.bottom = '20px';
+    statusEl.style.left = '20px';
+    statusEl.style.top = 'auto';
+    statusEl.style.transform = 'none';
+    statusEl.style.textAlign = 'left';
+    statusEl.style.fontSize = '12px';
+    statusEl.style.maxWidth = '300px';
+    statusEl.style.background = 'rgba(0,0,0,0.7)';
+    statusEl.style.padding = '12px';
+    statusEl.style.borderRadius = '8px';
 
-    // Update legend
-    const legendEl = document.getElementById('memory-legend');
-    if (legendEl) {
-        legendEl.innerHTML = '<h4>Legend</h4>' + Object.entries(NODE_COLORS)
+    statusEl.innerHTML = `
+        <div><strong>Knowledge Graph</strong></div>
+        <div>Nodes: ${stats.total_nodes || overlayData.nodes.length} | Edges: ${stats.total_edges || overlayData.edges.length}</div>
+        <div style="margin-top:6px">${Object.entries(NODE_COLORS)
             .filter(([type]) => typeCounts[type])
             .map(([type, color]) => `<span style="color:${color}">● ${NODE_LABELS[type] || type} (${typeCounts[type]})</span>`)
-            .join('<br>');
-    }
+            .join(' ')}</div>
+    `;
 }
 
 function renderOverlay() {
@@ -202,8 +210,8 @@ function renderOverlay() {
     // Draw nodes
     overlayData.nodes.forEach(n => {
         if (n.x == null) return;
-        const r = nodeRadius(n);
-        const color = nodeColor(n.type);
+        const r = overlayNodeRadius(n);
+        const color = overlayNodeColor(n.type);
         const isDimmed = highlightedIds && !highlightedIds.has(n.id);
         const isHovered = n === overlayHovered;
 
@@ -269,7 +277,7 @@ function setupOverlayInteraction() {
             if (n.x == null) continue;
             const dx = mx - n.x;
             const dy = my - n.y;
-            if (dx * dx + dy * dy < (nodeRadius(n) + 4) ** 2) {
+            if (dx * dx + dy * dy < (overlayNodeRadius(n) + 4) ** 2) {
                 found = n;
                 break;
             }
