@@ -140,10 +140,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
     width = canvas.clientWidth;
     height = canvas.clientHeight;
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    // Store DPR so drawFrame can use it
+    canvas._dpr = dpr;
 }
 
 // ─── Data loading ─────────────────────────────────────────────────────────────
@@ -440,15 +443,22 @@ function drawFrame() {
         if (fitFrame >= FIT_FRAMES) fitTarget = null;
     }
 
-    ctx.clearRect(0, 0, width, height);
+    const dpr = canvas._dpr || 1;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!visibleNodes.length) return;
 
     ctx.save();
-    ctx.translate(transform.x, transform.y);
-    ctx.scale(transform.k, transform.k);
+    // Apply DPR scaling, then pan/zoom transform
+    ctx.setTransform(
+        dpr * transform.k, 0,
+        0, dpr * transform.k,
+        dpr * transform.x, dpr * transform.y
+    );
 
-    // Draw edges
+    // Draw edges — subtle so node colors dominate (matches SVG Classic style)
     const highlightedIds = hoveredNode ? getConnectedIds(hoveredNode) : null;
 
     visibleEdges.forEach(e => {
@@ -463,9 +473,9 @@ function drawFrame() {
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
         ctx.lineTo(tgt.x, tgt.y);
-        ctx.strokeStyle = isHighlighted ? 'rgba(78, 205, 196, 0.85)' : 'rgba(160,160,160,0.55)';
-        ctx.lineWidth = isHighlighted ? 2 : e.similarity * 2.5;
-        ctx.globalAlpha = dimmed ? 0.25 : 1;
+        ctx.strokeStyle = isHighlighted ? 'rgba(78, 205, 196, 0.85)' : 'rgba(120,120,120,0.35)';
+        ctx.lineWidth = isHighlighted ? 2 : Math.max(0.5, e.similarity * 2);
+        ctx.globalAlpha = dimmed ? 0.1 : 1;
         ctx.stroke();
         ctx.globalAlpha = 1;
     });
@@ -485,16 +495,25 @@ function drawFrame() {
 
         ctx.globalAlpha = isDimmed ? 0.15 : 1;
 
+        // Colored glow behind every node so type colors pop at any zoom
+        ctx.shadowColor = color;
+        ctx.shadowBlur = isHovered || isSelected ? 18 : 6;
+
         // Circle fill
         ctx.beginPath();
         ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
 
-        // Stroke
-        ctx.strokeStyle = isSelected ? '#fff' : isHovered ? '#fff' : 'rgba(255,255,255,0.4)';
-        ctx.lineWidth = isSelected ? 2.5 : isHovered ? 2 : 1;
-        ctx.stroke();
+        // Reset shadow before stroke
+        ctx.shadowBlur = 0;
+
+        // Stroke — only prominent on hover/select
+        if (isHovered || isSelected) {
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = isSelected ? 2.5 : 2;
+            ctx.stroke();
+        }
 
         // Machine ring (second visual channel)
         const mColor = machineColor(n.source_machine);
@@ -504,17 +523,6 @@ function drawFrame() {
             ctx.strokeStyle = mColor;
             ctx.lineWidth = 2.5;
             ctx.stroke();
-        }
-
-        // Glow on hover/select
-        if (isHovered || isSelected) {
-            ctx.shadowColor = color;
-            ctx.shadowBlur = 12;
-            ctx.beginPath();
-            ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-            ctx.fillStyle = color;
-            ctx.fill();
-            ctx.shadowBlur = 0;
         }
 
         ctx.globalAlpha = 1;
