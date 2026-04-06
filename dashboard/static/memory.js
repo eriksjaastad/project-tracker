@@ -463,8 +463,8 @@ function drawFrame() {
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
         ctx.lineTo(tgt.x, tgt.y);
-        ctx.strokeStyle = isHighlighted ? 'rgba(78, 205, 196, 0.85)' : 'rgba(160,160,160,0.55)';
-        ctx.lineWidth = isHighlighted ? 2 : e.similarity * 2.5;
+        ctx.strokeStyle = isHighlighted ? 'rgba(78, 205, 196, 0.85)' : 'rgba(120,120,120,0.15)';
+        ctx.lineWidth = isHighlighted ? 2 : Math.max(0.5, e.similarity * 1.5);
         ctx.globalAlpha = dimmed ? 0.25 : 1;
         ctx.stroke();
         ctx.globalAlpha = 1;
@@ -491,9 +491,9 @@ function drawFrame() {
         ctx.fillStyle = color;
         ctx.fill();
 
-        // Stroke
-        ctx.strokeStyle = isSelected ? '#fff' : isHovered ? '#fff' : 'rgba(255,255,255,0.4)';
-        ctx.lineWidth = isSelected ? 2.5 : isHovered ? 2 : 1;
+        // Stroke — thin so the fill color dominates at all zoom levels
+        ctx.strokeStyle = isSelected ? '#fff' : isHovered ? '#fff' : 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = isSelected ? 2.5 : isHovered ? 2 : 0.5;
         ctx.stroke();
 
         // Machine ring (second visual channel)
