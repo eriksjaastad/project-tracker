@@ -17,6 +17,7 @@ Common Commands:
 - ./pt help      # Show help
 """
 
+import os
 import shutil
 import sys
 import webbrowser
@@ -616,8 +617,15 @@ def launch(port, no_scan, reload):
         webbrowser.open(url)
     threading.Thread(target=open_browser, daemon=True).start()
     venv_python = Path(__file__).parent.parent / "venv" / "bin" / "python"
-    cmd = [str(venv_python), "-m", "uvicorn", "dashboard.app:app", "--host", "0.0.0.0", "--port", str(port)]
-    if reload: cmd.append("--reload")
+    uvicorn_cmd = [str(venv_python), "-m", "uvicorn", "dashboard.app:app", "--host", "0.0.0.0", "--port", str(port)]
+    if reload: uvicorn_cmd.append("--reload")
+    # Wrap with doppler run so secrets (COST_TRACKER_API_KEY, etc.) are injected
+    doppler_bin = shutil.which("doppler") or f"{os.environ.get('HOMEBREW_PREFIX', '/opt/homebrew')}/bin/doppler"
+    if Path(doppler_bin).exists():
+        cmd = [doppler_bin, "run", "--"] + uvicorn_cmd
+    else:
+        console.print("[yellow]Warning: doppler not found, launching without secrets injection[/yellow]")
+        cmd = uvicorn_cmd
     try:
         subprocess.run(cmd, cwd=Path(__file__).parent.parent)
     except KeyboardInterrupt:
@@ -2045,25 +2053,94 @@ def graph_stats() -> None:
 
 
 @graph_group.command(name="query")
-@click.argument("project")
+@click.argument("project", required=False, default="")
 @click.option("--hops", "-h", default=1, type=int,
               help="Degrees of separation from project node (default: 1)")
 @click.option("--limit", "-n", default=20, type=int,
               help="Max nodes to return (default: 20)")
-def graph_query(project: str, hops: int, limit: int) -> None:
+@click.option("--types", "-t", default="",
+              help="Comma-separated node types to filter (e.g. decision,person)")
+@click.option("--since", "-s", default="",
+              help="Only nodes updated on/after this date (e.g. 2026-04-04)")
+@click.option("--json", "as_json", is_flag=True,
+              help="Output as JSON for agent consumption")
+def graph_query(project: str, hops: int, limit: int, types: str, since: str, as_json: bool) -> None:
     """Query nodes connected to a project.
 
     Returns people, files, decisions, concepts, and tasks linked to the
-    given project within N hops. Useful for understanding what a project
-    touches across the knowledge base.
+    given project within N hops. Project auto-detected from cwd if omitted.
+    Nodes ranked by freshness (mention count * temporal decay, 14-day half-life).
 
     \b
     Examples:
+      pt graph query                              # Auto-detect from cwd
       pt graph query project-tracker              # Direct connections
       pt graph query ai-memory --hops 2           # Two degrees out
-      pt graph query flo-fi --limit 50 --hops 3   # Wide search
+      pt graph query flo-fi --types decision,person  # Filter by type
+      pt graph query ai-memory --since 2026-04-04    # What's new?
+      pt graph query ai-memory --json             # JSON for agents
     """
+    if not project:
+        project = os.path.basename(os.getcwd())
     args = ["graph", "query", project, "--hops", str(hops), "--limit", str(limit)]
+    if types:
+        args.extend(["--types", types])
+    if since:
+        args.extend(["--since", since])
+    if as_json:
+        args.append("--json")
+    _run_brain(*args)
+
+
+@graph_group.command(name="find")
+@click.argument("query")
+@click.option("--top", "-k", default=10, type=int,
+              help="Number of top matches (default: 10)")
+@click.option("--hops", "-h", default=1, type=int,
+              help="Expand to N-hop neighbors (0 = exact matches only)")
+@click.option("--json", "as_json", is_flag=True,
+              help="Output as JSON for agent consumption")
+def graph_find(query: str, top: int, hops: int, as_json: bool) -> None:
+    """Semantic search over graph nodes.
+
+    Finds the graph nodes most similar to your query using embeddings,
+    then expands to their neighbors. The 'what does the graph know about X?' query.
+
+    \b
+    Examples:
+      pt graph find "authentication"              # What's related to auth?
+      pt graph find "Turso migration" --top 5     # Focused search
+      pt graph find "LoRA training" --hops 0      # Exact matches only
+      pt graph find "deployment" --json            # JSON for agents
+    """
+    args = ["graph", "find", query, "--top", str(top), "--hops", str(hops)]
+    if as_json:
+        args.append("--json")
+    _run_brain(*args)
+
+
+@graph_group.command(name="path")
+@click.argument("source")
+@click.argument("target")
+@click.option("--max-depth", "-d", default=5, type=int,
+              help="Max BFS depth (default: 5)")
+@click.option("--json", "as_json", is_flag=True,
+              help="Output as JSON for agent consumption")
+def graph_path(source: str, target: str, max_depth: int, as_json: bool) -> None:
+    """Find shortest path between two nodes.
+
+    BFS traversal from source to target. Shows the chain of nodes and
+    edge types connecting them. Useful for understanding how projects relate.
+
+    \b
+    Examples:
+      pt graph path flo-fi project-tracker        # How are they connected?
+      pt graph path ai-memory antigravity-ide     # Cross-project links
+      pt graph path Erik Turso --json             # JSON for agents
+    """
+    args = ["graph", "path", source, target, "--max-depth", str(max_depth)]
+    if as_json:
+        args.append("--json")
     _run_brain(*args)
 
 
@@ -2099,6 +2176,26 @@ def graph_build(force: bool) -> None:
     args = ["graph", "build"]
     if force:
         args.append("--force")
+    _run_brain(*args)
+
+
+@graph_group.command(name="extract-upgrade")
+@click.option("--dry-run", is_flag=True, help="Preview without modifying the graph")
+def graph_extract_upgrade(dry_run: bool) -> None:
+    """Re-extract entities from thought content using text-based extractors.
+
+    Scans all thoughts and runs regex/heuristic extraction (people, artifacts,
+    decisions, concepts) on the freeform text content — not just envelope metadata.
+    Additive only: never deletes existing nodes or edges.
+
+    \b
+    Examples:
+      pt graph extract-upgrade --dry-run   # Preview what would be added
+      pt graph extract-upgrade             # Run for real
+    """
+    args = ["graph", "extract-upgrade"]
+    if dry_run:
+        args.append("--dry-run")
     _run_brain(*args)
 
 
