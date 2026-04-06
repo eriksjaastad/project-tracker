@@ -16,16 +16,23 @@
     // ─── Color maps (match Canvas renderer) ──────────────────────────────────────
 
     const SVG_TYPE_COLORS = {
-        observation:  '#4ECDC4',
-        decision:     '#FF6B6B',
-        idea:         '#FFD93D',
-        question:     '#A8E6CF',
-        conversation: '#B39DDB',
-        fact:         '#80CBC4',
-        project:      '#FFB74D',
-        insight:      '#AED581',
-        error:        '#EF9A9A',
-        default:      '#888888'
+        observation:      '#4ECDC4',
+        decision:         '#FF6B6B',
+        idea:             '#FFD93D',
+        question:         '#A8E6CF',
+        conversation:     '#B39DDB',
+        meeting_debrief:  '#F48FB1',
+        fact:             '#80CBC4',
+        project:          '#FFB74D',
+        insight:          '#AED581',
+        error:            '#EF9A9A',
+        person:           '#F97583',
+        person_note:      '#F97583',
+        tool:             '#56D364',
+        preference:       '#79B8FF',
+        loop_state:       '#CE93D8',
+        dream:            '#E1BEE7',
+        default:          '#8b949e'
     };
 
     function svgNodeColor(type) {
