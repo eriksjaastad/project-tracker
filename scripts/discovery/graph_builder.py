@@ -96,6 +96,26 @@ MAKEFILE_INCLUDE = re.compile(r'^\s*include\s+([^\s\n]+)', re.MULTILINE)
 FILE_REFERENCE = re.compile(r'(?:#|//)\s*See:\s*([^\s\n]+)', re.IGNORECASE)
 
 
+def _load_gitignore_dirs(project_path: Path) -> set:
+    """Load directory-level ignores from a project's .gitignore."""
+    gitignore = project_path / ".gitignore"
+    dirs = set()
+    if not gitignore.exists():
+        return dirs
+    try:
+        for line in gitignore.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            # Match simple directory patterns: "tools/", "output/", "/build"
+            clean = line.strip('/')
+            if clean and '/' not in clean and '*' not in clean:
+                dirs.add(clean)
+    except Exception:
+        pass
+    return dirs
+
+
 class GraphBuilder:
     """Builds a knowledge graph of files and their relationships."""
 
@@ -113,6 +133,7 @@ class GraphBuilder:
             "density": 0.0
         }
         self.projects = set()
+        self._gitignore_cache = {}  # project_name -> set of ignored dirs
 
     def _get_project_name(self, path: Path) -> str:
         """Extract project name from file path."""
@@ -153,6 +174,13 @@ class GraphBuilder:
             if project_name in IGNORE_PROJECTS:
                 dirnames.clear()  # Don't descend into this project
                 continue
+
+            # 3. Respect per-project .gitignore directory patterns
+            if project_name != "root" and project_name not in self._gitignore_cache:
+                self._gitignore_cache[project_name] = _load_gitignore_dirs(self.root / project_name)
+            gi_dirs = self._gitignore_cache.get(project_name, set())
+            if gi_dirs:
+                dirnames[:] = [d for d in dirnames if d not in gi_dirs]
 
             if project_name != "root":
                 self.projects.add(project_name)
