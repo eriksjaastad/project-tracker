@@ -112,14 +112,16 @@ function switchView(view) {
     const svgView = document.getElementById('memory-svg-view');
     const listView = document.getElementById('memory-list-view');
     const heatmapView = document.getElementById('memory-heatmap-view');
+    const overlayView = document.getElementById('memory-overlay-view');
     const graphTab = document.getElementById('tab-graph');
     const svgTab = document.getElementById('tab-svg');
     const listTab = document.getElementById('tab-list');
     const heatmapTab = document.getElementById('tab-heatmap');
+    const overlayTab = document.getElementById('tab-overlay');
 
     // Hide all views and deactivate all tabs
-    [graphView, svgView, listView, heatmapView].forEach(v => v && v.classList.add('hidden'));
-    [graphTab, svgTab, listTab, heatmapTab].forEach(t => t && t.classList.remove('active'));
+    [graphView, svgView, listView, heatmapView, overlayView].forEach(v => v && v.classList.add('hidden'));
+    [graphTab, svgTab, listTab, heatmapTab, overlayTab].forEach(t => t && t.classList.remove('active'));
 
     if (view === 'graph') {
         graphWrapper && (graphWrapper.style.display = 'flex');
@@ -130,6 +132,11 @@ function switchView(view) {
         svgView.classList.remove('hidden');
         svgTab && svgTab.classList.add('active');
         if (typeof loadSvgGraph === 'function') loadSvgGraph();
+    } else if (view === 'overlay') {
+        graphWrapper && (graphWrapper.style.display = 'none');
+        overlayView.classList.remove('hidden');
+        overlayTab && overlayTab.classList.add('active');
+        if (typeof loadOverlay === 'function') loadOverlay();
     } else if (view === 'heatmap') {
         graphWrapper && (graphWrapper.style.display = 'none');
         heatmapView.classList.remove('hidden');

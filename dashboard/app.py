@@ -1264,6 +1264,42 @@ async def get_memory_graph_data(
         return JSONResponse({"error": f"Error reading memory data: {e}"}, status_code=500)
 
 
+@app.get("/api/knowledge-graph")
+async def get_knowledge_graph():
+    """Return the ambient knowledge graph from brain.db (graph_nodes + graph_edges)."""
+    projects_root = Path(__file__).parent.parent.parent
+    brain_db_path = projects_root / "ai-memory" / "brain.db"
+
+    if not brain_db_path.exists():
+        return JSONResponse({"error": "brain.db not found"}, status_code=404)
+
+    try:
+        conn = sqlite3.connect(brain_db_path)
+        conn.row_factory = sqlite3.Row
+
+        nodes = [dict(r) for r in conn.execute(
+            "SELECT id, type, name, description, mention_count as size FROM graph_nodes"
+        ).fetchall()]
+
+        edges = [dict(r) for r in conn.execute(
+            "SELECT source_node_id as source, target_node_id as target, type, weight FROM graph_edges"
+        ).fetchall()]
+
+        conn.close()
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "stats": {
+                "total_nodes": len(nodes),
+                "total_edges": len(edges),
+            }
+        }
+    except Exception as e:
+        logger.error(f"Knowledge graph error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/api/memory/types")
 async def get_memory_types():
     """Return distinct thought types present in brain.db.

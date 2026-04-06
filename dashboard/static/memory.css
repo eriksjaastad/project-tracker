@@ -377,6 +377,56 @@
     overflow: hidden;
 }
 
+/* Overlay view */
+#memory-overlay-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+#overlay-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+#overlay-canvas {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.overlay-status {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: var(--text-secondary, #888);
+    max-width: 500px;
+    z-index: 10;
+}
+
+.overlay-status h3 {
+    color: var(--text-primary, #eee);
+    margin-bottom: 0.5rem;
+}
+
+.overlay-status p {
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin-bottom: 0.5rem;
+}
+
+#overlay-waiting {
+    color: var(--color-link, #58a6ff);
+    font-style: italic;
+}
+
 #heatmap-container {
     flex: 1;
     position: relative;
