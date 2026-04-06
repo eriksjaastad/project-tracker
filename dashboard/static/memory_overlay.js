@@ -1,5 +1,5 @@
-// Code Graph Overlay — Knowledge Graph renderer
-// Renders the ambient knowledge graph from brain.db: typed nodes + weighted edges.
+// Code Graph Overlay — Open Brain renderer
+// Renders the Open Brain graph from brain.db: typed nodes + weighted edges.
 // Uses d3-force for layout, Canvas 2D for rendering.
 
 let overlayCanvas, overlayCtx;
@@ -65,15 +65,15 @@ async function loadOverlay() {
         return;
     }
 
-    // Fetch knowledge graph
+    // Fetch Open Brain graph
     try {
-        const resp = await fetch('/api/knowledge-graph');
+        const resp = await fetch('/api/open-brain');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         overlayData = await resp.json();
     } catch (e) {
         if (status) {
             status.style.display = 'block';
-            document.getElementById('overlay-waiting').textContent = `Error loading knowledge graph: ${e.message}`;
+            document.getElementById('overlay-waiting').textContent = `Error loading Open Brain graph: ${e.message}`;
         }
         return;
     }
@@ -81,7 +81,7 @@ async function loadOverlay() {
     if (!overlayData.nodes || overlayData.nodes.length === 0) {
         if (status) {
             status.style.display = 'block';
-            document.getElementById('overlay-waiting').textContent = 'Knowledge graph is empty. Run: brain.py graph build';
+            document.getElementById('overlay-waiting').textContent = 'Open Brain graph is empty. Run: brain.py graph build';
         }
         return;
     }
@@ -143,7 +143,7 @@ function updateOverlayStats() {
     statusEl.style.borderRadius = '8px';
 
     statusEl.innerHTML = `
-        <div><strong>Knowledge Graph</strong></div>
+        <div><strong>Open Brain</strong></div>
         <div>Nodes: ${stats.total_nodes || overlayData.nodes.length} | Edges: ${stats.total_edges || overlayData.edges.length}</div>
         <div style="margin-top:6px">${Object.entries(NODE_COLORS)
             .filter(([type]) => typeCounts[type])

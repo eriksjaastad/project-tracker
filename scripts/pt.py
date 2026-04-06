@@ -151,8 +151,8 @@ def cli(ctx):
         click.echo(ctx.get_help())
 
 
-def rebuild_knowledge_graph():
-    console.print("[bold blue]Rebuilding knowledge graph & analysis...[/bold blue]")
+def rebuild_project_graph():
+    console.print("[bold blue]Rebuilding project graph & analysis...[/bold blue]")
     try:
         root_path = Path(PROJECTS_BASE_DIR)
         output_path = Path(__file__).parent.parent / "data" / "graph.json"
@@ -165,12 +165,12 @@ def rebuild_knowledge_graph():
         analysis_path.write_text(analysis_text)
         if ecosystem_todo.exists():
             builder.update_todo(ecosystem_todo)
-        console.print(f"  ✓ Knowledge graph & analysis updated")
+        console.print(f"  ✓ Project graph & analysis updated")
         console.print("[bold cyan]  → Running Journal Specialist (Enriching links)...[/bold cyan]")
         specialist = JournalSpecialist()
         specialist.scan()
     except Exception as e:
-        console.print(f"  [red]✗ Error rebuilding knowledge graph: {e}[/red]")
+        console.print(f"  [red]✗ Error rebuilding project graph: {e}[/red]")
 
 
 def _scan_impl(no_graph=False, dry_run=False, force=False):
@@ -269,7 +269,7 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
         console.print(f"\n[bold yellow]✨ Hygiene: Applied {hygiene_fixes} auto-fixes to TODO.md files[/bold yellow]")
     if not no_graph:
         console.print("")
-        rebuild_knowledge_graph()
+        rebuild_project_graph()
     console.print(f"\n[bold green]✅ Scan complete! {len(projects)} projects updated[/bold green]")
 
 
@@ -350,7 +350,7 @@ def scan(no_graph, dry_run, force):
 
 
 @cli.command(name="scan")
-@click.option("--no-graph", is_flag=True, help="Skip rebuilding the knowledge graph")
+@click.option("--no-graph", is_flag=True, help="Skip rebuilding the project graph")
 @click.option("--dry-run", is_flag=True, help="Show what would change without writing")
 @click.option("--force", is_flag=True, help="Proceed even if scan results look unsafe")
 def scan_cli(no_graph, dry_run, force):
@@ -457,7 +457,7 @@ def orphans(project, json_output):
 
 
 @cli.command()
-@click.option("--no-graph", is_flag=True, help="Skip rebuilding the knowledge graph")
+@click.option("--no-graph", is_flag=True, help="Skip rebuilding the project graph")
 def refresh(no_graph):
     """Refresh all project metadata."""
     console.print("[bold blue]Refreshing project data...[/bold blue]")
@@ -466,7 +466,7 @@ def refresh(no_graph):
 
 @cli.command()
 @click.argument("project_name")
-@click.option("--no-graph", is_flag=True, help="Skip rebuilding the knowledge graph")
+@click.option("--no-graph", is_flag=True, help="Skip rebuilding the project graph")
 def sync(project_name, no_graph):
     """Sync a single project to the database (fast alternative to full scan).
 
@@ -554,9 +554,9 @@ def sync(project_name, no_graph):
             console.print(f"  [red]✗ Failed to sync {project['name']}: {e}[/red]")
             raise SystemExit(1)
 
-    # 6. Optionally rebuild knowledge graph
+    # 6. Optionally rebuild project graph
     if not no_graph:
-        rebuild_knowledge_graph()
+        rebuild_project_graph()
 
     console.print(f"\n[bold green]✅ Synced: {project['name']}[/bold green]")
 
@@ -2011,16 +2011,16 @@ def memory_stats() -> None:
 
 
 # =============================================================================
-# Knowledge Graph (wraps brain.py graph subcommands)
+# Open Brain Graph (wraps brain.py graph subcommands)
 # =============================================================================
 
 
 @click.group(name="graph", invoke_without_command=True)
 @click.pass_context
 def graph_group(ctx: click.Context) -> None:
-    """Query and manage the ambient knowledge graph (Open Brain).
+    """Query and manage the Open Brain graph.
 
-    The knowledge graph extracts structured nodes (projects, people, files,
+    Open Brain extracts structured nodes (projects, people, artifacts,
     concepts, tasks, decisions) and edges (co_mentioned, belongs_to, relates_to)
     from all memories in brain.db.
 
@@ -2042,7 +2042,7 @@ def graph_group(ctx: click.Context) -> None:
 
 @graph_group.command(name="stats")
 def graph_stats() -> None:
-    """Show knowledge graph statistics — node/edge counts by type.
+    """Show Open Brain graph statistics — node/edge counts by type.
 
     \b
     Example output:
@@ -2146,7 +2146,7 @@ def graph_path(source: str, target: str, max_depth: int, as_json: bool) -> None:
 
 @graph_group.command(name="export")
 def graph_export() -> None:
-    """Export full knowledge graph as JSON (nodes + edges).
+    """Export full Open Brain graph as JSON (nodes + edges).
 
     Outputs to stdout. Pipe to a file or tool:
 
@@ -2162,7 +2162,7 @@ def graph_export() -> None:
 @graph_group.command(name="build")
 @click.option("--force", is_flag=True, help="Truncate existing graph before rebuild")
 def graph_build(force: bool) -> None:
-    """Rebuild the knowledge graph from all memories.
+    """Rebuild the Open Brain graph from all memories.
 
     Scans every entry in brain.db, extracts entities (projects, people,
     files, concepts, tasks, decisions), builds edges from co-mentions

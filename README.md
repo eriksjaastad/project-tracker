@@ -38,7 +38,7 @@ project-tracker/
 │   └── static/             # CSS, JS
 ├── data/
 │   ├── tracker.db          # Local SQLite (Turso in production)
-│   └── graph.json          # Knowledge graph data
+│   └── graph.json          # Project graph data
 └── tests/
 ```
 

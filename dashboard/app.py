@@ -50,18 +50,18 @@ from pydantic import BaseModel
 from scripts.config import PROJECTS_BASE_DIR, REINDEX_SCRIPT_PATH
 from scripts.utils.validation import get_blocked_card_reason, get_blocked_card_project_ids, is_card_creation_allowed
 
-from scripts.pt import rebuild_knowledge_graph
+from scripts.pt import rebuild_project_graph
 
 logger = get_logger(__name__)
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
-    """Lifespan handler: rebuild knowledge graph in background after server starts."""
+    """Lifespan handler: rebuild project graph in background after server starts."""
     def _rebuild():
         try:
-            from scripts.pt import rebuild_knowledge_graph
+            from scripts.pt import rebuild_project_graph
             logger.info("Background graph rebuild starting...")
-            rebuild_knowledge_graph()
+            rebuild_project_graph()
             logger.info("Background graph rebuild complete.")
         except Exception as e:
             logger.error(f"Background graph rebuild failed: {e}")
@@ -758,10 +758,10 @@ async def refresh_data():
                 db.delete_project(db_proj["id"])
                 removed += 1
 
-        # Rebuild knowledge graph in background so endpoint returns immediately
+        # Rebuild project graph in background so endpoint returns immediately
         return JSONResponse(
             {"status": "success", "message": f"Refreshed {len(projects)} projects, removed {removed} stale. Graph rebuild started in background."},
-            background=BackgroundTask(rebuild_knowledge_graph),
+            background=BackgroundTask(rebuild_project_graph),
         )
     except Exception as e:
         logger.error(f"Error refreshing data: {e}")
@@ -1264,9 +1264,10 @@ async def get_memory_graph_data(
         return JSONResponse({"error": f"Error reading memory data: {e}"}, status_code=500)
 
 
-@app.get("/api/knowledge-graph")
-async def get_knowledge_graph():
-    """Return the ambient knowledge graph from brain.db (graph_nodes + graph_edges)."""
+@app.get("/api/open-brain")
+@app.get("/api/knowledge-graph")  # legacy alias
+async def get_open_brain_graph():
+    """Return the Open Brain graph from brain.db (graph_nodes + graph_edges)."""
     projects_root = Path(__file__).parent.parent.parent
     brain_db_path = projects_root / "ai-memory" / "brain.db"
 
@@ -1296,7 +1297,7 @@ async def get_knowledge_graph():
             }
         }
     except Exception as e:
-        logger.error(f"Knowledge graph error: {e}")
+        logger.error(f"Open Brain graph error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
