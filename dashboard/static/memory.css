@@ -427,6 +427,100 @@
     font-style: italic;
 }
 
+/* Overlay detail panel (right side, like Project Graph) */
+.overlay-detail-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 320px;
+    height: 100%;
+    background: rgba(25, 25, 25, 0.95);
+    backdrop-filter: blur(10px);
+    border-left: 1px solid #007bff;
+    padding: 20px;
+    box-shadow: -5px 0 20px rgba(0,0,0,0.6);
+    z-index: 100;
+    color: #eee;
+    overflow-y: auto;
+    transition: transform 0.2s ease;
+}
+
+.overlay-detail-panel.hidden {
+    transform: translateX(100%);
+}
+
+.overlay-detail-close {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: #333;
+    border: 1px solid #555;
+    border-radius: 4px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #fff;
+    font-size: 16px;
+}
+
+.overlay-detail-panel h3 {
+    margin: 0 0 15px 0;
+    font-size: 1.2em;
+    color: #58a6ff;
+    padding-right: 30px;
+    word-break: break-word;
+    border-bottom: 1px solid #444;
+    padding-bottom: 12px;
+}
+
+.overlay-detail-meta {
+    font-size: 0.85em;
+    color: #aaa;
+    margin-bottom: 15px;
+    line-height: 1.8;
+}
+
+.overlay-detail-meta strong {
+    color: #eee;
+}
+
+.overlay-detail-connections h4 {
+    font-size: 0.9em;
+    color: #fff;
+    margin: 15px 0 8px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid #444;
+    padding-bottom: 6px;
+}
+
+.overlay-detail-connections ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.overlay-detail-connections li {
+    font-size: 0.82em;
+    padding: 5px 0;
+    border-bottom: 1px solid #333;
+    color: #aaa;
+    cursor: pointer;
+}
+
+.overlay-detail-connections li:hover {
+    color: #58a6ff;
+}
+
+.overlay-detail-connections .conn-type {
+    font-size: 0.75em;
+    color: #666;
+    margin-left: 6px;
+}
+
 #heatmap-container {
     flex: 1;
     position: relative;

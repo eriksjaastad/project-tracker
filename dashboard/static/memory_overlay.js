@@ -8,8 +8,10 @@ let overlayData = { nodes: [], edges: [] };
 let overlaySimulation = null;
 let overlayTransform = { x: 0, y: 0, k: 1 };
 let overlayHovered = null;
+let overlaySelected = null;
 let overlayPanning = false;
 let overlayPanStart = { x: 0, y: 0 };
+let overlayPanMoved = false;
 let overlayRafId = null;
 
 // Node colors by type
@@ -222,18 +224,10 @@ function renderOverlay() {
         ctx.fillStyle = color;
         ctx.fill();
 
-        if (isHovered) {
-            ctx.strokeStyle = '#fff';
+        if (isHovered || n === overlaySelected) {
+            ctx.strokeStyle = n === overlaySelected ? '#007bff' : '#fff';
             ctx.lineWidth = 2;
             ctx.stroke();
-        }
-
-        // Labels for large nodes or on hover
-        if ((n.size > 20 || isHovered) && t.k > 0.4) {
-            ctx.fillStyle = isDimmed ? 'rgba(200,200,200,0.3)' : 'rgba(230,230,230,0.9)';
-            ctx.font = isHovered ? 'bold 11px system-ui' : '9px system-ui';
-            ctx.textAlign = 'center';
-            ctx.fillText(n.name, n.x, n.y - r - 3);
         }
 
         ctx.globalAlpha = 1;
@@ -265,8 +259,11 @@ function setupOverlayInteraction() {
         const my = (e.clientY - rect.top - overlayTransform.y) / overlayTransform.k;
 
         if (overlayPanning) {
-            overlayTransform.x += e.clientX - overlayPanStart.x;
-            overlayTransform.y += e.clientY - overlayPanStart.y;
+            const dx = e.clientX - overlayPanStart.x;
+            const dy = e.clientY - overlayPanStart.y;
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) overlayPanMoved = true;
+            overlayTransform.x += dx;
+            overlayTransform.y += dy;
             overlayPanStart = { x: e.clientX, y: e.clientY };
             renderOverlay();
             return;
@@ -293,11 +290,22 @@ function setupOverlayInteraction() {
         overlayPanning = true;
         overlayPanStart = { x: e.clientX, y: e.clientY };
         overlayCanvas.style.cursor = 'grabbing';
+        overlayPanMoved = false;
     });
 
-    overlayCanvas.addEventListener('mouseup', () => {
+    overlayCanvas.addEventListener('mouseup', e => {
+        const wasPanning = overlayPanMoved;
         overlayPanning = false;
         overlayCanvas.style.cursor = overlayHovered ? 'pointer' : 'default';
+
+        // Click handler — only fire if we didn't drag
+        if (!wasPanning && overlayHovered) {
+            overlaySelected = overlayHovered;
+            showOverlayDetail(overlaySelected);
+            renderOverlay();
+        } else if (!wasPanning && !overlayHovered) {
+            closeOverlayDetail();
+        }
     });
 
     overlayCanvas.addEventListener('mouseleave', () => {
@@ -319,4 +327,80 @@ function setupOverlayInteraction() {
         overlayTransform.k = newK;
         renderOverlay();
     }, { passive: false });
+}
+
+function showOverlayDetail(node) {
+    const panel = document.getElementById('overlay-detail-panel');
+    const nameEl = document.getElementById('overlay-detail-name');
+    const contentEl = document.getElementById('overlay-detail-content');
+    if (!panel || !node) return;
+
+    // Find connected nodes
+    const connections = [];
+    overlayData.edges.forEach(e => {
+        const sid = e.source.id ?? e.source;
+        const tid = e.target.id ?? e.target;
+        if (sid === node.id) {
+            const target = overlayData.nodes.find(n => n.id === tid);
+            if (target) connections.push({ node: target, edge_type: e.edge_type || e.type || 'related', weight: e.weight || 1 });
+        } else if (tid === node.id) {
+            const source = overlayData.nodes.find(n => n.id === sid);
+            if (source) connections.push({ node: source, edge_type: e.edge_type || e.type || 'related', weight: e.weight || 1 });
+        }
+    });
+
+    // Sort by weight descending
+    connections.sort((a, b) => b.weight - a.weight);
+
+    // Group connections by type
+    const byType = {};
+    connections.forEach(c => {
+        const type = c.node.type || 'other';
+        if (!byType[type]) byType[type] = [];
+        byType[type].push(c);
+    });
+
+    nameEl.textContent = node.name;
+    nameEl.style.color = overlayNodeColor(node.type);
+
+    let html = `<div class="overlay-detail-meta">`;
+    html += `<strong>Type:</strong> ${NODE_LABELS[node.type] || node.type}<br>`;
+    html += `<strong>References:</strong> ${node.size || 0}<br>`;
+    html += `<strong>Connections:</strong> ${connections.length}`;
+    html += `</div>`;
+
+    html += `<div class="overlay-detail-connections">`;
+    for (const [type, conns] of Object.entries(byType)) {
+        const label = NODE_LABELS[type] || type;
+        const color = overlayNodeColor(type);
+        html += `<h4 style="color:${color}">● ${label} (${conns.length})</h4><ul>`;
+        conns.slice(0, 20).forEach(c => {
+            html += `<li data-node-id="${c.node.id}">${c.node.name}<span class="conn-type">${c.edge_type} ×${c.weight}</span></li>`;
+        });
+        if (conns.length > 20) html += `<li style="color:#666">...and ${conns.length - 20} more</li>`;
+        html += `</ul>`;
+    }
+    html += `</div>`;
+
+    contentEl.innerHTML = html;
+    panel.classList.remove('hidden');
+
+    // Click on connection to navigate to that node
+    contentEl.querySelectorAll('li[data-node-id]').forEach(li => {
+        li.addEventListener('click', () => {
+            const targetNode = overlayData.nodes.find(n => n.id === li.dataset.nodeId);
+            if (targetNode) {
+                overlaySelected = targetNode;
+                showOverlayDetail(targetNode);
+                renderOverlay();
+            }
+        });
+    });
+}
+
+function closeOverlayDetail() {
+    const panel = document.getElementById('overlay-detail-panel');
+    if (panel) panel.classList.add('hidden');
+    overlaySelected = null;
+    renderOverlay();
 }
