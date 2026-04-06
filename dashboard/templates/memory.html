@@ -18,6 +18,7 @@
     <div class="view-tabs">
         <button onclick="switchView('graph')" id="tab-graph" class="tab-btn active">📊 Graph</button>
         <button onclick="switchView('svg')" id="tab-svg" class="tab-btn">🎨 Classic</button>
+        <button onclick="switchView('overlay')" id="tab-overlay" class="tab-btn">🔬 Overlay</button>
         <button onclick="switchView('heatmap')" id="tab-heatmap" class="tab-btn">🌡️ Heatmap</button>
         <button onclick="switchView('list')" id="tab-list" class="tab-btn">📋 List</button>
     </div>
@@ -104,6 +105,17 @@
         </div>
     </div>
 
+    <div id="memory-overlay-view" class="view-content hidden">
+        <div id="overlay-container">
+            <canvas id="overlay-canvas"></canvas>
+            <div id="overlay-status" class="overlay-status">
+                <h3>Knowledge Graph</h3>
+                <p>Ambient knowledge graph: projects, people, files, concepts, tasks, and decisions extracted from 7,700+ memories. Colored by type, sized by mention count.</p>
+                <p id="overlay-waiting">Loading...</p>
+            </div>
+        </div>
+    </div>
+
     <div id="memory-list-view" class="view-content hidden">
         <div class="list-controls">
             <div class="control-group search-group">
@@ -155,4 +167,5 @@
     <script src="/static/memory_svg.js"></script>
     <script src="/static/memory_list.js"></script>
     <script src="/static/memory_heatmap.js"></script>
+    <script src="/static/memory_overlay.js"></script>
 {% endblock %}

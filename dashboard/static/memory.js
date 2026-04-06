@@ -41,16 +41,23 @@ let rafId = null;
 // ─── Color map ───────────────────────────────────────────────────────────────
 
 const TYPE_COLORS = {
-    observation:  '#4ECDC4',
-    decision:     '#FF6B6B',
-    idea:         '#FFD93D',
-    question:     '#A8E6CF',
-    conversation: '#B39DDB',
-    fact:         '#80CBC4',
-    project:      '#FFB74D',
-    insight:      '#AED581',
-    error:        '#EF9A9A',
-    default:      '#888888'
+    observation:      '#4ECDC4',   // teal
+    decision:         '#FF6B6B',   // coral red
+    idea:             '#FFD93D',   // yellow
+    question:         '#A8E6CF',   // mint green
+    conversation:     '#B39DDB',   // lavender purple
+    meeting_debrief:  '#F48FB1',   // pink
+    fact:             '#80CBC4',   // soft teal
+    project:          '#FFB74D',   // orange
+    insight:          '#AED581',   // lime green
+    error:            '#EF9A9A',   // light red
+    person:           '#F97583',   // salmon
+    person_note:      '#F97583',   // salmon (same as person)
+    tool:             '#56D364',   // bright green
+    preference:       '#79B8FF',   // light blue
+    loop_state:       '#CE93D8',   // medium purple
+    dream:            '#E1BEE7',   // light purple
+    default:          '#8b949e'    // gray
 };
 
 function nodeColor(type) {
