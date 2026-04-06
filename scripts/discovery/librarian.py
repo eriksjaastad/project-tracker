@@ -171,11 +171,13 @@ def detect_primary_tech(directory: Path) -> str:
     """Detect primary technology based on file extensions."""
     extensions = Counter()
 
-    for file in directory.rglob("*"):
-        if file.is_file() and not any(part.startswith(".") for part in file.parts):
-            if any(skip in file.parts for skip in SKIP_DIRS):
+    for dirpath, dirnames, filenames in os.walk(directory):
+        # Prune skipped directories in-place so os.walk doesn't descend into them
+        dirnames[:] = [d for d in dirnames if not d.startswith('.') and d not in SKIP_DIRS]
+        for fname in filenames:
+            if fname.startswith('.'):
                 continue
-            ext = file.suffix.lower()
+            ext = Path(fname).suffix.lower()
             if ext in TECH_EXTENSIONS:
                 extensions[ext] += 1
 
@@ -317,9 +319,11 @@ def extract_description(file_path: Path) -> str:
 
 def is_directory_empty(directory: Path) -> bool:
     """Check if a directory is effectively empty (no real files, only empty subdirs)."""
-    for item in directory.rglob("*"):
-        if item.is_file() and not item.name.startswith("."):
-            return False
+    for dirpath, dirnames, filenames in os.walk(directory):
+        dirnames[:] = [d for d in dirnames if not d.startswith('.') and d not in SKIP_DIRS]
+        for fname in filenames:
+            if not fname.startswith('.'):
+                return False
     return True
 
 
