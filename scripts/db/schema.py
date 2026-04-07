@@ -146,10 +146,10 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
             with open(external_backup_path, 'w') as f:
                 json.dump(export_data, f, indent=2)
         except Exception as e:
-            print(f"⚠️  Warning: Could not write external backup: {e}")
-            print(f"    (Set PT_EXTERNAL_BACKUP_DIR to a writable path in sandboxed environments)")
+            print(f"⚠️  Warning: Could not write external backup: {e}", file=sys.stderr)
+            print(f"    (Set PT_EXTERNAL_BACKUP_DIR to a writable path in sandboxed environments)", file=sys.stderr)
 
-        print(f"🛡️  SAFETY: Auto-backup created: {backup_path} ({len(tasks)} tasks)")
+        print(f"🛡️  SAFETY: Auto-backup created: {backup_path} ({len(tasks)} tasks)", file=sys.stderr)
 
         # Rotate: keep only the 10 most recent safety backups per location.
         # Old backups go to Trash so they remain recoverable.
@@ -163,7 +163,7 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
         return backup_path
 
     except Exception as e:
-        print(f"⚠️  Warning: Could not create safety backup: {e}")
+        print(f"⚠️  Warning: Could not create safety backup: {e}", file=sys.stderr)
         return None
 
 # The following lines will be removed as they are now at the top
