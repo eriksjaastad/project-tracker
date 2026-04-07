@@ -2030,10 +2030,12 @@ def graph_group(ctx: click.Context) -> None:
 
     \b
     Quick start:
-      pt graph stats                          # Node/edge counts by type
+      pt graph stats                          # Node/edge/confidence counts
       pt graph query project-tracker          # What's connected to a project
-      pt graph query ai-memory --hops 2       # Two degrees of separation
-      pt graph export > graph.json            # Full graph as JSON
+      pt graph find "Turso migration"         # Semantic search over nodes
+      pt graph path ai-memory project-tracker # Shortest path between nodes
+      pt graph communities                    # Leiden community detection
+      pt graph wiki ai-memory                 # On-demand wiki article
       pt graph build                          # Rebuild from all memories
     """
     if ctx.invoked_subcommand is None:
@@ -2181,21 +2183,66 @@ def graph_build(force: bool) -> None:
 
 @graph_group.command(name="extract-upgrade")
 @click.option("--dry-run", is_flag=True, help="Preview without modifying the graph")
-def graph_extract_upgrade(dry_run: bool) -> None:
+@click.option("--full", is_flag=True, help="Re-scan all thoughts (default: only unprocessed)")
+def graph_extract_upgrade(dry_run: bool, full: bool) -> None:
     """Re-extract entities from thought content using text-based extractors.
 
-    Scans all thoughts and runs regex/heuristic extraction (people, artifacts,
-    decisions, concepts) on the freeform text content — not just envelope metadata.
-    Additive only: never deletes existing nodes or edges.
+    By default, only processes new thoughts not yet text-extracted (incremental).
+    Use --full to re-scan everything.
 
     \b
     Examples:
       pt graph extract-upgrade --dry-run   # Preview what would be added
-      pt graph extract-upgrade             # Run for real
+      pt graph extract-upgrade             # Incremental (new thoughts only)
+      pt graph extract-upgrade --full      # Re-scan everything
     """
     args = ["graph", "extract-upgrade"]
     if dry_run:
         args.append("--dry-run")
+    if full:
+        args.append("--full")
+    _run_brain(*args)
+
+
+@graph_group.command(name="wiki")
+@click.argument("project", required=False, default="")
+def graph_wiki(project: str) -> None:
+    """Generate a Wikipedia-style article for a project's graph community.
+
+    Synthesizes nodes and edges into a readable summary using Haiku.
+    Generated on-demand — never stored. Project auto-detected from cwd.
+
+    \b
+    Examples:
+      pt graph wiki                    # Auto-detect from cwd
+      pt graph wiki ai-memory          # Specific project
+      pt graph wiki project-tracker    # Another project
+    """
+    if not project:
+        project = os.path.basename(os.getcwd())
+    _run_brain("graph", "wiki", project)
+
+
+@graph_group.command(name="communities")
+@click.option("--resolution", "-r", default=1.0, type=float,
+              help="Leiden resolution (default: 1.0, lower = fewer/larger communities)")
+@click.option("--json", "as_json", is_flag=True,
+              help="Output as JSON")
+def graph_communities(resolution: float, as_json: bool) -> None:
+    """Run Leiden community detection on the knowledge graph.
+
+    Groups related nodes into communities automatically. Writes community_id
+    to each node. Higher resolution = more/smaller communities.
+
+    \b
+    Examples:
+      pt graph communities                    # Default resolution
+      pt graph communities --resolution 0.5   # Fewer, larger communities
+      pt graph communities --json             # JSON output
+    """
+    args = ["graph", "communities", "--resolution", str(resolution)]
+    if as_json:
+        args.append("--json")
     _run_brain(*args)
 
 
