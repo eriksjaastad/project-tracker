@@ -27,6 +27,7 @@ SKIP_DIRS = {
     ".git", ".venv", "venv", "node_modules", "__pycache__", ".next",
     "dist", "build", ".mypy_cache", ".pytest_cache", ".ruff_cache",
     "project-graph-screenshots-movies", "logs", "data", ".claude",
+    ".build", "checkouts", "third_party", "tools",
 }
 SKIP_EXTENSIONS = {
     ".pyc", ".pyo", ".db", ".sqlite", ".wasm", ".png", ".jpg", ".jpeg",
@@ -417,6 +418,9 @@ def check_dead_deps(project_path: Path) -> list[dict]:
         "psycopg2-binary": "psycopg2",
         "google-cloud-secret-manager": "google",
         "uvicorn": "uvicorn",
+        "google-auth": "google",
+        "google-generativeai": "google",
+        "google-genai": "google_genai",
     }
 
     # Packages that are runtime/transitive deps — not directly imported but required
@@ -429,6 +433,9 @@ def check_dead_deps(project_path: Path) -> list[dict]:
         "pytest-playwright", # Playwright test plugin, imported as pytest fixture
         "libsql",        # Imported as libsql_experimental
         "libsql-experimental",
+        "gunicorn",      # WSGI server, started via CLI, never imported
+        "google-auth",   # Imported as google.oauth2/google.auth submodules
+        "google-generativeai",  # Imported dynamically in some projects
     }
 
     # Parse requirements.txt
