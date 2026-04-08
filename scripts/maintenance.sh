@@ -1,12 +1,10 @@
 #!/bin/bash
 # maintenance.sh - Global Ecosystem Health & Networking
 # Master script for the ecosystem. Runs WEEKLY via cron (Sundays 5 AM).
-# Changed from daily to weekly on Jan 24, 2026 (librarian refactor session)
 
 # Use environment variable, fall back to resolving from script location
 PROJECT_ROOT="${PROJECTS_ROOT:-$HOME/projects}"
 TRACKER_DIR="$PROJECT_ROOT/project-tracker"
-LIBRARIAN="$TRACKER_DIR/scripts/discovery/librarian.py"
 JOURNAL_SPECIALIST="$TRACKER_DIR/scripts/discovery/journal_specialist.py"
 GRAPH_BUILDER="$TRACKER_DIR/scripts/discovery/graph_builder.py"
 UV_RUN="$HOME/.local/bin/uv run"
@@ -22,7 +20,7 @@ if [ -f "$JOURNAL_INDEXER" ]; then
     cd "$PROJECT_ROOT"
 fi
 
-# Step 2: Network all projects (Librarian index generation removed — #5530)
+# Step 2: Deep-link journal entries and rebuild graph
 echo "🧠 Running Journal Specialist (Deep linking memories)..."
 $UV_RUN "$JOURNAL_SPECIALIST"
 

@@ -15,8 +15,10 @@ from collections import defaultdict
 # Add project root to sys.path for logger
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scripts.config import PROJECTS_BASE_DIR
-from discovery.librarian import MAX_FILE_SIZE_BYTES
 from scripts.logger import get_logger
+
+# Max file size for relationship extraction (skip files > 1 MB to prevent OOM)
+MAX_FILE_SIZE_BYTES = 1_000_000
 
 logger = get_logger(__name__)
 
@@ -45,6 +47,7 @@ SCAN_EXTENSIONS = _config.get('scan_extensions', {
     '.js': 'javascript',
     '.jsx': 'javascript',
     '.go': 'go',
+    '.swift': 'swift',
     '.json': 'config',
     '.yaml': 'config',
     '.yml': 'config',
@@ -77,6 +80,9 @@ JS_REQUIRE = re.compile(r'require\([\'"]([^\'"]+)[\'"]\)', re.MULTILINE)
 # Go: import "x"
 GO_IMPORT = re.compile(r'import\s+[\'"]([^\'"]+)[\'"]', re.MULTILINE)
 GO_IMPORT_BLOCK = re.compile(r'import\s+\((.*?)\)', re.DOTALL)
+
+# Swift: type definitions (class, struct, protocol, enum)
+SWIFT_TYPE_DEF = re.compile(r'^\s*(?:public\s+|private\s+|internal\s+|open\s+|final\s+)*(?:class|struct|protocol|enum)\s+(\w+)', re.MULTILINE)
 
 # Shell: source ./file.sh OR . ./file.sh OR bash scripts/run.sh
 SHELL_SOURCE = re.compile(r'(?:source|\.)\s+([^\s;]+\.(?:sh|bash|zsh))', re.MULTILINE)
@@ -134,6 +140,7 @@ class GraphBuilder:
         }
         self.projects = set()
         self._gitignore_cache = {}  # project_name -> set of ignored dirs
+        self._swift_types = {}  # type_name -> node_id (for cross-file type references)
 
     def _get_project_name(self, path: Path) -> str:
         """Extract project name from file path."""
@@ -229,6 +236,17 @@ class GraphBuilder:
         # Build lookup indexes for O(1) node resolution (replaces O(n) linear scans)
         self._build_indexes()
 
+        # Pre-pass: collect Swift type definitions for cross-file resolution
+        for file_path in file_list:
+            if file_path.suffix.lower() == '.swift':
+                try:
+                    content = file_path.read_text(encoding='utf-8', errors='ignore')
+                    node_id = self._get_node_id(file_path)
+                    for type_name in SWIFT_TYPE_DEF.findall(content):
+                        self._swift_types[type_name] = node_id
+                except Exception:
+                    pass
+
         # Now process each file for edges
         for file_path in file_list:
             self._process_file(file_path)
@@ -271,6 +289,10 @@ class GraphBuilder:
         # JS/TS relationships
         elif ext in ['.js', '.jsx', '.ts', '.tsx']:
             self._extract_js_ts_relationships(node_id, content)
+
+        # Swift relationships
+        elif ext == '.swift':
+            self._extract_swift_relationships(node_id, content)
 
         # Go relationships
         elif ext == '.go':
@@ -382,6 +404,20 @@ class GraphBuilder:
                 if module_path in node_id:
                     self._add_edge(source_id, node_id, edge_type, f"import {module_path}")
                     return
+
+    def _extract_swift_relationships(self, source_id: str, content: str):
+        """Extract Swift cross-file type references.
+
+        Swift doesn't use file-level imports for local code — all files in a
+        module see each other.  Instead, we connect files by detecting when
+        file A references a type (class/struct/protocol/enum) defined in file B.
+        """
+        for type_name, target_id in self._swift_types.items():
+            if target_id == source_id:
+                continue  # skip self-references
+            # Look for the type name as a whole word in the content
+            if re.search(r'\b' + re.escape(type_name) + r'\b', content):
+                self._add_edge(source_id, target_id, "swift_type_ref", type_name)
 
     def _extract_go_relationships(self, source_id: str, content: str):
         for match in GO_IMPORT.findall(content):

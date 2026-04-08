@@ -86,14 +86,14 @@ class JournalSpecialist:
                     "strength": 0.9
                 })
 
-        # 3. Match explicit project indices [[00_Index_project-name]]
-        indices = re.findall(r'\[\[00_Index_([a-zA-Z0-9\-_]+)\]\]', content)
-        for idx in indices:
-            if idx in self.projects:
+        # 3. Match explicit project wikilinks [[project-name]] or [[00_Index_project-name]] (legacy)
+        wikilinks = re.findall(r'\[\[(?:00_Index_)?([a-zA-Z0-9\-_]+)\]\]', content)
+        for name in wikilinks:
+            if name in self.projects:
                 self.links.append({
                     "journal": str(path.relative_to(PROJECTS_ROOT)),
-                    "project": idx,
-                    "type": "index_link",
+                    "project": name,
+                    "type": "wikilink_match",
                     "strength": 1.0
                 })
 
@@ -110,16 +110,22 @@ class JournalSpecialist:
             print(f"Error reading graph: {e}")
             return
 
-        # Map project names to their Index node IDs (usually 00_Index_project.md)
+        # Map project names to an anchor node ID.
+        # Prefer README.md, fall back to first node in the project.
         project_to_node = {}
+        project_fallback = {}
         for node in data.get('nodes', []):
-            if node['name'].startswith('00_Index_'):
-                p_name = node['name'].replace('00_Index_', '').replace('.md', '')
-                project_to_node[p_name] = node['id']
-            # Fallback to root README if index missing
-            elif node['name'] == 'README.md' and node['project'] != 'root':
-                if node['project'] not in project_to_node:
-                    project_to_node[node['project']] = node['id']
+            project = node.get('project', '')
+            if not project or project == 'root':
+                continue
+            if node['name'] == 'README.md':
+                project_to_node[project] = node['id']
+            elif project not in project_fallback:
+                project_fallback[project] = node['id']
+        # Fill gaps with fallback
+        for p, node_id in project_fallback.items():
+            if p not in project_to_node:
+                project_to_node[p] = node_id
 
         # Add new edges
         new_edges_count = 0
