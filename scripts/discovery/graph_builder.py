@@ -251,11 +251,47 @@ class GraphBuilder:
         for file_path in file_list:
             self._process_file(file_path)
 
+        # Directory co-location: connect files that share a directory
+        self._add_directory_edges()
+
         # Free temporary data and collect garbage between phases
         gc.collect()
 
         # Update stats and orphan status
         self._finalize_graph()
+
+    def _add_directory_edges(self):
+        """Connect files that share a directory (co-location relationship).
+
+        Creates organic intra-project clusters without artificial hub nodes.
+        For directories with many files, connects each file to its immediate
+        neighbors (sorted by name) to avoid O(n^2) edge explosion.
+        """
+        from collections import defaultdict
+
+        # Group node IDs by their parent directory
+        dir_groups = defaultdict(list)
+        for node in self.nodes:
+            parent_dir = str(Path(node["id"]).parent)
+            dir_groups[parent_dir].append(node["id"])
+
+        MAX_FULL_MESH = 8  # Below this, connect everything; above, use chain
+
+        for dir_path, node_ids in dir_groups.items():
+            if len(node_ids) < 2:
+                continue
+
+            sorted_ids = sorted(node_ids)
+
+            if len(sorted_ids) <= MAX_FULL_MESH:
+                # Small directory: full mesh (every file connects to every other)
+                for i, src in enumerate(sorted_ids):
+                    for tgt in sorted_ids[i + 1:]:
+                        self._add_edge(src, tgt, "directory_sibling", dir_path)
+            else:
+                # Large directory: chain neighbors to keep it linear
+                for i in range(len(sorted_ids) - 1):
+                    self._add_edge(sorted_ids[i], sorted_ids[i + 1], "directory_sibling", dir_path)
 
     # Skip reading file contents for files larger than 1 MB to prevent OOM.
     # Node metadata (name, path, type, project) is still collected from the
