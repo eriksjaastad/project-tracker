@@ -1486,12 +1486,12 @@ async def get_loop_status():
     """Return status of all autonomous loops."""
     db = DatabaseManager()
     
-    loops = ["janitor", "librarian", "patch-bot"]
+    loops = ["janitor", "patch-bot"]
     status_data = []
-    
+
     with db._get_conn() as conn:
         cursor = conn.cursor()
-        
+
         for loop_name in loops:
             # Get last execution
             cursor.execute("""
@@ -1501,21 +1501,20 @@ async def get_loop_status():
                 ORDER BY started_at DESC
                 LIMIT 1
             """, (loop_name,))
-            
+
             last_run = cursor.fetchone()
-            
+
             if last_run:
                 started = datetime.fromisoformat(last_run[1])
                 completed = datetime.fromisoformat(last_run[2]) if last_run[2] else None
-                
+
                 # Calculate health status
                 now = datetime.now()
                 time_since_run = now - started
-                
+
                 # Expected intervals (in hours)
                 expected_intervals = {
                     "janitor": 1,      # Hourly
-                    "librarian": 6,    # Every 6 hours
                     "patch-bot": 0.5   # Every 30 minutes
                 }
                 

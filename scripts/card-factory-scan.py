@@ -324,7 +324,7 @@ def check_missing_info(project_path: Path) -> list[dict]:
         "LOG_FILE", "DB_PATH", "DUMP_PATH", "ROW_COUNT",
         "RESULT", "EXIT_CODE", "WARDEN_EXIT", "VALIDATE_EXIT",
         "TRACKER_DIR", "JOURNAL_DIR", "JOURNAL_INDEXER", "UV_RUN",
-        "LIBRARIAN", "JOURNAL_SPECIALIST", "GRAPH_BUILDER",
+        "JOURNAL_SPECIALIST", "GRAPH_BUILDER",
         "PROJECT", "DRY_RUN", "PROMPT", "GOVERNANCE_CHECK",
         "CHAT_URL", "API_KEY", "SENDER", "THROTTLE_FILE", "CURSOR_FILE",
     }

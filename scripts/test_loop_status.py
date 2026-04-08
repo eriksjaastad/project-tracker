@@ -14,7 +14,7 @@ def get_loop_status():
     """Get status of all autonomous loops."""
     db = DatabaseManager()
     
-    loops = ["janitor", "librarian", "patch-bot"]
+    loops = ["janitor", "patch-bot"]
     status_data = []
     
     with db._get_conn() as conn:
@@ -43,7 +43,6 @@ def get_loop_status():
                 # Expected intervals (in hours)
                 expected_intervals = {
                     "janitor": 1,      # Hourly
-                    "librarian": 6,    # Every 6 hours
                     "patch-bot": 0.5   # Every 30 minutes
                 }
                 

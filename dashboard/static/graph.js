@@ -12,6 +12,7 @@ const COLORS = {
     javascript: '#f1e05a',
     markdown: '#083fa1',
     go: '#00ADD8',
+    swift: '#F05138',
     config: '#6e6e6e',
     other: '#999999'
 };
