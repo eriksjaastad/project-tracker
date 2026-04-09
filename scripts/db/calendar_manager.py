@@ -388,6 +388,23 @@ class CalendarManager:
             rows = conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
+    def add_cron_job(
+        self,
+        project_id: str,
+        schedule: str,
+        command: str,
+        description: Optional[str] = None,
+    ) -> int:
+        """Add a cron job and return its ID."""
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO cron_jobs (project_id, schedule, command, description, is_active)
+                   VALUES (?, ?, ?, ?, 1)""",
+                (project_id, schedule, command, description),
+            )
+            conn.commit()
+            return cursor.lastrowid
+
     # ------------------------------------------------------------------
     # iCal export
     # ------------------------------------------------------------------
