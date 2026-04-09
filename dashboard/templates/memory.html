@@ -108,6 +108,11 @@
     <div id="memory-overlay-view" class="view-content hidden">
         <div id="overlay-container">
             <canvas id="overlay-canvas"></canvas>
+            <div id="overlay-controls" style="position:fixed;top:80px;right:20px;z-index:100;background:rgba(0,0,0,0.8);padding:12px 16px;border-radius:8px;font-size:13px;color:#ccc;">
+                <label for="overlay-min-mentions" style="display:block;margin-bottom:4px;">Min Mentions:</label>
+                <input type="range" id="overlay-min-mentions" min="1" max="10" value="2" step="1" style="width:140px;vertical-align:middle;">
+                <span id="overlay-min-mentions-val" style="margin-left:6px;font-weight:bold;color:#fff;">2</span>
+            </div>
             <div id="overlay-status" class="overlay-status">
                 <h3>Open Brain</h3>
                 <p>Open Brain graph: projects, people, artifacts, concepts, tasks, and decisions extracted from memories. Colored by type, sized by mention count.</p>
