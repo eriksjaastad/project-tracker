@@ -2450,6 +2450,26 @@ def info_group(ctx, project, json_output):
       pt info get domain                   # Get single global field
       pt info delete domain                # Delete global field
       pt info list                         # Show all entries
+
+    \b
+    Global keys (pt info):
+      semantic_search      grep/rg setup (grepai config, ollama model)
+      projects_root        Path to ~/projects
+      db_backend           Database backend (local SQLite or Turso)
+      default_doppler_config  Default doppler config (dev)
+      mac_mini_ssh         SSH connection string for Mac Mini
+
+    \b
+    Per-project keys (pt info -p <project>):
+      tech_stack           Languages, frameworks, key dependencies
+      deploy_target        Where it runs (Vercel, Railway, Docker, local)
+      doppler              Doppler project/config (e.g. project-tracker/dev)
+      infrastructure       Databases, services, cron jobs, external deps
+
+    \b
+    Repopulate after DB rebuild:
+      uv run scripts/populate_info.py          # Auto-detect and set all
+      uv run scripts/populate_info.py --dry-run  # Preview first
     """
     if ctx.invoked_subcommand is not None:
         return
