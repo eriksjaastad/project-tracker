@@ -141,7 +141,6 @@ class GraphBuilder:
         self.projects = set()
         self._gitignore_cache = {}  # project_name -> set of ignored dirs
         self._swift_types = {}  # type_name -> node_id (for cross-file type references)
-        self._outgoing_counts = {}  # (source_id, edge_type) -> count
 
     def _get_project_name(self, path: Path) -> str:
         """Extract project name from file path."""
@@ -252,8 +251,10 @@ class GraphBuilder:
         for file_path in file_list:
             self._process_file(file_path)
 
-        # Directory co-location: connect files that share a directory
-        self._add_directory_edges()
+        # Create synthetic project hub nodes and connect all files to them.
+        # This recreates the cluster-per-project visual structure that
+        # 00_Index files used to provide, without any files on disk.
+        self._add_project_hubs()
 
         # Free temporary data and collect garbage between phases
         gc.collect()
@@ -261,38 +262,43 @@ class GraphBuilder:
         # Update stats and orphan status
         self._finalize_graph()
 
-    def _add_directory_edges(self):
-        """Connect files that share a directory (co-location relationship).
+    def _add_project_hubs(self):
+        """Create a synthetic hub node per project and connect all files to it.
 
-        Creates organic intra-project clusters without artificial hub nodes.
-        For directories with many files, connects each file to its immediate
-        neighbors (sorted by name) to avoid O(n^2) edge explosion.
+        Produces the same tight cluster-per-project visual that 00_Index files
+        provided, without any files on disk.  Each hub appears as a large
+        central node with every file in that project radiating out from it.
         """
         from collections import defaultdict
 
-        # Group node IDs by their parent directory
-        dir_groups = defaultdict(list)
+        # Group node IDs by project
+        project_files = defaultdict(list)
         for node in self.nodes:
-            parent_dir = str(Path(node["id"]).parent)
-            dir_groups[parent_dir].append(node["id"])
+            project = node.get("project", "root")
+            if project != "root":
+                project_files[project].append(node["id"])
 
-        MAX_FULL_MESH = 8  # Below this, connect everything; above, use chain
-
-        for dir_path, node_ids in dir_groups.items():
-            if len(node_ids) < 2:
+        for project_name, file_ids in project_files.items():
+            if len(file_ids) < 2:
                 continue
 
-            sorted_ids = sorted(node_ids)
+            # Create a synthetic hub node for this project
+            hub_id = f"__hub__{project_name}"
+            hub_node = {
+                "id": hub_id,
+                "name": project_name,
+                "type": "project_hub",
+                "project": project_name,
+                "path": hub_id,
+                "size": len(file_ids),
+                "is_orphan": False,
+            }
+            self.node_map[hub_id] = len(self.nodes)
+            self.nodes.append(hub_node)
 
-            if len(sorted_ids) <= MAX_FULL_MESH:
-                # Small directory: full mesh (every file connects to every other)
-                for i, src in enumerate(sorted_ids):
-                    for tgt in sorted_ids[i + 1:]:
-                        self._add_edge(src, tgt, "directory_sibling", dir_path)
-            else:
-                # Large directory: chain neighbors to keep it linear
-                for i in range(len(sorted_ids) - 1):
-                    self._add_edge(sorted_ids[i], sorted_ids[i + 1], "directory_sibling", dir_path)
+            # Connect every file in this project to the hub
+            for file_id in file_ids:
+                self._add_edge(file_id, hub_id, "project_member", project_name)
 
     # Skip reading file contents for files larger than 1 MB to prevent OOM.
     # Node metadata (name, path, type, project) is still collected from the
@@ -354,19 +360,9 @@ class GraphBuilder:
         # Generic file references (# See: path)
         self._extract_file_references(node_id, content, file_path)
 
-    # Max outgoing edges per node per type — prevents index/TOC files from
-    # dominating the graph with hundreds of hub-and-spoke connections.
-    MAX_OUTGOING_PER_TYPE = 30
-
     def _add_edge(self, source_id: str, target_id: str, edge_type: str, label: str = ""):
         """Add an edge if the target exists."""
         if target_id in self.node_map and source_id != target_id:
-            # Cap outgoing edges per node per type to prevent index file dominance
-            out_key = (source_id, edge_type)
-            count = self._outgoing_counts.get(out_key, 0)
-            if count >= self.MAX_OUTGOING_PER_TYPE:
-                return
-
             # O(1) dedup via set instead of O(n) linear search
             key = (source_id, target_id, edge_type)
             if key not in self.edge_set:
@@ -377,7 +373,6 @@ class GraphBuilder:
                     "type": edge_type,
                     "label": label
                 })
-                self._outgoing_counts[out_key] = count + 1
 
             # Update sizes and orphan status (always do this if target exists)
             source_idx = self.node_map[source_id]
