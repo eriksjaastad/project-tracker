@@ -13,6 +13,7 @@ let overlayPanning = false;
 let overlayPanStart = { x: 0, y: 0 };
 let overlayPanMoved = false;
 let overlayRafId = null;
+let overlayShowLabels = false;
 
 // Node colors by type
 const NODE_COLORS = {
@@ -146,40 +147,51 @@ async function loadOverlay(forceReload = false) {
         .on('tick', renderOverlay);
 
     setupOverlayInteraction();
+
+    // Labels toggle
+    const labelsToggle = document.getElementById('overlay-labels-toggle');
+    if (labelsToggle && !labelsToggle.dataset.bound) {
+        labelsToggle.dataset.bound = '1';
+        labelsToggle.addEventListener('change', () => {
+            overlayShowLabels = labelsToggle.checked;
+            renderOverlay();
+        });
+    }
+
+    // Reset view button
+    const resetBtn = document.getElementById('overlay-reset-view');
+    if (resetBtn && !resetBtn.dataset.bound) {
+        resetBtn.dataset.bound = '1';
+        resetBtn.addEventListener('click', () => {
+            overlayTransform = { x: 0, y: 0, k: 1 };
+            renderOverlay();
+        });
+    }
+
     overlayLoaded = true;
 }
 
 function updateOverlayStats() {
-    // Update the overlay's own status area, NOT the shared sidebar
-    const statusEl = document.getElementById('overlay-status');
-    if (!statusEl) return;
     const stats = overlayData.stats || {};
     const typeCounts = {};
     overlayData.nodes.forEach(n => {
         typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
     });
 
-    statusEl.style.display = 'block';
-    statusEl.style.position = 'fixed';
-    statusEl.style.bottom = '20px';
-    statusEl.style.left = '20px';
-    statusEl.style.top = 'auto';
-    statusEl.style.transform = 'none';
-    statusEl.style.textAlign = 'left';
-    statusEl.style.fontSize = '12px';
-    statusEl.style.maxWidth = '300px';
-    statusEl.style.background = 'rgba(0,0,0,0.7)';
-    statusEl.style.padding = '12px';
-    statusEl.style.borderRadius = '8px';
-
-    statusEl.innerHTML = `
-        <div><strong>Open Brain</strong></div>
-        <div>Nodes: ${stats.total_nodes || overlayData.nodes.length} | Edges: ${stats.total_edges || overlayData.edges.length}</div>
-        <div style="margin-top:6px">${Object.entries(NODE_COLORS)
+    // Populate sidebar legend
+    const legendEl = document.getElementById('overlay-legend');
+    if (legendEl) {
+        legendEl.innerHTML = '<h4>Legend</h4>' + Object.entries(NODE_COLORS)
             .filter(([type]) => typeCounts[type])
-            .map(([type, color]) => `<span style="color:${color}">● ${NODE_LABELS[type] || type} (${typeCounts[type]})</span>`)
-            .join(' ')}</div>
-    `;
+            .map(([type, color]) => `<div class="legend-item"><span class="legend-color" style="background:${color}"></span>${NODE_LABELS[type] || type} (${typeCounts[type]})</div>`)
+            .join('');
+    }
+
+    // Populate sidebar stats
+    const statsEl = document.getElementById('overlay-stats');
+    if (statsEl) {
+        statsEl.innerHTML = `<strong>${stats.total_nodes || overlayData.nodes.length}</strong> nodes · <strong>${stats.total_edges || overlayData.edges.length}</strong> edges`;
+    }
 }
 
 function renderOverlay() {
@@ -256,6 +268,15 @@ function renderOverlay() {
             ctx.strokeStyle = n === overlaySelected ? '#007bff' : '#fff';
             ctx.lineWidth = 2;
             ctx.stroke();
+        }
+
+        // Draw label
+        if (overlayShowLabels && !isDimmed && r >= 5) {
+            ctx.font = '10px system-ui';
+            ctx.fillStyle = '#ccc';
+            ctx.textAlign = 'center';
+            ctx.globalAlpha = isDimmed ? 0.15 : 0.9;
+            ctx.fillText(n.name, n.x, n.y + r + 12);
         }
 
         ctx.globalAlpha = 1;
