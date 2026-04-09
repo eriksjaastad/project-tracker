@@ -619,13 +619,12 @@ def launch(port, no_scan, reload):
     venv_python = Path(__file__).parent.parent / "venv" / "bin" / "python"
     uvicorn_cmd = [str(venv_python), "-m", "uvicorn", "dashboard.app:app", "--host", "0.0.0.0", "--port", str(port)]
     if reload: uvicorn_cmd.append("--reload")
-    # Wrap with doppler run so secrets (COST_TRACKER_API_KEY, etc.) are injected
-    doppler_bin = shutil.which("doppler") or f"{os.environ.get('HOMEBREW_PREFIX', '/opt/homebrew')}/bin/doppler"
-    if Path(doppler_bin).exists():
-        cmd = [doppler_bin, "run", "--"] + uvicorn_cmd
-    else:
-        console.print("[yellow]Warning: doppler not found, launching without secrets injection[/yellow]")
-        cmd = uvicorn_cmd
+    # Secrets injected via doppler run (doppler.yaml in project root)
+    doppler_bin = shutil.which("doppler")
+    if not doppler_bin:
+        console.print("[red]Error: doppler CLI not found. Install with: brew install doppler[/red]")
+        raise SystemExit(1)
+    cmd = [doppler_bin, "run", "--"] + uvicorn_cmd
     try:
         subprocess.run(cmd, cwd=Path(__file__).parent.parent)
     except KeyboardInterrupt:
@@ -1904,26 +1903,23 @@ def _run_brain(*args: str) -> None:
     """Call brain.py via doppler + uv run, ensuring Turso credentials are available.
 
     Uses ``doppler run --project ai-memory --config dev`` so that
-    TURSO_BRAIN_URL / TURSO_BRAIN_TOKEN are always injected, regardless
-    of ambient shell environment.  Falls back to bare ``uv run`` only if
-    doppler is not installed (e.g. CI without Doppler).
+    TURSO_BRAIN_URL / TURSO_BRAIN_TOKEN are always injected.
     """
     if not BRAIN_PY_PATH.exists():
         raise click.ClickException(
             f"brain.py not found at {BRAIN_PY_PATH}. "
             "Is PROJECTS_ROOT set correctly and is ai-memory cloned?"
         )
+    if not shutil.which("doppler"):
+        raise click.ClickException("doppler CLI not found. Install with: brew install doppler")
     uv_cmd = ["uv", "run", str(BRAIN_PY_PATH), *args]
-    if shutil.which("doppler"):
-        cmd = [
-            "doppler", "run",
-            "--project", "ai-memory",
-            "--config", "dev",
-            "--",
-            *uv_cmd,
-        ]
-    else:
-        cmd = uv_cmd
+    cmd = [
+        "doppler", "run",
+        "--project", "ai-memory",
+        "--config", "dev",
+        "--",
+        *uv_cmd,
+    ]
     subprocess.run(cmd, check=False, cwd=str(BRAIN_PY_PATH.parent))
 
 
