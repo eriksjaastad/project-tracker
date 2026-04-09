@@ -592,7 +592,7 @@ def hygiene(fix):
 
 
 @cli.command()
-@click.option("--port", default=8000, type=int, help="Port to run on")
+@click.option("--port", default=8000, type=int, show_default=True, help="Port to run on")
 @click.option("--no-scan", is_flag=True, help="Skip the initial project scan on launch")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
 def launch(port, no_scan, reload):
@@ -953,12 +953,12 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes,
         if status not in valid_statuses:
             console.print(f"[red]Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}[/red]"); return
         updates["status"] = status
-    if text: updates["text"] = text
+    if text is not None: updates["text"] = text
     if priority:
         if priority not in ["Critical", "High", "Medium", "Low"]:
             console.print(f"[red]Invalid priority '{priority}'[/red]"); return
         updates["priority"] = priority
-    if prompt: updates["prompt"] = prompt
+    if prompt is not None: updates["prompt"] = prompt
     if review_comment is not None: updates["review_comment"] = review_comment
     if notes is not None: updates["notes"] = notes
     if blocked_by is not None:
@@ -1002,10 +1002,7 @@ def tasks_move(project, task_ids):
             if not task: print(f"Task #{task_id} not found"); continue
             old_project = task["project_id"]
             if old_project == target_project_id: print(f"Task #{task_id} already in project '{target_name}'"); continue
-            with db._get_conn() as conn:
-                cursor = conn.cursor()
-                cursor.execute("UPDATE tasks SET project_id = ?, updated_at = ? WHERE id = ?", (target_project_id, datetime.now().isoformat(), task_id))
-                conn.commit()
+            db.update_task(task_id, project_id=target_project_id)
             print(f"Moved: #{task_id} from '{old_project}' to '{target_name}'")
             _notify_inbox(task_id, target_project_id, task.get("status", "Backlog"), task["text"])
             success_count += 1
@@ -1369,19 +1366,22 @@ def _save_inbox(data):
 def inbox_group(ctx):
     """Quick capture notes not attached to any project."""
     if ctx.invoked_subcommand is not None: return
-    ctx.invoke(inbox_list)
+    ctx.invoke(inbox_list, as_json=False)
 
 
 @inbox_group.command(name="list")
-def inbox_list():
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def inbox_list(as_json):
     """List all inbox notes."""
+    import json as json_mod
     data = _load_inbox()
     notes = data.get("notes", [])
-    if not notes: console.print("[dim]Inbox is empty[/dim]"); return
-    console.print(f"\n[bold]Inbox ({len(notes)} notes)[/bold]\n")
+    if as_json:
+        print(json_mod.dumps(notes, indent=2, default=str)); return
+    if not notes: print("Inbox is empty"); return
+    print(f"Inbox ({len(notes)} notes)\n")
     for note in notes:
-        console.print(f"  [cyan]#{note['id']}[/cyan] {note['text']}")
-    console.print()
+        print(f"  #{note['id']} {note['text']}")
 
 
 @inbox_group.command(name="add")
@@ -1780,29 +1780,33 @@ def calendar_remind(within_minutes, dry_run, json_output):
 
 
 @calendar_group.command(name="export")
-@click.option("--ical", is_flag=True, help="Export as iCal (.ics) format")
 @click.option("-o", "--output", default=None, help="Output file path (default: stdout)")
 @click.option("-p", "--project", default=None, help="Filter by project")
-def calendar_export(ical, output, project):
-    """Export calendar events.
+@click.option("--json", "as_json", is_flag=True, help="Export as JSON")
+def calendar_export(output, project, as_json):
+    """Export calendar events as iCal (.ics) format.
 
     \b
-    Example:
-        ./pt calendar export --ical -o ~/Desktop/pt-calendar.ics
+    Examples:
+        pt calendar export -o ~/Desktop/pt-calendar.ics
+        pt calendar export --json
     """
     db = DatabaseManager()
     project_id = _resolve_project_id(db, project) if project else None
     cm = _get_calendar_manager()
 
-    if ical:
-        content = cm.export_ical(project_id=project_id, include_all=True)
-        if output:
-            Path(output).write_text(content)
-            console.print(f"[green]✅ Exported to {output}[/green]")
-        else:
-            print(content)
+    if as_json:
+        import json as json_mod
+        events = cm.get_events(project_id=project_id, include_all=True)
+        content = json_mod.dumps(events, indent=2, default=str)
     else:
-        console.print("[yellow]Specify --ical for iCal export format[/yellow]")
+        content = cm.export_ical(project_id=project_id, include_all=True)
+
+    if output:
+        Path(output).write_text(content)
+        console.print(f"[green]Exported to {output}[/green]")
+    else:
+        print(content)
 
 
 
@@ -1991,8 +1995,7 @@ def memory_write(content: str, entry_type: str, project: str, agent_family: str,
         cwd = os.environ.get("PT_CALLER_CWD", os.getcwd())
         project = os.path.basename(cwd)
     args = ["write", content, "--type", entry_type]
-    if project:
-        args += ["--project", project]
+    args += ["--project", project]
     if agent_family:
         args += ["--agent-family", agent_family]
     if scope:
@@ -2630,13 +2633,14 @@ def _chat_api_request(method: str, path: str, config: dict,
     """Make an HTTP request to the Agent Chat API. Returns parsed JSON."""
     from urllib.request import Request, urlopen
     from urllib.error import URLError, HTTPError
+    from urllib.parse import urlencode
     import json as json_mod
 
     url = config["url"].rstrip("/") + path
     if params:
-        qs = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
-        if qs:
-            url += "?" + qs
+        filtered = {k: v for k, v in params.items() if v is not None}
+        if filtered:
+            url += "?" + urlencode(filtered)
 
     payload = json_mod.dumps(data).encode("utf-8") if data else None
     headers = {"X-API-Key": config["key"]}

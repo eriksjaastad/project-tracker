@@ -1143,7 +1143,8 @@ class DatabaseManager:
             "parent_id",
             "blocked_by",
             "sequence_order",
-            "machine"
+            "machine",
+            "project_id",
         }
         for key in updates.keys():
             if key not in allowed_fields:
