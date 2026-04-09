@@ -1269,8 +1269,14 @@ async def get_memory_graph_data(
 
 @app.get("/api/open-brain")
 @app.get("/api/knowledge-graph")  # legacy alias
-async def get_open_brain_graph():
-    """Return the Open Brain graph from brain.db (graph_nodes + graph_edges)."""
+async def get_open_brain_graph(request: Request):
+    """Return the Open Brain graph from brain.db (graph_nodes + graph_edges).
+
+    Query params:
+        min_mentions: Minimum mention_count to include a node (default: 1, show all).
+                      Edges where either endpoint is filtered out are also removed.
+    """
+    min_mentions = int(request.query_params.get("min_mentions", 1))
     projects_root = Path(__file__).parent.parent.parent
     brain_db_path = projects_root / "ai-memory" / "brain.db"
 
@@ -1282,12 +1288,16 @@ async def get_open_brain_graph():
         conn.row_factory = sqlite3.Row
 
         nodes = [dict(r) for r in conn.execute(
-            "SELECT id, type, name, description, mention_count as size FROM graph_nodes"
+            "SELECT id, type, name, description, mention_count as size FROM graph_nodes WHERE mention_count >= ?",
+            (min_mentions,)
         ).fetchall()]
+
+        node_ids = {n["id"] for n in nodes}
 
         edges = [dict(r) for r in conn.execute(
             "SELECT source_node_id as source, target_node_id as target, type, weight FROM graph_edges"
         ).fetchall()]
+        edges = [e for e in edges if e["source"] in node_ids and e["target"] in node_ids]
 
         conn.close()
 

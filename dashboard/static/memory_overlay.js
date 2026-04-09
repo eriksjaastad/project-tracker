@@ -47,29 +47,57 @@ function overlayNodeRadius(node) {
     return 3;
 }
 
-async function loadOverlay() {
+function getOverlayMinMentions() {
+    const slider = document.getElementById('overlay-min-mentions');
+    if (!slider) return 1;
+    // Restore from localStorage on first call
+    const saved = localStorage.getItem('overlay-min-mentions');
+    if (saved && !slider.dataset.restored) {
+        slider.value = saved;
+        slider.dataset.restored = '1';
+        const valEl = document.getElementById('overlay-min-mentions-val');
+        if (valEl) valEl.textContent = saved;
+    }
+    return parseInt(slider.value, 10);
+}
+
+async function loadOverlay(forceReload = false) {
     overlayCanvas = document.getElementById('overlay-canvas');
     if (!overlayCanvas) return;
 
     overlayCtx = overlayCanvas.getContext('2d');
 
     const container = document.getElementById('overlay-container');
-    // Use the visible viewport height minus header
     overlayCanvas.width = container.clientWidth || window.innerWidth;
     overlayCanvas.height = container.clientHeight || (window.innerHeight - 120);
 
-    // Hide the placeholder status text
     const status = document.getElementById('overlay-status');
     if (status) status.style.display = 'none';
 
-    if (overlayLoaded && overlayData.nodes.length > 0) {
+    if (overlayLoaded && overlayData.nodes.length > 0 && !forceReload) {
         renderOverlay();
         return;
     }
 
-    // Fetch Open Brain graph
+    // Set up min-mentions slider listener (once)
+    const slider = document.getElementById('overlay-min-mentions');
+    if (slider && !slider.dataset.bound) {
+        slider.dataset.bound = '1';
+        slider.addEventListener('input', e => {
+            document.getElementById('overlay-min-mentions-val').textContent = e.target.value;
+        });
+        slider.addEventListener('change', () => {
+            localStorage.setItem('overlay-min-mentions', slider.value);
+            overlayLoaded = false;
+            if (overlaySimulation) overlaySimulation.stop();
+            loadOverlay(true);
+        });
+    }
+
+    // Fetch Open Brain graph with min_mentions filter
+    const minMentions = getOverlayMinMentions();
     try {
-        const resp = await fetch('/api/open-brain');
+        const resp = await fetch(`/api/open-brain?min_mentions=${minMentions}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         overlayData = await resp.json();
     } catch (e) {
