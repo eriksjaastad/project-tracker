@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 # for both project-tracker and ai-memory). No env var overrides needed.
 
 if command -v doppler >/dev/null 2>&1; then
-  doppler_project="${PT_DOPPLER_PROJECT:-openclaw}"
+  doppler_project="${PT_DOPPLER_PROJECT:-project-tracker}"
   doppler_config="${PT_DOPPLER_CONFIG:-dev}"
   if [ -z "$doppler_project" ] || [ -z "$doppler_config" ]; then
     echo "pt launcher requires non-empty Doppler project and config" >&2
