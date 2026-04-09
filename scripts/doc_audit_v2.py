@@ -177,7 +177,7 @@ def get_all_docs() -> list[dict]:
                 name_lower = md_file.name.lower()
                 if 'readme' in name_lower:
                     doc_type = 'readme'
-                elif 'index' in name_lower or '00_index' in name_lower:
+                elif 'index' in name_lower:
                     doc_type = 'index'
                 elif 'guide' in name_lower or 'how' in name_lower:
                     doc_type = 'guide'
@@ -1405,7 +1405,7 @@ def cmd_qc(action: str = "list", project: str = None):
             print(f"   {proj}: {len(docs)} docs", flush=True)
 
         # Show high-priority items (index files, READMEs, etc.)
-        priority_patterns = ['00_Index', 'README', 'AGENTS', 'CLAUDE', 'TODO']
+        priority_patterns = ['README', 'AGENTS', 'CLAUDE', 'TODO']
         high_priority = [d for d in refines if any(p in d['path'] for p in priority_patterns)]
 
         if high_priority:

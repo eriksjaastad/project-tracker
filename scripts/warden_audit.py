@@ -15,44 +15,29 @@ class Severity(Enum):
     P2 = "WARNING"   # Allow commit - acceptable with context
     P3 = "INFO"      # Allow commit - informational only
 
-def is_tier_1_project(index_path: pathlib.Path) -> bool:
+def is_tier_1_project(project_root: pathlib.Path) -> bool:
     """
-    Determines if the given markdown index file represents a Tier 1 (Full Stack/Code) project.
+    Determines if a project directory is Tier 1 (code project) by checking
+    for dependency manifests or common code directories.
     """
-    if not index_path.exists():
-        return False
-    
-    tech_languages = {'python', 'javascript', 'java', 'c++', 'ruby', 'php', 'typescript', 'rust', 'go'}
-    
-    try:
-        with index_path.open('r') as f:
-            content = f.read()
-            content_lower = content.lower()
-            
-        # 1. Explicit tags
-        if '#type/code' in content_lower or '#type/project' in content_lower:
-            return True
-            
-        if any(f'tech/{lang}' in content_lower for lang in tech_languages):
-            return True
+    # Dependency manifests indicate a code project
+    code_markers = [
+        'requirements.txt', 'package.json', 'pyproject.toml', 'setup.py',
+        'Cargo.toml', 'go.mod', 'Gemfile', 'Package.swift',
+    ]
+    if any((project_root / m).exists() for m in code_markers):
+        return True
 
-        # 2. Check headers and list items in the first 50 lines
-        lines = content.split('\n')
-        for line in lines[:50]:
-            line_strip = line.strip().lower()
-            if not line_strip:
-                continue
-                
-            # If it's a header or a list item
-            if line_strip.startswith('#') or line_strip.startswith('- ') or line_strip.startswith('* '):
-                if any(lang in line_strip for lang in tech_languages):
-                    return True
-                    
-        return False
-        
-    except Exception as e:
-        logger.error(f"Error reading file {index_path}: {e}")
-        return False
+    # Common source directories
+    code_dirs = ['src', 'lib', 'app', 'scripts']
+    code_exts = {'.py', '.js', '.ts', '.rs', '.go', '.rb', '.java', '.swift'}
+    for d in code_dirs:
+        candidate = project_root / d
+        if candidate.is_dir():
+            if any(f.suffix in code_exts for f in candidate.iterdir() if f.is_file()):
+                return True
+
+    return False
 
 def check_dependencies(project_root: pathlib.Path) -> bool:
     """Checks if a Tier 1 project has a dependency manifest."""
@@ -264,17 +249,17 @@ def run_audit(root_dir: pathlib.Path, use_fast: bool = False) -> bool:
     p1_issues = 0  # Error
     p2_issues = 0  # Warning
     
-    # Find all project roots by looking for 00_Index_*.md files
-    for index_path in root_dir.rglob('00_Index_*.md'):
-        # Skip indices in templates
-        if any(part in index_path.parts for part in ['templates', 'venv', '.git']):
+    # Find all project roots by looking for CLAUDE.md files
+    for claude_md in root_dir.rglob('CLAUDE.md'):
+        # Skip nested CLAUDE.md (only top-level project roots)
+        if any(part in claude_md.parts for part in ['templates', 'venv', '.git', 'node_modules']):
             continue
-            
+
         projects_found += 1
-        project_root = index_path.parent
+        project_root = claude_md.parent
         project_name = project_root.name
-        
-        is_tier_1 = is_tier_1_project(index_path)
+
+        is_tier_1 = is_tier_1_project(project_root)
         tier_label = "Tier 1 (Code)" if is_tier_1 else "Tier 2 (Other)"
         
         logger.info(f"Auditing Project: {project_name} [{tier_label}]")

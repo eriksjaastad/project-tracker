@@ -41,7 +41,6 @@ from db.schema import init_db, get_db_path
 from db.manager import DatabaseManager, _USE_TURSO
 from discovery.project_scanner import discover_projects, extract_project_metadata, scan_health_parallel
 from discovery.external_resources_parser import parse_external_resources
-from discovery.hygiene_detector import fix_hygiene_issues, detect_hygiene_issues
 from discovery.graph_builder import GraphBuilder
 # update_directory_index removed — 00_Index generation killed (#5530)
 from discovery.journal_specialist import JournalSpecialist
@@ -220,15 +219,7 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
         console.print(f"  [dim]ℹ {len(stale_ids)} projects not found in scan (preserved in DB)[/dim]")
     console.print(f"\n[bold blue]Loading services from EXTERNAL_RESOURCES.md...[/bold blue]")
     services_by_project = parse_external_resources()
-    hygiene_fixes = 0
     for project in projects:
-        todo_path = Path(project["path"]) / "TODO.md"
-        if todo_path.exists():
-            fixes = fix_hygiene_issues(todo_path)
-            if fixes > 0:
-                hygiene_fixes += fixes
-                from discovery.project_scanner import extract_project_metadata
-                project.update(extract_project_metadata(Path(project["path"])))
         with db._get_conn() as conn:
             cursor = conn.cursor()
             try:
@@ -265,8 +256,6 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
             console.print(f"  [yellow]! Skipping services for unknown project: {project_id}[/yellow]")
     if services_skipped > 0:
         console.print(f"  [yellow]! Skipped services for {services_skipped} unknown projects[/yellow]")
-    if hygiene_fixes > 0:
-        console.print(f"\n[bold yellow]✨ Hygiene: Applied {hygiene_fixes} auto-fixes to TODO.md files[/bold yellow]")
     if not no_graph:
         console.print("")
         rebuild_project_graph()
@@ -495,19 +484,10 @@ def sync(project_name, no_graph):
     # 2. Health check
     health_results = scan_health_parallel([project])
 
-    # 3. Hygiene fixes on TODO.md
-    todo_path = project_dir / "TODO.md"
-    if todo_path.exists():
-        fixes = fix_hygiene_issues(todo_path)
-        if fixes > 0:
-            console.print(f"  [yellow]Hygiene: applied {fixes} auto-fixes to TODO.md[/yellow]")
-            # Re-extract metadata after hygiene fixes
-            project = extract_project_metadata(project_dir)
-
-    # 4. Load external services for this project
+    # 3. Load external services for this project
     services_by_project = parse_external_resources()
 
-    # 5. Upsert to database
+    # 4. Upsert to database
     db = DatabaseManager()
     with db._get_conn() as conn:
         cursor = conn.cursor()
@@ -554,7 +534,7 @@ def sync(project_name, no_graph):
             console.print(f"  [red]✗ Failed to sync {project['name']}: {e}[/red]")
             raise SystemExit(1)
 
-    # 6. Optionally rebuild project graph
+    # 5. Optionally rebuild project graph
     if not no_graph:
         rebuild_project_graph()
 
@@ -562,33 +542,21 @@ def sync(project_name, no_graph):
 
 
 @cli.command()
-@click.option("--fix", is_flag=True, help="Apply fixes automatically")
-def hygiene(fix):
-    """Check all projects for TODO.md hygiene issues."""
+def hygiene():
+    """Check all projects for hygiene issues."""
     console.print("[bold blue]Checking project hygiene...[/bold blue]")
     projects = discover_projects(PROJECTS_BASE_DIR)
-    total_issues = 0
-    total_fixes = 0
+    issues_found = 0
     for p in projects:
-        todo_path = Path(p["path"]) / "TODO.md"
-        if not todo_path.exists(): continue
-        issues = detect_hygiene_issues(todo_path)
-        if issues:
-            console.print(f"\n[bold cyan]{p['name']}[/bold cyan]")
-            for issue in issues:
-                console.print(f"  [yellow]⚠ {issue['message']}[/yellow]")
-                total_issues += 1
-            if fix:
-                fixes = fix_hygiene_issues(todo_path)
-                total_fixes += fixes
-                if fixes > 0:
-                    console.print(f"  [green]✓ Applied {fixes} fixes[/green]")
-    if total_issues == 0:
-        console.print("\n[bold green]✅ All projects are clean![/bold green]")
-    elif fix:
-        console.print(f"\n[bold green]✅ Applied {total_fixes} total fixes across {total_issues} issues.[/bold green]")
+        project_path = Path(p["path"])
+        direction_path = project_path / "DIRECTION.md"
+        if not direction_path.exists():
+            console.print(f"  [yellow]⚠ {p['name']}: missing DIRECTION.md[/yellow]")
+            issues_found += 1
+    if issues_found == 0:
+        console.print("\n[bold green]All projects are clean![/bold green]")
     else:
-        console.print(f"\n[bold yellow]⚠ Found {total_issues} total issues. Run 'pt hygiene --fix' to resolve.[/bold yellow]")
+        console.print(f"\n[bold yellow]Found {issues_found} issues.[/bold yellow]")
 
 
 @cli.command()

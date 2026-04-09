@@ -36,8 +36,27 @@ VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"]
 # Valid task types
 VALID_TASK_TYPES = ["manual", "agent", "proposal"]
 
-# Projects that should not receive Kanban cards/tasks.
-EXCLUDED_CARD_PROJECT_IDS: set[str] = set()
+# Projects that should not receive Kanban cards/tasks on the Mac Mini.
+# On any other machine these restrictions do not apply.
+_MAC_MINI_EXCLUDED_CARD_PROJECT_IDS = {
+    "ai-journal",
+    "ai-memory",
+    "project-scaffolding",
+    "project-tracker",
+}
+
+
+def _is_mac_mini() -> bool:
+    """Return True when running on the Mac Mini (eriks-mac-mini)."""
+    import socket
+    return socket.gethostname().lower().startswith("eriks-mac-mini")
+
+
+def _get_excluded_card_project_ids() -> set[str]:
+    """Return the active exclusion set based on the current machine."""
+    if _is_mac_mini():
+        return _MAC_MINI_EXCLUDED_CARD_PROJECT_IDS
+    return set()
 
 
 class BlockedTaskProjectError(ValueError):
@@ -45,20 +64,20 @@ class BlockedTaskProjectError(ValueError):
 
 
 def get_blocked_card_project_ids() -> list[str]:
-    """Return sorted project IDs that are intentionally excluded from card creation."""
-    return sorted(EXCLUDED_CARD_PROJECT_IDS)
+    """Return sorted project IDs that are intentionally excluded from card creation on this machine."""
+    return sorted(_get_excluded_card_project_ids())
 
 
 def get_blocked_card_reason(project_id: str) -> Optional[str]:
-    """Return the user-facing reason a project is blocked, if any."""
-    if project_id in EXCLUDED_CARD_PROJECT_IDS:
+    """Return the user-facing reason a project is blocked on this machine, if any."""
+    if project_id in _get_excluded_card_project_ids():
         return f"Cards cannot be created for project '{project_id}'"
 
     return None
 
 
 def is_card_creation_allowed(project_id: str) -> bool:
-    """Return True when task/card creation is allowed for a project."""
+    """Return True when task/card creation is allowed for a project on this machine."""
     return get_blocked_card_reason(project_id) is None
 
 
