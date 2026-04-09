@@ -343,17 +343,21 @@ def check_missing_info(project_path: Path) -> list[dict]:
                     if var and var not in env_vars_in_code and var not in skip_vars:
                         env_vars_in_code[var] = f"{f.relative_to(project_path)}:{i}"
         elif f.suffix == ".sh":
+            # First pass: collect all variables assigned in this file
+            local_assigned = set()
+            for line in lines:
+                stripped = line.strip()
+                if sh_assignment_pattern.match(stripped):
+                    var_name = stripped.split("=", 1)[0].strip()
+                    local_assigned.add(var_name)
+            # Second pass: only flag variables that are used but never assigned locally
             for i, line in enumerate(lines, 1):
                 stripped = line.strip()
-                # Skip lines that are assigning the variable (local vars)
-                if sh_assignment_pattern.match(stripped):
-                    continue
-                # Skip comments
                 if stripped.startswith("#"):
                     continue
                 for m in sh_env_pattern.finditer(line):
                     var = m.group(1)
-                    if var and var not in env_vars_in_code and var not in skip_vars:
+                    if var and var not in env_vars_in_code and var not in skip_vars and var not in local_assigned:
                         env_vars_in_code[var] = f"{f.relative_to(project_path)}:{i}"
 
     if not env_vars_in_code:
