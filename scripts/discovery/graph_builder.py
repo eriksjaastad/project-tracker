@@ -141,6 +141,7 @@ class GraphBuilder:
         self.projects = set()
         self._gitignore_cache = {}  # project_name -> set of ignored dirs
         self._swift_types = {}  # type_name -> node_id (for cross-file type references)
+        self._outgoing_counts = {}  # (source_id, edge_type) -> count
 
     def _get_project_name(self, path: Path) -> str:
         """Extract project name from file path."""
@@ -353,9 +354,19 @@ class GraphBuilder:
         # Generic file references (# See: path)
         self._extract_file_references(node_id, content, file_path)
 
+    # Max outgoing edges per node per type — prevents index/TOC files from
+    # dominating the graph with hundreds of hub-and-spoke connections.
+    MAX_OUTGOING_PER_TYPE = 30
+
     def _add_edge(self, source_id: str, target_id: str, edge_type: str, label: str = ""):
         """Add an edge if the target exists."""
         if target_id in self.node_map and source_id != target_id:
+            # Cap outgoing edges per node per type to prevent index file dominance
+            out_key = (source_id, edge_type)
+            count = self._outgoing_counts.get(out_key, 0)
+            if count >= self.MAX_OUTGOING_PER_TYPE:
+                return
+
             # O(1) dedup via set instead of O(n) linear search
             key = (source_id, target_id, edge_type)
             if key not in self.edge_set:
@@ -366,7 +377,8 @@ class GraphBuilder:
                     "type": edge_type,
                     "label": label
                 })
-                
+                self._outgoing_counts[out_key] = count + 1
+
             # Update sizes and orphan status (always do this if target exists)
             source_idx = self.node_map[source_id]
             target_idx = self.node_map[target_id]
