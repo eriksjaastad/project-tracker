@@ -1564,15 +1564,7 @@ def calendar_add_cron(project, schedule, command, description):
         console.print(f"[red]Project '{project}' not found[/red]"); return
 
     cm = _get_calendar_manager()
-    # Insert directly so we can capture lastrowid atomically — avoids duplicate-command race
-    with cm._conn() as conn:
-        cursor = conn.execute(
-            """INSERT INTO cron_jobs (project_id, schedule, command, description, is_active)
-               VALUES (?, ?, ?, ?, 1)""",
-            (project_id, schedule, command, description or None),
-        )
-        conn.commit()
-        new_id = cursor.lastrowid
+    new_id = cm.add_cron_job(project_id, schedule, command, description or None)
 
     console.print(f"[green]✅ Added cron job #{new_id} to {project}[/green]")
     console.print(f"   Schedule: {schedule}")
