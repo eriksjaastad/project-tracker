@@ -1,16 +1,13 @@
 """Project scanner for auto-discovery."""
 
 import sys
-import yaml
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .git_metadata import get_last_modified
 from .agent_config_health import get_agent_config_health
-from .todo_parser import parse_todo
 from .providers import get_provider
 
 # Add parent directory to path for config and logger imports
@@ -19,18 +16,6 @@ from scripts.config import PROJECTS_BASE_DIR
 from scripts.logger import get_logger
 
 logger = get_logger(__name__)
-
-
-def clean_phase(phase: Optional[str]) -> Optional[str]:
-    """Normalize phase value and drop template placeholders."""
-    if not phase:
-        return None
-    if "{{" in phase or "}}" in phase:
-        return None
-    if "Foundation/MVP/Production" in phase:
-        return None
-    cleaned = phase.strip()
-    return cleaned or None
 
 
 def clean_description(text: Optional[str]) -> str:
@@ -92,7 +77,6 @@ def discover_projects(
     marker_files = [
         ".git",
         "README.md",
-        "TODO.md",
         "pyproject.toml",
         "requirements.txt",
         "Pipfile",
@@ -116,8 +100,7 @@ def discover_projects(
             continue
         
         # Check for indicators of a project (fast path)
-        has_index = any(item.glob("00_Index_*.md"))
-        has_marker = has_index or any((item / marker).exists() for marker in marker_files)
+        has_marker = (item / ".git").is_dir() or any((item / marker).exists() for marker in marker_files)
 
         # If no markers, do limited code file checks in common code dirs
         has_code = False
@@ -164,43 +147,6 @@ def scan_health_parallel(projects: List[Dict], max_workers: int = 8) -> Dict[str
     return results
 
 
-def is_infrastructure_project(project_name: str, todo_content: str = "") -> bool:
-    """Detect if a project is infrastructure based on TODO.md marker only."""
-    # Infrastructure detection is data-driven: projects must explicitly declare
-    # their type in TODO.md with: **Type:** Infrastructure
-    # NO hardcoded lists. NO name matching. Data lives with the project.
-    return "**Type:** Infrastructure" in todo_content or "**Type:** Infra" in todo_content
-
-
-def validate_index_file(index_path: Path) -> bool:
-    """Basic validation of index file according to Critical Rule #0."""
-    try:
-        content = index_path.read_text()
-        
-        # Check for YAML frontmatter
-        if not content.strip().startswith('---'):
-            return False
-            
-        # Check for required tags
-        required_tags = ["map/project", "p/", "type/", "domain/", "status/", "tech/"]
-        tags_section = content.split('---')[1]
-        if not all(tag in tags_section for tag in required_tags):
-            return False
-            
-        # Check for required sections (case-insensitive and partial match)
-        required_sections = ["Key Components", "Status"]
-        content_upper = content.upper()
-        for section in required_sections:
-            if f"## {section.upper()}" not in content_upper and f"### {section.upper()}" not in content_upper:
-                # Also check for variants with icons like "## 🎯 Status"
-                if not any(f"{section.upper()}" in line.upper() for line in content.split('\n') if line.startswith('##')):
-                    return False
-            
-        return True
-    except Exception as e:
-        logger.warning(f"Error validating index file {index_path}: {e}")
-        return False
-
 
 def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
     """Extract all metadata from a project."""
@@ -223,74 +169,10 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
         "project_type": "standard"
     }
     
-    # Check for index file (00_Index_*.md)
-    index_files = list(project_path.glob("00_Index_*.md"))
-    if index_files:
-        index_file = index_files[0]
-        metadata["has_index"] = True
-        metadata["index_is_valid"] = validate_index_file(index_file)
-        try:
-            metadata["index_updated_at"] = datetime.fromtimestamp(index_file.stat().st_mtime).isoformat()
-            
-            # Extract project_type from YAML tags
-            content = index_file.read_text()
-            if content.strip().startswith('---'):
-                try:
-                    frontmatter = yaml.safe_load(content.split('---')[1])
-                    if frontmatter and "tags" in frontmatter:
-                        for tag in frontmatter["tags"]:
-                            if tag.startswith("type/"):
-                                metadata["project_type"] = tag.replace("type/", "")
-                                break
-                except Exception as e:
-                    logger.debug(f"Failed to parse YAML for {index_file}: {e}")
-        except Exception as e:
-            logger.warning(f"Failed to get metadata from index file {index_file}: {e}")
-    
-    # Parse TODO.md if exists
-    todo_path = project_path / "TODO.md"
-    todo_content = ""
-    todo_data = parse_todo(todo_path)
-    
-    # If TODO status is unknown or missing, try to use index status
-    current_status = todo_data.get("status", "unknown")
-    if current_status in ["unknown", "no TODO.md"] and metadata.get("has_index"):
-        # We already have index_file from line 146
-        try:
-            content = index_files[0].read_text()
-            if '---' in content:
-                frontmatter_text = content.split('---')[1]
-                # Look for status/ tag
-                for line in frontmatter_text.split('\n'):
-                    if 'status/' in line:
-                        status_tag = line.split('status/')[1].split()[0].strip(' -[]')
-                        if status_tag:
-                            current_status = status_tag
-                            break
-        except (OSError, yaml.YAMLError) as e:
-            logger.debug(f"Could not extract status from index file: {e}")
+    # Index metadata fields kept for schema compat but always default
+    # (00_Index files removed — Librarian system deleted)
 
-    metadata.update({
-        "status": current_status,
-        "phase": clean_phase(todo_data.get("phase")),
-        "completion_pct": todo_data.get("completion_pct", 0),
-        "ai_agents": todo_data.get("ai_agents", []),
-        "cron_jobs": todo_data.get("cron_jobs", [])
-    })
-
-    if todo_path.exists():
-        try:
-            todo_content = todo_path.read_text()
-        except Exception as e:
-            logger.warning(f"Failed to read TODO.md for {project_path.name}: {e}")
-        
-        # Use TODO description if available
-        # TODO.md descriptions are deprecated; use README.md only.
-    
-    # Detect infrastructure projects
-    metadata["is_infrastructure"] = is_infrastructure_project(metadata["name"], todo_content)
-    
-    # Parse README.md for description if TODO didn't provide one
+    # Parse README.md for description
     if not metadata["description"]:
         readme_path = project_path / "README.md"
         if readme_path.exists():

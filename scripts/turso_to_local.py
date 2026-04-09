@@ -24,7 +24,6 @@ This script:
 Safe to run multiple times — uses INSERT OR REPLACE.
 """
 
-import json
 import os
 import shutil
 import sqlite3

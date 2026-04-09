@@ -325,7 +325,7 @@ def test_ptignore_skips_directories(scan_env):
     _make_project_dir(base_dir, "skip-me")
 
     project_scanner._ptignore_cache = None
-    projects = project_scanner.discover_projects(base_dir, sync_indexes=False)
+    projects = project_scanner.discover_projects(base_dir)
 
     names = {p["name"] for p in projects}
     assert "keep-me" in names
@@ -340,7 +340,7 @@ def test_ptignore_missing_file_is_safe(scan_env):
     _make_project_dir(base_dir, "keep-me")
     project_scanner._ptignore_cache = None
 
-    projects = project_scanner.discover_projects(base_dir, sync_indexes=False)
+    projects = project_scanner.discover_projects(base_dir)
     names = {p["name"] for p in projects}
 
     assert "keep-me" in names

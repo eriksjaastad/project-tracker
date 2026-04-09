@@ -691,20 +691,23 @@ async def create_index(project_id: str):
 
 @app.post("/api/fix-frontmatter/{project_id}")
 async def fix_frontmatter(project_id: str):
-    """Call audit fix for a specific project's index file."""
+    """Call audit fix for a specific project's CLAUDE.md file."""
     db = DatabaseManager()
     project = db.get_project(project_id)
     if not project:
         return JSONResponse({"success": False, "error": "Project not found"}, status_code=404)
-    
-    # Find index file
-    index_files = list(Path(project["path"]).glob("00_Index_*.md"))
-    if not index_files:
-        return JSONResponse({"success": False, "error": "No index file found"}, status_code=404)
-    
+
+    # Find CLAUDE.md or README.md
+    project_path = Path(project["path"])
+    target_file = project_path / "CLAUDE.md"
+    if not target_file.exists():
+        target_file = project_path / "README.md"
+    if not target_file.exists():
+        return JSONResponse({"success": False, "error": "No CLAUDE.md or README.md found"}, status_code=404)
+
     provider = get_provider()
     try:
-        success = provider.fix_file(str(index_files[0]))
+        success = provider.fix_file(str(target_file))
         return {"success": success, "error": None if success else "Fix failed"}
     except NotImplementedError:
         return JSONResponse({"success": False, "error": "audit-agent not installed"}, status_code=501)
