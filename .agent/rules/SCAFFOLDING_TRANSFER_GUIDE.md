@@ -116,7 +116,7 @@ Project-scaffolding has evolved into an ecosystem constitution with **13+ patter
 | Pattern | Status | Evidence |
 |---------|--------|----------|
 | **Append-Only Archives** | ❌ Not Implemented | No append-only logs |
-| **Read-Only Source** | ✅ Done | Reads [Root TODO](../TODO.md)/README.md, doesn't modify |
+| **Read-Only Source** | ✅ Done | Reads CLAUDE.md/README.md, doesn't modify |
 | **Atomic Writes** | ⚠️ Unknown | Need to check database writes |
 | **Move, Don't Modify** | N/A | Not applicable (no file moving) |
 | **Trash, Don't Delete** | ✅ In .cursorrules | Rule documented |
@@ -157,7 +157,7 @@ Project-scaffolding has evolved into an ecosystem constitution with **13+ patter
 - [ ] `Documents/reference/LOCAL_MODEL_LEARNINGS.md`
 - [ ] `Documents/guides/` with how-tos
 - [x] Comprehensive [README](../../ai-model-scratch-build/README.md)
-- [x] [Root TODO](../TODO.md) with status tracking
+- [x] Kanban board (`pt tasks`) for task tracking
 
 ---
 

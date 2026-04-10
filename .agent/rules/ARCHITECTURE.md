@@ -22,7 +22,7 @@ Project Tracker is a centralized monitoring and reporting system designed to tra
 │  - Rich formatting        │  - Jinja2 templates     │
 ├─────────────────────────────────────────────────────┤
 │              Discovery Engine (scripts/)             │
-│  - project_scanner.py     - todo_parser.py          │
+│  - project_scanner.py     - graph_builder.py        │
 │  - git_scanner.py         - telemetry_reader.py     │
 │  - cron_health.py         - hygiene_detector.py     │
 ├─────────────────────────────────────────────────────┤
@@ -39,15 +39,15 @@ Project Tracker is a centralized monitoring and reporting system designed to tra
 A Typer-based command-line interface that allows users to initialize the database, scan projects, list project details, and launch the web dashboard. See [OPERATIONS](OPERATIONS.md) for command details.
 
 ### Dashboard (`dashboard/`)
-A FastAPI web application that provides a visual overview of all projects. It includes a main dashboard with project cards, detailed project views, and a viewer for rendered `TODO.md` files.
+A FastAPI web application that provides a visual overview of all projects. It includes a main dashboard with project cards and detailed project views.
 
 ### Discovery Engine (`scripts/discovery/`)
 The core intelligence of the system. It consists of multiple specialized scanners:
-- `project_scanner.py`: Discovers project directories and basic metadata. See [PROJECT_STRUCTURE_STANDARDS](../../project-scaffolding/Documents/PROJECT_STRUCTURE_STANDARDS.md).
-- `todo_parser.py`: Extracts task status from `TODO.md` files. See [TODO_FORMAT_STANDARD](../../project-scaffolding/Documents/TODO_FORMAT_STANDARD.md).
+- `project_scanner.py`: Discovers project directories (via `.git` markers) and basic metadata.
 - `git_metadata.py`: Collects recent git activity and branch information.
+- `graph_builder.py`: Builds the Open Brain knowledge graph from project data.
 - `telemetry_reader.py`: (In progress) Reads AI Router telemetry for usage statistics.
-- `hygiene_detector.py`: Checks for project standard compliance (e.g., `00_Index_*.md` files).
+- `hygiene_detector.py`: Checks for project standard compliance (e.g., `DIRECTION.md` existence).
 
 ### Data Layer (`scripts/db/`)
 Uses SQLite for persistent storage of project metadata, cron job information, AI agent tracking, and service usage. The `DatabaseManager` in `manager.py` handles all database interactions using parameterized queries.
@@ -58,7 +58,7 @@ Uses SQLite for persistent storage of project metadata, cron job information, AI
 
 1. User runs `./pt scan` or dashboard triggers a scan.
 2. Discovery engine scans the `projects/` root for project directories.
-3. Parsers extract metadata from `TODO.md`, `README.md`, and `00_Index_*.md` files.
+3. Parsers extract metadata from `CLAUDE.md`, `README.md`, and git history.
 4. Extracted data is stored or updated in the SQLite database.
 5. Dashboard or CLI queries the database to display current project statuses and metrics.
 
@@ -68,8 +68,7 @@ Uses SQLite for persistent storage of project metadata, cron job information, AI
 
 1. **Local-First:** No cloud dependencies, ensuring complete data privacy and $0 monthly cost.
 2. **SQLite:** A single-file database chosen for simplicity, portability, and zero-configuration setup.
-3. **00_Index Requirement:** Every project must have a `00_Index_*.md` file to be considered properly indexed.
-4. **Trash, Don't Delete:** All destructive file operations are routed through `send2trash` or moved to a `_trash/` directory.
+3. **Trash, Don't Delete:** All destructive file operations are routed through `send2trash` or moved to a `_trash/` directory.
 
 ---
 

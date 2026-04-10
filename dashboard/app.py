@@ -426,7 +426,6 @@ _ALERT_TYPE_LABELS = {
     "cron_missed_run": "Cron Missed Runs",
     "stale_heartbeat": "Stale Heartbeats",
     "telemetry_error": "Telemetry Errors",
-    "missing_todo": "Missing TODO",
     "unknown_status": "Unknown Status",
 }
 

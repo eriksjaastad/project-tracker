@@ -55,14 +55,9 @@ You can configure the behavior of Project Tracker using these environment variab
 The dashboard shows all your projects sorted by **last modified** (newest work first):
 
 - **Status badges:** Active, Development, Paused, Stalled, Complete
-- **Progress bars:** Based on TODO.md completion %
 - **AI agents:** Which AI is helping with what
 - **Cron jobs:** ⏰ indicator if scheduled automation exists
 - **Services:** External services used (from EXTERNAL_RESOURCES.md)
-
-### Viewing TODOs
-
-Click **"View TODO"** on any project card to see the rendered TODO.md file with full markdown formatting.
 
 ### Project Details
 
@@ -142,8 +137,7 @@ The scanner looks for projects in `$PROJECTS_ROOT/` and checks for:
 
 1. **Git repositories** (`.git` directory exists)
 2. **README.md** files
-3. **TODO.md** files
-4. **Code files** (`.py`, `.js`, `.ts`, etc.)
+3. **Code files** (`.py`, `.js`, `.ts`, etc.)
 
 ### Metadata Extraction
 
@@ -153,15 +147,8 @@ For each project found:
 - Last commit date (primary timestamp)
 - Falls back to file modification time if git unavailable
 
-**From TODO.md:**
-- Project status (Active, Development, Paused, Stalled, Complete)
-- Current phase
-- AI agents in use
-- Cron jobs defined
-- Completion percentage (based on `- [x]` checkboxes)
-
 **From README.md:**
-- First paragraph as description (if TODO doesn't provide one)
+- First paragraph as description
 
 **From EXTERNAL_RESOURCES.md (in project-scaffolding):**
 - External services used
@@ -169,64 +156,9 @@ For each project found:
 
 ---
 
-## 📝 TODO.md Format
-
-For best results, structure your TODO.md files like this:
-
-```markdown
-# Project Name - TODO
-
-**Last Updated:** December 30, 2025  
-**Project Status:** Active Development  
-**Current Phase:** Phase 1 - Implementation
-
-## 📍 Current State
-
-### What's Working ✅
-- Feature A is operational
-- Feature B is tested
-
-### What's Missing ❌
-- Feature C not started
-- Feature D incomplete
-
-## 📋 Pending Tasks
-
-### 🔴 CRITICAL
-- [ ] High priority task
-- [x] Completed critical task
-
-### 🟡 HIGH PRIORITY
-- [ ] Important task
-
-## 📊 Notes
-
-### AI Agents in Use
-- **Claude Sonnet 4.5:** Project management and architecture
-- **Cursor:** Code implementation
-
-### Cron Jobs / Automation
-- **Schedule:** `0 14 * * *` (daily 2 PM)
-- **Command:** `python scripts/daily_update.py`
-- **Purpose:** Process daily data
-```
-
-The dashboard will automatically extract:
-- Status → "Active Development"
-- Phase → "Phase 1 - Implementation"
-- AI Agents → Claude Sonnet 4.5, Cursor
-- Cron Jobs → Daily 2 PM schedule
-- Completion % → (completed tasks / total tasks)
-
----
-
 ## 🎯 Tips & Best Practices
 
-### 1. Keep TODO.md Updated
-
-The dashboard reads TODO.md to get project status, AI agents, and completion %. Update these regularly for accurate tracking.
-
-### 2. Use Consistent Status Values
+### 1. Use Consistent Status Values
 
 Supported statuses:
 - `Active` → Active production use
@@ -235,11 +167,7 @@ Supported statuses:
 - `Stalled` → Blocked or abandoned
 - `Complete` → Finished
 
-### 3. Document AI Agents
-
-Which AI is helping with what? Add them to TODO.md.
-
-### 4. Track External Services
+### 3. Track External Services
 
 List services in EXTERNAL_RESOURCES.md to track costs.
 
@@ -262,10 +190,6 @@ List services in EXTERNAL_RESOURCES.md to track costs.
 ## 🛠 Requirements
 
 - **Python 3.11+**
-- **`00_Index_*.md` (v1.0.0+)**: This Go CLI is a required dependency for project health scoring, task aggregation, and validation.
-  - Install by building in `../audit-agent/`
-  - Ensure the `audit` binary is in your `$PATH` or configured in `config.py`.
-
 ---
 
 ## ✨ Key Features
@@ -276,17 +200,11 @@ Your most recently worked-on projects appear at the top automatically.
 ### 2. AI Agents Tracking
 See which AI is helping with which project and what they're doing.
 
-### 3. TODO.md Viewer
-Click any project to view rendered TODO.md with full markdown formatting.
-
-### 4. Progress Bars
-Based on checkbox completion in TODO.md files.
-
-### 5. Cron Jobs Display
+### 3. Cron Jobs Display
 See which projects have scheduled automation (⏰ indicator).
 
-### 6. External Services
+### 4. External Services
 Shows which services each project uses and monthly costs.
 
-### 7. Meta-Tracking
+### 5. Meta-Tracking
 **The dashboard tracks itself!** It shows up in the projects list with its own status and progress.
