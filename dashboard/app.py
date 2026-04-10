@@ -11,7 +11,7 @@ import subprocess
 import threading
 import httpx
 
-from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File, BackgroundTasks
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -1312,6 +1312,30 @@ async def get_open_brain_graph(request: Request):
     except Exception as e:
         logger.error(f"Open Brain graph error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/open-brain/rebuild")
+async def rebuild_open_brain_graph(background_tasks: BackgroundTasks):
+    """Trigger a rebuild of the Open Brain knowledge graph (runs in background)."""
+    import subprocess
+
+    def _rebuild_brain_graph():
+        try:
+            projects_root = Path(__file__).parent.parent.parent
+            brain_py = projects_root / "ai-memory" / "brain.py"
+            subprocess.run(
+                ["doppler", "run", "--project", "ai-memory", "--config", "dev",
+                 "--", "uv", "run", str(brain_py), "graph", "build"],
+                cwd=str(projects_root / "ai-memory"),
+                timeout=120,
+                capture_output=True,
+            )
+            logger.info("Open Brain graph rebuild complete")
+        except Exception as e:
+            logger.error(f"Open Brain graph rebuild failed: {e}")
+
+    background_tasks.add_task(_rebuild_brain_graph)
+    return {"status": "rebuilding", "message": "Graph rebuild started in background"}
 
 
 @app.get("/api/memory/types")
