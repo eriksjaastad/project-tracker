@@ -168,6 +168,42 @@ async function loadOverlay(forceReload = false) {
         });
     }
 
+    // Rebuild graph button
+    const rebuildBtn = document.getElementById('overlay-rebuild');
+    if (rebuildBtn && !rebuildBtn.dataset.bound) {
+        rebuildBtn.dataset.bound = '1';
+        rebuildBtn.addEventListener('click', async () => {
+            rebuildBtn.disabled = true;
+            rebuildBtn.textContent = '⏳ Rebuilding...';
+            try {
+                const resp = await fetch('/api/open-brain/rebuild', { method: 'POST' });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                // Poll until node count changes or 60s timeout
+                const startCount = overlayData.stats?.total_nodes || 0;
+                let attempts = 0;
+                const poll = setInterval(async () => {
+                    attempts++;
+                    try {
+                        const check = await fetch(`/api/open-brain?min_mentions=${getOverlayMinMentions()}`);
+                        const data = await check.json();
+                        if (data.stats.total_nodes !== startCount || attempts > 30) {
+                            clearInterval(poll);
+                            rebuildBtn.disabled = false;
+                            rebuildBtn.textContent = '🔄 Rebuild Graph';
+                            overlayLoaded = false;
+                            if (overlaySimulation) overlaySimulation.stop();
+                            loadOverlay(true);
+                        }
+                    } catch { /* keep polling */ }
+                }, 2000);
+            } catch (e) {
+                rebuildBtn.disabled = false;
+                rebuildBtn.textContent = '🔄 Rebuild Graph';
+                alert(`Rebuild failed: ${e.message}`);
+            }
+        });
+    }
+
     overlayLoaded = true;
 }
 
