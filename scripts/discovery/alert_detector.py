@@ -47,10 +47,6 @@ def detect_stalled_projects(projects: List[Dict[str, Any]], days_threshold: int 
     return alerts
 
 
-    # detect_missing_todo removed — TODO.md is obsolete
-    # detect_blocked_projects removed — relied on TODO.md parsing
-
-
 def detect_cron_failures(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Detect cron job failures and issues.
 
@@ -238,9 +234,6 @@ def get_all_alerts(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     all_alerts.extend(detect_stalled_projects(projects))
     all_alerts.extend(detect_missing_index(projects))  # Only missing, not incomplete
     all_alerts.extend(detect_agent_config_health(projects))
-    # Removed: detect_invalid_frontmatter - redundant with index check, too noisy
-    # Removed: detect_missing_todo - suggestions, not problems
-    
     # Sort by severity (critical first, then warning, then info)
     severity_order = {"critical": 0, "warning": 1, "info": 2}
     all_alerts.sort(key=lambda x: (severity_order.get(x["severity"], 3), x["project_name"]))

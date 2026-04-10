@@ -803,71 +803,6 @@ class GraphBuilder:
         
         return "\n".join(lines)
 
-    def update_todo(self, todo_path: Path):
-        """Update ecosystem TODO.md with neural network status."""
-        if not todo_path.exists():
-            logger.warning(f"Ecosystem TODO not found: {todo_path}")
-            return
-            
-        logger.info(f"Updating ecosystem TODO: {todo_path}")
-        
-        content = todo_path.read_text()
-        
-        # Find hubs and isolated
-        hubs = sorted(self.nodes, key=lambda x: x["size"], reverse=True)[:1]
-        top_hub = hubs[0]["id"] if hubs else "N/A"
-        
-        project_outbound = defaultdict(int)
-        for edge in self.edges:
-            source_node = self.node_by_id.get(edge["source"])
-            target_node = self.node_by_id.get(edge["target"])
-            if source_node and target_node and source_node["project"] != target_node["project"]:
-                project_outbound[source_node["project"]] += 1
-        
-        isolated = sorted(self.projects, key=lambda x: project_outbound.get(x, 0))[:1]
-        most_isolated = isolated[0] if isolated else "N/A"
-        isolated_count = project_outbound.get(most_isolated, 0)
-        
-        target_projects = defaultdict(set)
-        for edge in self.edges:
-            source_node = self.node_by_id.get(edge["source"])
-            if source_node:
-                target_projects[edge["target"]].add(source_node["project"])
-        
-        bridge_count = len([t for t, p in target_projects.items() if len(p) >= 3])
-        orphan_pct = (self.stats["orphan_count"] / self.stats["total_nodes"] * 100) if self.stats["total_nodes"] else 0
-        health = "GOOD" if orphan_pct < 5 else "STABLE" if orphan_pct < 15 else "CONGESTED"
-
-        new_section = [
-            "## Neural Network Status (Auto-Updated)",
-            "",
-            f"**Last Scan:** {datetime.now().strftime('%b %d, %Y %I:%M %p')}",
-            f"**Health:** {health} ({orphan_pct:.1f}% orphan rate)",
-            "",
-            "**Quick Stats:**",
-            f"- {self.stats['total_nodes']} nodes | {self.stats['total_edges']} edges | {self.stats['orphan_count']} orphans",
-            f"- Top Hub: `{top_hub}` ({hubs[0]['size'] if hubs else 0} connections)",
-            f"- Most Isolated: `{most_isolated}` ({isolated_count} external links)",
-            f"- Cross-project bridges: {bridge_count} files link 3+ projects",
-            "",
-            "**View full analysis:** `project-tracker/data/graph_analysis.md`",
-            "**Interactive graph:** `./pt launch` → Graph tab",
-            ""
-        ]
-        
-        new_section_text = "\n".join(new_section)
-        
-        if "## Neural Network Status (Auto-Updated)" in content:
-            # Replace existing section
-            pattern = re.compile(r'## Neural Network Status \(Auto-Updated\).*?(?=## |$)', re.DOTALL)
-            updated_content = pattern.sub(new_section_text, content)
-        else:
-            # Append to end
-            updated_content = content.strip() + "\n\n" + new_section_text
-            
-        todo_path.write_text(updated_content)
-        logger.info("Ecosystem TODO updated.")
-
     def to_json(self) -> Dict[str, Any]:
         """Convert graph to JSON format."""
         return {
@@ -892,7 +827,6 @@ def main():
     parser.add_argument("--root", type=str, default=default_root, help="Root directory to scan")
     parser.add_argument("--output", type=str, default="data/graph.json", help="Output JSON file")
     parser.add_argument("--analysis", type=str, default=None, help="Where to write the analysis markdown (default: same dir as --output)")
-    parser.add_argument("--update-todo", type=str, default=None, help="Optionally append a summary snapshot to the ecosystem TODO.md")
     args = parser.parse_args()
 
     root_path = Path(args.root)
@@ -914,11 +848,7 @@ def main():
     analysis_path = Path(args.analysis) if args.analysis else output_path.parent / "graph_analysis.md"
     analysis_path.write_text(analysis_text)
     logger.info(f"Analysis saved to {analysis_path}")
-    
-    # Update TODO if requested
-    if args.update_todo:
-        builder.update_todo(Path(args.update_todo))
-    
+
     duration = datetime.now() - start_time
     logger.info(f"Graph built and analyzed in {duration.total_seconds():.2f} seconds")
 

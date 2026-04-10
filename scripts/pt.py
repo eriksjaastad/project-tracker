@@ -156,14 +156,11 @@ def rebuild_project_graph():
         root_path = Path(PROJECTS_BASE_DIR)
         output_path = Path(__file__).parent.parent / "data" / "graph.json"
         analysis_path = Path(__file__).parent.parent / "data" / "graph_analysis.md"
-        ecosystem_todo = root_path / "TODO.md"
         builder = GraphBuilder(root_path)
         builder.scan()
         builder.save(output_path)
         analysis_text = builder.generate_analysis()
         analysis_path.write_text(analysis_text)
-        if ecosystem_todo.exists():
-            builder.update_todo(ecosystem_todo)
         console.print(f"  ✓ Project graph & analysis updated")
         console.print("[bold cyan]  → Running Journal Specialist (Enriching links)...[/bold cyan]")
         specialist = JournalSpecialist()
