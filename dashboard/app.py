@@ -580,6 +580,8 @@ def _build_dashboard_data() -> Dict:
 def _refresh_dashboard_cache() -> None:
     """Refresh the dashboard cache in a background thread."""
     global _dashboard_refreshing
+    if not _dashboard_refresh_lock.acquire(blocking=False):
+        return  # Another refresh is already running
     try:
         data = _build_dashboard_data()
         _dashboard_cache["data"] = data
@@ -588,6 +590,7 @@ def _refresh_dashboard_cache() -> None:
         logger.error(f"Background dashboard refresh failed: {exc}")
     finally:
         _dashboard_refreshing = False
+        _dashboard_refresh_lock.release()
 
 
 # NOTE: The /dashboard HTML route is now served by the React SPA via serve_react_app().
@@ -792,7 +795,7 @@ async def api_backup():
         return status
     except Exception as e:
         logger.error(f"Error getting backup status: {e}")
-        return {"error": str(e), "status": "error"}
+        return JSONResponse({"error": "Failed to get backup status", "status": "error"}, status_code=500)
 
 
 @app.get("/api/projects")
@@ -2382,7 +2385,8 @@ def _load_markers() -> list:
     try:
         data = json.loads(MARKERS_PATH.read_text())
         return data if isinstance(data, list) else []
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to load markers from %s: %s", MARKERS_PATH, e)
         return []
 
 

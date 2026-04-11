@@ -1,4 +1,5 @@
 """Agent Registry for the Agent Dispatcher UI."""
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -153,7 +154,7 @@ def run_agent_command(
     # Build command line
     cmd_parts = [agent.binary_path, command_name]
     if args:
-        cmd_parts.extend(args.split())
+        cmd_parts.extend(shlex.split(args))
 
     full_command = " ".join(cmd_parts)
 

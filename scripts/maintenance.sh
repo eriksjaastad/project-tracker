@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # maintenance.sh - Global Ecosystem Health & Networking
 # Master script for the ecosystem. Runs WEEKLY via cron (Sundays 5 AM).
 

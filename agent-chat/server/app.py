@@ -177,7 +177,17 @@ HTML_PAGE = """<!DOCTYPE html>
   </div>
 </div>
 <script>
-const API_KEY = new URLSearchParams(window.location.search).get('key') || '';
+// Read API key from URL param (first visit) and persist to sessionStorage.
+// This keeps the key out of browser history on subsequent page loads.
+const _urlKey = new URLSearchParams(window.location.search).get('key');
+if (_urlKey) {
+  sessionStorage.setItem('agent-chat-key', _urlKey);
+  // Remove key from URL to prevent leaking in history/referrer
+  const cleanUrl = new URL(window.location);
+  cleanUrl.searchParams.delete('key');
+  window.history.replaceState({}, '', cleanUrl);
+}
+const API_KEY = sessionStorage.getItem('agent-chat-key') || '';
 const HEADERS = {'Content-Type': 'application/json'};
 if (API_KEY) HEADERS['X-API-Key'] = API_KEY;
 

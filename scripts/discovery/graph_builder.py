@@ -244,8 +244,8 @@ class GraphBuilder:
                     node_id = self._get_node_id(file_path)
                     for type_name in SWIFT_TYPE_DEF.findall(content):
                         self._swift_types[type_name] = node_id
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to parse Swift file %s: %s", file_path, e)
 
         # Now process each file for edges
         for file_path in file_list:
