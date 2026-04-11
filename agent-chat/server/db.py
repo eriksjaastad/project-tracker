@@ -5,10 +5,13 @@ PostgreSQL via psycopg2 (Cloud Run) or SQLite (local dev).
 Same dual-backend pattern as the cost tracker.
 """
 
+import logging
 import os
 import sqlite3
 from contextlib import contextmanager
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import psycopg2
@@ -101,7 +104,8 @@ def init_db(sqlite_path: Optional[str] = None) -> None:
                     try:
                         cursor.execute(statement)
                         conn.commit()
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Schema statement failed (rolled back): %s — %s", statement[:80], e)
                         conn.rollback()
             # Migrations: add columns that may not exist on older schemas
             for migration in [
@@ -113,7 +117,8 @@ def init_db(sqlite_path: Optional[str] = None) -> None:
                 try:
                     cursor.execute(migration)
                     conn.commit()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Migration failed (rolled back): %s — %s", migration[:80], e)
                     conn.rollback()
         else:
             conn.executescript(SQLITE_SCHEMA)
