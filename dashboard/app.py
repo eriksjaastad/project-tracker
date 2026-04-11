@@ -1274,8 +1274,11 @@ async def get_open_brain_graph(request: Request):
     Query params:
         min_mentions: Minimum mention_count to include a node (default: 1, show all).
                       Edges where either endpoint is filtered out are also removed.
+        cluster:      "auto" (default) clusters dust nodes when total > 2000,
+                      "off" disables clustering, "on" forces it.
     """
     min_mentions = int(request.query_params.get("min_mentions", 1))
+    cluster_mode = request.query_params.get("cluster", "auto")
     projects_root = Path(__file__).parent.parent.parent
     brain_db_path = projects_root / "ai-memory" / "brain.db"
 
@@ -1293,12 +1296,26 @@ async def get_open_brain_graph(request: Request):
 
         node_ids = {n["id"] for n in nodes}
 
+        # Optimized edge query: use a temp table to filter in SQL instead of
+        # fetching all 80K+ edges and filtering in Python.
+        conn.execute("CREATE TEMP TABLE _visible_ids (id INTEGER PRIMARY KEY)")
+        conn.executemany("INSERT INTO _visible_ids VALUES (?)", [(nid,) for nid in node_ids])
         edges = [dict(r) for r in conn.execute(
-            "SELECT source_node_id as source, target_node_id as target, type, weight FROM graph_edges"
+            "SELECT e.source_node_id as source, e.target_node_id as target, e.type, e.weight "
+            "FROM graph_edges e "
+            "INNER JOIN _visible_ids s ON e.source_node_id = s.id "
+            "INNER JOIN _visible_ids t ON e.target_node_id = t.id"
         ).fetchall()]
-        edges = [e for e in edges if e["source"] in node_ids and e["target"] in node_ids]
 
         conn.close()
+
+        # Server-side clustering: aggregate low-value nodes into type-based clusters
+        should_cluster = (
+            cluster_mode == "on"
+            or (cluster_mode == "auto" and len(nodes) > 2000)
+        )
+        if should_cluster:
+            nodes, edges = _cluster_dust_nodes(nodes, edges)
 
         return {
             "nodes": nodes,
@@ -1306,11 +1323,77 @@ async def get_open_brain_graph(request: Request):
             "stats": {
                 "total_nodes": len(nodes),
                 "total_edges": len(edges),
+                "clustered": should_cluster,
             }
         }
     except Exception as e:
         logger.error(f"Open Brain graph error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+def _cluster_dust_nodes(nodes: list[dict], edges: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Collapse low-signal nodes into per-type aggregate clusters.
+
+    Dust = mention_count <= 2 AND degree <= 5. These get grouped by type
+    into a single cluster node per type, reducing rendered node count.
+    """
+    from collections import defaultdict
+
+    # Count degree per node
+    degree = defaultdict(int)
+    for e in edges:
+        degree[e["source"]] += 1
+        degree[e["target"]] += 1
+
+    # Identify dust nodes
+    dust_ids = set()
+    dust_by_type = defaultdict(list)
+    for n in nodes:
+        if n["size"] <= 2 and degree.get(n["id"], 0) <= 5:
+            dust_ids.add(n["id"])
+            dust_by_type[n["type"]].append(n)
+
+    if not dust_ids:
+        return nodes, edges
+
+    # Build cluster nodes (negative IDs to avoid collisions)
+    cluster_id_map = {}  # dust node id -> cluster id
+    cluster_nodes = []
+    for i, (ntype, dust_nodes) in enumerate(dust_by_type.items()):
+        if len(dust_nodes) < 3:
+            continue  # not worth clustering 1-2 nodes
+        cluster_id = -(i + 1)
+        for dn in dust_nodes:
+            cluster_id_map[dn["id"]] = cluster_id
+        cluster_nodes.append({
+            "id": cluster_id,
+            "type": ntype,
+            "name": f"{len(dust_nodes)} {ntype}s (low-ref)",
+            "description": f"Cluster of {len(dust_nodes)} {ntype} nodes with low references",
+            "size": len(dust_nodes),
+            "is_cluster": True,
+            "cluster_count": len(dust_nodes),
+        })
+
+    # Keep non-dust nodes + add cluster nodes
+    kept_nodes = [n for n in nodes if n["id"] not in cluster_id_map]
+    kept_nodes.extend(cluster_nodes)
+
+    # Rewrite edges: remap dust endpoints to their cluster
+    seen_edges = set()
+    kept_edges = []
+    for e in edges:
+        src = cluster_id_map.get(e["source"], e["source"])
+        tgt = cluster_id_map.get(e["target"], e["target"])
+        if src == tgt:
+            continue  # skip self-loops within a cluster
+        edge_key = (src, tgt, e["type"])
+        if edge_key in seen_edges:
+            continue  # deduplicate
+        seen_edges.add(edge_key)
+        kept_edges.append({"source": src, "target": tgt, "type": e["type"], "weight": e["weight"]})
+
+    return kept_nodes, kept_edges
 
 
 @app.post("/api/open-brain/rebuild")
