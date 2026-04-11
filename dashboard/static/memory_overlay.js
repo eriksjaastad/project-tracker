@@ -41,6 +41,9 @@ function overlayNodeColor(type) {
 }
 
 function overlayNodeRadius(node) {
+    if (node.is_cluster) {
+        return Math.min(6 + Math.sqrt(node.cluster_count) * 1.5, 20);
+    }
     const s = node.size || 1;
     if (s > 100) return 12;
     if (s > 20) return 8;
@@ -62,7 +65,7 @@ function getOverlayMinMentions() {
     return parseInt(slider.value, 10);
 }
 
-async function loadOverlay(forceReload = false) {
+async function loadOverlay(forceReload = false, clusterMode = 'auto') {
     overlayCanvas = document.getElementById('overlay-canvas');
     if (!overlayCanvas) return;
 
@@ -98,7 +101,7 @@ async function loadOverlay(forceReload = false) {
     // Fetch Open Brain graph with min_mentions filter
     const minMentions = getOverlayMinMentions();
     try {
-        const resp = await fetch(`/api/open-brain?min_mentions=${minMentions}`);
+        const resp = await fetch(`/api/open-brain?min_mentions=${minMentions}&cluster=${clusterMode}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         overlayData = await resp.json();
     } catch (e) {
@@ -226,7 +229,12 @@ function updateOverlayStats() {
     // Populate sidebar stats
     const statsEl = document.getElementById('overlay-stats');
     if (statsEl) {
-        statsEl.innerHTML = `<strong>${stats.total_nodes || overlayData.nodes.length}</strong> nodes · <strong>${stats.total_edges || overlayData.edges.length}</strong> edges`;
+        let statsHtml = `<strong>${stats.total_nodes || overlayData.nodes.length}</strong> nodes · <strong>${stats.total_edges || overlayData.edges.length}</strong> edges`;
+        if (stats.clustered) {
+            const clusterCount = overlayData.nodes.filter(n => n.is_cluster).length;
+            statsHtml += ` · <em>${clusterCount} clusters</em>`;
+        }
+        statsEl.innerHTML = statsHtml;
     }
 }
 
@@ -297,10 +305,16 @@ function renderOverlay() {
 
         ctx.beginPath();
         ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = color;
+        ctx.fillStyle = n.is_cluster ? 'rgba(0,0,0,0.6)' : color;
         ctx.fill();
 
-        if (isHovered || n === overlaySelected) {
+        if (n.is_cluster) {
+            ctx.setLineDash([3, 3]);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.setLineDash([]);
+        } else if (isHovered || n === overlaySelected) {
             ctx.strokeStyle = n === overlaySelected ? '#007bff' : '#fff';
             ctx.lineWidth = 2;
             ctx.stroke();
@@ -324,7 +338,9 @@ function renderOverlay() {
     if (overlayHovered) {
         const sx = overlayHovered.x * t.k + t.x;
         const sy = overlayHovered.y * t.k + t.y;
-        const label = `${overlayHovered.name} (${overlayHovered.type}, ${overlayHovered.size} refs)`;
+        const label = overlayHovered.is_cluster
+            ? `${overlayHovered.name} — click to expand`
+            : `${overlayHovered.name} (${overlayHovered.type}, ${overlayHovered.size} refs)`;
         ctx.font = '12px system-ui';
         const tw = ctx.measureText(label).width;
         ctx.fillStyle = 'rgba(0,0,0,0.8)';
@@ -385,6 +401,13 @@ function setupOverlayInteraction() {
 
         // Click handler — only fire if we didn't drag
         if (!wasPanning && overlayHovered) {
+            if (overlayHovered.is_cluster) {
+                // Expand cluster: reload with clustering off
+                overlayLoaded = false;
+                if (overlaySimulation) overlaySimulation.stop();
+                loadOverlay(true, 'off');
+                return;
+            }
             overlaySelected = overlayHovered;
             showOverlayDetail(overlaySelected);
             renderOverlay();
@@ -449,9 +472,14 @@ function showOverlayDetail(node) {
     nameEl.style.color = overlayNodeColor(node.type);
 
     let html = `<div class="overlay-detail-meta">`;
-    html += `<strong>Type:</strong> ${NODE_LABELS[node.type] || node.type}<br>`;
-    html += `<strong>References:</strong> ${node.size || 0}<br>`;
-    html += `<strong>Connections:</strong> ${connections.length}`;
+    if (node.is_cluster) {
+        html += `<strong>Cluster:</strong> ${node.cluster_count} ${NODE_LABELS[node.type] || node.type} nodes<br>`;
+        html += `<strong>Click to expand</strong>`;
+    } else {
+        html += `<strong>Type:</strong> ${NODE_LABELS[node.type] || node.type}<br>`;
+        html += `<strong>References:</strong> ${node.size || 0}<br>`;
+        html += `<strong>Connections:</strong> ${connections.length}`;
+    }
     html += `</div>`;
 
     html += `<div class="overlay-detail-connections">`;
