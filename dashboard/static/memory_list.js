@@ -88,7 +88,7 @@ function renderTable(thoughts) {
         tr.innerHTML = `
             <td class="col-type"><span class="badge badge-${t.type}">${t.type}</span></td>
             <td class="col-content">${escapeHtml(t.content).substring(0, 150)}${t.content.length > 150 ? '...' : ''}</td>
-            <td class="col-project">${t.project}</td>
+            <td class="col-project">${escapeHtml(t.project || '')}</td>
             <td class="col-date">${dateStr}</td>
         `;
         tbody.appendChild(tr);

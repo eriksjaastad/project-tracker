@@ -233,17 +233,17 @@ def validate_project(project_path: Path, verbose: bool = True) -> bool:
 
     if errors:
         if verbose:
-            status_icon = "⚠️ " if has_index else "❌ "
-            print(f"{status_icon} {project_name}")
+            print(f"⚠️  {project_name}")
             for error in errors:
                 print(f"   - {error}")
-        
+
         # Send Discord alert — wrapped with timeout to prevent hanging during pt scan
         try:
+            msg = f"Validation errors in {project_name}:\n" + "\n".join(f"  - {e}" for e in errors)
             send_discord_alert(msg)
         except Exception:
             pass  # Never let a notification failure block or hang the scan
-        
+
         return False
     
     # All good!
@@ -293,25 +293,21 @@ def main() -> None:
             sys.exit(0)
     
     elif arg == "--missing":
-        # List projects without indexes
-        print("Projects missing index files:\n")
+        # List projects without CLAUDE.md
+        print("Projects missing CLAUDE.md:\n")
         projects = find_projects(PROJECTS_ROOT)
-        
+
         missing = []
         for project in projects:
-            has_index, _ = has_index_file(project)
-            if not has_index:
+            if not (project / "CLAUDE.md").exists():
                 missing.append(project.name)
-        
+
         if missing:
             for name in missing:
                 print(f"  - {name}")
-            
-            print(f"\n{len(missing)} projects need index files")
-            print("\nTo create indexes:")
-            print("  ./scripts/reindex_projects.py --missing")
+            print(f"\n{len(missing)} projects need CLAUDE.md")
         else:
-            print("✅ All projects have index files!")
+            print("All projects have CLAUDE.md!")
         
         sys.exit(len(missing))  # Exit code = number of missing
     
