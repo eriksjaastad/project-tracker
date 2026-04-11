@@ -8,6 +8,11 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
-exec "$(brew --prefix)/bin/doppler" run -- \
+# ── Ensure PATH includes brew and doppler (launchd has minimal PATH) ──
+# shellcheck disable=SC2155
+BREW_PREFIX="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$BREW_PREFIX/bin:$PATH"
+
+exec doppler run -- \
   "$PROJECT_DIR/venv/bin/python" \
   -m uvicorn dashboard.app:app --host 0.0.0.0 --port 8000
