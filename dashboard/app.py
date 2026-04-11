@@ -918,12 +918,16 @@ _COST_PROXY_ALLOWED_PATHS = {"daily", "providers", "projects", "models", "caller
 async def proxy_costs(path: str, request: Request):
     """Proxy requests to the SIL cost tracker API."""
 
-    # Validate path against allowlist to prevent SSRF
-    root_segment = path.split("/")[0]
+    # Validate path against allowlist to prevent SSRF and path traversal
+    import posixpath
+    normalized = posixpath.normpath(path).lstrip("/")
+    if ".." in normalized or normalized == "." or not normalized:
+        raise HTTPException(status_code=400, detail="Invalid cost endpoint path")
+    root_segment = normalized.split("/")[0]
     if root_segment not in _COST_PROXY_ALLOWED_PATHS:
         raise HTTPException(status_code=400, detail=f"Unknown cost endpoint: {path}")
 
-    url = f"{_COST_TRACKER_BASE}/{path}"
+    url = f"{_COST_TRACKER_BASE}/{normalized}"
     if request.query_params:
         url += f"?{request.query_params}"
 
@@ -1286,28 +1290,26 @@ async def get_open_brain_graph(request: Request):
         return JSONResponse({"error": "brain.db not found"}, status_code=404)
 
     try:
-        conn = sqlite3.connect(brain_db_path)
-        conn.row_factory = sqlite3.Row
+        with sqlite3.connect(brain_db_path) as conn:
+            conn.row_factory = sqlite3.Row
 
-        nodes = [dict(r) for r in conn.execute(
-            "SELECT id, type, name, description, mention_count as size FROM graph_nodes WHERE mention_count >= ?",
-            (min_mentions,)
-        ).fetchall()]
+            nodes = [dict(r) for r in conn.execute(
+                "SELECT id, type, name, description, mention_count as size FROM graph_nodes WHERE mention_count >= ?",
+                (min_mentions,)
+            ).fetchall()]
 
-        node_ids = {n["id"] for n in nodes}
+            node_ids = {n["id"] for n in nodes}
 
-        # Optimized edge query: use a temp table to filter in SQL instead of
-        # fetching all 80K+ edges and filtering in Python.
-        conn.execute("CREATE TEMP TABLE _visible_ids (id INTEGER PRIMARY KEY)")
-        conn.executemany("INSERT INTO _visible_ids VALUES (?)", [(nid,) for nid in node_ids])
-        edges = [dict(r) for r in conn.execute(
-            "SELECT e.source_node_id as source, e.target_node_id as target, e.type, e.weight "
-            "FROM graph_edges e "
-            "INNER JOIN _visible_ids s ON e.source_node_id = s.id "
-            "INNER JOIN _visible_ids t ON e.target_node_id = t.id"
-        ).fetchall()]
-
-        conn.close()
+            # Optimized edge query: use a temp table to filter in SQL instead of
+            # fetching all 80K+ edges and filtering in Python.
+            conn.execute("CREATE TEMP TABLE _visible_ids (id INTEGER PRIMARY KEY)")
+            conn.executemany("INSERT INTO _visible_ids VALUES (?)", [(nid,) for nid in node_ids])
+            edges = [dict(r) for r in conn.execute(
+                "SELECT e.source_node_id as source, e.target_node_id as target, e.type, e.weight "
+                "FROM graph_edges e "
+                "INNER JOIN _visible_ids s ON e.source_node_id = s.id "
+                "INNER JOIN _visible_ids t ON e.target_node_id = t.id"
+            ).fetchall()]
 
         # Server-side clustering: aggregate low-value nodes into type-based clusters
         should_cluster = (
