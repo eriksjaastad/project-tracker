@@ -1328,6 +1328,7 @@ class DatabaseManager:
         try:
             blocked_by_ids = json.loads(task["blocked_by"])
         except (json.JSONDecodeError, TypeError):
+            logger.warning("Malformed blocked_by for task #%s: %r", task_id, task.get("blocked_by"))
             return []
 
         results = []

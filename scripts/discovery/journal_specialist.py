@@ -4,6 +4,7 @@ Journal Specialist - Project Graph Enrichment for AI Memories.
 Specifically scans the ai-journal to establish deep links between logs and projects.
 """
 
+import logging
 import re
 import json
 from pathlib import Path
@@ -50,7 +51,8 @@ class JournalSpecialist:
         content = ""
         try:
             content = path.read_text(errors='ignore')
-        except:
+        except Exception:
+            logging.getLogger(__name__).warning("Could not read journal entry: %s", path)
             return
 
         # 1. Match project in filename (slug)

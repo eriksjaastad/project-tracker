@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # Pre-commit hook installed by governance system
 # Runs governance checks on staged files
 

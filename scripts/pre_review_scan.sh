@@ -2,7 +2,7 @@
 # pre_review_scan.sh - Run before code reviews or commits
 # Usage: ./scripts/pre_review_scan.sh
 
-set -e  # Exit on first error
+set -euo pipefail
 
 echo "=== Pre-Review Scan ==="
 echo ""
