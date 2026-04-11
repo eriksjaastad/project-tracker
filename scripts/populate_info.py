@@ -75,9 +75,6 @@ EXTRA_KEYS = {
     "ai-memory": {
         "infrastructure": "libsql/SQLite (brain.db), MCP server (mcp_server.py), graph analytics (graspologic)",
     },
-    "ai-usage-billing-tracker": {
-        "infrastructure": "Docker, PostgreSQL via SQLAlchemy, Alembic migrations",
-    },
     "trading-copilot": {
         "infrastructure": "Railway cron dispatcher (*/5 min), PostgreSQL, yfinance",
     },
