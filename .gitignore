@@ -47,5 +47,23 @@ tests/screenshots/  # Visual regression test screenshots
 # Lock files
 uv.lock
 
-# Visual records - screenshots and screen recordings (too large for git)
+# Media files — images, video, audio (Erik's visual collection, not code)
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.tif
+*.ico
+*.webp
+*.svg
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.mp3
+*.wav
+*.m4a
 project-graph-screenshots-movies/
