@@ -408,15 +408,34 @@ function showLoading(show) {
 }
 
 async function rebuildGraph() {
+    const btn = document.querySelector('.btn-refresh');
+    const originalText = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Rebuilding...';
+    }
     showLoading(true);
+    ptToast('Rebuild started…', 'info');
     try {
-        // This would ideally call a background task, but for MVP we just run it
         const response = await fetch('/api/refresh', { method: 'POST' });
-        // After refresh, we might need to trigger graph_builder manually if not integrated
-        // For now, let's assume it's integrated or wait for user to run it
+        const data = await response.json();
+        if (!response.ok || !data.job_id) {
+            throw new Error(data.message || `HTTP ${response.status}`);
+        }
+        const job = await ptPollRebuild(data.job_id);
+        if (job.status !== 'done') {
+            throw new Error(job.error || 'rebuild failed');
+        }
         await loadGraph();
+        ptToast('Graph rebuilt ✓', 'success');
     } catch (err) {
         console.error('Rebuild failed:', err);
+        ptToast(`Rebuild failed: ${err.message}`, 'error');
+    } finally {
+        showLoading(false);
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
     }
-    showLoading(false);
 }

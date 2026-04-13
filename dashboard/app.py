@@ -763,10 +763,16 @@ async def refresh_data():
                 db.delete_project(db_proj["id"])
                 removed += 1
 
-        # Rebuild project graph in background so endpoint returns immediately
+        # Rebuild project graph in background under a tracked job so the
+        # frontend can poll /api/rebuild-status/{job_id} for real completion.
+        job_id = _create_rebuild_job("project_graph")
         return JSONResponse(
-            {"status": "success", "message": f"Refreshed {len(projects)} projects, removed {removed} stale. Graph rebuild started in background."},
-            background=BackgroundTask(rebuild_project_graph),
+            {
+                "status": "success",
+                "message": f"Refreshed {len(projects)} projects, removed {removed} stale. Graph rebuild started in background.",
+                "job_id": job_id,
+            },
+            background=BackgroundTask(_run_tracked_rebuild, job_id, rebuild_project_graph),
         )
     except Exception as e:
         logger.error(f"Error refreshing data: {e}")
@@ -1138,6 +1144,62 @@ _graph_cache: Dict = {"data": None, "timestamp": 0, "params": None}
 _GRAPH_CACHE_TTL = 300  # 5 minutes
 
 
+def _invalidate_graph_cache() -> None:
+    """Drop the /api/memory-graph in-memory cache so the next request recomputes."""
+    _graph_cache["data"] = None
+    _graph_cache["timestamp"] = 0
+    _graph_cache["params"] = None
+
+
+# ---- Rebuild job tracker -------------------------------------------------
+# Tracks in-flight rebuild jobs so the frontend can poll real completion
+# status instead of guessing via node-count diffs. Job dicts live for the
+# lifetime of the process; they're small and self-expire on restart.
+_rebuild_jobs: Dict[str, Dict] = {}
+
+
+def _run_tracked_rebuild(job_id: str, fn) -> None:
+    """Run a rebuild function with status tracking. Invalidates graph cache on success."""
+    job = _rebuild_jobs.get(job_id)
+    if job is None:
+        return
+    job["status"] = "running"
+    job["started_at"] = datetime.now().isoformat()
+    try:
+        fn()
+        job["status"] = "done"
+        job["error"] = None
+        _invalidate_graph_cache()
+    except Exception as e:
+        logger.error(f"Rebuild job {job_id} ({job.get('kind')}) failed: {e}")
+        job["status"] = "error"
+        job["error"] = str(e)
+    finally:
+        job["finished_at"] = datetime.now().isoformat()
+
+
+def _create_rebuild_job(kind: str) -> str:
+    job_id = uuid.uuid4().hex[:12]
+    _rebuild_jobs[job_id] = {
+        "job_id": job_id,
+        "kind": kind,
+        "status": "queued",
+        "started_at": None,
+        "finished_at": None,
+        "error": None,
+    }
+    return job_id
+
+
+@app.get("/api/rebuild-status/{job_id}")
+async def get_rebuild_status(job_id: str):
+    """Poll status of a rebuild job. Returns 404 if unknown job."""
+    job = _rebuild_jobs.get(job_id)
+    if job is None:
+        return JSONResponse({"error": "unknown job_id"}, status_code=404)
+    return job
+
+
 @app.get("/graph", response_class=HTMLResponse)
 async def graph_view(request: Request):
     """Render the graph visualization page."""
@@ -1403,26 +1465,28 @@ def _cluster_dust_nodes(nodes: list[dict], edges: list[dict]) -> tuple[list[dict
 
 @app.post("/api/open-brain/rebuild")
 async def rebuild_open_brain_graph(background_tasks: BackgroundTasks):
-    """Trigger a rebuild of the Open Brain knowledge graph (runs in background)."""
-    import subprocess
+    """Trigger a rebuild of the Open Brain knowledge graph (runs in background).
 
+    Returns a job_id the frontend can poll via /api/rebuild-status/{job_id}.
+    """
     def _rebuild_brain_graph():
-        try:
-            projects_root = Path(__file__).parent.parent.parent
-            brain_py = projects_root / "ai-memory" / "brain.py"
-            subprocess.run(
-                ["doppler", "run", "--project", "ai-memory", "--config", "dev",
-                 "--", "uv", "run", str(brain_py), "graph", "build"],
-                cwd=str(projects_root / "ai-memory"),
-                timeout=120,
-                capture_output=True,
-            )
-            logger.info("Open Brain graph rebuild complete")
-        except Exception as e:
-            logger.error(f"Open Brain graph rebuild failed: {e}")
+        projects_root = Path(__file__).parent.parent.parent
+        brain_py = projects_root / "ai-memory" / "brain.py"
+        result = subprocess.run(
+            ["doppler", "run", "--project", "ai-memory", "--config", "dev",
+             "--", "uv", "run", str(brain_py), "graph", "build"],
+            cwd=str(projects_root / "ai-memory"),
+            timeout=300,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"brain.py graph build exited {result.returncode}: {result.stderr[-500:]}")
+        logger.info("Open Brain graph rebuild complete")
 
-    background_tasks.add_task(_rebuild_brain_graph)
-    return {"status": "rebuilding", "message": "Graph rebuild started in background"}
+    job_id = _create_rebuild_job("open_brain_graph")
+    background_tasks.add_task(_run_tracked_rebuild, job_id, _rebuild_brain_graph)
+    return {"status": "rebuilding", "message": "Graph rebuild started in background", "job_id": job_id}
 
 
 @app.get("/api/memory/types")
