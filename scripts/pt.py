@@ -719,14 +719,20 @@ def remove_project(project):
     console.print(f"[green]✅ Removed '{target['name']}' from the database.[/green]")
 
 
-def _scan_portfolio_for_references(project_id: str, project_name: str, projects_root: Path) -> list[tuple[Path, int, str]]:
+def _scan_portfolio_for_references(project_id: str, project_name: str, projects_root: Path) -> tuple[list[tuple[Path, int, str]], list[tuple[Path, str]]]:
     """Scan portfolio markdown/yaml/json for stale references to a project.
 
-    Returns a list of (path, line_number, matched_line) tuples. Read-only —
-    never mutates files. Used by retire-project to print a manual-cleanup
-    report for the human.
+    Returns (hits, scan_errors) where:
+      - hits: list of (path, line_number, matched_line) tuples
+      - scan_errors: list of (path, error_message) for paths the scan couldn't read
+
+    Read-only — never mutates files. Used by retire-project to print a
+    manual-cleanup report for the human.
     """
+    import logging
+    _log = logging.getLogger(__name__)
     hits: list[tuple[Path, int, str]] = []
+    scan_errors: list[tuple[Path, str]] = []
     needles = {project_id.lower()}
     if project_name and project_name.lower() != project_id.lower():
         needles.add(project_name.lower())
@@ -739,8 +745,9 @@ def _scan_portfolio_for_references(project_id: str, project_name: str, projects_
         try:
             if root_path.resolve().is_relative_to((projects_root / project_id).resolve()):
                 continue
-        except (ValueError, OSError):
-            pass
+        except (ValueError, OSError) as e:
+            _log.warning(f"retire-project: could not resolve path {root_path} for skip check: {e}")
+            scan_errors.append((root_path, f"resolve: {e}"))
         for f in files:
             if Path(f).suffix.lower() not in exts:
                 continue
@@ -753,9 +760,11 @@ def _scan_portfolio_for_references(project_id: str, project_name: str, projects_
                             hits.append((fp, lineno, line.rstrip()))
                             if sum(1 for h in hits if h[0] == fp) >= 10:
                                 break
-            except (OSError, UnicodeDecodeError):
+            except (OSError, UnicodeDecodeError) as e:
+                _log.warning(f"retire-project: could not scan {fp}: {e}")
+                scan_errors.append((fp, str(e)))
                 continue
-    return hits
+    return hits, scan_errors
 
 
 @cli.command(name="retire-project")
@@ -814,9 +823,16 @@ def retire_project(project, execute, keep_files, yes):
         console.print(f"[bold]Files:[/bold]    directory → Trash via send2trash")
 
     console.print("\n[bold]Stale reference audit[/bold] (read-only scan of portfolio):")
-    refs = _scan_portfolio_for_references(project_id, project_name, PROJECTS_BASE_DIR)
+    refs, scan_errors = _scan_portfolio_for_references(project_id, project_name, PROJECTS_BASE_DIR)
+    if scan_errors:
+        console.print(f"  [yellow]⚠ {len(scan_errors)} path(s) could not be scanned (see log for details):[/yellow]")
+        for err_path, err_msg in scan_errors[:5]:
+            rel = err_path.relative_to(PROJECTS_BASE_DIR) if err_path.is_relative_to(PROJECTS_BASE_DIR) else err_path
+            console.print(f"    [yellow]{rel}: {err_msg}[/yellow]")
+        if len(scan_errors) > 5:
+            console.print(f"    [dim]... and {len(scan_errors) - 5} more[/dim]")
     if not refs:
-        console.print("  [green]no references found[/green]")
+        console.print("  [green]no references found[/green]" + (" [dim](plus unreadable paths above)[/dim]" if scan_errors else ""))
     else:
         by_file: dict[Path, list[tuple[int, str]]] = {}
         for fp, lineno, line in refs:
