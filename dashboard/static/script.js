@@ -1,31 +1,33 @@
 // Project Tracker Dashboard JavaScript
 
-function refreshData() {
+async function refreshData() {
     const button = document.querySelector('.btn-refresh');
-    const originalText = button.textContent;
-    
-    // Show loading state
-    button.textContent = '⟳ Refreshing...';
-    button.disabled = true;
-    
-    fetch('/api/refresh', { method: 'POST' })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                // Reload page to show updated data
-                location.reload();
-            } else {
-                alert('Error refreshing data: ' + data.message);
-                button.textContent = originalText;
-                button.disabled = false;
-            }
-        })
-        .catch(error => {
-            console.error('Refresh failed:', error);
-            alert('Failed to refresh data. Check console for details.');
+    const originalText = button ? button.textContent : '';
+    if (button) {
+        button.textContent = '⟳ Refreshing...';
+        button.disabled = true;
+    }
+    if (typeof ptToast === 'function') ptToast('Refresh started…', 'info');
+    try {
+        const response = await fetch('/api/refresh', { method: 'POST' });
+        const data = await response.json();
+        if (data.status !== 'success' || !data.job_id) {
+            throw new Error(data.message || 'refresh failed');
+        }
+        const job = await ptPollRebuild(data.job_id);
+        if (job.status !== 'done') {
+            throw new Error(job.error || 'rebuild failed');
+        }
+        location.reload();
+    } catch (error) {
+        console.error('Refresh failed:', error);
+        if (typeof ptToast === 'function') ptToast(`Refresh failed: ${error.message}`, 'error');
+        else alert('Failed to refresh data: ' + error.message);
+        if (button) {
             button.textContent = originalText;
             button.disabled = false;
-        });
+        }
+    }
 }
 
 function createIndex(projectId) {
