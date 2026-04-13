@@ -719,6 +719,168 @@ def remove_project(project):
     console.print(f"[green]✅ Removed '{target['name']}' from the database.[/green]")
 
 
+def _scan_portfolio_for_references(project_id: str, project_name: str, projects_root: Path) -> tuple[list[tuple[Path, int, str]], list[tuple[Path, str]]]:
+    """Scan portfolio markdown/yaml/json for stale references to a project.
+
+    Returns (hits, scan_errors) where:
+      - hits: list of (path, line_number, matched_line) tuples
+      - scan_errors: list of (path, error_message) for paths the scan couldn't read
+
+    Read-only — never mutates files. Used by retire-project to print a
+    manual-cleanup report for the human.
+    """
+    import logging
+    _log = logging.getLogger(__name__)
+    hits: list[tuple[Path, int, str]] = []
+    scan_errors: list[tuple[Path, str]] = []
+    needles = {project_id.lower()}
+    if project_name and project_name.lower() != project_id.lower():
+        needles.add(project_name.lower())
+    exts = {".md", ".yaml", ".yml", ".json"}
+    skip_dirs = {".git", "node_modules", "venv", ".venv", "__pycache__", "data", "backups"}
+    for root, dirs, files in os.walk(projects_root):
+        dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".")]
+        root_path = Path(root)
+        # Skip the project being retired itself
+        try:
+            if root_path.resolve().is_relative_to((projects_root / project_id).resolve()):
+                continue
+        except (ValueError, OSError) as e:
+            _log.warning(f"retire-project: could not resolve path {root_path} for skip check: {e}")
+            scan_errors.append((root_path, f"resolve: {e}"))
+        for f in files:
+            if Path(f).suffix.lower() not in exts:
+                continue
+            fp = root_path / f
+            try:
+                with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
+                    for lineno, line in enumerate(fh, 1):
+                        lowered = line.lower()
+                        if any(n in lowered for n in needles):
+                            hits.append((fp, lineno, line.rstrip()))
+                            if sum(1 for h in hits if h[0] == fp) >= 10:
+                                break
+            except (OSError, UnicodeDecodeError) as e:
+                _log.warning(f"retire-project: could not scan {fp}: {e}")
+                scan_errors.append((fp, str(e)))
+                continue
+    return hits, scan_errors
+
+
+@cli.command(name="retire-project")
+@click.argument("project")
+@click.option("--execute", is_flag=True, help="Actually retire. Without this, runs in dry-run mode.")
+@click.option("--keep-files", is_flag=True, help="Skip sending the project directory to Trash.")
+@click.option("-y", "--yes", is_flag=True, help="Skip the confirmation prompt.")
+def retire_project(project, execute, keep_files, yes):
+    """Retire a project: trash the directory, cascade-delete DB rows, and audit stale refs.
+
+    DRY-RUN BY DEFAULT. Prints the plan and the stale-reference audit without
+    touching anything. Pass --execute to actually perform the retirement.
+
+    What retire does:
+      1. Sends the project directory to Trash (via send2trash; never rm)
+      2. Deletes the project row and cascade-deletes tasks, cron jobs, agents,
+         and service dependencies via db.delete_project()
+      3. Prints a report of stale references to this project found in other
+         projects' markdown/yaml/json (for manual review — retire never
+         auto-edits files outside the retired project).
+
+    Use --keep-files to retire from the DB only, leaving the directory intact.
+    """
+    from send2trash import send2trash
+
+    db = DatabaseManager()
+    projects = db.get_all_projects()
+    target = None
+    for p in projects:
+        if p["id"].lower() == project.lower() or p["name"].lower() == project.lower():
+            target = p
+            break
+    if not target:
+        console.print(f"[red]Project '{project}' not found in database.[/red]")
+        sys.exit(1)
+
+    project_id = target["id"]
+    project_name = target["name"]
+    project_path = Path(target.get("path") or "")
+
+    tasks = db.get_tasks(project_id=project_id)
+    cron_jobs = db.get_cron_jobs(project_id)
+    agents = db.get_ai_agents(project_id)
+
+    mode = "[bold yellow]DRY RUN[/bold yellow]" if not execute else "[bold red]EXECUTE[/bold red]"
+    console.print(f"\n{mode} [bold]retire-project[/bold] — {project_name} ({project_id})")
+    console.print(f"[bold]Path:[/bold]     {project_path}")
+    path_ok = project_path.exists() if str(project_path) else False
+    console.print(f"[bold]On disk:[/bold]  {'yes' if path_ok else 'no'}")
+    console.print(f"[bold]Tasks:[/bold]    {len(tasks)} (cascade-delete)")
+    console.print(f"[bold]Crons:[/bold]    {len(cron_jobs)} (cascade-delete)")
+    console.print(f"[bold]Agents:[/bold]   {len(agents)} (cascade-delete)")
+    if keep_files:
+        console.print(f"[bold]Files:[/bold]    [yellow]--keep-files set; directory will remain on disk[/yellow]")
+    else:
+        console.print(f"[bold]Files:[/bold]    directory → Trash via send2trash")
+
+    console.print("\n[bold]Stale reference audit[/bold] (read-only scan of portfolio):")
+    refs, scan_errors = _scan_portfolio_for_references(project_id, project_name, PROJECTS_BASE_DIR)
+    if scan_errors:
+        console.print(f"  [yellow]⚠ {len(scan_errors)} path(s) could not be scanned (see log for details):[/yellow]")
+        for err_path, err_msg in scan_errors[:5]:
+            rel = err_path.relative_to(PROJECTS_BASE_DIR) if err_path.is_relative_to(PROJECTS_BASE_DIR) else err_path
+            console.print(f"    [yellow]{rel}: {err_msg}[/yellow]")
+        if len(scan_errors) > 5:
+            console.print(f"    [dim]... and {len(scan_errors) - 5} more[/dim]")
+    if not refs:
+        console.print("  [green]no references found[/green]" + (" [dim](plus unreadable paths above)[/dim]" if scan_errors else ""))
+    else:
+        by_file: dict[Path, list[tuple[int, str]]] = {}
+        for fp, lineno, line in refs:
+            by_file.setdefault(fp, []).append((lineno, line))
+        for fp, lines in sorted(by_file.items()):
+            rel = fp.relative_to(PROJECTS_BASE_DIR) if fp.is_relative_to(PROJECTS_BASE_DIR) else fp
+            console.print(f"  [cyan]{rel}[/cyan] ({len(lines)} hit{'s' if len(lines) != 1 else ''})")
+            for lineno, line in lines[:3]:
+                console.print(f"    [dim]{lineno}:[/dim] {line[:100]}")
+            if len(lines) > 3:
+                console.print(f"    [dim]... and {len(lines) - 3} more[/dim]")
+        console.print("[yellow]Review the above manually after retire — retire does not edit other projects' files.[/yellow]")
+
+    if not execute:
+        console.print("\n[dim]Dry run complete. Re-run with --execute to retire for real.[/dim]")
+        return
+
+    if not yes:
+        console.print(f"\n[bold red]⚠️  DESTRUCTIVE OPERATION[/bold red]")
+        confirm = click.prompt(
+            f"Type the project name '{project_name}' to confirm retirement",
+            default="",
+            show_default=False,
+        )
+        if confirm.lower() != project_name.lower():
+            console.print("[yellow]Cancelled. Project name did not match.[/yellow]")
+            sys.exit(1)
+
+    # 1. Send directory to Trash (unless --keep-files)
+    if not keep_files and path_ok:
+        try:
+            send2trash(str(project_path))
+            console.print(f"[green]✓[/green] sent {project_path} to Trash")
+        except Exception as e:
+            console.print(f"[red]Failed to trash {project_path}: {e}[/red]")
+            console.print("[yellow]Aborting before DB delete — directory is still on disk.[/yellow]")
+            sys.exit(1)
+    elif not keep_files and not path_ok:
+        console.print(f"[dim]✓ directory already missing, nothing to trash[/dim]")
+
+    # 2. Cascade-delete DB rows
+    db.delete_project(project_id)
+    console.print(f"[green]✓[/green] deleted project '{project_name}' and cascaded rows from the database")
+
+    console.print(f"\n[bold green]✅ Retired '{project_name}'.[/bold green]")
+    if refs:
+        console.print(f"[yellow]Remember: {len(refs)} stale reference(s) in {len({r[0] for r in refs})} file(s) still need manual review.[/yellow]")
+
 
 @cli.command()
 @click.pass_context
