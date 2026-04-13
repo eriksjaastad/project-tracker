@@ -171,43 +171,41 @@ async function loadOverlay(forceReload = false, clusterMode = 'auto') {
         });
     }
 
-    // Rebuild graph button
-    const rebuildBtn = document.getElementById('overlay-rebuild');
-    if (rebuildBtn && !rebuildBtn.dataset.bound) {
-        rebuildBtn.dataset.bound = '1';
-        rebuildBtn.addEventListener('click', async () => {
-            rebuildBtn.disabled = true;
-            rebuildBtn.textContent = '⏳ Rebuilding...';
-            try {
-                const resp = await fetch('/api/open-brain/rebuild', { method: 'POST' });
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                // Poll until node count changes or 60s timeout
-                const startCount = overlayData.stats?.total_nodes || 0;
-                let attempts = 0;
-                const poll = setInterval(async () => {
-                    attempts++;
-                    try {
-                        const check = await fetch(`/api/open-brain?min_mentions=${getOverlayMinMentions()}`);
-                        const data = await check.json();
-                        if (data.stats.total_nodes !== startCount || attempts > 30) {
-                            clearInterval(poll);
-                            rebuildBtn.disabled = false;
-                            rebuildBtn.textContent = '🔄 Rebuild Graph';
-                            overlayLoaded = false;
-                            if (overlaySimulation) overlaySimulation.stop();
-                            loadOverlay(true);
-                        }
-                    } catch { /* keep polling */ }
-                }, 2000);
-            } catch (e) {
-                rebuildBtn.disabled = false;
-                rebuildBtn.textContent = '🔄 Rebuild Graph';
-                alert(`Rebuild failed: ${e.message}`);
-            }
-        });
-    }
-
     overlayLoaded = true;
+}
+
+// Top-level rebuild handler for the overlay button (wired via inline onclick
+// in memory.html so it's not dependent on loadOverlay()'s binding path).
+async function rebuildOpenBrainGraph() {
+    const rebuildBtn = document.getElementById('overlay-rebuild');
+    if (rebuildBtn) {
+        rebuildBtn.disabled = true;
+        rebuildBtn.textContent = '⏳ Rebuilding...';
+    }
+    if (typeof ptToast === 'function') ptToast('Rebuild started…', 'info');
+    try {
+        const resp = await fetch('/api/open-brain/rebuild', { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok || !data.job_id) {
+            throw new Error(data.message || `HTTP ${resp.status}`);
+        }
+        const job = await ptPollRebuild(data.job_id);
+        if (job.status !== 'done') {
+            throw new Error(job.error || 'rebuild failed');
+        }
+        overlayLoaded = false;
+        if (overlaySimulation) overlaySimulation.stop();
+        loadOverlay(true);
+        if (typeof ptToast === 'function') ptToast('Graph rebuilt ✓', 'success');
+    } catch (e) {
+        if (typeof ptToast === 'function') ptToast(`Rebuild failed: ${e.message}`, 'error');
+        else alert(`Rebuild failed: ${e.message}`);
+    } finally {
+        if (rebuildBtn) {
+            rebuildBtn.disabled = false;
+            rebuildBtn.textContent = '🔄 Rebuild Graph';
+        }
+    }
 }
 
 function updateOverlayStats() {
