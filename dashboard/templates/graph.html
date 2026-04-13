@@ -14,7 +14,11 @@
     <h1>🕸️ Project Graph</h1>
 </div>
 <div class="header-actions">
-    <button onclick="rebuildGraph()" class="btn-refresh">🔄 Rebuild Data</button>
+    <button class="shell-copy-pill" title="Click to copy"
+            onclick="ptCopyCommand('cd ~/projects/project-tracker &amp;&amp; uv run pt scan')">
+        <span class="label">📋 Rebuild:</span>
+        <code>cd ~/projects/project-tracker &amp;&amp; uv run pt scan</code>
+    </button>
 </div>
 {% endblock %}
 

@@ -14,7 +14,7 @@
     <h1>🧠 Open Brain</h1>
     <p class="subtitle">Cross-agent persistent memory</p>
 </div>
-<div class="header-actions">
+<div class="header-actions header-actions--stacked">
     <div class="view-tabs">
         <button onclick="switchView('graph')" id="tab-graph" class="tab-btn active">📊 Graph</button>
         <button onclick="switchView('svg')" id="tab-svg" class="tab-btn">🎨 Classic</button>
@@ -22,7 +22,11 @@
         <button onclick="switchView('heatmap')" id="tab-heatmap" class="tab-btn">🌡️ Heatmap</button>
         <button onclick="switchView('list')" id="tab-list" class="tab-btn">📋 List</button>
     </div>
-    <button onclick="refreshData()" class="btn-refresh">🔄 Refresh</button>
+    <button class="shell-copy-pill" title="Click to copy"
+            onclick="ptCopyCommand('cd ~/projects/ai-memory &amp;&amp; doppler run --project ai-memory --config dev -- uv run brain.py graph build')">
+        <span class="label">📋 Rebuild:</span>
+        <code>cd ~/projects/ai-memory &amp;&amp; doppler run --project ai-memory --config dev -- uv run brain.py graph build</code>
+    </button>
 </div>
 {% endblock %}
 
@@ -124,7 +128,6 @@
                 <!-- Filled by JS -->
             </div>
             <button id="overlay-reset-view" class="btn-small">Fit to Screen</button>
-            <button id="overlay-rebuild" class="btn-small" style="margin-top:6px;">🔄 Rebuild Graph</button>
         </div>
         <div id="overlay-container">
             <canvas id="overlay-canvas"></canvas>
