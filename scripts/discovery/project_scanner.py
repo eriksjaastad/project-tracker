@@ -282,6 +282,7 @@ def should_skip_directory(dir_path: Path) -> bool:
         "_trash",
         "trash",
         "archives",
+        "_archive",
         "logs",
         "data",
         "plugin-duplicate-detection",
