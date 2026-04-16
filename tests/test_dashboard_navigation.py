@@ -31,7 +31,9 @@ def test_navigation_api_returns_shared_contract():
         "dashboard",
         "kanban",
         "agentic",
+        "calendar",
         "graph",
+        "memory",
     ]
     assert payload["items"][0]["href"] == "/dashboard"
     assert payload["items"][1]["navigation_type"] == "spa"
@@ -55,7 +57,9 @@ def test_graph_view_renders_shared_shell_navigation():
     assert "Dashboard" in body
     assert "Kanban" in body
     assert "Agentic" in body
+    assert "Calendar" in body
     assert "Graph" in body
+    assert "Memory" in body
     assert "Project Graph" in body
 
 

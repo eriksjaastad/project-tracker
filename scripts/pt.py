@@ -737,7 +737,7 @@ def _scan_portfolio_for_references(project_id: str, project_name: str, projects_
     if project_name and project_name.lower() != project_id.lower():
         needles.add(project_name.lower())
     exts = {".md", ".yaml", ".yml", ".json"}
-    skip_dirs = {".git", "node_modules", "venv", ".venv", "__pycache__", "data", "backups"}
+    skip_dirs = {".git", "node_modules", "venv", ".venv", "__pycache__", "data", "backups", "_archive"}
     for root, dirs, files in os.walk(projects_root):
         dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".")]
         root_path = Path(root)
