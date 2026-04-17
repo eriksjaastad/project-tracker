@@ -64,11 +64,11 @@ count="$(echo "$response" | jq '.messages | length')"
 # Filter out own messages and directed messages (handled by router daemon)
 if [[ -n "$SENDER" ]]; then
     messages="$(echo "$response" | jq --arg s "$SENDER" '[.messages[] | select(.sender != $s and (.recipient == null or .recipient == ""))]')"
-    count="$(echo "$messages" | jq 'length')"
-    [[ "$count" -gt 0 ]] || exit 0
 else
     messages="$(echo "$response" | jq '[.messages[] | select(.recipient == null or .recipient == "")]')"
 fi
+count="$(echo "$messages" | jq 'length')"
+[[ "$count" -gt 0 ]] || exit 0
 
 # Update cursor to latest timestamp
 last_ts="$(echo "$response" | jq -r '.messages[-1].ts')"
