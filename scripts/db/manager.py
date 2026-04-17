@@ -955,6 +955,7 @@ class DatabaseManager:
         parent_id: Optional[int] = None,
         blocked_by: Optional[Any] = None,
         sequence_order: Optional[int] = None,
+        created_by: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a new task.
 
@@ -969,6 +970,7 @@ class DatabaseManager:
             parent_id: Parent task ID for subtasks (optional)
             blocked_by: JSON string or list of blocking task IDs (optional)
             sequence_order: Ordering hint for subtasks (optional)
+            created_by: Short origin label (e.g. "project-tracker", "architect") — who/where filed this card
 
         Returns:
             Task dictionary with all fields including generated id and timestamps
@@ -1026,9 +1028,10 @@ class DatabaseManager:
                     notes,
                     parent_id,
                     blocked_by,
-                    sequence_order
+                    sequence_order,
+                    created_by
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 sanitized_text,
                 status,
@@ -1044,6 +1047,7 @@ class DatabaseManager:
                 parent_id,
                 blocked_by_value,
                 sequence_order,
+                created_by,
             ))
             
             task_id = cursor.lastrowid

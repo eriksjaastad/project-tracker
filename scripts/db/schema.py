@@ -356,7 +356,7 @@ def ensure_schema(cursor: Any) -> None:
             updated_at TEXT NOT NULL
         )
     """)
-    CURRENT_SCHEMA_VERSION = 7
+    CURRENT_SCHEMA_VERSION = 8
     try:
         cursor.execute("SELECT MAX(version) FROM schema_version")
         row = cursor.fetchone()
@@ -516,6 +516,7 @@ def ensure_schema(cursor: Any) -> None:
         "ALTER TABLE tasks ADD COLUMN allowed_paths TEXT",
         "ALTER TABLE tasks ADD COLUMN definition_of_done TEXT",
         "ALTER TABLE tasks ADD COLUMN machine TEXT",
+        "ALTER TABLE tasks ADD COLUMN created_by TEXT",
     ]:
         _migrate_add_column(cursor, sql)
 
@@ -919,7 +920,7 @@ def ensure_schema(cursor: Any) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_info_project ON project_info(project_id)")
 
     # Update schema version
-    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (7, ?)", (datetime.now().isoformat(),))
+    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (8, ?)", (datetime.now().isoformat(),))
 
 
 def create_database(db_path: Optional[Path] = None) -> None:

@@ -410,5 +410,76 @@ def test_property_16_project_validation(invalid_project_id, text, status, priori
         db_path.unlink()
 
 
+def test_created_by_roundtrip():
+    """created_by is stored on add_task and returned by get_task."""
+    db_path, db_manager, _ = _setup_fresh_database()
+    try:
+        task = db_manager.add_task(
+            text="Origin-tagged task",
+            project_id="project-tracker",
+            status="Backlog",
+            created_by="ai-memory",
+        )
+        assert task["created_by"] == "ai-memory"
+
+        retrieved = db_manager.get_task(task["id"])
+        assert retrieved is not None
+        assert retrieved["created_by"] == "ai-memory"
+    finally:
+        db_path.unlink()
+
+
+def test_created_by_defaults_to_null_when_absent():
+    """created_by is optional; omitting it stores NULL, not an empty string or the literal 'None'."""
+    db_path, db_manager, _ = _setup_fresh_database()
+    try:
+        task = db_manager.add_task(
+            text="No origin",
+            project_id="project-tracker",
+            status="Backlog",
+        )
+        assert task.get("created_by") is None
+
+        retrieved = db_manager.get_task(task["id"])
+        assert retrieved is not None
+        assert retrieved.get("created_by") is None
+    finally:
+        db_path.unlink()
+
+
+def test_resolve_created_by_cwd_mapping(monkeypatch, tmp_path):
+    """resolve_created_by() maps cwd and PT_CALLER_CWD to the expected labels."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+    from origin import resolve_created_by
+
+    fake_home = tmp_path / "home"
+    fake_projects = fake_home / "projects"
+    (fake_projects / "ai-memory" / "subdir").mkdir(parents=True)
+    (fake_projects / "project-tracker").mkdir()
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.delenv("PT_CALLER_CWD", raising=False)
+
+    monkeypatch.chdir(fake_projects)
+    assert resolve_created_by() == "architect"
+
+    monkeypatch.chdir(fake_projects / "project-tracker")
+    assert resolve_created_by() == "project-tracker"
+
+    monkeypatch.chdir(fake_projects / "ai-memory" / "subdir")
+    assert resolve_created_by() == "ai-memory"
+
+    monkeypatch.chdir(outside)
+    assert resolve_created_by() == "unknown"
+
+    # PT_CALLER_CWD overrides cwd
+    monkeypatch.chdir(outside)
+    monkeypatch.setenv("PT_CALLER_CWD", str(fake_projects / "ai-memory"))
+    assert resolve_created_by() == "ai-memory"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
