@@ -45,6 +45,7 @@ from discovery.graph_builder import GraphBuilder
 # update_directory_index removed — 00_Index generation killed (#5530)
 from discovery.journal_specialist import JournalSpecialist
 from utils.validation import BlockedTaskProjectError
+from origin import resolve_created_by as _resolve_created_by
 
 console = Console()
 
@@ -1015,7 +1016,8 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
 @click.option("--parent", type=int, default=None, help="Parent task ID (creates subtask)")
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs that block this task")
 @click.option("--proposal", is_flag=True, help="Create as a proposal (hidden from default listing until approved)")
-def tasks_create(text, project, status, priority, prompt, description, parent, blocked_by, proposal):
+@click.option("--created-by", "created_by", default=None, help="Origin label (defaults to cwd-derived: 'architect', project name, or 'unknown')")
+def tasks_create(text, project, status, priority, prompt, description, parent, blocked_by, proposal, created_by):
     """Create a new task.
 
     Auto-detects project from current directory.
@@ -1045,7 +1047,8 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
         final_prompt = prompt
         if prompt: final_prompt = prompt.rstrip() + WORKFLOW_FOOTER
         task_type = "proposal" if proposal else None
-        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, task_type=task_type, parent_id=parent, blocked_by=blocked_by_json, notes=description)
+        resolved_created_by = created_by if created_by else _resolve_created_by()
+        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, task_type=task_type, parent_id=parent, blocked_by=blocked_by_json, notes=description, created_by=resolved_created_by)
         msg = f"[green]Created {'proposal' if proposal else 'task'} #{task['id']}: {text[:50]}{'...' if len(text) > 50 else ''}[/green]"
         if description: msg += f" [dim](+ description)[/dim]"
         if parent: msg += f" [dim](subtask of #{parent})[/dim]"
@@ -1318,6 +1321,7 @@ def tasks_show(task_ids, json_output):
                 if is_blocked: print(f"Blocked by: {', '.join(f'#{tid}' for tid in blocking_ids)} (incomplete)")
                 elif task.get('blocked_by'): print(f"Blocked by: (all resolved)")
                 print(f"Created: {task['created_at']}")
+                if task.get('created_by'): print(f"Created by: {task['created_by']}")
                 print(f"Updated: {task['updated_at']}")
                 if task.get('completed_at'): print(f"Completed: {task['completed_at']}")
                 print()

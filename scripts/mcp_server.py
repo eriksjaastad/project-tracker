@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.db.manager import DatabaseManager
 from scripts.logger import get_logger
+from scripts.origin import resolve_created_by
 
 logger = get_logger(__name__)
 
@@ -73,7 +74,8 @@ def kanban_add_task(
             project_id=project,
             status=status,
             priority=priority,
-            prompt=prompt
+            prompt=prompt,
+            created_by=resolve_created_by(),
         )
         
         logger.info(f"Created task {task['id']} for project {project}: {text[:50]}...")
