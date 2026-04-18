@@ -89,7 +89,7 @@ def test_installed_skills_parses_frontmatter(tmp_path, monkeypatch):
     assert all(p.name == "SKILL.md" for p in out.values())
 
 
-def test_installed_skills_ignores_missing_frontmatter(tmp_path, monkeypatch):
+def test_installed_skills_ignores_missing_frontmatter(tmp_path, monkeypatch, capsys):
     home = _fake_home(tmp_path, monkeypatch)
     root = home / ".claude" / "skills"
     good = root / "good"
@@ -100,6 +100,23 @@ def test_installed_skills_ignores_missing_frontmatter(tmp_path, monkeypatch):
     (bad / "SKILL.md").write_text("no frontmatter at all\n", encoding="utf-8")
     out = installed_skills(root)
     assert set(out.keys()) == {"good"}
+    captured = capsys.readouterr()
+    assert "skipping" in captured.err
+    assert "bad/SKILL.md" in captured.err
+
+
+def test_installed_skills_handles_utf8_bom(tmp_path, monkeypatch, capsys):
+    """UTF-8 BOM-prefixed SKILL.md files should still parse (regex allows BOM)."""
+    home = _fake_home(tmp_path, monkeypatch)
+    root = home / ".claude" / "skills"
+    d = root / "bom-skill"
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_bytes(
+        "\ufeff---\nname: bom-skill\n---\nBody\n".encode("utf-8")
+    )
+    out = installed_skills(root)
+    assert "bom-skill" in out
+    assert "skipping" not in capsys.readouterr().err
 
 
 def test_installed_skills_empty_on_missing_root(tmp_path):
@@ -116,6 +133,39 @@ def test_installed_skills_finds_nested_SKILL_md(tmp_path, monkeypatch):
     )
     out = installed_skills(root)
     assert "idea-generator" in out
+
+
+# ── skill_invocations_reader: timestamp parsing ───────────────────────────
+
+
+def test_reader_parses_naive_sqlite_default_timestamp(tmp_path, monkeypatch):
+    """`CURRENT_TIMESTAMP` default writes 'YYYY-MM-DD HH:MM:SS' without tz;
+    the parser must normalise that to UTC-aware."""
+    home = _fake_home(tmp_path, monkeypatch)
+    db = tmp_path / "brain.db"
+    _seed(db, [
+        ("commit", str(home / "projects" / "project-tracker"),
+         "s1", "t1", "", "2026-04-10 12:34:56"),
+    ])
+    cfg = tmp_path / "noop.json"
+    rows = list(iter_invocations(db_path=db, turso_config=cfg))
+    assert len(rows) == 1
+    assert rows[0].invoked_at.tzinfo is not None
+    assert rows[0].invoked_at.isoformat() == "2026-04-10T12:34:56+00:00"
+
+
+def test_reader_parses_z_suffix_timestamp(tmp_path, monkeypatch):
+    """Some older rows carry trailing 'Z' instead of '+00:00'."""
+    home = _fake_home(tmp_path, monkeypatch)
+    db = tmp_path / "brain.db"
+    _seed(db, [
+        ("pr", str(home / "projects" / "ai-memory"),
+         "s1", "t1", "", "2026-03-16T08:40:50.204Z"),
+    ])
+    cfg = tmp_path / "noop.json"
+    rows = list(iter_invocations(db_path=db, turso_config=cfg))
+    assert len(rows) == 1
+    assert rows[0].invoked_at.tzinfo is not None
 
 
 # ── skill_invocations_reader ──────────────────────────────────────────────
