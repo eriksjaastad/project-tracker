@@ -67,3 +67,9 @@ uv.lock
 *.wav
 *.m4a
 project-graph-screenshots-movies/
+
+# Claude Code workspace state (plans, local settings, worktrees)
+.claude/
+
+# Manual Anthropic cost exports — portfolio-level, not project-scoped
+*.csv
