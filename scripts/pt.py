@@ -2942,7 +2942,14 @@ def _agent_display(caller_type: str) -> str:
 
 
 def _agent_query_value(flag_value: str) -> str:
-    """Translate the ``--agent`` CLI value into the raw caller_type string."""
+    """Translate the ``--agent`` CLI value into the raw caller_type string.
+
+    Invariant (per ai-memory #6026 v2): caller_type is never the literal
+    string 'unknown' in the DB — it's either a real attribution ('main',
+    'subagent', …) or empty. So mapping the human-friendly 'unknown' token
+    to '' is safe and round-trip-unambiguous. Revisit this translation if
+    the producer hook ever starts writing 'unknown' as an explicit value.
+    """
     return "" if flag_value == _UNKNOWN_AGENT_LABEL else flag_value
 
 
@@ -2968,6 +2975,16 @@ def skills_stats(days, skill_filter, agent_filter, project_filter,
     """Leaderboard of skill invocations over a time window."""
     import json as json_mod
     from collections import Counter, defaultdict
+
+    render_modes = [m for m, on in (
+        ("--never-used", never_used),
+        ("--by-project", by_project),
+        ("--by-agent", by_agent),
+    ) if on]
+    if len(render_modes) > 1:
+        raise click.UsageError(
+            f"{' and '.join(render_modes)} are mutually exclusive — pick one."
+        )
 
     rows, window_days = _collect_invocations(
         skill=skill_filter,
