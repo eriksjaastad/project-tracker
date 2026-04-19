@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-    LaunchAgent: run `tailscale up` at login.
+    LaunchAgent TEMPLATE: run `tailscale up` at login.
+
+    This is a template — the @PT_HOME@ placeholders get substituted
+    with the installing machine's project path by scripts/launchd/install.sh.
+    Do NOT copy this .plist.in file directly to ~/Library/LaunchAgents/
+    — launchd cannot parse the placeholders.
 
     The Tailscale GUI app is not required to keep the tunnel up — the
     system extension provides the VPN plumbing, and `tailscale up`
@@ -9,23 +14,12 @@
     state is cleared, so this agent runs once at login to bring the
     tunnel back without the operator having to touch the GUI.
 
-    Install (per machine):
-        mkdir -p ~/Library/LaunchAgents
-        cp ~/projects/project-tracker/scripts/launchd/com.pt.tailscale-up.plist \
-           ~/Library/LaunchAgents/com.pt.tailscale-up.plist
-        launchctl load ~/Library/LaunchAgents/com.pt.tailscale-up.plist
-
-    Uninstall:
-        launchctl unload ~/Library/LaunchAgents/com.pt.tailscale-up.plist
-        rm ~/Library/LaunchAgents/com.pt.tailscale-up.plist
-
-    Logs: ~/projects/project-tracker/logs/tailscale-up.log and
-          ~/projects/project-tracker/logs/tailscale-up.err
+    Install + uninstall: see scripts/launchd/install.sh --help.
 
     Notes:
       - `tailscale` CLI on macOS is a shim at /usr/local/bin/tailscale
-        that invokes /Applications/Tailscale.app/Contents/MacOS/tailscale,
-        so the .app must remain installed (just not running).
+        that invokes the binary inside /Applications/Tailscale.app, so
+        the .app must remain installed (just not running).
       - `RunAtLoad` fires when the agent loads (i.e. at login and when
         `launchctl load` runs). `KeepAlive` is deliberately absent —
         this is a one-shot bring-up, not a watchdog.
@@ -45,10 +39,10 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/Users/eriksjaastad/projects/project-tracker/logs/tailscale-up.log</string>
+    <string>@PT_HOME@/logs/tailscale-up.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/eriksjaastad/projects/project-tracker/logs/tailscale-up.err</string>
+    <string>@PT_HOME@/logs/tailscale-up.err</string>
 
     <key>EnvironmentVariables</key>
     <dict>

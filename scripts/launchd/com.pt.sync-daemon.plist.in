@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    LaunchAgent TEMPLATE: cr-sqlite sync daemon (Phase 2.1b).
+
+    This is a template — the @UV_BIN@, @PT_HOME@, and @PEER_HOST@
+    placeholders get substituted by scripts/launchd/install.sh. Do NOT
+    copy this .plist.in file directly to ~/Library/LaunchAgents/ —
+    launchd cannot parse the placeholders.
+
+    Runs the long-running process that replicates CRR tables over
+    Tailscale. PR #3c-1 ships the scaffolding only — the replication
+    payload is a stub until §2.4 proves cr-sqlite's bootstrap
+    semantics on a trial table. The agent can land now because the
+    outer loop (pause-aware, interval-driven, clean-shutdown) is
+    what actually needs launchd persistence — the payload swap is a
+    single-function change that doesn't affect this plist.
+
+    MagicDNS resolves plain tailnet hostnames (no .tail... suffix
+    needed); both tailnet and MagicDNS must be up for the peer-ping
+    in preflight to succeed.
+
+    Install + uninstall: see scripts/launchd/install.sh --help.
+
+    Depends on com.pt.tailscale-up: the daemon's preflight peer-reachability
+    check will fail if the tunnel isn't up yet. launchd does not expose
+    a real "after" dependency for LaunchAgents, so the daemon just retries
+    on preflight failure (exit 2 + launchd ThrottleInterval=30s brings
+    it back on the next interval, by which point tailscale-up has usually
+    succeeded).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pt.sync-daemon</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>@UV_BIN@</string>
+        <string>run</string>
+        <string>--project</string>
+        <string>@PT_HOME@</string>
+        <string>python</string>
+        <string>-m</string>
+        <string>scripts.db.sync_daemon</string>
+        <string>--db-path</string>
+        <string>@PT_HOME@/data/tracker.db</string>
+        <string>--peer-host</string>
+        <string>@PEER_HOST@</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>WorkingDirectory</key>
+    <string>@PT_HOME@</string>
+
+    <key>StandardOutPath</key>
+    <string>@PT_HOME@/logs/sync-daemon.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>@PT_HOME@/logs/sync-daemon.err</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
