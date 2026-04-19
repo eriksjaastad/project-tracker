@@ -3241,8 +3241,23 @@ def _sync_conn() -> sqlite3.Connection:
     ``isolation_level=None`` so the sync_state module's implicit
     commits (``INSERT OR REPLACE`` / ``DELETE``) take effect without
     a second transaction wrapping them.
+
+    A ``sqlite3.Error`` here (corrupt file, permissions, stale path)
+    is translated into a ``click.UsageError`` by the callers so the
+    operator gets "pt sync status: <reason>" instead of a raw Python
+    traceback. Keeps error output consistent with the rest of pt.
     """
     return sqlite3.connect(get_db_path(), isolation_level=None)
+
+
+def _handle_sync_db_error(cmd: str, err: Exception) -> None:
+    """Print a uniform error and exit 2 for sync DB failures.
+
+    Called by sync_status / sync_pause / sync_resume so a broken DB
+    path produces a clean message, not a traceback.
+    """
+    console.print(f"[red]pt sync {cmd}: {err}[/red]")
+    sys.exit(2)
 
 
 def _sync_engine_active(conn: sqlite3.Connection) -> bool:
@@ -3261,7 +3276,11 @@ def sync_status():
         console.print("[yellow]sync engine: Turso (replication handled upstream)[/yellow]")
         return
     from db.sync_state import is_paused, pause_scope, last_sync
-    conn = _sync_conn()
+    try:
+        conn = _sync_conn()
+    except sqlite3.Error as err:
+        _handle_sync_db_error("status", err)
+        return  # pragma: no cover — _handle_sync_db_error raises SystemExit
     try:
         paused = is_paused(conn)
         scope = pause_scope(conn)
@@ -3298,9 +3317,16 @@ def sync_pause(all_scope: bool):
         sys.exit(2)
     from db.sync_state import set_paused
     scope = "all" if all_scope else "data_plane"
-    conn = _sync_conn()
+    try:
+        conn = _sync_conn()
+    except sqlite3.Error as err:
+        _handle_sync_db_error("pause", err)
+        return  # pragma: no cover
     try:
         set_paused(conn, scope=scope)  # type: ignore[arg-type]
+    except sqlite3.Error as err:
+        _handle_sync_db_error("pause", err)
+        return  # pragma: no cover
     finally:
         conn.close()
     console.print(f"[yellow]✓ sync paused ({scope}).[/yellow]")
@@ -3323,10 +3349,17 @@ def sync_resume():
         console.print("[red]pt sync resume: Turso mode — nothing to resume locally.[/red]")
         sys.exit(2)
     from db.sync_state import clear_paused, is_paused
-    conn = _sync_conn()
+    try:
+        conn = _sync_conn()
+    except sqlite3.Error as err:
+        _handle_sync_db_error("resume", err)
+        return  # pragma: no cover
     try:
         was_paused = is_paused(conn)
         clear_paused(conn)
+    except sqlite3.Error as err:
+        _handle_sync_db_error("resume", err)
+        return  # pragma: no cover
     finally:
         conn.close()
     if was_paused:

@@ -265,6 +265,24 @@ def test_pause_refuses_under_turso(
     assert "Turso" in status.output
 
 
+def test_pause_reports_clean_error_on_db_open_failure(
+    runner: CliRunner, cli_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broken DB path must produce a Click-style error, not a raw
+    Python traceback. Covers the code-reviewer LOW finding on
+    unhandled sqlite3 errors in sync_pause/resume/status."""
+    def _boom(*_args, **_kwargs):
+        raise sqlite3.DatabaseError("synthetic: unable to open database file")
+
+    monkeypatch.setattr("pt.sqlite3.connect", _boom)
+    result = runner.invoke(cli, ["sync", "pause"])
+    assert result.exit_code == 2
+    assert "pt sync pause" in result.output
+    assert "unable to open database file" in result.output
+    # No traceback surfaced to the operator.
+    assert "Traceback" not in result.output
+
+
 def test_sync_help_lists_all_three_subcommands(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["sync", "--help"])
     assert result.exit_code == 0
