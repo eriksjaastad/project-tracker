@@ -364,6 +364,16 @@ def test_cli_agent_filter_unknown_maps_to_empty(cli_env):
     assert skills == {"journal": 1}
 
 
+def test_cli_render_modes_are_mutually_exclusive(cli_env):
+    """--never-used, --by-project, and --by-agent cannot be combined."""
+    for pair in (["--by-project", "--by-agent"],
+                 ["--never-used", "--by-agent"],
+                 ["--never-used", "--by-project"]):
+        result = _runner_invoke(["stats", "--days", "0", *pair])
+        assert result.exit_code != 0, f"expected UsageError for {pair}: {result.output}"
+        assert "mutually exclusive" in result.output
+
+
 def test_cli_agent_filter_subagent(cli_env):
     result = _runner_invoke(["stats", "--days", "0", "--agent", "subagent", "--json"])
     assert result.exit_code == 0, result.output
