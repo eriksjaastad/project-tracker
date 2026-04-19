@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    LaunchAgent: run `tailscale up` at login.
+
+    The Tailscale GUI app is not required to keep the tunnel up — the
+    system extension provides the VPN plumbing, and `tailscale up`
+    restores the authenticated session. After a reboot the session
+    state is cleared, so this agent runs once at login to bring the
+    tunnel back without the operator having to touch the GUI.
+
+    Install (per machine):
+        mkdir -p ~/Library/LaunchAgents
+        cp ~/projects/project-tracker/scripts/launchd/com.pt.tailscale-up.plist \
+           ~/Library/LaunchAgents/com.pt.tailscale-up.plist
+        launchctl load ~/Library/LaunchAgents/com.pt.tailscale-up.plist
+
+    Uninstall:
+        launchctl unload ~/Library/LaunchAgents/com.pt.tailscale-up.plist
+        rm ~/Library/LaunchAgents/com.pt.tailscale-up.plist
+
+    Logs: ~/projects/project-tracker/logs/tailscale-up.log and
+          ~/projects/project-tracker/logs/tailscale-up.err
+
+    Notes:
+      - `tailscale` CLI on macOS is a shim at /usr/local/bin/tailscale
+        that invokes /Applications/Tailscale.app/Contents/MacOS/tailscale,
+        so the .app must remain installed (just not running).
+      - `RunAtLoad` fires when the agent loads (i.e. at login and when
+        `launchctl load` runs). `KeepAlive` is deliberately absent —
+        this is a one-shot bring-up, not a watchdog.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pt.tailscale-up</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/tailscale</string>
+        <string>up</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/eriksjaastad/projects/project-tracker/logs/tailscale-up.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/eriksjaastad/projects/project-tracker/logs/tailscale-up.err</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

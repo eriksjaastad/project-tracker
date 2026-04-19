@@ -3338,12 +3338,24 @@ def sync_pause(all_scope: bool):
 
 
 @sync_group.command(name="resume")
-def sync_resume():
+@click.option(
+    "--force", is_flag=True,
+    help="Resume even if the peer hasn't acknowledged a recently-applied migration.",
+)
+def sync_resume(force: bool):
     """Resume data-plane replication.
 
-    Will eventually block (PR #3c) until the peer's schema migration
-    announcements match this machine's. Today sync isn't active yet,
-    so resume is a straight state-clear.
+    Implements the §2.3 step-6 gate: refuses to clear the pause state
+    when this machine has applied a migration that the peer hasn't
+    announced yet (determined from ``schema_migration_announcements``
+    — which is CRR-classified, so peer's rows replicate in via the
+    always-on control plane once cr-sqlite lands).
+
+    The gate only activates once ``schema_migration_announcements`` is
+    flipped to CRR (§2.5) AND this machine has a local ``site_id``
+    (cr-sqlite loaded). Before then it's a no-op — otherwise a
+    daemon-less install could never resume, since no peer rows can
+    replicate in.
     """
     if _USE_TURSO:
         console.print("[red]pt sync resume: Turso mode — nothing to resume locally.[/red]")
@@ -3355,6 +3367,23 @@ def sync_resume():
         _handle_sync_db_error("resume", err)
         return  # pragma: no cover
     try:
+        if not force:
+            blocked = _sync_resume_blocked_versions(conn)
+            if blocked:
+                versions = ", ".join(f"{v:03d}" for v in blocked)
+                console.print(
+                    f"[yellow]pt sync resume: waiting for peer to apply "
+                    f"migration(s) {versions}.[/yellow]"
+                )
+                console.print(
+                    "On the peer machine, run:\n"
+                    "    cd ~/projects/project-tracker && git pull\n"
+                    "    pt db migrate\n"
+                    "Resume will proceed automatically once the peer's "
+                    "announcement arrives. "
+                    "Use [cyan]--force[/cyan] to override this gate."
+                )
+                sys.exit(3)
         was_paused = is_paused(conn)
         clear_paused(conn)
     except sqlite3.Error as err:
@@ -3366,6 +3395,36 @@ def sync_resume():
         console.print("[green]✓ sync resumed.[/green]")
     else:
         console.print("[dim]sync was not paused.[/dim]")
+
+
+def _sync_resume_blocked_versions(conn: sqlite3.Connection) -> list[int]:
+    """Migration versions applied locally but not yet announced by the peer.
+
+    Returns an empty list when the gate can't meaningfully run (no
+    cr-sqlite ⇒ no site_id ⇒ peer rows can't replicate in anyway, so
+    blocking on "peer hasn't announced" would be blocking forever).
+    This mirrors the guard in ``sync_daemon._outstanding_peer_announcements``
+    and keeps the CLI's logic in sync with the daemon's.
+    """
+    try:
+        site_row = conn.execute("SELECT crsql_site_id()").fetchone()
+    except sqlite3.OperationalError:
+        return []  # cr-sqlite not loaded — nothing to gate on
+    if not site_row or site_row[0] is None:
+        return []
+    site_id = site_row[0]
+    try:
+        rows = conn.execute(
+            "SELECT version FROM schema_migration_announcements "
+            "WHERE machine_id = ? "
+            "EXCEPT "
+            "SELECT version FROM schema_migration_announcements "
+            "WHERE machine_id != ?",
+            (site_id, site_id),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []  # table missing — gate is moot
+    return sorted(r[0] for r in rows)
 
 
 # =============================================================================
