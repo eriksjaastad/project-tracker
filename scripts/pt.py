@@ -3263,7 +3263,7 @@ def _handle_sync_db_error(cmd: str, err: Exception) -> None:
 def _sync_engine_active(conn: sqlite3.Connection) -> bool:
     """True when cr-sqlite is loaded — shipping sync is gated on this."""
     try:
-        conn.execute("SELECT crsql_dbversion()")
+        conn.execute("SELECT crsql_db_version()")
         return True
     except sqlite3.OperationalError:
         return False
