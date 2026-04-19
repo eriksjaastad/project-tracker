@@ -70,10 +70,13 @@ render_and_install() {
             "$src" > "$dst"
 
         # Fail loudly if any placeholder leaked through (catches typos
-        # in the template or in this script).
-        if grep -q '@[A-Z_]\+@' "$dst"; then
+        # in the template or in this script). Use grep -E (ERE) so `+`
+        # means "one or more" on BSD grep too; BSD's BRE would treat
+        # `\+` as a literal backslash-plus and the guard would silently
+        # pass on macOS.
+        if grep -qE '@[A-Z_]+@' "$dst"; then
             echo "install.sh: unsubstituted placeholder in $dst:" >&2
-            grep -n '@[A-Z_]\+@' "$dst" >&2
+            grep -nE '@[A-Z_]+@' "$dst" >&2
             exit 2
         fi
 
