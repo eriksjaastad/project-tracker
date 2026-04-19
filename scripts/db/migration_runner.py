@@ -180,11 +180,19 @@ def applied_versions(conn: sqlite3.Connection) -> set[int]:
     Before the first migration runs the ``schema_migrations`` ledger
     doesn't exist yet — return an empty set so the bootstrap migration
     (the one that creates the ledger) isn't mistaken for already-applied.
+
+    Only the specific "no such table: schema_migrations" case is
+    swallowed. Other ``OperationalError`` cases (database locked, disk
+    full, corruption) propagate — silencing them would let the runner
+    re-attempt every migration and surface as a confusing IntegrityError
+    on the PRIMARY KEY instead of the real cause.
     """
     try:
         cur = conn.execute("SELECT version FROM schema_migrations")
-    except sqlite3.OperationalError:
-        return set()
+    except sqlite3.OperationalError as err:
+        if "no such table" in str(err).lower():
+            return set()
+        raise
     return {row[0] for row in cur.fetchall()}
 
 

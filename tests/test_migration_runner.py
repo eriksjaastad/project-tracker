@@ -229,6 +229,24 @@ def test_applied_versions_is_empty_when_ledger_missing() -> None:
     assert applied_versions(conn) == set()
 
 
+def test_applied_versions_reraises_non_missing_table_errors() -> None:
+    """The empty-set return is narrow: only swallow 'no such table'.
+    Any other OperationalError (locked, disk full, corruption)
+    propagates so the caller sees the real failure instead of a
+    confusing IntegrityError at insert time."""
+    conn = _ledger_conn()
+
+    class _Boom:
+        def execute(self, *_args, **_kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        applied_versions(_Boom())  # type: ignore[arg-type]
+
+    # Sanity: the real conn still works.
+    assert applied_versions(conn) == set()
+
+
 def test_applied_versions_reflects_ledger_rows() -> None:
     conn = _ledger_conn()
     conn.execute(
