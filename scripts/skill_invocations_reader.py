@@ -123,6 +123,7 @@ def iter_invocations(
     *,
     since: datetime | None = None,
     skill: str | None = None,
+    agent: str | None = None,
     project: str | None = None,
     db_path: Path | None = None,
     turso_config: Path | None = None,
@@ -131,8 +132,9 @@ def iter_invocations(
 
     Filtering by ``project`` happens in Python (via :func:`project_from_cwd`
     over the ``cwd`` column) because the table doesn't store a project
-    column directly. Filtering by ``skill`` and ``since`` is pushed down
-    to the WHERE clause and benefits from the existing indices.
+    column directly. Filtering by ``skill``, ``agent`` (caller_type), and
+    ``since`` is pushed down to the WHERE clause. ``agent=""`` matches the
+    legitimately-unattributable rows (empty caller_type).
 
     ``db_path`` and ``turso_config`` default to the module-level constants
     resolved *at call time* — tests can monkeypatch those module globals
@@ -153,6 +155,9 @@ def iter_invocations(
     if skill is not None:
         where.append("skill_name = ?")
         params.append(skill)
+    if agent is not None:
+        where.append("caller_type = ?")
+        params.append(agent)
     if since is not None:
         where.append("invoked_at >= ?")
         params.append(since.astimezone(timezone.utc).isoformat(timespec="seconds"))
