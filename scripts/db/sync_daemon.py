@@ -152,6 +152,15 @@ def _sync_round_placeholder(
 
     For PR #3c-1 the stub just logs — enough to prove the outer loop
     works end-to-end.
+
+    Side-effect note: ``SyncDaemon.run_once`` advances
+    ``sync.last_successful_sync`` after any non-exception return from
+    this function, which means during the #3c-1 → #3c-2 window
+    ``pt sync status`` will show a recent "last successful sync"
+    even though no data moved. That's acceptable only while the stub
+    is in place. TODO(#3c-2): remove this note once the real
+    replication lands — a no-op round won't need to advance
+    last_successful_sync since there won't be a no-op round.
     """
     log.info("sync round placeholder: peer=%s (no-op until PR #3c-2)", peer_host)
 

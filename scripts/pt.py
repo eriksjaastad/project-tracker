@@ -3410,7 +3410,10 @@ def _sync_resume_blocked_versions(conn: sqlite3.Connection) -> list[int]:
         site_row = conn.execute("SELECT crsql_site_id()").fetchone()
     except sqlite3.OperationalError:
         return []  # cr-sqlite not loaded — nothing to gate on
-    if not site_row or site_row[0] is None:
+    # `not site_row[0]` catches both None and empty-string site ids.
+    # An empty site id would match WHERE machine_id = '' and silently
+    # return zero rows, making the gate a no-op with misleading logs.
+    if not site_row or not site_row[0]:
         return []
     site_id = site_row[0]
     try:
