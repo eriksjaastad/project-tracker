@@ -215,6 +215,29 @@ def test_reader_filters_by_skill_and_since(tmp_path, monkeypatch):
     assert [r.skill_name for r in commit_only] == ["commit", "commit"]
 
 
+def test_reader_filters_by_agent(tmp_path, monkeypatch):
+    home = _fake_home(tmp_path, monkeypatch)
+    db = tmp_path / "brain.db"
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _seed(db, [
+        ("commit", str(home / "projects" / "project-tracker"), "s1", "t1", "main", now),
+        ("pr",     str(home / "projects" / "project-tracker"), "s1", "t2", "main", now),
+        ("pr",     str(home / "projects" / "ai-memory"),       "s2", "t3", "subagent", now),
+        ("journal", str(home / "projects" / "other"),          "s3", "t4", "", now),
+    ])
+    cfg = tmp_path / "noop.json"
+
+    main_rows = list(iter_invocations(agent="main", db_path=db, turso_config=cfg))
+    assert sorted(r.skill_name for r in main_rows) == ["commit", "pr"]
+    assert all(r.caller_type == "main" for r in main_rows)
+
+    sub_rows = list(iter_invocations(agent="subagent", db_path=db, turso_config=cfg))
+    assert len(sub_rows) == 1 and sub_rows[0].caller_type == "subagent"
+
+    empty_rows = list(iter_invocations(agent="", db_path=db, turso_config=cfg))
+    assert len(empty_rows) == 1 and empty_rows[0].skill_name == "journal"
+
+
 def test_reader_resolves_project_from_cwd(tmp_path, monkeypatch):
     home = _fake_home(tmp_path, monkeypatch)
     db = tmp_path / "brain.db"
@@ -249,9 +272,9 @@ def cli_env(tmp_path, monkeypatch):
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     old = (datetime.now(timezone.utc) - timedelta(days=45)).isoformat(timespec="seconds")
     _seed(db, [
-        ("commit", str(home / "projects" / "project-tracker"), "s1", "t1", "", now),
-        ("commit", str(home / "projects" / "project-tracker"), "s1", "t2", "", now),
-        ("pr",     str(home / "projects" / "ai-memory"),       "s2", "t3", "", now),
+        ("commit", str(home / "projects" / "project-tracker"), "s1", "t1", "main", now),
+        ("commit", str(home / "projects" / "project-tracker"), "s1", "t2", "main", now),
+        ("pr",     str(home / "projects" / "ai-memory"),       "s2", "t3", "subagent", now),
         ("journal", str(home / "projects" / "other"),          "s3", "t4", "", old),
     ])
     cfg = tmp_path / ".turso-config.json"
@@ -312,6 +335,51 @@ def test_cli_never_used(cli_env):
     payload = json.loads(result.output)
     assert "never-called" in payload["never_used"]
     assert "commit" not in payload["never_used"]
+
+
+def test_cli_by_agent(cli_env):
+    result = _runner_invoke(["stats", "--days", "0", "--by-agent", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    agents = payload["agents"]
+    assert agents["main"] == {"commit": 2}
+    assert agents["subagent"] == {"pr": 1}
+    assert agents["unknown"] == {"journal": 1}
+
+
+def test_cli_agent_filter_main(cli_env):
+    result = _runner_invoke(["stats", "--days", "0", "--agent", "main", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    skills = {s["skill"]: s["calls"] for s in payload["skills"]}
+    assert skills == {"commit": 2}
+
+
+def test_cli_agent_filter_unknown_maps_to_empty(cli_env):
+    """--agent unknown translates to caller_type='' for the SQL query."""
+    result = _runner_invoke(["stats", "--days", "0", "--agent", "unknown", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    skills = {s["skill"]: s["calls"] for s in payload["skills"]}
+    assert skills == {"journal": 1}
+
+
+def test_cli_render_modes_are_mutually_exclusive(cli_env):
+    """--never-used, --by-project, and --by-agent cannot be combined."""
+    for pair in (["--by-project", "--by-agent"],
+                 ["--never-used", "--by-agent"],
+                 ["--never-used", "--by-project"]):
+        result = _runner_invoke(["stats", "--days", "0", *pair])
+        assert result.exit_code != 0, f"expected UsageError for {pair}: {result.output}"
+        assert "mutually exclusive" in result.output
+
+
+def test_cli_agent_filter_subagent(cli_env):
+    result = _runner_invoke(["stats", "--days", "0", "--agent", "subagent", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    skills = {s["skill"]: s["calls"] for s in payload["skills"]}
+    assert skills == {"pr": 1}
 
 
 def test_cli_by_project(cli_env):
