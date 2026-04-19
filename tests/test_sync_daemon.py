@@ -253,13 +253,18 @@ def test_daemon_survives_round_exception(seeded_db: Path):
     assert calls["n"] == 2  # loop ran twice, first threw, second succeeded
 
     # The second (succeeding) round must advance last_successful_sync —
-    # pins that recovery doesn't skip the bookkeeping.
+    # pins that recovery doesn't skip the bookkeeping. Assert on the
+    # value, not just presence, so a stale row from some other test
+    # run couldn't make the assertion pass vacuously.
     check = sqlite3.connect(seeded_db)
     try:
         row = check.execute(
             "SELECT value FROM _metadata WHERE key='sync.last_successful_sync'"
         ).fetchone()
         assert row is not None
+        assert row[0].startswith("20"), (
+            f"expected ISO timestamp, got {row[0]!r}"
+        )
     finally:
         check.close()
 
