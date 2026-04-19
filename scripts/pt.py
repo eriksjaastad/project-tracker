@@ -195,9 +195,15 @@ def _warn_unapplied_migrations() -> None:
             f"⚠ pending migration(s): {names}. Run `pt db migrate` to apply.",
             err=True,
         )
-    except Exception:
-        # A broken migration file shouldn't brick the CLI. `pt db migrate`
-        # will surface the real error when the operator runs it.
+    except Exception as err:
+        # A broken migration file or broken DB config shouldn't brick
+        # the CLI, but it shouldn't be silent either — the operator
+        # needs to see that something is wrong, not just a missing
+        # warning. Log and continue.
+        click.echo(
+            f"⚠ could not check for pending migrations: {err!r}",
+            err=True,
+        )
         return
 
 

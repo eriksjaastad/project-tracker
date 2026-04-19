@@ -151,17 +151,41 @@ def test_warn_unapplied_skipped_under_turso(
     assert capsys.readouterr().err == ""
 
 
-def test_warn_unapplied_never_raises(
+def test_warn_unapplied_skips_silently_when_db_missing(
     capsys: pytest.CaptureFixture[str], tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A broken migration file must not brick the CLI — the warning
-    helper swallows exceptions by design."""
+    """A missing DB file is the normal state before first run — early
+    return, no output, no crash."""
     monkeypatch.delenv("PT_SUPPRESS_MIGRATION_WARNING", raising=False)
     monkeypatch.setenv("PT_DB_PATH", str(tmp_path / "nonexistent.db"))
     monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
-    # Should not raise even with a nonexistent DB path.
     _warn_unapplied_migrations()
+    assert capsys.readouterr().err == ""
+
+
+def test_warn_unapplied_reports_but_does_not_raise_on_unexpected_error(
+    capsys: pytest.CaptureFixture[str], fresh_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The catch-all is the CLI's safety net — unexpected failures
+    (broken config, permission error, corrupt migration file) must
+    NOT brick pt. They should land on stderr so the operator knows
+    something is off, and the CLI should keep running."""
+    monkeypatch.delenv("PT_SUPPRESS_MIGRATION_WARNING", raising=False)
+
+    # Force an error from inside the warning helper by monkeypatching
+    # sqlite3.connect — this covers the path after db_path.exists() has
+    # returned True, which the earlier test did not exercise.
+    def _boom(*_args, **_kwargs):
+        raise sqlite3.DatabaseError("synthetic: disk I/O error")
+
+    monkeypatch.setattr("pt.sqlite3.connect", _boom)
+    _warn_unapplied_migrations()  # must NOT raise
+
+    err = capsys.readouterr().err
+    assert "could not check for pending migrations" in err
+    assert "disk I/O error" in err
 
 
 # ---------------------------------------------------------------------
