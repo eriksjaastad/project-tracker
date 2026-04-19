@@ -3209,6 +3209,133 @@ def db_migrate():
 
 
 # =============================================================================
+# pt sync — data-plane pause/resume + status (Phase 2.1b)
+# =============================================================================
+#
+# The underlying sync daemon (cr-sqlite replication over Tailscale) isn't
+# built yet — this CLI is the operator-facing surface the migration
+# policy (§2.3 `pt db migrate`) depends on. Today `pt sync status`
+# reports "sync engine disabled" because cr-sqlite isn't loaded; pause
+# and resume still work (they persist intent to _metadata) so when the
+# daemon lands in PR #3c it reads the same state.
+
+
+@click.group(name="sync", invoke_without_command=True)
+@click.pass_context
+def sync_group(ctx):
+    """Data-plane sync control (cr-sqlite replication, Phase 2).
+
+    Commands:
+        pt sync status     — show pause state + last sync + engine state
+        pt sync pause      — halt data-plane replication (control plane keeps running)
+        pt sync pause --all— halt everything (rare; stops migration announcements too)
+        pt sync resume     — resume data-plane replication
+    """
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+def _sync_conn() -> sqlite3.Connection:
+    """Open a sqlite connection to the tracker DB for sync-state reads/writes.
+
+    ``isolation_level=None`` so the sync_state module's implicit
+    commits (``INSERT OR REPLACE`` / ``DELETE``) take effect without
+    a second transaction wrapping them.
+    """
+    return sqlite3.connect(get_db_path(), isolation_level=None)
+
+
+def _sync_engine_active(conn: sqlite3.Connection) -> bool:
+    """True when cr-sqlite is loaded — shipping sync is gated on this."""
+    try:
+        conn.execute("SELECT crsql_dbversion()")
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+@sync_group.command(name="status")
+def sync_status():
+    """Show pause state, last successful sync, and engine availability."""
+    if _USE_TURSO:
+        console.print("[yellow]sync engine: Turso (replication handled upstream)[/yellow]")
+        return
+    from db.sync_state import is_paused, pause_scope, last_sync
+    conn = _sync_conn()
+    try:
+        paused = is_paused(conn)
+        scope = pause_scope(conn)
+        last = last_sync(conn)
+        engine_on = _sync_engine_active(conn)
+    finally:
+        conn.close()
+
+    engine_line = (
+        "[green]engine: cr-sqlite loaded[/green]"
+        if engine_on
+        else "[dim]engine: cr-sqlite NOT loaded (sync not yet active)[/dim]"
+    )
+    if paused:
+        state = f"[yellow]paused ({scope})[/yellow]"
+    else:
+        state = "[green]running[/green]" if engine_on else "[dim]idle[/dim]"
+    last_line = last or "[dim]never[/dim]"
+
+    console.print(f"state:         {state}")
+    console.print(f"last sync:     {last_line}")
+    console.print(engine_line)
+
+
+@sync_group.command(name="pause")
+@click.option(
+    "--all", "all_scope", is_flag=True,
+    help="Halt control plane too (stops migration announcements). Rare.",
+)
+def sync_pause(all_scope: bool):
+    """Halt data-plane replication. Control plane keeps running unless --all."""
+    if _USE_TURSO:
+        console.print("[red]pt sync pause: Turso mode — nothing to pause locally.[/red]")
+        sys.exit(2)
+    from db.sync_state import set_paused
+    scope = "all" if all_scope else "data_plane"
+    conn = _sync_conn()
+    try:
+        set_paused(conn, scope=scope)  # type: ignore[arg-type]
+    finally:
+        conn.close()
+    console.print(f"[yellow]✓ sync paused ({scope}).[/yellow]")
+    if scope == "all":
+        console.print(
+            "[dim]Control plane is ALSO halted — migration announcements "
+            "won't cross machines until resume.[/dim]"
+        )
+
+
+@sync_group.command(name="resume")
+def sync_resume():
+    """Resume data-plane replication.
+
+    Will eventually block (PR #3c) until the peer's schema migration
+    announcements match this machine's. Today sync isn't active yet,
+    so resume is a straight state-clear.
+    """
+    if _USE_TURSO:
+        console.print("[red]pt sync resume: Turso mode — nothing to resume locally.[/red]")
+        sys.exit(2)
+    from db.sync_state import clear_paused, is_paused
+    conn = _sync_conn()
+    try:
+        was_paused = is_paused(conn)
+        clear_paused(conn)
+    finally:
+        conn.close()
+    if was_paused:
+        console.print("[green]✓ sync resumed.[/green]")
+    else:
+        console.print("[dim]sync was not paused.[/dim]")
+
+
+# =============================================================================
 # Register subgroups and run
 # =============================================================================
 
@@ -3222,6 +3349,7 @@ cli.add_command(info_group)
 cli.add_command(message_group)
 cli.add_command(skills_group)
 cli.add_command(db_group)
+cli.add_command(sync_group)
 
 if __name__ == "__main__":
     cli()
