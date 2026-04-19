@@ -176,7 +176,11 @@ def test_warn_unapplied_reports_but_does_not_raise_on_unexpected_error(
 
     # Force an error from inside the warning helper by monkeypatching
     # sqlite3.connect — this covers the path after db_path.exists() has
-    # returned True, which the earlier test did not exercise.
+    # returned True, which the earlier test did not exercise. The patch
+    # target "pt.sqlite3.connect" works because pt.py imports the
+    # module via `import sqlite3` (not `from sqlite3 import connect`);
+    # if that import ever changes, this monkeypatch becomes a silent
+    # no-op and the test needs to be updated.
     def _boom(*_args, **_kwargs):
         raise sqlite3.DatabaseError("synthetic: disk I/O error")
 
