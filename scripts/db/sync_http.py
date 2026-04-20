@@ -40,9 +40,11 @@ import base64
 import json
 import logging
 import shutil
+import socket
 import sqlite3
 import subprocess
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -54,6 +56,27 @@ from typing import Callable, Iterator, Optional
 log = logging.getLogger("pt.sync_http")
 
 DEFAULT_PORT = 8765
+
+# Errnos that signal "the process's DNS resolver cache has gone stale and
+# a fresh lookup is required." On macOS, ``[Errno 8]`` is ``EAI_NONAME``
+# ("nodename nor servname provided") and is the symptom we've observed
+# in pt #6042 — after Tailscale GUI restart / machine sleep / long idle,
+# the daemon's long-lived ``urllib`` state holds a resolver handle that
+# no longer maps the peer hostname, while fresh Python processes resolve
+# it fine.
+#
+# We also include ``EAI_NODATA`` so Linux hosts see the same recovery
+# path. The bare literal ``8`` is a belt-and-suspenders: the symbolic
+# name is the right form for portability, but macOS has historically
+# been inconsistent about which constants are exported, and it costs
+# nothing to also match by integer.
+#
+# We deliberately do NOT include ``EAI_AGAIN`` (temporary failure). That
+# indicates real upstream DNS trouble where a retry accomplishes nothing
+# useful — masking it would hurt observability more than it helps.
+_STALE_RESOLVER_ERRNOS = frozenset(
+    {getattr(socket, "EAI_NONAME", 8), getattr(socket, "EAI_NODATA", 7), 8}
+)
 
 
 # Column indexes in the crsql_changes tuple. Keep in sync with
@@ -297,28 +320,43 @@ def serve_forever_in_thread(server: ThreadingHTTPServer) -> threading.Thread:
 PULL_TIMEOUT_S = 20.0
 
 
-def pull_from_peer(
-    peer_host: str,
-    port: int,
-    since: int,
-    exclude_site_hex: str,
-    timeout_s: float = PULL_TIMEOUT_S,
-) -> list[tuple]:
-    """HTTP GET the peer's ``/crsql/changes`` endpoint and decode the response.
+def _is_stale_resolver_error(err: BaseException) -> bool:
+    """Return True if ``err`` is a DNS-resolver-cache-is-stale symptom.
 
-    Returns a list of fully-decoded rows in the same shape
-    ``iter_changes_for_peer`` emits. Raises ``urllib.error.URLError``
-    on transport failure; raises ``ValueError`` on malformed NDJSON
-    so callers can surface the issue rather than silently apply bad
-    rows.
+    Handles both the bare ``socket.gaierror`` form and the ``urllib``
+    wrapper (``URLError(gaierror(...))``). Matches only the errno
+    whitelist in ``_STALE_RESOLVER_ERRNOS`` — real upstream DNS failures
+    (``EAI_AGAIN`` etc.) propagate untouched.
     """
-    url = (
-        f"http://{peer_host}:{port}/crsql/changes"
-        f"?since={since}"
-        f"&exclude_site={exclude_site_hex}"
-    )
+    if isinstance(err, urllib.error.URLError):
+        err = err.reason if isinstance(err.reason, BaseException) else err
+    if not isinstance(err, socket.gaierror):
+        return False
+    return err.errno in _STALE_RESOLVER_ERRNOS
+
+
+def _do_pull(
+    opener: urllib.request.OpenerDirector | None,
+    url: str,
+    timeout_s: float,
+) -> list[tuple]:
+    """Issue the HTTP GET and parse the NDJSON body into decoded rows.
+
+    Factored out of ``pull_from_peer`` so the retry path (which uses
+    a freshly-built opener) can share the exact same request and
+    parse logic. When ``opener`` is ``None`` we fall through to the
+    module-default ``urllib.request.urlopen`` — that's the normal,
+    healthy path. When the caller passes an opener, we route through
+    it; that's the recovery path from ``_is_stale_resolver_error``
+    AND the test-injection path for unit tests that don't want to
+    touch the real network.
+    """
     req = urllib.request.Request(url, method="GET")
-    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+    if opener is None:
+        cm = urllib.request.urlopen(req, timeout=timeout_s)
+    else:
+        cm = opener.open(req, timeout=timeout_s)
+    with cm as resp:
         if resp.status != 200:
             raise RuntimeError(
                 f"peer returned HTTP {resp.status}: "
@@ -337,6 +375,74 @@ def pull_from_peer(
                 f"peer response line {line_no} malformed: {err!r}"
             ) from err
     return rows
+
+
+def pull_from_peer(
+    peer_host: str,
+    port: int,
+    since: int,
+    exclude_site_hex: str,
+    timeout_s: float = PULL_TIMEOUT_S,
+    *,
+    opener: urllib.request.OpenerDirector | None = None,
+) -> list[tuple]:
+    """HTTP GET the peer's ``/crsql/changes`` endpoint and decode the response.
+
+    Returns a list of fully-decoded rows in the same shape
+    ``iter_changes_for_peer`` emits. Raises ``urllib.error.URLError``
+    on transport failure; raises ``ValueError`` on malformed NDJSON
+    so callers can surface the issue rather than silently apply bad
+    rows.
+
+    On a stale-resolver error (pt #6042 — ``socket.gaierror`` with
+    errno in ``_STALE_RESOLVER_ERRNOS``), we do ONE recovery attempt:
+    force a fresh ``getaddrinfo`` lookup, build a brand-new local
+    ``OpenerDirector``, and retry. A successful retry is logged at
+    INFO so the daemon operator can see that recovery happened. If the
+    retry ALSO fails, we re-raise — the daemon's outer catch (in
+    ``sync_daemon.SyncDaemon.start``) logs ``sync round raised;
+    continuing`` and the next 30s round tries anew.
+
+    The optional ``opener`` kwarg is for tests to inject a mock
+    ``OpenerDirector``. Production callers should leave it at ``None``
+    (the default), which uses ``urllib.request.urlopen``.
+    """
+    url = (
+        f"http://{peer_host}:{port}/crsql/changes"
+        f"?since={since}"
+        f"&exclude_site={exclude_site_hex}"
+    )
+    try:
+        return _do_pull(opener, url, timeout_s)
+    except (socket.gaierror, urllib.error.URLError) as err:
+        if not _is_stale_resolver_error(err):
+            raise
+        log.info(
+            "resolver stale on %s; refreshing via fresh opener "
+            "(errno=%r)",
+            peer_host,
+            getattr(err, "errno", None)
+            or getattr(getattr(err, "reason", None), "errno", None),
+        )
+        # Force a fresh DNS lookup. If the resolver is still stale,
+        # this raises the exact ``gaierror`` and we propagate — no
+        # point building an opener we'd never successfully use.
+        socket.getaddrinfo(peer_host, port, type=socket.SOCK_STREAM)
+        # Build a new local opener. We DO NOT touch ``urllib``'s
+        # global default (``urllib.request._opener``) — other code
+        # paths in this process may depend on it, and mutating
+        # module-level state in the middle of exception handling is
+        # an anti-pattern.
+        fresh_opener = urllib.request.build_opener()
+        try:
+            return _do_pull(fresh_opener, url, timeout_s)
+        except Exception as retry_err:
+            log.error(
+                "resolver refresh on %s did not recover: %r",
+                peer_host,
+                retry_err,
+            )
+            raise
 
 
 def apply_changes(conn: sqlite3.Connection, rows: list[tuple]) -> int:
