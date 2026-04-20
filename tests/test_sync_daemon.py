@@ -149,6 +149,7 @@ def test_daemon_refuses_to_start_when_preflight_fails(seeded_db: Path):
     daemon = SyncDaemon(
         db_path=seeded_db,
         peer_host="peer",
+        serve_http=False,  # tests the round loop, not the server
         interval_seconds=0.01,
         round_fn=lambda c, h: rounds.append(h),
         sleep_fn=lambda s: None,
@@ -170,6 +171,7 @@ def test_daemon_runs_rounds_and_records_last_sync(seeded_db: Path):
     daemon = SyncDaemon(
         db_path=seeded_db,
         peer_host="peer",
+        serve_http=False,  # tests the round loop, not the server
         interval_seconds=0.0,
         round_fn=fake_round,
         sleep_fn=lambda s: daemon.stop(),  # stop after first sleep
@@ -208,6 +210,7 @@ def test_daemon_skips_rounds_while_paused(seeded_db: Path):
     daemon = SyncDaemon(
         db_path=seeded_db,
         peer_host="peer",
+        serve_http=False,  # tests the round loop, not the server
         interval_seconds=0.0,
         round_fn=lambda c, h: rounds.append(h),
         sleep_fn=lambda s: daemon.stop(),
@@ -240,6 +243,7 @@ def test_daemon_survives_round_exception(seeded_db: Path):
     daemon = SyncDaemon(
         db_path=seeded_db,
         peer_host="peer",
+        serve_http=False,  # tests the round loop, not the server
         interval_seconds=0.0,
         round_fn=flaky_round,
         sleep_fn=lambda s: None if calls["n"] < 2 else daemon.stop(),
