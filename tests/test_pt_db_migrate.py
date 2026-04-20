@@ -76,7 +76,8 @@ def test_pt_db_migrate_applies_pending_and_reports(
     assert result.exit_code == 0, result.output
     assert "002_add_sync_ledgers" in result.output
     assert "003_crr_pk_not_null" in result.output
-    assert "applied 2 migration" in result.output
+    assert "004_crr_notnull_defaults" in result.output
+    assert "applied 3 migration" in result.output
 
     conn = sqlite3.connect(fresh_db)
     tables = {
