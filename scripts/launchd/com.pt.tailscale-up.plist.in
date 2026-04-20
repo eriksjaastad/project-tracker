@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    LaunchAgent TEMPLATE: run `tailscale up` at login.
+
+    This is a template — the @PT_HOME@ placeholders get substituted
+    with the installing machine's project path by scripts/launchd/install.sh.
+    Do NOT copy this .plist.in file directly to ~/Library/LaunchAgents/
+    — launchd cannot parse the placeholders.
+
+    The Tailscale GUI app is not required to keep the tunnel up — the
+    system extension provides the VPN plumbing, and `tailscale up`
+    restores the authenticated session. After a reboot the session
+    state is cleared, so this agent runs once at login to bring the
+    tunnel back without the operator having to touch the GUI.
+
+    Install + uninstall: see scripts/launchd/install.sh --help.
+
+    Notes:
+      - `tailscale` CLI on macOS is a shim at /usr/local/bin/tailscale
+        that invokes the binary inside /Applications/Tailscale.app, so
+        the .app must remain installed (just not running).
+      - `RunAtLoad` fires when the agent loads (i.e. at login and when
+        `launchctl load` runs). `KeepAlive` is deliberately absent —
+        this is a one-shot bring-up, not a watchdog.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pt.tailscale-up</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/tailscale</string>
+        <string>up</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>@PT_HOME@/logs/tailscale-up.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>@PT_HOME@/logs/tailscale-up.err</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

@@ -265,6 +265,69 @@ def test_pause_refuses_under_turso(
     assert "Turso" in status.output
 
 
+def test_resume_unblocked_when_crsqlite_not_loaded(
+    runner: CliRunner, cli_env: Path
+) -> None:
+    """Before cr-sqlite is loaded on the real DB, the peer-announcement
+    gate has no way to observe peer rows (no replication). Resume must
+    NOT block in that case — otherwise the operator could never clear
+    a pause on a daemon-less install."""
+    runner.invoke(cli, ["sync", "pause"])
+    result = runner.invoke(cli, ["sync", "resume"])
+    assert result.exit_code == 0, result.output
+    assert "resumed" in result.output
+
+
+def test_resume_blocks_when_peer_announcement_missing(
+    runner: CliRunner, cli_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If cr-sqlite is loaded and there's a locally-applied migration
+    that the peer hasn't announced, resume must refuse to clear pause
+    and print the §2.3 step-6 message. Without --force."""
+    runner.invoke(cli, ["sync", "pause"])
+
+    # Stub the gate query: pretend versions 7 and 9 are locally applied
+    # but peer hasn't announced them. Patching the helper is cleaner
+    # than patching sqlite3.Connection.execute (immutable C-extension
+    # method — can't be monkeypatched).
+    monkeypatch.setattr(
+        "pt._sync_resume_blocked_versions", lambda conn: [7, 9]
+    )
+
+    result = runner.invoke(cli, ["sync", "resume"])
+    assert result.exit_code == 3
+    assert "waiting for peer" in result.output
+    assert "007" in result.output  # zero-padded version
+    assert "009" in result.output
+    assert "--force" in result.output
+
+
+def test_resume_force_bypasses_block(
+    runner: CliRunner, cli_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner.invoke(cli, ["sync", "pause"])
+    monkeypatch.setattr(
+        "pt._sync_resume_blocked_versions", lambda conn: [7]
+    )
+    result = runner.invoke(cli, ["sync", "resume", "--force"])
+    assert result.exit_code == 0, result.output
+    assert "resumed" in result.output
+
+
+def test_sync_resume_blocked_versions_returns_empty_without_crsqlite(
+    cli_env: Path,
+) -> None:
+    """Direct unit test: with a stock sqlite3 conn (no cr-sqlite),
+    the helper returns [] — this is the guard that keeps daemon-less
+    installs unblocked."""
+    from pt import _sync_resume_blocked_versions
+    conn = sqlite3.connect(cli_env, isolation_level=None)
+    try:
+        assert _sync_resume_blocked_versions(conn) == []
+    finally:
+        conn.close()
+
+
 def test_pause_reports_clean_error_on_db_open_failure(
     runner: CliRunner, cli_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
