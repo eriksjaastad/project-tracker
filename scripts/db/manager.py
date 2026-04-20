@@ -381,19 +381,21 @@ class DatabaseManager:
         uploaded_by: str = "user",
     ) -> Dict[str, Any]:
         """Insert an attachment record and return it."""
+        self.migrate_attachments_table()
+        attachment_id = pt_next_id(self.db_path)
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 INSERT INTO task_attachments
-                    (task_id, filename, stored_name, mime_type, size_bytes, uploaded_by)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (id, task_id, filename, stored_name, mime_type, size_bytes, uploaded_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (task_id, filename, stored_name, mime_type, size_bytes, uploaded_by),
+                (attachment_id, task_id, filename, stored_name, mime_type, size_bytes, uploaded_by),
             )
             conn.commit()
             row = cursor.execute(
-                "SELECT * FROM task_attachments WHERE id = ?", (cursor.lastrowid,)
+                "SELECT * FROM task_attachments WHERE id = ?", (attachment_id,)
             ).fetchone()
             return dict(row)
 
@@ -468,6 +470,40 @@ class DatabaseManager:
 
             conn.commit()
 
+    def _ensure_project_name_available(
+        self,
+        cursor: sqlite3.Cursor,
+        name: str,
+        *,
+        exclude_project_id: Optional[str] = None,
+    ) -> None:
+        """Preserve project-name uniqueness in application code.
+
+        CRR tables cannot keep a DB-enforced UNIQUE(name) constraint, but the
+        CLI still resolves projects by human name. Reject duplicate local
+        writes early so name-based flows stay unambiguous.
+
+        TOCTOU note: this check is not serializable under concurrent writers in
+        WAL mode. Two simultaneous add_project() calls with the same name can
+        both pass the SELECT and both succeed. Acceptable for a single-user CLI
+        where concurrent writes are rare; during CRR sync the deduplication
+        strategy is last-write-wins via the normal CRDT merge, not name guards.
+        """
+        rows = cursor.execute(
+            "SELECT id FROM projects WHERE lower(name) = lower(?)",
+            (name,),
+        ).fetchall()
+        conflicting = [
+            (row["id"] if hasattr(row, "keys") else row[0])
+            for row in rows
+            if (row["id"] if hasattr(row, "keys") else row[0]) != exclude_project_id
+        ]
+        if conflicting:
+            raise ValueError(
+                f"Project name '{name}' is already used by project id "
+                f"{conflicting[0]!r}. Project names must stay unique."
+            )
+
     def _add_project_with_cursor(
         self,
         cursor: sqlite3.Cursor,
@@ -488,6 +524,12 @@ class DatabaseManager:
         project_type: str = 'standard',
     ) -> None:
         """Add or update a project using an existing cursor."""
+        self._ensure_project_name_available(
+            cursor,
+            name,
+            exclude_project_id=project_id,
+        )
+
         # 🛡️ Preserve created_at, health_score, and health_grade on update
         cursor.execute("SELECT created_at, health_score, health_grade FROM projects WHERE id = ?", (project_id,))
         existing = cursor.fetchone()
@@ -572,6 +614,12 @@ class DatabaseManager:
         
         with self._get_conn() as conn:
             cursor = conn.cursor()
+            if "name" in kwargs:
+                self._ensure_project_name_available(
+                    cursor,
+                    str(kwargs["name"]),
+                    exclude_project_id=project_id,
+                )
             
             # Build UPDATE query dynamically (now safe - fields are whitelisted)
             fields = ", ".join(f"{key} = ?" for key in kwargs.keys())
@@ -778,12 +826,13 @@ class DatabaseManager:
         notes: Optional[str] = None
     ) -> None:
         """Add an AI agent for a project."""
+        agent_id = pt_next_id(self.db_path)
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO ai_agents (project_id, agent_name, role, notes)
-                VALUES (?, ?, ?, ?)
-            """, (project_id, agent_name, role, notes))
+                INSERT INTO ai_agents (id, project_id, agent_name, role, notes)
+                VALUES (?, ?, ?, ?, ?)
+            """, (agent_id, project_id, agent_name, role, notes))
             conn.commit()
     
     def get_ai_agents(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -845,9 +894,10 @@ class DatabaseManager:
                     )
                     updated += 1
             else:
+                agent_id = pt_next_id(self.db_path)
                 cursor.execute(
-                    "INSERT INTO ai_agents (project_id, agent_name, role) VALUES (?, ?, ?)",
-                    (project_id, agent_name, role)
+                    "INSERT INTO ai_agents (id, project_id, agent_name, role) VALUES (?, ?, ?, ?)",
+                    (agent_id, project_id, agent_name, role)
                 )
                 added += 1
 
@@ -879,12 +929,13 @@ class DatabaseManager:
         cost_monthly: Optional[float] = None
     ) -> None:
         """Add a service dependency for a project."""
+        service_id = pt_next_id(self.db_path)
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO service_dependencies (project_id, service_name, purpose, cost_monthly)
-                VALUES (?, ?, ?, ?)
-            """, (project_id, service_name, purpose, cost_monthly))
+                INSERT INTO service_dependencies (id, project_id, service_name, purpose, cost_monthly)
+                VALUES (?, ?, ?, ?, ?)
+            """, (service_id, project_id, service_name, purpose, cost_monthly))
             conn.commit()
     
     def get_services(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -947,9 +998,10 @@ class DatabaseManager:
                     )
                     updated += 1
             else:
+                service_id = pt_next_id(self.db_path)
                 cursor.execute(
-                    "INSERT INTO service_dependencies (project_id, service_name, purpose, cost_monthly) VALUES (?, ?, ?, ?)",
-                    (project_id, service_name, purpose, cost_monthly)
+                    "INSERT INTO service_dependencies (id, project_id, service_name, purpose, cost_monthly) VALUES (?, ?, ?, ?, ?)",
+                    (service_id, project_id, service_name, purpose, cost_monthly)
                 )
                 added += 1
 
@@ -1046,6 +1098,8 @@ class DatabaseManager:
                 raise ValueError("blocked_by must be a JSON string or list of task IDs")
         
         now = datetime.now().isoformat()
+        task_id = pt_next_id(self.db_path)
+        history_id = pt_next_id(self.db_path)
         
         with self._get_conn() as conn:
             cursor = conn.cursor()
@@ -1053,6 +1107,7 @@ class DatabaseManager:
             # Insert task with sanitized text
             cursor.execute("""
                 INSERT INTO tasks (
+                    id,
                     text,
                     status,
                     project_id,
@@ -1069,8 +1124,9 @@ class DatabaseManager:
                     sequence_order,
                     created_by
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
+                task_id,
                 sanitized_text,
                 status,
                 project_id,
@@ -1087,14 +1143,12 @@ class DatabaseManager:
                 sequence_order,
                 created_by,
             ))
-            
-            task_id = cursor.lastrowid
-            
+
             # Record history entry for creation
             cursor.execute("""
-                INSERT INTO task_history (task_id, project_id, event_type, old_status, new_status, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (task_id, project_id, "created", None, status, now))
+                INSERT INTO task_history (id, task_id, project_id, event_type, old_status, new_status, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (history_id, task_id, project_id, "created", None, status, now))
             
             conn.commit()
             
@@ -1305,10 +1359,11 @@ class DatabaseManager:
                     # Record history entry if status changed
                     if old_status != new_status:
                         event_type = "completed" if new_status == "Done" else "status_changed"
+                        history_id = pt_next_id(self.db_path)
                         cursor.execute("""
-                            INSERT INTO task_history (task_id, project_id, event_type, old_status, new_status, timestamp)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        """, (task_id, existing_task["project_id"], event_type, old_status, new_status, now))
+                            INSERT INTO task_history (id, task_id, project_id, event_type, old_status, new_status, timestamp)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (history_id, task_id, existing_task["project_id"], event_type, old_status, new_status, now))
                     
                     conn.commit()
 
@@ -1882,58 +1937,86 @@ class DatabaseManager:
             if project_id == "__all__":
                 if key:
                     cursor.execute(
-                        "SELECT project_id, key, value, updated_at FROM project_info WHERE key = ? ORDER BY project_id, key",
+                        "SELECT id, project_id, key, value, updated_at "
+                        "FROM project_info WHERE key = ? "
+                        "ORDER BY project_id, key, updated_at DESC, id DESC",
                         (key,),
                     )
                 else:
                     cursor.execute(
-                        "SELECT project_id, key, value, updated_at FROM project_info ORDER BY project_id, key"
+                        "SELECT id, project_id, key, value, updated_at "
+                        "FROM project_info ORDER BY project_id, key, updated_at DESC, id DESC"
                     )
             elif project_id is not None:
                 if key:
                     cursor.execute(
-                        "SELECT project_id, key, value, updated_at FROM project_info WHERE project_id = ? AND key = ? ORDER BY key",
+                        "SELECT id, project_id, key, value, updated_at "
+                        "FROM project_info WHERE project_id = ? AND key = ? "
+                        "ORDER BY updated_at DESC, id DESC",
                         (project_id, key),
                     )
                 else:
                     cursor.execute(
-                        "SELECT project_id, key, value, updated_at FROM project_info WHERE project_id = ? ORDER BY key",
+                        "SELECT id, project_id, key, value, updated_at "
+                        "FROM project_info WHERE project_id = ? "
+                        "ORDER BY key, updated_at DESC, id DESC",
                         (project_id,),
                     )
             else:
                 if key:
                     cursor.execute(
-                        "SELECT project_id, key, value, updated_at FROM project_info WHERE project_id IS NULL AND key = ? ORDER BY key",
+                        "SELECT id, project_id, key, value, updated_at "
+                        "FROM project_info WHERE project_id IS NULL AND key = ? "
+                        "ORDER BY updated_at DESC, id DESC",
                         (key,),
                     )
                 else:
                     cursor.execute(
-                        "SELECT project_id, key, value, updated_at FROM project_info WHERE project_id IS NULL ORDER BY key"
+                        "SELECT id, project_id, key, value, updated_at "
+                        "FROM project_info WHERE project_id IS NULL "
+                        "ORDER BY key, updated_at DESC, id DESC"
                     )
             rows = cursor.fetchall()
-            return [dict(r) for r in rows]
+            entries: list[dict[str, Any]] = []
+            seen: set[tuple[Optional[str], str]] = set()
+            for row in rows:
+                entry = dict(row)
+                logical_key = (entry["project_id"], entry["key"])
+                if logical_key in seen:
+                    continue
+                seen.add(logical_key)
+                entry.pop("id", None)
+                entries.append(entry)
+            return entries
 
     def set_info(self, key: str, value: str, project_id: Optional[str] = None) -> None:
         """Set (upsert) an info entry."""
         now = datetime.now(timezone.utc).isoformat()
+        info_id = pt_next_id(self.db_path)
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            # SQLite treats NULL != NULL in UNIQUE constraints, so upsert via
-            # delete-then-insert for global (NULL project_id) entries.
-            if project_id is None:
+            # DELETE + INSERT must be atomic: if INSERT fails, the savepoint
+            # rolls back the DELETE so the key is never silently lost.
+            cursor.execute("SAVEPOINT set_info")
+            try:
+                if project_id is None:
+                    cursor.execute(
+                        "DELETE FROM project_info WHERE project_id IS NULL AND key = ?",
+                        (key,),
+                    )
+                else:
+                    cursor.execute(
+                        "DELETE FROM project_info WHERE project_id = ? AND key = ?",
+                        (project_id, key),
+                    )
                 cursor.execute(
-                    "DELETE FROM project_info WHERE project_id IS NULL AND key = ?",
-                    (key,),
+                    "INSERT INTO project_info (id, project_id, key, value, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (info_id, project_id, key, value, now),
                 )
-            else:
-                cursor.execute(
-                    "DELETE FROM project_info WHERE project_id = ? AND key = ?",
-                    (project_id, key),
-                )
-            cursor.execute(
-                "INSERT INTO project_info (project_id, key, value, updated_at) VALUES (?, ?, ?, ?)",
-                (project_id, key, value, now),
-            )
+                cursor.execute("RELEASE set_info")
+            except Exception:
+                cursor.execute("ROLLBACK TO set_info")
+                raise
             conn.commit()
 
     def delete_info(self, key: str, project_id: Optional[str] = None) -> bool:
