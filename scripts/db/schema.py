@@ -421,6 +421,10 @@ def ensure_schema(cursor: Any) -> None:
             description TEXT,
             last_run TEXT,
             is_active BOOLEAN DEFAULT 1,
+            -- LOCAL_ONLY: FK declaration retained for documentation only.
+            -- SQLite FK enforcement is OFF by default and never enabled in this app,
+            -- so CASCADE never fires. Application-level cleanup in delete_project()
+            -- issues explicit DELETE FROM cron_jobs WHERE project_id = ?.
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )
     """)
@@ -433,8 +437,7 @@ def ensure_schema(cursor: Any) -> None:
             project_id TEXT NOT NULL,
             service_name TEXT NOT NULL,
             purpose TEXT,
-            cost_monthly REAL,
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            cost_monthly REAL
         )
     """)
     
@@ -445,8 +448,7 @@ def ensure_schema(cursor: Any) -> None:
             project_id TEXT NOT NULL,
             agent_name TEXT NOT NULL,
             role TEXT,
-            notes TEXT,
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            notes TEXT
         )
     """)
     
@@ -490,8 +492,7 @@ def ensure_schema(cursor: Any) -> None:
             completed_at TEXT,
             prompt TEXT,
             task_type TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent', 'proposal')),
-            review_comment TEXT,
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            review_comment TEXT
         )
     """)
     
@@ -505,7 +506,7 @@ def ensure_schema(cursor: Any) -> None:
         "ALTER TABLE tasks ADD COLUMN notes TEXT",
         "ALTER TABLE tasks ADD COLUMN commit_sha TEXT",
         "ALTER TABLE tasks ADD COLUMN category TEXT",
-        "ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE",
+        "ALTER TABLE tasks ADD COLUMN parent_id INTEGER",
         "ALTER TABLE tasks ADD COLUMN blocked_by TEXT",
         "ALTER TABLE tasks ADD COLUMN sequence_order INTEGER",
         "ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'manual'",
@@ -555,10 +556,9 @@ def ensure_schema(cursor: Any) -> None:
                     notes TEXT,
                     commit_sha TEXT,
                     category TEXT,
-                    parent_id INTEGER REFERENCES tasks_new(id) ON DELETE CASCADE,
+                    parent_id INTEGER,
                     blocked_by TEXT,
-                    sequence_order INTEGER,
-                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                    sequence_order INTEGER
                 )
             """)
             cursor.execute("""
@@ -658,10 +658,9 @@ def ensure_schema(cursor: Any) -> None:
                 elif col == "task_type":
                     col_defs.append("task_type TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent', 'proposal'))")
                 elif col == "parent_id":
-                    col_defs.append("parent_id INTEGER REFERENCES tasks_new(id) ON DELETE CASCADE")
+                    col_defs.append("parent_id INTEGER")
                 else:
                     col_defs.append(f"{col} TEXT")
-            col_defs.append("FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE")
 
             col_list = ", ".join(all_columns)
             create_sql = f"CREATE TABLE tasks_new ({', '.join(col_defs)})"
@@ -757,9 +756,7 @@ def ensure_schema(cursor: Any) -> None:
             event_type TEXT NOT NULL CHECK(event_type IN ('created', 'status_changed', 'completed', 'cancelled')),
             old_status TEXT,
             new_status TEXT,
-            timestamp TEXT NOT NULL,
-            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            timestamp TEXT NOT NULL
         )
     """)
     
@@ -789,7 +786,7 @@ def ensure_schema(cursor: Any) -> None:
             event_time            TEXT,
             event_type            TEXT    NOT NULL DEFAULT 'reminder',
             recurrence            TEXT,
-            project_id            TEXT    REFERENCES projects(id) ON DELETE SET NULL,
+            project_id            TEXT,
             machine               TEXT,
             prompt                TEXT,
             notify_before_minutes INTEGER NOT NULL DEFAULT 60,
@@ -803,8 +800,8 @@ def ensure_schema(cursor: Any) -> None:
     """)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS calendar_event_tasks (
-            event_id  INTEGER NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
-            task_id   INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            event_id  INTEGER NOT NULL,
+            task_id   INTEGER NOT NULL,
             link_type TEXT    NOT NULL DEFAULT 'related',
             PRIMARY KEY (event_id, task_id)
         )
