@@ -1449,16 +1449,24 @@ class DatabaseManager:
                 cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
 
                 # Explicit child cleanup — FK CASCADE no longer enforced at DB level.
+                # Guard optional tables that may not exist on every install.
+                def _tbl_exists_task(name: str) -> bool:
+                    return cursor.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+                    ).fetchone() is not None
+
                 if descendant_ids:
                     placeholders = ",".join("?" for _ in descendant_ids)
-                    cursor.execute(
-                        f"DELETE FROM calendar_event_tasks WHERE task_id IN ({placeholders})",
-                        descendant_ids,
-                    )
-                    cursor.execute(
-                        f"DELETE FROM task_attachments WHERE task_id IN ({placeholders})",
-                        descendant_ids,
-                    )
+                    if _tbl_exists_task("calendar_event_tasks"):
+                        cursor.execute(
+                            f"DELETE FROM calendar_event_tasks WHERE task_id IN ({placeholders})",
+                            descendant_ids,
+                        )
+                    if _tbl_exists_task("task_attachments"):
+                        cursor.execute(
+                            f"DELETE FROM task_attachments WHERE task_id IN ({placeholders})",
+                            descendant_ids,
+                        )
                     cursor.execute(
                         f"DELETE FROM task_history WHERE task_id IN ({placeholders})",
                         descendant_ids,
@@ -1468,8 +1476,10 @@ class DatabaseManager:
                         descendant_ids,
                     )
 
-                cursor.execute("DELETE FROM calendar_event_tasks WHERE task_id = ?", (task_id,))
-                cursor.execute("DELETE FROM task_attachments WHERE task_id = ?", (task_id,))
+                if _tbl_exists_task("calendar_event_tasks"):
+                    cursor.execute("DELETE FROM calendar_event_tasks WHERE task_id = ?", (task_id,))
+                if _tbl_exists_task("task_attachments"):
+                    cursor.execute("DELETE FROM task_attachments WHERE task_id = ?", (task_id,))
                 cursor.execute("DELETE FROM task_history WHERE task_id = ?", (task_id,))
                 cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
                 conn.commit()

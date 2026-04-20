@@ -552,10 +552,9 @@ def ensure_schema(cursor: Any) -> None:
                     notes TEXT,
                     commit_sha TEXT,
                     category TEXT,
-                    parent_id INTEGER REFERENCES tasks_new(id) ON DELETE CASCADE,
+                    parent_id INTEGER,
                     blocked_by TEXT,
-                    sequence_order INTEGER,
-                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                    sequence_order INTEGER
                 )
             """)
             cursor.execute("""
@@ -655,10 +654,9 @@ def ensure_schema(cursor: Any) -> None:
                 elif col == "task_type":
                     col_defs.append("task_type TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent', 'proposal'))")
                 elif col == "parent_id":
-                    col_defs.append("parent_id INTEGER REFERENCES tasks_new(id) ON DELETE CASCADE")
+                    col_defs.append("parent_id INTEGER")
                 else:
                     col_defs.append(f"{col} TEXT")
-            col_defs.append("FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE")
 
             col_list = ", ".join(all_columns)
             create_sql = f"CREATE TABLE tasks_new ({', '.join(col_defs)})"
