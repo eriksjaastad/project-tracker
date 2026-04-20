@@ -171,10 +171,17 @@ def test_integrity_check_ok(migrated):
 
 def test_idempotent(tmp_path: Path):
     conn = _minimal_db(tmp_path)
+    before = {
+        tbl: conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+        for tbl in ("projects", "project_info")
+    }
     _run_migration(conn)
     _run_migration(conn)
     assert _non_pk_unique_indexes(conn, "projects") == []
     assert _non_pk_unique_indexes(conn, "project_info") == []
+    for tbl, expected in before.items():
+        after = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+        assert after == expected, f"{tbl}: idempotent double-run changed row count {expected} → {after}"
 
 
 def test_all_crr_tables_pass_crsql_as_crr_after_migration(tmp_path: Path):

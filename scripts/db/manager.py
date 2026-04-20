@@ -482,6 +482,12 @@ class DatabaseManager:
         CRR tables cannot keep a DB-enforced UNIQUE(name) constraint, but the
         CLI still resolves projects by human name. Reject duplicate local
         writes early so name-based flows stay unambiguous.
+
+        TOCTOU note: this check is not serializable under concurrent writers in
+        WAL mode. Two simultaneous add_project() calls with the same name can
+        both pass the SELECT and both succeed. Acceptable for a single-user CLI
+        where concurrent writes are rare; during CRR sync the deduplication
+        strategy is last-write-wins via the normal CRDT merge, not name guards.
         """
         rows = cursor.execute(
             "SELECT id FROM projects WHERE lower(name) = lower(?)",
@@ -1989,22 +1995,28 @@ class DatabaseManager:
         info_id = pt_next_id(self.db_path)
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            # SQLite treats NULL != NULL in UNIQUE constraints, so upsert via
-            # delete-then-insert for global (NULL project_id) entries.
-            if project_id is None:
+            # DELETE + INSERT must be atomic: if INSERT fails, the savepoint
+            # rolls back the DELETE so the key is never silently lost.
+            cursor.execute("SAVEPOINT set_info")
+            try:
+                if project_id is None:
+                    cursor.execute(
+                        "DELETE FROM project_info WHERE project_id IS NULL AND key = ?",
+                        (key,),
+                    )
+                else:
+                    cursor.execute(
+                        "DELETE FROM project_info WHERE project_id = ? AND key = ?",
+                        (project_id, key),
+                    )
                 cursor.execute(
-                    "DELETE FROM project_info WHERE project_id IS NULL AND key = ?",
-                    (key,),
+                    "INSERT INTO project_info (id, project_id, key, value, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (info_id, project_id, key, value, now),
                 )
-            else:
-                cursor.execute(
-                    "DELETE FROM project_info WHERE project_id = ? AND key = ?",
-                    (project_id, key),
-                )
-            cursor.execute(
-                "INSERT INTO project_info (id, project_id, key, value, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (info_id, project_id, key, value, now),
-            )
+                cursor.execute("RELEASE set_info")
+            except Exception:
+                cursor.execute("ROLLBACK TO set_info")
+                raise
             conn.commit()
 
     def delete_info(self, key: str, project_id: Optional[str] = None) -> bool:
