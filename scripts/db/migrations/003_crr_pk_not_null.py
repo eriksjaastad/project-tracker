@@ -171,13 +171,20 @@ def _backup(conn: sqlite3.Connection) -> None:
         Path.home() / ".project-tracker" / "backups" / name,
     ]
     for dest in locations:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        # New connection so VACUUM INTO runs outside the open transaction.
-        bconn = sqlite3.connect(db_path_str)
         try:
-            bconn.execute(f"VACUUM INTO '{str(dest).replace(chr(39), chr(39)*2)}'")
-        finally:
-            bconn.close()
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            # New connection so VACUUM INTO runs outside the open transaction.
+            bconn = sqlite3.connect(db_path_str)
+            try:
+                bconn.execute(f"VACUUM INTO '{str(dest).replace(chr(39), chr(39)*2)}'")
+            finally:
+                bconn.close()
+        except OSError as err:
+            print(f"migration 003: backup skipped for {dest} ({err})", file=sys.stderr)
+            continue
+        except sqlite3.OperationalError as err:
+            print(f"migration 003: backup skipped for {dest} ({err})", file=sys.stderr)
+            continue
         print(f"migration 003: backup → {dest}", file=sys.stderr)
 
 
