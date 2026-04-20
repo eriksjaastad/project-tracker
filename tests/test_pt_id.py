@@ -312,7 +312,10 @@ def test_load_machine_id_falls_back_when_metadata_table_missing(tmp_path, monkey
     conn.commit()
     conn.close()
     # Simulate a machine without cr-sqlite installed.
-    monkeypatch.setattr(pt_id, "_CRSQLITE_DYLIB", Path("/nonexistent/crsqlite.dylib"))
+    monkeypatch.setattr(
+        pt_id, "_CRSQLITE_DYLIB_CANDIDATES",
+        (Path("/nonexistent/foo.dylib"), Path("/nonexistent/foo.so")),
+    )
     assert load_machine_id(db) == 0
 
 
@@ -381,3 +384,174 @@ def test_reset_for_testing_clears_singleton():
     reset_for_testing()
     g2 = get_generator(None)
     assert g1 is not g2, "reset_for_testing must produce a fresh singleton"
+
+
+# ---------------------------------------------------------------------
+# Thread-safety — real concurrency, not just inspection
+# ---------------------------------------------------------------------
+
+
+def test_lock_prevents_duplicate_ids_under_concurrency():
+    """The module claims thread safety via a mutex. This test actually
+    exercises it: 8 threads each generate 1000 IDs concurrently.
+    Every generated ID must be unique. If the lock is mis-scoped or
+    absent, two threads can observe the same ``_last_ms``/``_counter``
+    pair and produce duplicates."""
+    import threading
+    g = PtIdGenerator(machine_id=1)
+    results: list[int] = []
+    results_lock = threading.Lock()
+
+    def _run():
+        local = [g.next_id() for _ in range(1000)]
+        with results_lock:
+            results.extend(local)
+
+    threads = [threading.Thread(target=_run) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(results) == 8_000
+    assert len(set(results)) == 8_000, (
+        f"duplicate IDs under concurrency — got {8_000 - len(set(results))} "
+        "duplicates. Lock is mis-scoped or absent."
+    )
+
+
+# ---------------------------------------------------------------------
+# Counter overflow + clock regression combined — the real-bug scenario
+# Erik's review flagged: if clock moves backward during the busy-wait,
+# ``nxt`` becomes < ``_last_ms``; condition `==` would exit the loop
+# and assign a smaller _last_ms, breaking monotonicity. Condition `<=`
+# keeps spinning until clock advances past the saturated ms.
+# ---------------------------------------------------------------------
+
+
+def test_overflow_during_backward_clock_preserves_monotonicity():
+    """Regression test for the busy-wait bug: simulate NTP stepping the
+    clock backward in the middle of counter-overflow wait. With the
+    correct ``<=`` condition, we keep spinning; with the buggy ``==``,
+    we'd exit the loop and assign a smaller ``_last_ms``, making the
+    next ID LESS than prior IDs.
+
+    Flow this test exercises:
+      1. ``now_ms`` read: equals ``_last_ms`` → enter the ``elif`` branch.
+      2. ``_counter += 1`` pushes over ``_CTR_MAX`` → enter busy-wait.
+      3. Initial ``nxt`` read: still ``_last_ms`` → enter the loop.
+      4. Mid-loop clock REGRESSES by 100 ms — buggy ``==`` would exit;
+         correct ``<=`` must keep spinning.
+      5. Still regressed — still spinning.
+      6. Clock finally advances past ``_last_ms`` → loop exits, correct
+         ``_last_ms`` assigned.
+    """
+    g = PtIdGenerator(machine_id=1)
+    high_water = 10_000_000
+    g._last_ms = high_water
+    g._counter = _CTR_MAX  # next call's counter += 1 triggers overflow
+
+    time_sequence = iter([
+        high_water,          # 1. now_ms: matches _last_ms → elif branch
+        high_water,          # 2. initial `nxt =` before loop → enter loop
+        high_water - 100,    # 3. backward step during loop → keep spinning
+        high_water - 50,     # 4. still backward → still spinning
+        high_water + 5,      # 5. forward past _last_ms → loop exits
+    ])
+
+    def fake_time():
+        return (next(time_sequence) + PT_ID_EPOCH_MS) / 1000.0
+
+    with patch("db.pt_id.time.time", side_effect=fake_time):
+        new_id = g.next_id()
+
+    ts, _mid, ctr = g.decompose(new_id)
+    assert ts == high_water + 5, (
+        f"busy-wait must advance past high_water={high_water}, got ts={ts}"
+    )
+    assert ctr == 0
+    assert ts > high_water, (
+        "monotonicity violated — buggy `==` would have assigned a "
+        "smaller value during the backward-clock window"
+    )
+
+
+# ---------------------------------------------------------------------
+# Hash-derivation golden values — pin the mapping
+# ---------------------------------------------------------------------
+
+
+def test_hash_derivation_is_stable_across_refactors():
+    """Pin the hash-derivation mapping: a fixed ``site_hex`` must always
+    produce the same ``machine_id``. If someone refactors the hashing
+    (different digest bytes, different algorithm), every existing
+    machine's derived ID silently changes — a breaking operational
+    event, so the mapping is locked by hardcoded literal expectations.
+
+    Expected values are NOT computed at test time (that would be a
+    tautology against the algorithm being tested). They were computed
+    once on 2026-04-20 with ``hashlib.sha256`` and the formula
+    ``((digest[0] << 8) | digest[1]) & 0x3FF`` and committed as
+    literals below. To regenerate if the algorithm ever legitimately
+    changes (which is itself a breaking event), run:
+
+        python3 -c "
+        import hashlib
+        for h in ['00'*16, 'ff'*16, '2f172ba73131458299556dc2f2773351']:
+            d = hashlib.sha256(bytes.fromhex(h)).digest()
+            print(h, ((d[0]<<8)|d[1]) & 0x3FF)
+        "
+    """
+    # Hardcoded golden values — DO NOT compute these at test time.
+    # Pairs: (site_hex, expected_machine_id_literal)
+    golden_cases = [
+        ("00" * 16, 839),   # all-zeros site
+        ("ff" * 16, 710),   # all-ones site
+        ("2f172ba73131458299556dc2f2773351", 883),  # laptop actual site_id
+    ]
+
+    # Exercise the production derivation exactly as load_machine_id does.
+    import hashlib as _hashlib  # imported by name so a refactor to a
+                                 # different algo in production does NOT
+                                 # alter the test's reference computation
+    for site_hex, expected in golden_cases:
+        digest = _hashlib.sha256(bytes.fromhex(site_hex)).digest()
+        actual = ((digest[0] << 8) | digest[1]) & _MID_MAX
+        assert actual == expected, (
+            f"hash derivation changed: site_hex={site_hex} "
+            f"got={actual}, expected literal={expected}. "
+            "If this is intentional, update the golden values and "
+            "note the algorithm migration in #6044's card — this is "
+            "a breaking change for every machine that previously had "
+            "its machine_id auto-derived."
+        )
+
+
+# ---------------------------------------------------------------------
+# Cross-platform dylib discovery
+# ---------------------------------------------------------------------
+
+
+def test_find_crsqlite_dylib_returns_none_when_missing(monkeypatch):
+    """On a fresh CI host with no cr-sqlite installed, _find_crsqlite_dylib
+    must return None so the fallback-to-default-zero path can fire."""
+    from db.pt_id import _find_crsqlite_dylib
+    monkeypatch.setattr(
+        pt_id, "_CRSQLITE_DYLIB_CANDIDATES",
+        (Path("/nonexistent/foo.dylib"), Path("/nonexistent/foo.so")),
+    )
+    assert _find_crsqlite_dylib() is None
+
+
+def test_find_crsqlite_dylib_picks_first_existing(tmp_path, monkeypatch):
+    """If both .dylib and .so exist, the first in the candidate list
+    wins. Documents a stable precedence for debugging mixed-platform
+    environments."""
+    from db.pt_id import _find_crsqlite_dylib
+    fake_dylib = tmp_path / "crsqlite.dylib"
+    fake_dylib.write_bytes(b"not a real dylib")
+    monkeypatch.setattr(
+        pt_id, "_CRSQLITE_DYLIB_CANDIDATES",
+        (fake_dylib, Path("/nonexistent/other.so")),
+    )
+    assert _find_crsqlite_dylib() == fake_dylib

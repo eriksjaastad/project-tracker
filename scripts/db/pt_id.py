@@ -55,10 +55,11 @@ Two strategies, priority order:
 2. **Hash of ``crsql_site_id()`` (fallback)** — if cr-sqlite is
    loaded and no explicit config is set, hash the site_id's low
    bytes to 10 bits. Auto-configuration path. Birthday-paradox
-   collision probability:
-        P(collision | 2 machines)  ≈ 1/1024  ≈ 0.1%
-        P(collision | 5 machines)  ≈ 1%
-        P(collision | 10 machines) ≈ 4%
+   collision probability (exact formula: ``1 - prod(1 - k/1024)``
+   for k in 1..N-1, bucket count 1024):
+        P(collision | 2 machines)  ≈ 0.098%
+        P(collision | 5 machines)  ≈ 0.97%
+        P(collision | 10 machines) ≈ 4.3%
    For 2 machines, effectively safe but NOT zero. Logs a WARNING
    recommending explicit config once ≥3 machines are detected.
 
@@ -122,6 +123,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import sqlite3
+import sys
 import threading
 import time
 from pathlib import Path
@@ -129,10 +131,12 @@ from typing import Optional
 
 log = logging.getLogger("pt.id")
 
-# 2026-01-01T00:00:00Z in ms since Unix epoch.
-# Chosen as a recent epoch to maximize future timestamp runway (~69 years).
+# 2026-01-01T00:00:00Z in ms since Unix epoch. Verify with:
+#   python3 -c "import datetime; print(datetime.datetime.fromtimestamp(1767225600, tz=datetime.timezone.utc))"
+# Chosen as a recent epoch to maximize future timestamp runway (~69 years
+# from this epoch, so 41-bit timestamp rollover hits around year 2095).
 # Changing this is a BREAKING change — all new IDs shift relative to old ones.
-PT_ID_EPOCH_MS = 1735689600000
+PT_ID_EPOCH_MS = 1767225600000
 
 # Bit widths. Total = 63 so signed SQLite INTEGER (2^63 - 1) fits.
 _TS_BITS = 41
@@ -191,9 +195,10 @@ class PtIdGenerator:
                     # 4096 IDs in one ms — wait for next ms rather than
                     # collide. Busy-wait is acceptable: this path is
                     # vanishingly rare (4M IDs/s per machine sustained).
-                    while int(time.time() * 1000) - PT_ID_EPOCH_MS == self._last_ms:
-                        pass
-                    self._last_ms = int(time.time() * 1000) - PT_ID_EPOCH_MS
+                    nxt = int(time.time() * 1000) - PT_ID_EPOCH_MS
+                    while nxt == self._last_ms:
+                        nxt = int(time.time() * 1000) - PT_ID_EPOCH_MS
+                    self._last_ms = nxt
                     self._counter = 0
             else:
                 # Clock moved backward. Preserve monotonicity by staying
@@ -377,10 +382,19 @@ def next_id(db_path: Optional[Path] = None) -> int:
 def reset_for_testing() -> None:
     """Clear the process singleton and the one-time warning flag.
 
-    Tests only. Never call in production code — the singleton exists
-    so ``machine_id`` resolution happens once; resetting mid-run could
-    produce IDs under a different ``machine_id``.
+    Tests only. Guarded by ``pytest in sys.modules`` to prevent
+    accidental production use — resetting mid-run could produce IDs
+    under a different ``machine_id`` if the operator changed
+    ``_metadata['pt.machine_id']`` between calls, which is exactly
+    the identity drift this module is designed to prevent.
     """
+    if "pytest" not in sys.modules:
+        raise RuntimeError(
+            "reset_for_testing() called outside a pytest run; refusing. "
+            "Resetting the singleton mid-process can produce IDs under "
+            "different machine_ids, which is the exact identity drift "
+            "this module prevents."
+        )
     global _singleton, _default_zero_warned
     with _singleton_lock:
         _singleton = None
