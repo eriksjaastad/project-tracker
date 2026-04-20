@@ -36,7 +36,7 @@ skipped. They will never be applied.
 
 cr-sqlite gating
 ----------------
-The wrapper detects cr-sqlite by probing ``crsql_dbversion()`` once per
+The wrapper detects cr-sqlite by probing ``crsql_db_version()`` once per
 ``apply_migration`` call. If the extension isn't loaded (the current
 state on both machines), the ``crsql_begin_alter`` / ``crsql_commit_alter``
 calls are skipped — the migration still runs inside a transaction, just
@@ -219,7 +219,7 @@ def unapplied_migrations(
 def _crsql_loaded(conn: sqlite3.Connection) -> bool:
     """True if cr-sqlite is loaded on this connection."""
     try:
-        conn.execute("SELECT crsql_dbversion()")
+        conn.execute("SELECT crsql_db_version()")
         return True
     except sqlite3.OperationalError:
         return False
