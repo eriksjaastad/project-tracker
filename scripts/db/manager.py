@@ -357,7 +357,7 @@ class DatabaseManager:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS task_attachments (
                     id           INTEGER PRIMARY KEY NOT NULL,
-                    task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    task_id      INTEGER NOT NULL,
                     filename     TEXT NOT NULL,
                     stored_name  TEXT NOT NULL,
                     mime_type    TEXT,
@@ -498,9 +498,9 @@ class DatabaseManager:
         final_health_score = health_score if health_score is not None else (existing["health_score"] if existing else None)
         final_health_grade = health_grade if health_grade is not None else (existing["health_grade"] if existing else None)
 
-        # CRITICAL FIX: Use ON CONFLICT instead of INSERT OR REPLACE
-        # INSERT OR REPLACE does DELETE + INSERT, which triggers ON DELETE CASCADE
-        # and wipes all tasks. ON CONFLICT DO UPDATE modifies in-place, no cascade.
+        # Use ON CONFLICT DO UPDATE rather than INSERT OR REPLACE.
+        # INSERT OR REPLACE does an implicit DELETE + INSERT; ON CONFLICT DO UPDATE
+        # modifies in-place without touching child rows.
         cursor.execute("""
             INSERT INTO projects
             (id, name, path, status, description, phase, last_modified, created_at, completion_pct,
@@ -619,8 +619,45 @@ class DatabaseManager:
         with self._get_conn() as conn:
             cursor = conn.cursor()
             try:
-                # Enable delete permission (project delete cascades to tasks)
+                # Enable delete permission (block_task_delete trigger checks this flag)
                 cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
+
+                # Explicit child cleanup — FK CASCADE no longer enforced at DB level.
+                # Order: deepest children first so no row is left referencing a deleted parent.
+                # Some tables (task_attachments, calendar_*) may not exist on every install
+                # (lazy-created or not yet migrated), so we check existence first.
+                def _tbl_exists(name: str) -> bool:
+                    return cursor.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+                    ).fetchone() is not None
+
+                if _tbl_exists("calendar_event_tasks"):
+                    cursor.execute(
+                        "DELETE FROM calendar_event_tasks WHERE task_id IN "
+                        "(SELECT id FROM tasks WHERE project_id = ?)", (project_id,)
+                    )
+                    cursor.execute(
+                        "DELETE FROM calendar_event_tasks WHERE event_id IN "
+                        "(SELECT id FROM calendar_events WHERE project_id = ?)", (project_id,)
+                    )
+                if _tbl_exists("calendar_events"):
+                    # calendar_events keep their rows; project_id set to NULL (was ON DELETE SET NULL)
+                    cursor.execute(
+                        "UPDATE calendar_events SET project_id = NULL WHERE project_id = ?", (project_id,)
+                    )
+                if _tbl_exists("task_attachments"):
+                    cursor.execute(
+                        "DELETE FROM task_attachments WHERE task_id IN "
+                        "(SELECT id FROM tasks WHERE project_id = ?)", (project_id,)
+                    )
+                if _tbl_exists("task_history"):
+                    cursor.execute("DELETE FROM task_history WHERE project_id = ?", (project_id,))
+                cursor.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
+                if _tbl_exists("project_info"):
+                    cursor.execute("DELETE FROM project_info WHERE project_id = ?", (project_id,))
+                cursor.execute("DELETE FROM ai_agents WHERE project_id = ?", (project_id,))
+                cursor.execute("DELETE FROM service_dependencies WHERE project_id = ?", (project_id,))
+                cursor.execute("DELETE FROM cron_jobs WHERE project_id = ?", (project_id,))
                 cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
                 conn.commit()
             finally:
@@ -1396,9 +1433,54 @@ class DatabaseManager:
         with self._get_conn() as conn:
             cursor = conn.cursor()
             try:
-                # Enable delete permission (triggers check this flag)
+                # Collect all descendant task IDs before enabling delete permission
+                cursor.execute("""
+                    WITH RECURSIVE descendants AS (
+                        SELECT id FROM tasks WHERE parent_id = ?
+                        UNION ALL
+                        SELECT t.id FROM tasks t
+                        INNER JOIN descendants d ON t.parent_id = d.id
+                    )
+                    SELECT id FROM descendants
+                """, (task_id,))
+                descendant_ids = [r[0] for r in cursor.fetchall()]
+
+                # Enable delete permission (block_task_delete trigger checks this flag)
                 cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
-                # Foreign key cascade will delete related task_history entries
+
+                # Explicit child cleanup — FK CASCADE no longer enforced at DB level.
+                # Guard optional tables that may not exist on every install.
+                def _tbl_exists_task(name: str) -> bool:
+                    return cursor.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+                    ).fetchone() is not None
+
+                if descendant_ids:
+                    placeholders = ",".join("?" for _ in descendant_ids)
+                    if _tbl_exists_task("calendar_event_tasks"):
+                        cursor.execute(
+                            f"DELETE FROM calendar_event_tasks WHERE task_id IN ({placeholders})",
+                            descendant_ids,
+                        )
+                    if _tbl_exists_task("task_attachments"):
+                        cursor.execute(
+                            f"DELETE FROM task_attachments WHERE task_id IN ({placeholders})",
+                            descendant_ids,
+                        )
+                    cursor.execute(
+                        f"DELETE FROM task_history WHERE task_id IN ({placeholders})",
+                        descendant_ids,
+                    )
+                    cursor.execute(
+                        f"DELETE FROM tasks WHERE id IN ({placeholders})",
+                        descendant_ids,
+                    )
+
+                if _tbl_exists_task("calendar_event_tasks"):
+                    cursor.execute("DELETE FROM calendar_event_tasks WHERE task_id = ?", (task_id,))
+                if _tbl_exists_task("task_attachments"):
+                    cursor.execute("DELETE FROM task_attachments WHERE task_id = ?", (task_id,))
+                cursor.execute("DELETE FROM task_history WHERE task_id = ?", (task_id,))
                 cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
                 conn.commit()
             finally:
@@ -1438,8 +1520,42 @@ class DatabaseManager:
         with self._get_conn() as conn:
             cursor = conn.cursor()
             try:
-                # Enable delete permission (triggers check this flag)
+                # Collect task IDs to be deleted so we can clean child rows first
+                if project_id:
+                    cursor.execute(
+                        "SELECT id FROM tasks WHERE status = 'Done' AND project_id = ?", (project_id,)
+                    )
+                else:
+                    cursor.execute("SELECT id FROM tasks WHERE status = 'Done'")
+                done_ids = [r[0] for r in cursor.fetchall()]
+
+                # Enable delete permission (block_task_delete trigger checks this flag)
                 cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
+
+                # Explicit child cleanup — FK CASCADE no longer enforced at DB level.
+                if done_ids:
+                    placeholders = ",".join("?" for _ in done_ids)
+                    has_cet = cursor.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='calendar_event_tasks'"
+                    ).fetchone() is not None
+                    has_ta = cursor.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_attachments'"
+                    ).fetchone() is not None
+                    if has_cet:
+                        cursor.execute(
+                            f"DELETE FROM calendar_event_tasks WHERE task_id IN ({placeholders})",
+                            done_ids,
+                        )
+                    if has_ta:
+                        cursor.execute(
+                            f"DELETE FROM task_attachments WHERE task_id IN ({placeholders})",
+                            done_ids,
+                        )
+                    cursor.execute(
+                        f"DELETE FROM task_history WHERE task_id IN ({placeholders})",
+                        done_ids,
+                    )
+
                 if project_id:
                     cursor.execute("DELETE FROM tasks WHERE status = 'Done' AND project_id = ?", (project_id,))
                 else:
@@ -1479,16 +1595,45 @@ class DatabaseManager:
             )
 
             try:
-                cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
-                # Delete the oldest Done tasks (keep the most recent `keep`)
+                # Collect the specific task IDs to trim so we can clean child rows first
                 cursor.execute("""
-                    DELETE FROM tasks WHERE id IN (
-                        SELECT id FROM tasks
-                        WHERE status = 'Done'
-                        ORDER BY COALESCE(completed_at, updated_at) ASC
-                        LIMIT ?
-                    )
+                    SELECT id FROM tasks
+                    WHERE status = 'Done'
+                    ORDER BY COALESCE(completed_at, updated_at) ASC
+                    LIMIT ?
                 """, (to_delete,))
+                trim_ids = [r[0] for r in cursor.fetchall()]
+
+                cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
+
+                # Explicit child cleanup — FK CASCADE no longer enforced at DB level.
+                if trim_ids:
+                    placeholders = ",".join("?" for _ in trim_ids)
+                    has_cet = cursor.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='calendar_event_tasks'"
+                    ).fetchone() is not None
+                    has_ta = cursor.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_attachments'"
+                    ).fetchone() is not None
+                    if has_cet:
+                        cursor.execute(
+                            f"DELETE FROM calendar_event_tasks WHERE task_id IN ({placeholders})",
+                            trim_ids,
+                        )
+                    if has_ta:
+                        cursor.execute(
+                            f"DELETE FROM task_attachments WHERE task_id IN ({placeholders})",
+                            trim_ids,
+                        )
+                    cursor.execute(
+                        f"DELETE FROM task_history WHERE task_id IN ({placeholders})",
+                        trim_ids,
+                    )
+
+                cursor.execute(
+                    f"DELETE FROM tasks WHERE id IN ({','.join('?' for _ in trim_ids)})",
+                    trim_ids,
+                )
                 trimmed = cursor.rowcount
                 conn.commit()
                 return trimmed
