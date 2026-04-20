@@ -81,6 +81,7 @@ LOCAL_ONLY_TABLES: frozenset[str] = frozenset({
     "delete_audit_log",       # machine-scoped audit stream
     "cron_jobs",              # per-machine scheduling
     "loop_executions",        # per-machine execution history
+    "task_display_ids",       # per-machine sequential display IDs for Snowflake PKs
 })
 
 # Tables that sync even when the data-plane is paused. Used for sync
