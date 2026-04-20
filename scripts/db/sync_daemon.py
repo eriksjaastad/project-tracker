@@ -61,6 +61,8 @@ from db.sync_checks import (
     peer_reachable,
 )
 from db.sync_http import (
+    CHANGES_IDX_DB_VERSION,
+    CHANGES_IDX_SITE_ID,
     DEFAULT_PORT,
     apply_changes,
     make_server,
@@ -147,6 +149,21 @@ def preflight(
     )
 
 
+def _get_local_site_hex(conn: sqlite3.Connection) -> str:
+    """Return ``hex(crsql_site_id())`` in lowercase.
+
+    Factored out of ``_sync_round`` so tests can monkeypatch a stable
+    site id without loading the real cr-sqlite extension.
+    """
+    site_row = conn.execute("SELECT hex(crsql_site_id())").fetchone()
+    if not site_row or not site_row[0]:
+        raise RuntimeError(
+            "crsql_site_id() returned no value — cr-sqlite is not "
+            "fully initialized on this connection"
+        )
+    return site_row[0].lower()
+
+
 def _sync_round(
     conn: sqlite3.Connection, peer_host: str, port: int = DEFAULT_PORT
 ) -> None:
@@ -172,13 +189,7 @@ def _sync_round(
       5. After commit, persist the new watermark = max db_version seen
          so the next round asks for the right slice.
     """
-    site_row = conn.execute("SELECT hex(crsql_site_id())").fetchone()
-    if not site_row or not site_row[0]:
-        raise RuntimeError(
-            "crsql_site_id() returned no value — cr-sqlite is not "
-            "fully initialized on this connection"
-        )
-    our_site_hex = site_row[0].lower()
+    our_site_hex = _get_local_site_hex(conn)
 
     # We track the peer's watermark keyed by THEIR site id, not their
     # hostname — hostnames can change, site ids don't. On round 1 we
@@ -196,14 +207,19 @@ def _sync_round(
         return
 
     apply_changes(conn, rows)
-    max_version = max(r[5] for r in rows)  # db_version is index 5
+
+    # Named-index reads — magic positional integers would silently
+    # drift if the crsql_changes tuple shape changes. The CHANGES_IDX_*
+    # constants live with the encoder in sync_http so the shape is
+    # defined in one place.
+    max_version = max(row[CHANGES_IDX_DB_VERSION] for row in rows)
     set_watermark(conn, watermark_key, max_version)
 
     # Upgrade the watermark key from hostname-based to site-id-based
     # after the first successful batch — peer's site_id is consistent
     # across every row in the batch (we filtered on it server-side).
     # This migration is idempotent and runs cheaply per round.
-    peer_site_bytes = rows[0][6]  # site_id is index 6
+    peer_site_bytes = rows[0][CHANGES_IDX_SITE_ID]
     if isinstance(peer_site_bytes, (bytes, bytearray)):
         peer_site_hex = bytes(peer_site_bytes).hex().lower()
         if peer_site_hex:

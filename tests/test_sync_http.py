@@ -380,3 +380,168 @@ def test_watermark_handles_corrupt_value(tmp_path: Path):
     # Defaults to 0 rather than crashing — a corrupt watermark shouldn't
     # brick the daemon loop.
     assert watermark_for(conn, "abc") == 0
+
+
+# ---------------------------------------------------------------------
+# _sync_round — the daemon's per-round function
+# ---------------------------------------------------------------------
+
+
+def _sync_round_fixture(tmp_path: Path):
+    """Build a fixture: server DB with 2 fake changeset rows on a
+    populated 'peer' site; client DB with _metadata + crsql_changes
+    shape ready to receive. Returns (client_conn, port, thread, srv).
+    Caller is responsible for ``srv.shutdown()`` + thread.join."""
+    # Server side — populated "peer".
+    server_db_path = tmp_path / "server.db"
+    s = sqlite3.connect(server_db_path, isolation_level=None)
+    s.execute(
+        'CREATE TABLE crsql_changes ('
+        '"table" TEXT, pk BLOB, cid TEXT, val, '
+        'col_version INTEGER, db_version INTEGER, '
+        'site_id BLOB, cl INTEGER, seq INTEGER)'
+    )
+    peer_site = b"\xbb" * 16
+    s.execute(
+        'INSERT INTO crsql_changes VALUES '
+        "('t', ?, 'note', 'row1', 1, 7, ?, 1, 0)",
+        (b"\x01", peer_site),
+    )
+    s.execute(
+        'INSERT INTO crsql_changes VALUES '
+        "('t', ?, 'note', 'row2', 1, 9, ?, 1, 0)",
+        (b"\x02", peer_site),
+    )
+    s.close()
+
+    # Client side — empty _metadata + empty crsql_changes.
+    client_db_path = tmp_path / "client.db"
+    c = sqlite3.connect(client_db_path, isolation_level=None)
+    c.execute(
+        "CREATE TABLE _metadata (key TEXT PRIMARY KEY, "
+        "value TEXT NOT NULL, created_at TEXT NOT NULL)"
+    )
+    c.execute(
+        'CREATE TABLE crsql_changes ('
+        '"table" TEXT, pk BLOB, cid TEXT, val, '
+        'col_version INTEGER, db_version INTEGER, '
+        'site_id BLOB, cl INTEGER, seq INTEGER)'
+    )
+
+    port = _pick_free_port()
+    srv = make_server(
+        conn_factory=lambda: sqlite3.connect(server_db_path),
+        port=port,
+        host="127.0.0.1",
+    )
+    thread = serve_forever_in_thread(srv)
+    return c, port, thread, srv
+
+
+def test_sync_round_writes_host_and_site_watermarks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """After a non-empty round both the host: and site: keys are
+    written to _metadata. Pins the migration path — previously untested."""
+    from db import sync_daemon
+
+    monkeypatch.setattr(
+        sync_daemon, "_get_local_site_hex", lambda conn: "aa" * 16
+    )
+
+    c, port, thread, srv = _sync_round_fixture(tmp_path)
+    try:
+        sync_daemon._sync_round(c, peer_host="127.0.0.1", port=port)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        thread.join(timeout=5)
+        c.close()
+
+    # Reopen to verify watermark persistence.
+    c = sqlite3.connect(tmp_path / "client.db")
+    kv = dict(c.execute(
+        "SELECT key, value FROM _metadata WHERE key LIKE 'sync.peer_watermark.%'"
+    ).fetchall())
+    c.close()
+
+    assert "sync.peer_watermark.host:127.0.0.1" in kv
+    assert "sync.peer_watermark.site:" + "bb" * 16 in kv
+    assert kv["sync.peer_watermark.host:127.0.0.1"] == "9"
+    assert kv["sync.peer_watermark.site:" + "bb" * 16] == "9"
+
+
+def test_sync_round_empty_batch_does_not_advance_watermark(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """If the peer has no new rows (since >= max db_version), the
+    watermark stays put — re-pulling with the same since is the
+    correct next-round behavior."""
+    from db import sync_daemon
+
+    monkeypatch.setattr(
+        sync_daemon, "_get_local_site_hex", lambda conn: "aa" * 16
+    )
+
+    c, port, thread, srv = _sync_round_fixture(tmp_path)
+    try:
+        # Pre-seed the watermark past the server's max db_version (9).
+        set_watermark(c, "host:127.0.0.1", 99)
+        sync_daemon._sync_round(c, peer_host="127.0.0.1", port=port)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        thread.join(timeout=5)
+
+    # Watermark unchanged, client's crsql_changes still empty.
+    assert watermark_for(c, "host:127.0.0.1") == 99
+    applied_count = c.execute(
+        "SELECT COUNT(*) FROM crsql_changes"
+    ).fetchone()[0]
+    assert applied_count == 0
+    c.close()
+
+
+def test_sync_round_applies_peer_rows_to_local_db(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """After a non-empty round the client's crsql_changes table
+    contains the peer's rows — the ⛔ §2.4 bootstrap gate semantic
+    (empty peer RECEIVES, populated peer UNCHANGED) at the
+    transport layer."""
+    from db import sync_daemon
+
+    monkeypatch.setattr(
+        sync_daemon, "_get_local_site_hex", lambda conn: "aa" * 16
+    )
+
+    c, port, thread, srv = _sync_round_fixture(tmp_path)
+    try:
+        sync_daemon._sync_round(c, peer_host="127.0.0.1", port=port)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        thread.join(timeout=5)
+
+    applied = c.execute(
+        'SELECT val, db_version FROM crsql_changes ORDER BY db_version'
+    ).fetchall()
+    c.close()
+    assert applied == [("row1", 7), ("row2", 9)]
+
+
+def test_get_local_site_hex_raises_when_site_id_missing():
+    """If crsql_site_id() returns None (extension not loaded), the
+    helper must raise — continuing would pass NULL/"" to the peer's
+    exclude_site param and the peer would echo our own rows back."""
+    from db.sync_daemon import _get_local_site_hex
+
+    class _NoSite:
+        def execute(self, _sql):
+            class _R:
+                def fetchone(_self):
+                    return None
+            return _R()
+
+    with pytest.raises(RuntimeError, match="crsql_site_id"):
+        _get_local_site_hex(_NoSite())  # type: ignore[arg-type]
