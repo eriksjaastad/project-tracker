@@ -41,11 +41,13 @@ from pathlib import Path
 from typing import Optional
 
 
-# sntp's human output looks like:
-#     2026-04-19 19:45:00.123456 (-0700) -0.004321 +/- 0.023456 time.apple.com 17.253.84.253
-# The drift we want is the signed float before the "+/-".
+# sntp's human output varies across macOS versions. Two observed shapes:
+#   "2026-04-19 19:45:00.123456 (-0700) -0.004321 +/- 0.023456 time.apple.com 17..."
+#   "-11.066506 +/- 0.038576 time.apple.com 2620:..."
+# The drift value is always the signed float immediately preceding " +/-",
+# regardless of what precedes it — match that pattern directly.
 _SNTP_DRIFT_RE = re.compile(
-    r"^\s*\S+\s+\S+\s+\(\S+\)\s+([+-]?\d+(?:\.\d+)?)\s+\+\/-",
+    r"(^|\s)([+-]?\d+(?:\.\d+)?)\s+\+\/-",
     re.MULTILINE,
 )
 
@@ -85,7 +87,7 @@ def ntp_drift_seconds(
     if match is None:
         return None
     try:
-        return float(match.group(1))
+        return float(match.group(2))
     except ValueError:
         return None
 
