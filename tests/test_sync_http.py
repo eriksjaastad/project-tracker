@@ -235,6 +235,290 @@ def test_pull_from_peer_empty_batch_is_empty_list(tmp_path: Path):
     assert rows == []
 
 
+# ---------------------------------------------------------------------
+# Stale-resolver recovery (pt #6042)
+#
+# These exercise ``pull_from_peer``'s retry-on-stale-DNS path. We inject
+# a fake ``OpenerDirector`` via the new ``opener=`` kwarg rather than
+# monkey-patching ``urllib.request.urlopen`` globally — the injected
+# opener stays inside the function call and can't leak into other tests.
+# We also patch ``socket.getaddrinfo`` so the recovery doesn't depend on
+# whatever DNS the test host happens to have configured.
+# ---------------------------------------------------------------------
+
+
+import urllib.error  # noqa: E402 — test-only import, keeps top-of-file lean
+import urllib.request  # noqa: E402
+
+
+class _FakeResponse:
+    """Context-manager stand-in for ``urllib.request.urlopen``'s return."""
+
+    def __init__(self, status: int = 200, body: str = "") -> None:
+        self.status = status
+        self._body = body.encode("utf-8") if isinstance(body, str) else body
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self) -> "_FakeResponse":
+        return self
+
+    def __exit__(self, *_exc: object) -> bool:
+        return False
+
+
+class _FakeOpener:
+    """Minimal stand-in for ``urllib.request.OpenerDirector``.
+
+    ``.open(req, timeout=None)`` pops from a pre-seeded list of side
+    effects. A ``BaseException`` is raised; anything else is returned
+    directly (intended to be a ``_FakeResponse`` or equivalent).
+    Tracks call count so tests can assert retry counts.
+    """
+
+    def __init__(self, side_effects: list) -> None:
+        self._effects = list(side_effects)
+        self.calls = 0
+
+    def open(self, req, timeout=None):  # noqa: ARG002 — signature match
+        self.calls += 1
+        effect = self._effects.pop(0)
+        if isinstance(effect, BaseException):
+            raise effect
+        return effect
+
+
+def _ndjson_for_one_row() -> str:
+    """Minimal NDJSON body with exactly one ``crsql_changes``-shaped row."""
+    row_json = row_to_json(
+        ("t", b"\x01", "note", "hello", 1, 1, b"\xbb" * 16, 1, 0)
+    )
+    return row_json + "\n"
+
+
+def test_pull_from_peer_retries_on_stale_resolver(monkeypatch):
+    """A ``gaierror`` with ``EAI_NONAME`` on first call must trigger one
+    retry with a fresh opener. The fresh call succeeds; ``pull_from_peer``
+    returns the parsed row.
+
+    This is the exact bug we observed in the 2026-04-19/20 §2.4 trial —
+    the daemon's long-lived ``urllib`` state held a stale resolver handle
+    after machine sleep/wake, so every round failed until the daemon was
+    reloaded manually."""
+    # Patch getaddrinfo so the recovery path's explicit pre-warm succeeds
+    # deterministically. Real DNS is a test-environment variable we don't
+    # want to depend on.
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 8765))],
+    )
+
+    # The SECOND call — the retry — needs a fresh opener built inside
+    # ``pull_from_peer``. To intercept that, we patch ``build_opener`` to
+    # return a fake whose side-effects we control.
+    retry_opener = _FakeOpener(side_effects=[_FakeResponse(200, _ndjson_for_one_row())])
+    monkeypatch.setattr("urllib.request.build_opener", lambda: retry_opener)
+
+    initial_opener = _FakeOpener(
+        side_effects=[
+            urllib.error.URLError(reason=socket.gaierror(socket.EAI_NONAME, "stale"))
+        ]
+    )
+
+    rows = pull_from_peer(
+        peer_host="stale-peer",
+        port=8765,
+        since=0,
+        exclude_site_hex="aa" * 16,
+        opener=initial_opener,
+    )
+    assert len(rows) == 1
+    assert rows[0][0] == "t"           # table
+    assert rows[0][3] == "hello"       # val
+    assert initial_opener.calls == 1   # first call hit, raised
+    assert retry_opener.calls == 1     # retry hit fresh opener
+
+
+def test_pull_from_peer_propagates_non_stale_gaierror(monkeypatch):
+    """``EAI_AGAIN`` (temporary DNS failure) is a real upstream problem;
+    masking it would hurt observability. Only the narrow whitelist
+    (``EAI_NONAME`` / ``EAI_NODATA`` / 8) triggers the recovery path;
+    everything else propagates untouched."""
+    # Sentinel: if build_opener is called, the test should notice
+    def _should_not_be_called():
+        raise AssertionError("build_opener called — retry path fired on non-stale gaierror")
+
+    monkeypatch.setattr("urllib.request.build_opener", _should_not_be_called)
+
+    opener = _FakeOpener(
+        side_effects=[
+            urllib.error.URLError(reason=socket.gaierror(socket.EAI_AGAIN, "temp fail"))
+        ]
+    )
+
+    with pytest.raises(urllib.error.URLError):
+        pull_from_peer(
+            peer_host="transient-dns-failure",
+            port=8765,
+            since=0,
+            exclude_site_hex="aa" * 16,
+            opener=opener,
+        )
+    assert opener.calls == 1  # exactly one attempt, no retry
+
+
+def test_pull_from_peer_propagates_if_retry_also_stale(monkeypatch):
+    """If both the first call AND the retry hit ``EAI_NONAME``, the
+    second exception must propagate. The daemon's outer catch will log
+    ``sync round raised; continuing`` and the next 30s round tries
+    again with fresh module state. We do NOT want an infinite retry
+    loop inside ``pull_from_peer`` — that would consume daemon round
+    budget and mask a genuinely-broken-and-stuck resolver."""
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 8765))],
+    )
+
+    retry_opener = _FakeOpener(
+        side_effects=[
+            urllib.error.URLError(reason=socket.gaierror(socket.EAI_NONAME, "still stale"))
+        ]
+    )
+    monkeypatch.setattr("urllib.request.build_opener", lambda: retry_opener)
+
+    initial_opener = _FakeOpener(
+        side_effects=[
+            urllib.error.URLError(reason=socket.gaierror(socket.EAI_NONAME, "stale"))
+        ]
+    )
+
+    with pytest.raises(urllib.error.URLError):
+        pull_from_peer(
+            peer_host="persistently-stale",
+            port=8765,
+            since=0,
+            exclude_site_hex="aa" * 16,
+            opener=initial_opener,
+        )
+    # Exactly one retry attempt, not an infinite loop
+    assert initial_opener.calls == 1
+    assert retry_opener.calls == 1
+
+
+def test_pull_from_peer_retries_on_bare_gaierror(monkeypatch):
+    """``_is_stale_resolver_error`` also handles a bare ``socket.gaierror``
+    that isn't wrapped in ``URLError``. The first branch of the unwrap
+    logic covers this path. Locks in that behavior so a future refactor
+    of ``_is_stale_resolver_error`` doesn't silently drop it."""
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 8765))],
+    )
+    retry_opener = _FakeOpener(side_effects=[_FakeResponse(200, _ndjson_for_one_row())])
+    monkeypatch.setattr("urllib.request.build_opener", lambda: retry_opener)
+
+    initial_opener = _FakeOpener(
+        side_effects=[socket.gaierror(socket.EAI_NONAME, "bare stale")]
+    )
+
+    rows = pull_from_peer(
+        peer_host="bare-gaierror-peer",
+        port=8765,
+        since=0,
+        exclude_site_hex="aa" * 16,
+        opener=initial_opener,
+    )
+    assert len(rows) == 1
+    assert initial_opener.calls == 1
+    assert retry_opener.calls == 1
+
+
+def test_pull_from_peer_propagates_if_getaddrinfo_prewarm_still_stale(monkeypatch):
+    """If the first pull fails with ``EAI_NONAME`` AND the recovery
+    pre-warm ``socket.getaddrinfo`` call also raises, the pre-warm's
+    exception must propagate — we do NOT silently build a fresh opener
+    on top of a demonstrably-still-broken resolver. This is the narrow
+    escape valve that keeps us from wasting a round on an opener we
+    have no reason to believe will work."""
+    # First call: stale-resolver symptom that triggers recovery
+    initial_opener = _FakeOpener(
+        side_effects=[
+            urllib.error.URLError(reason=socket.gaierror(socket.EAI_NONAME, "stale"))
+        ]
+    )
+    # Pre-warm getaddrinfo: ALSO stale
+    persistent_stale = socket.gaierror(socket.EAI_NONAME, "still stale")
+
+    def _getaddrinfo_stale(*_a, **_kw):
+        raise persistent_stale
+
+    monkeypatch.setattr("socket.getaddrinfo", _getaddrinfo_stale)
+
+    # If this test sees build_opener called, the pre-warm failure
+    # wasn't respected — that would be a regression.
+    def _should_not_be_called():
+        raise AssertionError("build_opener called despite pre-warm failure")
+
+    monkeypatch.setattr("urllib.request.build_opener", _should_not_be_called)
+
+    with pytest.raises(socket.gaierror):
+        pull_from_peer(
+            peer_host="persistently-stale",
+            port=8765,
+            since=0,
+            exclude_site_hex="aa" * 16,
+            opener=initial_opener,
+        )
+    # Exactly one attempt, no retry because the pre-warm aborted first
+    assert initial_opener.calls == 1
+
+
+def test_pull_from_peer_does_not_log_recovery_on_non_dns_retry_failure(monkeypatch, caplog):
+    """If the retry succeeds at the DNS layer but the peer returns a
+    malformed NDJSON body (raising ``ValueError``), we MUST NOT emit the
+    "resolver refresh did not recover" ERROR — because the resolver DID
+    recover. The resolver log is reserved for DNS-layer retry failures.
+    Anything else propagates untouched with no misleading log line.
+
+    Observability correctness: an operator reading the log after a 500
+    from the peer should see the peer's error, not a message blaming
+    DNS. Reviewer finding 1120292#1."""
+    import logging
+
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 8765))],
+    )
+    # Retry opener: returns a malformed NDJSON body, which makes
+    # ``_do_pull`` raise ``ValueError`` during the json_to_row loop.
+    retry_opener = _FakeOpener(side_effects=[_FakeResponse(200, "this is not json\n")])
+    monkeypatch.setattr("urllib.request.build_opener", lambda: retry_opener)
+
+    initial_opener = _FakeOpener(
+        side_effects=[
+            urllib.error.URLError(reason=socket.gaierror(socket.EAI_NONAME, "stale"))
+        ]
+    )
+
+    caplog.set_level(logging.INFO, logger="pt.sync_http")
+    with pytest.raises(ValueError):
+        pull_from_peer(
+            peer_host="malformed-peer",
+            port=8765,
+            since=0,
+            exclude_site_hex="aa" * 16,
+            opener=initial_opener,
+        )
+    # INFO "resolver stale" should have fired on the first failure
+    assert any("resolver stale" in rec.message for rec in caplog.records)
+    # But ERROR "resolver refresh did not recover" MUST NOT fire —
+    # the retry failure was not a DNS issue.
+    assert not any("did not recover" in rec.message for rec in caplog.records), (
+        "ERROR log falsely blamed DNS for a non-DNS retry failure"
+    )
+
+
 def test_server_rejects_missing_query_params(tmp_path: Path):
     def _factory():
         conn = sqlite3.connect(":memory:")
