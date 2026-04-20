@@ -277,6 +277,18 @@ class DatabaseManager:
 
         # --- Local fallback (sqlite3) ---
         conn = sqlite3.connect(self.db_path)
+        # Load cr-sqlite so CRR triggers (crsql_internal_sync_bit etc.) resolve on writes.
+        # Soft-fail: if the dylib isn't present, reads still work; writes to CRR tables fail
+        # with a clear "no such function" error rather than a silent bad state.
+        try:
+            from db.pt_id import _find_crsqlite_dylib
+            _dylib = _find_crsqlite_dylib()
+            if _dylib:
+                conn.enable_load_extension(True)
+                conn.load_extension(str(_dylib), entrypoint="sqlite3_crsqlite_init")
+                conn.enable_load_extension(False)
+        except Exception:
+            pass
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")  # Enable WAL mode for concurrent access
         conn.row_factory = sqlite3.Row  # Enable dict-like access
@@ -1149,9 +1161,17 @@ class DatabaseManager:
                 INSERT INTO task_history (id, task_id, project_id, event_type, old_status, new_status, timestamp)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (history_id, task_id, project_id, "created", None, status, now))
-            
+
+            # Assign a sequential display_id for human-readable card numbers.
+            # task_display_ids is LOCAL_ONLY — never synced — so MAX+1 is safe.
+            cursor.execute(
+                "INSERT OR IGNORE INTO task_display_ids (task_id, display_id) "
+                "VALUES (?, COALESCE((SELECT MAX(display_id) FROM task_display_ids), 0) + 1)",
+                (task_id,),
+            )
+
             conn.commit()
-            
+
             # Return the created task
             return self.get_task(task_id)
     
@@ -1203,7 +1223,35 @@ class DatabaseManager:
             cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
-    
+
+    def resolve_task_id(self, token: int) -> Optional[int]:
+        """Resolve a display_id or Snowflake task_id to the canonical task_id.
+
+        If token < 10^12 (legacy-range or display_id), first checks
+        task_display_ids for a display_id match; falls back to tasks.id.
+        If token >= 10^12, it is a Snowflake PK — return as-is if it exists.
+        """
+        _SNOWFLAKE_THRESHOLD = 10 ** 12
+        with self._get_conn() as conn:
+            if token < _SNOWFLAKE_THRESHOLD:
+                row = conn.execute(
+                    "SELECT task_id FROM task_display_ids WHERE display_id = ?", (token,)
+                ).fetchone()
+                if row:
+                    return row[0]
+            row = conn.execute(
+                "SELECT id FROM tasks WHERE id = ?", (token,)
+            ).fetchone()
+            return row[0] if row else None
+
+    def get_task_display_id(self, task_id: int) -> Optional[int]:
+        """Return the display_id for a given Snowflake task_id, or None."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT display_id FROM task_display_ids WHERE task_id = ?", (task_id,)
+            ).fetchone()
+            return row[0] if row else None
+
     def update_task(
         self,
         task_id: int,
