@@ -772,7 +772,48 @@ def ensure_schema(cursor: Any) -> None:
             updated_at TEXT NOT NULL
         )
     """)
-    
+
+    # Calendar tables — moved from lazy creation in CalendarManager.ensure_tables()
+    # to bootstrap-time so both laptop and Mini get them regardless of whether
+    # calendar_manager is ever instantiated. Fix for pt #6043 (schema drift —
+    # Mini was missing these tables because calendar_manager never ran there).
+    # Shape intentionally matches calendar_manager.py's CREATE exactly so the
+    # IF NOT EXISTS path is a no-op on machines that already have the tables.
+    # Phase 2 migration #6040 will rebuild with explicit NOT NULL on PKs.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS calendar_events (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            title                 TEXT    NOT NULL,
+            description           TEXT,
+            event_date            TEXT    NOT NULL,
+            event_time            TEXT,
+            event_type            TEXT    NOT NULL DEFAULT 'reminder',
+            recurrence            TEXT,
+            project_id            TEXT    REFERENCES projects(id) ON DELETE SET NULL,
+            machine               TEXT,
+            prompt                TEXT,
+            notify_before_minutes INTEGER NOT NULL DEFAULT 60,
+            notified_at           TEXT,
+            status                TEXT    NOT NULL DEFAULT 'active',
+            created_by            TEXT,
+            metadata              TEXT    DEFAULT '{}',
+            created_at            TEXT    NOT NULL,
+            updated_at            TEXT    NOT NULL
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS calendar_event_tasks (
+            event_id  INTEGER NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+            task_id   INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            link_type TEXT    NOT NULL DEFAULT 'related',
+            PRIMARY KEY (event_id, task_id)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cal_date    ON calendar_events(event_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cal_project ON calendar_events(project_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cal_status  ON calendar_events(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cal_machine ON calendar_events(machine)")
+
     # SAFETY: Delete audit log - catches ALL deletions including raw SQL
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS delete_audit_log (
