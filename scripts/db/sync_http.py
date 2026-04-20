@@ -436,7 +436,13 @@ def pull_from_peer(
         fresh_opener = urllib.request.build_opener()
         try:
             return _do_pull(fresh_opener, url, timeout_s)
-        except Exception as retry_err:
+        except (socket.gaierror, urllib.error.URLError) as retry_err:
+            # Narrow catch intentional: only log "resolver refresh did not
+            # recover" when the SECOND failure is also a DNS/transport
+            # error. If the retry succeeds at the network layer but the
+            # peer returns 500 or malformed NDJSON, those exceptions
+            # propagate untouched — the resolver DID recover, and a
+            # misleading ERROR log would make operator triage harder.
             log.error(
                 "resolver refresh on %s did not recover: %r",
                 peer_host,
