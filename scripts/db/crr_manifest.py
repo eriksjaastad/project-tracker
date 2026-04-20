@@ -122,7 +122,13 @@ def live_table_names(conn: sqlite3.Connection) -> frozenset[str]:
         ``crsql_site_id``, ``crsql_tracked_peers`` — anything matching
         ``crsql_%``). These are created as soon as cr-sqlite is loaded
         on *any* connection and are per-machine extension state; they
-        have no business being classified in the CRR manifest.
+        have no business being classified in the CRR manifest. The
+        ``crsql_%`` prefix is a namespace claim on cr-sqlite's part —
+        don't create user tables starting with ``crsql_`` or they
+        will be silently excluded from manifest validation. This is
+        forward-compatible with cr-sqlite adding new internal tables
+        in future versions (v0.17, v0.18, …) without requiring a
+        manifest-code change each time.
       - cr-sqlite's per-table CRR bookkeeping
         (``<name>__crsql_clock``, ``<name>__crsql_pks`` — anything
         containing ``__crsql_``). These appear as soon as
