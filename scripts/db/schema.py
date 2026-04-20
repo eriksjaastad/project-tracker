@@ -369,7 +369,7 @@ def ensure_schema(cursor: Any) -> None:
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS projects (
             id TEXT PRIMARY KEY NOT NULL,
-            name TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
             path TEXT NOT NULL,
             status TEXT NOT NULL,
             description TEXT,
@@ -920,6 +920,7 @@ def ensure_schema(cursor: Any) -> None:
     
     # Create indexes for performance
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_last_modified ON projects(last_modified DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(name)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cron_jobs_project ON cron_jobs(project_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_agents_project ON ai_agents(project_id)")
@@ -951,11 +952,11 @@ def ensure_schema(cursor: Any) -> None:
             project_id TEXT,
             key TEXT NOT NULL,
             value TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            UNIQUE(project_id, key)
+            updated_at TEXT NOT NULL
         )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_info_project ON project_info(project_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_info_scope_key ON project_info(project_id, key)")
 
     # Update schema version
     cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (9, ?)", (datetime.now().isoformat(),))
