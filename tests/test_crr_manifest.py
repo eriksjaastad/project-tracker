@@ -105,15 +105,35 @@ def test_live_table_names_excludes_per_table_crr_bookkeeping():
 
 
 def test_live_table_names_does_not_exclude_user_tables_with_crsql_in_name():
-    """Defensive: only the exact extension-internal patterns are
-    excluded. A user table that happens to have ``crsql`` in its name
-    (unusual but legal) must still show up."""
+    """User tables with ``crsql`` mid-name (but not starting with
+    ``crsql_``) must still show up — only the namespace prefix is
+    claimed."""
     conn = sqlite3.connect(":memory:")
-    # Would match 'crsql_%' if the filter were too greedy? No — leading
-    # underscore disqualifies. Still worth pinning.
     conn.execute("CREATE TABLE my_crsql_audit (id INTEGER)")
+    conn.execute("CREATE TABLE audit_crsql (id INTEGER)")
     live = live_table_names(conn)
     assert "my_crsql_audit" in live
+    assert "audit_crsql" in live
+
+
+def test_live_table_names_claims_full_crsql_prefix_namespace():
+    """Intentional boundary test for the ``crsql_%`` filter: any table
+    starting with ``crsql_`` is excluded, not just the three
+    documented cr-sqlite internals. This keeps the filter forward-
+    compatible with cr-sqlite adding new internal tables in future
+    versions without a manifest code change — at the cost that a
+    user table literally named ``crsql_stats`` or ``crsql_foo`` would
+    also be excluded. Document the namespace claim; don't create
+    user tables in cr-sqlite's prefix."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE tasks (id INTEGER PRIMARY KEY)")
+    # Not one of the current three documented internals, but still
+    # filtered — proves the namespace claim is the filter's intent,
+    # not a code bug.
+    conn.execute("CREATE TABLE crsql_future_internal_table (id INTEGER)")
+    conn.execute("CREATE TABLE crsql_stats (id INTEGER)")
+    live = live_table_names(conn)
+    assert live == frozenset({"tasks"})
 
 
 # --- assert_manifest_is_disjoint --------------------------------------
