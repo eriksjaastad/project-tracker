@@ -103,6 +103,41 @@ def test_defaults_added_to_broken_schema(tmp_path: Path) -> None:
     assert defaults["updated_at"] == "''", f"calendar_events.updated_at DEFAULT: {defaults['updated_at']!r}"
 
 
+def test_defaults_added_when_table_name_quoted_in_schema(tmp_path: Path) -> None:
+    """sqlite_master may store CREATE TABLE "tasks" (quoted) — regex must handle it.
+
+    This is the production case on the Mac Mini where the tasks table was created
+    with a quoted identifier. The rename regex previously used \\b which fails after
+    a closing double-quote, producing ""tasks_new"" (unrecognized token).
+    """
+    conn = sqlite3.connect(str(tmp_path / "tracker.db"))
+    conn.executescript("""
+        CREATE TABLE "tasks" (
+            id INTEGER PRIMARY KEY NOT NULL,
+            text TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'Backlog',
+            project_id TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            parent_id INTEGER,
+            blocked_by TEXT
+        );
+        INSERT INTO "tasks" (id, text, status, project_id, created_at, updated_at)
+            VALUES (1, 'task one', 'Backlog', 'p1', '2026-01-01', '2026-01-01');
+    """)
+    conn.commit()
+
+    conn.execute("BEGIN")
+    up(conn)
+    conn.execute("COMMIT")
+
+    defaults = _get_col_defaults(conn, "tasks")
+    assert defaults["created_at"] == "''", f"tasks.created_at DEFAULT: {defaults['created_at']!r}"
+    assert defaults["updated_at"] == "''", f"tasks.updated_at DEFAULT: {defaults['updated_at']!r}"
+    assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
+
+
 def test_row_counts_preserved(tmp_path: Path) -> None:
     conn = _db_with_broken_defaults(tmp_path)
     conn.execute("BEGIN")

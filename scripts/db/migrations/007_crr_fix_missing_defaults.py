@@ -133,9 +133,11 @@ def up(conn: sqlite3.Connection) -> None:
         before = conn.execute(f'SELECT COUNT(*) FROM "{tbl}"').fetchone()[0]
 
         new_sql = _patch_sql(original_sql, cols)
+        # Handle both quoted ("tasks") and unquoted (tasks) table names from sqlite_master.
+        # \b fails after a closing " (non-word char), so use a lookahead instead.
         new_sql = re.sub(
-            r"(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?)(?:\"?"
-            + re.escape(tbl) + r"\"?)\b",
+            r'(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?)(?:"'
+            + re.escape(tbl) + r'"|' + re.escape(tbl) + r')(?=[\s(])',
             rf'\1"{tbl}_new"',
             new_sql,
             count=1,
