@@ -421,6 +421,10 @@ def ensure_schema(cursor: Any) -> None:
             description TEXT,
             last_run TEXT,
             is_active BOOLEAN DEFAULT 1,
+            -- LOCAL_ONLY: FK declaration retained for documentation only.
+            -- SQLite FK enforcement is OFF by default and never enabled in this app,
+            -- so CASCADE never fires. Application-level cleanup in delete_project()
+            -- issues explicit DELETE FROM cron_jobs WHERE project_id = ?.
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         )
     """)
