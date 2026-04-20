@@ -98,7 +98,7 @@ class CalendarManager:
                     event_time            TEXT,
                     event_type            TEXT    NOT NULL DEFAULT 'reminder',
                     recurrence            TEXT,
-                    project_id            TEXT    REFERENCES projects(id) ON DELETE SET NULL,
+                    project_id            TEXT,
                     machine               TEXT,
                     prompt                TEXT,
                     notify_before_minutes INTEGER NOT NULL DEFAULT 60,
@@ -111,8 +111,8 @@ class CalendarManager:
                 );
 
                 CREATE TABLE IF NOT EXISTS calendar_event_tasks (
-                    event_id  INTEGER NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
-                    task_id   INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                    event_id  INTEGER NOT NULL,
+                    task_id   INTEGER NOT NULL,
                     link_type TEXT    NOT NULL DEFAULT 'related',
                     PRIMARY KEY (event_id, task_id)
                 );
