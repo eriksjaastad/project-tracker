@@ -945,6 +945,17 @@ def create_database(db_path: Optional[Path] = None) -> None:
     # Run all DDL migrations
     ensure_schema(cursor)
 
+    # Phase 2 boot-time manifest assertion — every live table must be in
+    # one of CRR_TABLES / LOCAL_ONLY_TABLES / CONTROL_PLANE_TABLES. An
+    # unclassified table means the sync layer (when cr-sqlite lands)
+    # would either silently exclude it or silently include it via a
+    # default. Both are unacceptable. Fail fast. See crr_manifest.py.
+    # Local import: avoids a circular-import risk during schema module
+    # load and keeps the manifest dependency out of the hot path at
+    # module import time.
+    from .crr_manifest import assert_tables_classified
+    assert_tables_classified(conn)
+
     # Local-only: store/validate fingerprint
     fingerprint = _get_or_create_fingerprint(db_path)
     cursor.execute("""
