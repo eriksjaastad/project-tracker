@@ -78,15 +78,23 @@ class Migration:
     up: Callable[[sqlite3.Connection], None]
 
 
-def discover_migrations(migrations_dir: Path) -> list[Migration]:
+def discover_migrations(
+    migrations_dir: Path, *, verbose: bool = True
+) -> list[Migration]:
     """Return every valid migration in ``migrations_dir``, ordered by version.
 
     Files that don't match ``NNN_name.py`` are ignored silently. Files
     that match the pattern but fail validation (missing ``up`` or
     ``CRR_TABLES``, or ``CRR_TABLES`` names a table not in the manifest)
-    emit a stderr warning and are skipped — never applied. This
-    tolerates historical artifacts like the deprecated
-    ``001_add_review_status.py`` without special-casing their names.
+    are skipped — never applied. This tolerates historical artifacts
+    like the deprecated ``001_add_review_status.py`` without
+    special-casing their names.
+
+    With ``verbose=True`` (default, used from ``pt db migrate``) a
+    stderr warning is printed for each skipped file so the operator
+    sees authoring bugs. With ``verbose=False`` the same files are
+    skipped silently — used from the pt-startup unapplied-migration
+    check, where a skip warning on every CLI call would be noise.
     """
     migrations: list[Migration] = []
     seen_versions: dict[int, Path] = {}
@@ -112,10 +120,11 @@ def discover_migrations(migrations_dir: Path) -> list[Migration]:
         try:
             migration = _load_migration_module(version, name, path)
         except MigrationError as err:
-            print(
-                f"migration_runner: skipping {path.name} ({err})",
-                file=sys.stderr,
-            )
+            if verbose:
+                print(
+                    f"migration_runner: skipping {path.name} ({err})",
+                    file=sys.stderr,
+                )
             continue
         migrations.append(migration)
 

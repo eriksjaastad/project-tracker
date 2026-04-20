@@ -19,6 +19,7 @@ Common Commands:
 
 import os
 import shutil
+import sqlite3
 import sys
 import webbrowser
 import time
@@ -153,8 +154,57 @@ def cli(ctx):
     PT_NO_BANNER: Set to 1 to suppress the startup banner
     """
     _print_banner()
+    # Phase 2.1a step 5 — surface any unapplied migrations so the
+    # operator knows to run `pt db migrate`. Skipped when the user is
+    # already running `db migrate` (the fix) or when explicitly silenced.
+    if ctx.invoked_subcommand not in ("db",) and not os.environ.get(
+        "PT_SUPPRESS_MIGRATION_WARNING"
+    ):
+        _warn_unapplied_migrations()
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
+
+
+def _warn_unapplied_migrations() -> None:
+    """Print a stderr warning if the tracker DB has pending migrations.
+
+    Never raises — a warning failure must not take `pt` down. Turso
+    mode is skipped entirely: the migration runner operates on local
+    SQLite and isn't meaningful against a Turso-backed DB.
+    """
+    if _USE_TURSO:
+        return
+    try:
+        from db.migration_runner import discover_migrations, unapplied_migrations
+        migrations_dir = Path(__file__).parent / "db" / "migrations"
+        if not migrations_dir.is_dir():
+            return
+        db_path = get_db_path()
+        if not db_path.exists():
+            return
+        migrations = discover_migrations(migrations_dir, verbose=False)
+        conn = sqlite3.connect(db_path)
+        try:
+            pending = unapplied_migrations(conn, migrations)
+        finally:
+            conn.close()
+        if not pending:
+            return
+        names = ", ".join(f"{m.version:03d}_{m.name}" for m in pending)
+        click.echo(
+            f"⚠ pending migration(s): {names}. Run `pt db migrate` to apply.",
+            err=True,
+        )
+    except Exception as err:
+        # A broken migration file or broken DB config shouldn't brick
+        # the CLI, but it shouldn't be silent either — the operator
+        # needs to see that something is wrong, not just a missing
+        # warning. Log and continue.
+        click.echo(
+            f"⚠ could not check for pending migrations: {err!r}",
+            err=True,
+        )
+        return
 
 
 def rebuild_project_graph():
@@ -3091,6 +3141,74 @@ def skills_stats(days, skill_filter, agent_filter, project_filter,
 
 
 # =============================================================================
+# pt db — schema migration runner (Phase 2.1a step 2 / §2.2 wrapper)
+# =============================================================================
+
+
+@click.group(name="db", invoke_without_command=True)
+@click.pass_context
+def db_group(ctx):
+    """Database schema migrations.
+
+    The migration runner applies any pending migrations from
+    `scripts/db/migrations/` to the local tracker.db. Each migration
+    runs inside a transaction; CRR-table alters are bracketed with
+    `crsql_begin_alter` / `crsql_commit_alter` when cr-sqlite is loaded
+    (skipped otherwise). See MAC_MINI_SYNC_PLAN.md §2.1a and §2.2.
+    """
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@db_group.command(name="migrate")
+def db_migrate():
+    """Apply every pending migration in order.
+
+    Refuses to run against Turso — the runner targets local SQLite
+    only. Future work (PR #3b) will refuse if data-plane sync is
+    currently running. Today sync isn't on, so that check is a no-op.
+    """
+    if _USE_TURSO:
+        console.print(
+            "[red]pt db migrate: Turso backend is active — this runner "
+            "targets local SQLite only.[/red]"
+        )
+        console.print(
+            "[dim]Disable Turso in ~/projects/.turso-config.json to use "
+            "the local runner.[/dim]"
+        )
+        sys.exit(2)
+
+    from db.migration_runner import apply_all
+
+    db_path = get_db_path()
+    migrations_dir = Path(__file__).parent / "db" / "migrations"
+    if not migrations_dir.is_dir():
+        console.print(f"[red]no migrations directory at {migrations_dir}[/red]")
+        sys.exit(2)
+
+    # isolation_level=None puts the driver into manual-commit mode, so
+    # the runner's explicit BEGIN/COMMIT/ROLLBACK statements are the
+    # only transaction boundaries. Without this, Python's sqlite3
+    # auto-inserts a BEGIN before DML and we'd have nested transactions.
+    conn = sqlite3.connect(db_path, isolation_level=None)
+    try:
+        applied = apply_all(conn, migrations_dir)
+    finally:
+        conn.close()
+
+    if not applied:
+        console.print("[green]✓ no pending migrations[/green]")
+        return
+
+    console.print(
+        f"[green]✓ applied {len(applied)} migration(s):[/green]"
+    )
+    for m in applied:
+        console.print(f"  • {m.version:03d}_{m.name}")
+
+
+# =============================================================================
 # Register subgroups and run
 # =============================================================================
 
@@ -3103,6 +3221,7 @@ cli.add_command(worktrees_group)
 cli.add_command(info_group)
 cli.add_command(message_group)
 cli.add_command(skills_group)
+cli.add_command(db_group)
 
 if __name__ == "__main__":
     cli()
