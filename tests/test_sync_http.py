@@ -406,6 +406,119 @@ def test_pull_from_peer_propagates_if_retry_also_stale(monkeypatch):
     assert retry_opener.calls == 1
 
 
+def test_pull_from_peer_retries_on_bare_gaierror(monkeypatch):
+    """``_is_stale_resolver_error`` also handles a bare ``socket.gaierror``
+    that isn't wrapped in ``URLError``. The first branch of the unwrap
+    logic covers this path. Locks in that behavior so a future refactor
+    of ``_is_stale_resolver_error`` doesn't silently drop it."""
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 8765))],
+    )
+    retry_opener = _FakeOpener(side_effects=[_FakeResponse(200, _ndjson_for_one_row())])
+    monkeypatch.setattr("urllib.request.build_opener", lambda: retry_opener)
+
+    initial_opener = _FakeOpener(
+        side_effects=[socket.gaierror(socket.EAI_NONAME, "bare stale")]
+    )
+
+    rows = pull_from_peer(
+        peer_host="bare-gaierror-peer",
+        port=8765,
+        since=0,
+        exclude_site_hex="aa" * 16,
+        opener=initial_opener,
+    )
+    assert len(rows) == 1
+    assert initial_opener.calls == 1
+    assert retry_opener.calls == 1
+
+
+def test_pull_from_peer_propagates_if_getaddrinfo_prewarm_still_stale(monkeypatch):
+    """If the first pull fails with ``EAI_NONAME`` AND the recovery
+    pre-warm ``socket.getaddrinfo`` call also raises, the pre-warm's
+    exception must propagate — we do NOT silently build a fresh opener
+    on top of a demonstrably-still-broken resolver. This is the narrow
+    escape valve that keeps us from wasting a round on an opener we
+    have no reason to believe will work."""
+    # First call: stale-resolver symptom that triggers recovery
+    initial_opener = _FakeOpener(
+        side_effects=[
+            urllib.error.URLError(reason=socket.gaierror(socket.EAI_NONAME, "stale"))
+        ]
+    )
+    # Pre-warm getaddrinfo: ALSO stale
+    persistent_stale = socket.gaierror(socket.EAI_NONAME, "still stale")
+
+    def _getaddrinfo_stale(*_a, **_kw):
+        raise persistent_stale
+
+    monkeypatch.setattr("socket.getaddrinfo", _getaddrinfo_stale)
+
+    # If this test sees build_opener called, the pre-warm failure
+    # wasn't respected — that would be a regression.
+    def _should_not_be_called():
+        raise AssertionError("build_opener called despite pre-warm failure")
+
+    monkeypatch.setattr("urllib.request.build_opener", _should_not_be_called)
+
+    with pytest.raises(socket.gaierror):
+        pull_from_peer(
+            peer_host="persistently-stale",
+            port=8765,
+            since=0,
+            exclude_site_hex="aa" * 16,
+            opener=initial_opener,
+        )
+    # Exactly one attempt, no retry because the pre-warm aborted first
+    assert initial_opener.calls == 1
+
+
+def test_pull_from_peer_does_not_log_recovery_on_non_dns_retry_failure(monkeypatch, caplog):
+    """If the retry succeeds at the DNS layer but the peer returns a
+    malformed NDJSON body (raising ``ValueError``), we MUST NOT emit the
+    "resolver refresh did not recover" ERROR — because the resolver DID
+    recover. The resolver log is reserved for DNS-layer retry failures.
+    Anything else propagates untouched with no misleading log line.
+
+    Observability correctness: an operator reading the log after a 500
+    from the peer should see the peer's error, not a message blaming
+    DNS. Reviewer finding 1120292#1."""
+    import logging
+
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 8765))],
+    )
+    # Retry opener: returns a malformed NDJSON body, which makes
+    # ``_do_pull`` raise ``ValueError`` during the json_to_row loop.
+    retry_opener = _FakeOpener(side_effects=[_FakeResponse(200, "this is not json\n")])
+    monkeypatch.setattr("urllib.request.build_opener", lambda: retry_opener)
+
+    initial_opener = _FakeOpener(
+        side_effects=[
+            urllib.error.URLError(reason=socket.gaierror(socket.EAI_NONAME, "stale"))
+        ]
+    )
+
+    caplog.set_level(logging.INFO, logger="pt.sync_http")
+    with pytest.raises(ValueError):
+        pull_from_peer(
+            peer_host="malformed-peer",
+            port=8765,
+            since=0,
+            exclude_site_hex="aa" * 16,
+            opener=initial_opener,
+        )
+    # INFO "resolver stale" should have fired on the first failure
+    assert any("resolver stale" in rec.message for rec in caplog.records)
+    # But ERROR "resolver refresh did not recover" MUST NOT fire —
+    # the retry failure was not a DNS issue.
+    assert not any("did not recover" in rec.message for rec in caplog.records), (
+        "ERROR log falsely blamed DNS for a non-DNS retry failure"
+    )
+
+
 def test_server_rejects_missing_query_params(tmp_path: Path):
     def _factory():
         conn = sqlite3.connect(":memory:")
