@@ -136,6 +136,35 @@ def test_live_table_names_claims_full_crsql_prefix_namespace():
     assert live == frozenset({"tasks"})
 
 
+def test_live_table_names_excludes_crr_test_trial_scratch_tables():
+    """The §2.4 runbook creates ``_crr_test_scratch`` (and friends) on
+    the live DB to probe cr-sqlite behavior without touching real user
+    data. Those tables must be excluded from manifest validation —
+    otherwise every ``pt`` command during the trial raises
+    ``UnclassifiedTableError`` because the scratch tables aren't in any
+    of the three classification sets. The ``_crr_test_%`` prefix is a
+    namespace claim for trial scaffolding, matching the existing
+    ``crsql_%`` pattern. Don't name real application tables with this
+    prefix — they'll be silently excluded from classification."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE tasks (id INTEGER PRIMARY KEY)")
+    conn.execute("CREATE TABLE _crr_test_scratch (id INTEGER PRIMARY KEY)")
+    conn.execute("CREATE TABLE _crr_test_anything (id INTEGER)")
+    live = live_table_names(conn)
+    assert live == frozenset({"tasks"})
+
+
+def test_live_table_names_does_not_exclude_tables_with_crr_test_mid_name():
+    """Only the ``_crr_test_`` prefix is claimed; mid-name occurrences
+    stay visible. Boundary test for the namespace claim."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE my_crr_test_audit (id INTEGER)")
+    conn.execute("CREATE TABLE audit_crr_test (id INTEGER)")
+    live = live_table_names(conn)
+    assert "my_crr_test_audit" in live
+    assert "audit_crr_test" in live
+
+
 # --- assert_manifest_is_disjoint --------------------------------------
 
 
