@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
+from .pt_id import next_id as pt_next_id
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -151,23 +153,25 @@ class CalendarManager:
             raise ValueError(f"Invalid recurrence '{recurrence}'. Must be one of: daily, weekly, monthly, or null")
 
         now = _now()
+        event_id = pt_next_id(self.db_path)
         with self._conn() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO calendar_events
-                    (title, description, event_date, event_time, event_type, recurrence,
+                    (id, title, description, event_date, event_time, event_type, recurrence,
                      project_id, prompt, notify_before_minutes,
                      created_by, metadata, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    event_id,
                     title, description, event_date, event_time, event_type, recurrence,
                     project_id, prompt, notify_before_minutes,
                     created_by, json.dumps(metadata or {}), now, now,
                 ),
             )
             conn.commit()
-            return cursor.lastrowid  # type: ignore[return-value]
+            return event_id
 
     def update_event(self, event_id: int, **updates: Any) -> bool:
         """Update any fields on an event. Returns True if event was found."""
