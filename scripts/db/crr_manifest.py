@@ -134,6 +134,17 @@ def live_table_names(conn: sqlite3.Connection) -> frozenset[str]:
         containing ``__crsql_``). These appear as soon as
         ``crsql_as_crr(<name>)`` is called on the user table; we
         classify only the underlying user table.
+      - §2.4 trial scratch tables (anything matching ``_crr_test_%``).
+        The Phase 2.4 cross-machine runbook creates ephemeral tables
+        like ``_crr_test_scratch`` on the live DB to probe cr-sqlite
+        behavior without touching real user data. They exist only for
+        the duration of the trial and are dropped in teardown (§2.4.I).
+        Claiming the ``_crr_test_%`` prefix keeps ``pt`` commands
+        (which go through ``DatabaseManager`` → ``create_database`` →
+        ``assert_tables_classified``) working during the trial —
+        otherwise every ``pt sync pause/resume`` call in the runbook
+        would raise ``UnclassifiedTableError`` mid-test. Don't name
+        real application tables with this prefix.
 
     The manifest assertion then validates the remaining set — the
     actual user/application tables — against CRR / LOCAL_ONLY /
@@ -145,6 +156,7 @@ def live_table_names(conn: sqlite3.Connection) -> frozenset[str]:
         "AND name NOT LIKE 'sqlite_%' "
         "AND name NOT LIKE 'crsql_%' "
         "AND name NOT LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' "
+        "AND name NOT LIKE '\\_crr\\_test\\_%' ESCAPE '\\' "
         "ORDER BY name"
     )
     return frozenset(row[0] for row in cur.fetchall())
