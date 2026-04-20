@@ -487,8 +487,8 @@ def ensure_schema(cursor: Any) -> None:
             status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done', 'Cancelled', 'TRIAGED', 'READY_FOR_PATCH', 'PR_READY')),
             project_id TEXT NOT NULL,
             priority TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL)),
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT '',
             completed_at TEXT,
             prompt TEXT,
             task_type TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent', 'proposal')),
@@ -794,8 +794,8 @@ def ensure_schema(cursor: Any) -> None:
             status                TEXT    NOT NULL DEFAULT 'active',
             created_by            TEXT,
             metadata              TEXT    DEFAULT '{}',
-            created_at            TEXT    NOT NULL,
-            updated_at            TEXT    NOT NULL
+            created_at            TEXT    NOT NULL DEFAULT '',
+            updated_at            TEXT    NOT NULL DEFAULT ''
         )
     """)
     cursor.execute("""
