@@ -335,13 +335,13 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
     backend_tag = "turso" if _USE_TURSO else "local"
     title = f"Tasks - {project}" if project else "Tasks - all projects"
     print(f"{title} [{backend_tag}]\n")
+    display_map = db.get_task_display_id_map([t["id"] for t in task_list]) if db else {}
     for task in task_list:
         priority = task.get("priority") or "-"
         status = task["status"]
         task_id = task["id"]
         task_text = task["text"]
-        display_id = db.get_task_display_id(task_id) if db else None
-        label = display_id if display_id is not None else task_id
+        label = display_map.get(task_id, task_id)
         if _has_complete_prompt(task.get("prompt")): prompt_marker = ""
         elif task.get("prompt"): prompt_marker = "[~P] "
         else: prompt_marker = "[!P] "
@@ -1170,6 +1170,8 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes,
     if not updates:
         console.print("[yellow]No updates specified. Use -s, -t, --priority, --prompt, --notes, or --blocked-by.[/yellow]"); return
     task_id = _resolve_task_id(db, task_id)
+    if not db.get_task(task_id):
+        console.print(f"[red]Task #{task_id} not found[/red]"); return
     try:
         db.update_task(task_id, **updates)
         console.print(f"[green]Updated task #{task_id}[/green]")
@@ -1312,6 +1314,7 @@ def tasks_approve(task_ids):
     success_count = 0
     for task_id in task_ids:
         try:
+            task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
             if not task:
                 print(f"Task #{task_id} not found"); continue
@@ -1335,6 +1338,7 @@ def tasks_reject(task_ids):
     success_count = 0
     for task_id in task_ids:
         try:
+            task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
             if not task:
                 print(f"Task #{task_id} not found"); continue

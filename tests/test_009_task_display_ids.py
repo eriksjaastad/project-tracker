@@ -128,3 +128,67 @@ def test_display_ids_are_unique(tmp_path: Path) -> None:
 
     all_display = [r[0] for r in conn.execute("SELECT display_id FROM task_display_ids").fetchall()]
     assert len(all_display) == len(set(all_display)), "display_ids must be unique"
+
+
+# -----------------------------------------------------------------------
+# DatabaseManager integration tests
+# -----------------------------------------------------------------------
+
+import os
+import pytest
+
+from db.manager import DatabaseManager
+
+
+@pytest.fixture
+def db_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManager:
+    monkeypatch.setenv("PT_DB_PATH", str(tmp_path / "tracker.db"))
+    monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
+    db = DatabaseManager()
+    db.add_project("test", "Test Project", "/tmp/test", "active")
+    return db
+
+
+def test_get_task_display_id_returns_display_id(db_manager: DatabaseManager) -> None:
+    task = db_manager.add_task("test task display id", project_id="test")
+    task_id = task["id"]
+    display_id = db_manager.get_task_display_id(task_id)
+    assert display_id is not None, "display_id should be set after add_task"
+    assert isinstance(display_id, int)
+
+
+def test_get_task_display_id_returns_none_for_unknown(db_manager: DatabaseManager) -> None:
+    assert db_manager.get_task_display_id(999999999999999) is None
+
+
+def test_resolve_task_id_via_display_id(db_manager: DatabaseManager) -> None:
+    task = db_manager.add_task("resolve via display_id", project_id="test")
+    task_id = task["id"]
+    display_id = db_manager.get_task_display_id(task_id)
+    assert display_id is not None
+    resolved = db_manager.resolve_task_id(display_id)
+    assert resolved == task_id, f"resolve_task_id({display_id}) should return {task_id}, got {resolved}"
+
+
+def test_resolve_task_id_via_snowflake_pk(db_manager: DatabaseManager) -> None:
+    task = db_manager.add_task("resolve via snowflake pk", project_id="test")
+    task_id = task["id"]
+    resolved = db_manager.resolve_task_id(task_id)
+    assert resolved == task_id
+
+
+def test_resolve_task_id_unknown_returns_none(db_manager: DatabaseManager) -> None:
+    assert db_manager.resolve_task_id(888888888) is None
+
+
+def test_get_task_display_id_map_batch(db_manager: DatabaseManager) -> None:
+    t1 = db_manager.add_task("task 1", project_id="test")
+    t2 = db_manager.add_task("task 2", project_id="test")
+    ids = [t1["id"], t2["id"]]
+    mapping = db_manager.get_task_display_id_map(ids)
+    assert set(mapping.keys()) == set(ids)
+    assert all(isinstance(v, int) for v in mapping.values())
+
+
+def test_get_task_display_id_map_empty(db_manager: DatabaseManager) -> None:
+    assert db_manager.get_task_display_id_map([]) == {}
