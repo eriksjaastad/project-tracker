@@ -47,6 +47,8 @@
         <string>@PT_HOME@/data/tracker.db</string>
         <string>--peer-host</string>
         <string>@PEER_HOST@</string>
+        <string>--http-port</string>
+        <string>8765</string>
     </array>
 
     <key>RunAtLoad</key>
