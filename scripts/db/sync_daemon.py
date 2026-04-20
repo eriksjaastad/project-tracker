@@ -52,11 +52,22 @@ from pathlib import Path
 from types import FrameType
 from typing import Callable, Optional
 
+import threading
+
 from db.sync_checks import (
     DEFAULT_NTP_HOST,
     manifest_hash,
     ntp_drift_seconds,
     peer_reachable,
+)
+from db.sync_http import (
+    DEFAULT_PORT,
+    apply_changes,
+    make_server,
+    pull_from_peer,
+    serve_forever_in_thread,
+    set_watermark,
+    watermark_for,
 )
 from db.sync_state import is_paused, record_last_sync
 
@@ -136,33 +147,79 @@ def preflight(
     )
 
 
-def _sync_round_placeholder(
-    conn: sqlite3.Connection, peer_host: str
+def _sync_round(
+    conn: sqlite3.Connection, peer_host: str, port: int = DEFAULT_PORT
 ) -> None:
-    """Stub for one sync round. Replaced in PR #3c-2.
+    """Pull the peer's changesets and apply them locally.
 
-    Real implementation will:
-      1. Extract our local changesets since the peer's last-seen
-         version from the ``crsql_changes`` virtual table.
-      2. POST them to the peer's sync endpoint over Tailscale.
-      3. GET the peer's changesets since our last-seen version.
-      4. Apply them locally (``INSERT INTO crsql_changes ...``) inside
-         a transaction.
-      5. Update ``crsql_tracked_peers`` with the new watermarks.
+    Symmetric protocol — the peer runs the same function with roles
+    reversed and pulls from us. That means one round on each machine
+    equals one full cross-propagation; no POST path, no coordination
+    between halves.
 
-    For PR #3c-1 the stub just logs — enough to prove the outer loop
-    works end-to-end.
-
-    Side-effect note: ``SyncDaemon.run_once`` advances
-    ``sync.last_successful_sync`` after any non-exception return from
-    this function, which means during the #3c-1 → #3c-2 window
-    ``pt sync status`` will show a recent "last successful sync"
-    even though no data moved. That's acceptable only while the stub
-    is in place. TODO(#3c-2): remove this note once the real
-    replication lands — a no-op round won't need to advance
-    last_successful_sync since there won't be a no-op round.
+    Sequence:
+      1. Get our site id (for ``exclude_site`` so peer doesn't echo
+         our rows back) and the current watermark for this peer.
+      2. HTTP GET peer's ``/crsql/changes?since=<watermark>&exclude_site=<us>``.
+      3. If the batch is empty, nothing changed — return without
+         advancing the watermark (there's nothing to advance past).
+      4. Apply the rows inside one transaction
+         (``INSERT INTO crsql_changes ...``). cr-sqlite's CRDT merge
+         runs on each insert; a write of a stale column is a no-op,
+         not a data-overwrite. This is why the bootstrap gate in §2.4
+         matters — we have to prove that empty-peer doesn't interpret
+         as "please delete all rows".
+      5. After commit, persist the new watermark = max db_version seen
+         so the next round asks for the right slice.
     """
-    log.info("sync round placeholder: peer=%s (no-op until PR #3c-2)", peer_host)
+    site_row = conn.execute("SELECT hex(crsql_site_id())").fetchone()
+    if not site_row or not site_row[0]:
+        raise RuntimeError(
+            "crsql_site_id() returned no value — cr-sqlite is not "
+            "fully initialized on this connection"
+        )
+    our_site_hex = site_row[0].lower()
+
+    # We track the peer's watermark keyed by THEIR site id, not their
+    # hostname — hostnames can change, site ids don't. On round 1 we
+    # don't know the peer's site id yet; `peer_host` doubles as a
+    # hostname-based watermark key for first contact. After round 1
+    # we discover the peer's site id from the rows it returned and
+    # migrate the watermark key. This keeps the cold-start case
+    # simple without losing the site-id invariant afterwards.
+    watermark_key = f"host:{peer_host}"
+    since = watermark_for(conn, watermark_key)
+
+    rows = pull_from_peer(peer_host, port, since, our_site_hex)
+    if not rows:
+        log.info("sync round: peer=%s since=%d — no changes", peer_host, since)
+        return
+
+    apply_changes(conn, rows)
+    max_version = max(r[5] for r in rows)  # db_version is index 5
+    set_watermark(conn, watermark_key, max_version)
+
+    # Upgrade the watermark key from hostname-based to site-id-based
+    # after the first successful batch — peer's site_id is consistent
+    # across every row in the batch (we filtered on it server-side).
+    # This migration is idempotent and runs cheaply per round.
+    peer_site_bytes = rows[0][6]  # site_id is index 6
+    if isinstance(peer_site_bytes, (bytes, bytearray)):
+        peer_site_hex = bytes(peer_site_bytes).hex().lower()
+        if peer_site_hex:
+            set_watermark(conn, f"site:{peer_site_hex}", max_version)
+
+    log.info(
+        "sync round: peer=%s applied=%d new_watermark=%d",
+        peer_host, len(rows), max_version,
+    )
+
+
+# Kept as a public alias so existing tests + external callers don't
+# break while the payload is wired in. PR #3c-2 turns the stub into
+# the real thing; the name remains `_sync_round_placeholder` for one
+# PR cycle so the stack retains a single move per PR.
+_sync_round_placeholder = _sync_round
 
 
 class SyncDaemon:
@@ -176,6 +233,9 @@ class SyncDaemon:
         crsqlite_path: Optional[Path] = None,
         round_fn: Callable[[sqlite3.Connection, str], None] = _sync_round_placeholder,
         sleep_fn: Callable[[float], None] = time.sleep,
+        http_port: int = DEFAULT_PORT,
+        http_host: Optional[str] = None,
+        serve_http: bool = True,
     ) -> None:
         self.db_path = Path(db_path)
         self.peer_host = peer_host
@@ -185,10 +245,24 @@ class SyncDaemon:
             if crsqlite_path is not None
             else Path.home() / ".local/lib/crsqlite/crsqlite.dylib"
         )
+        # If the caller accepted the default round_fn (_sync_round_placeholder
+        # which is now _sync_round), wrap it to close over http_port so
+        # the round function only needs (conn, host) — keeps the Callable
+        # shape simple and tests can still pass a stubbed (conn, host) fn.
+        if round_fn is _sync_round_placeholder:
+            _port = http_port
+            def _default_round(c: sqlite3.Connection, h: str) -> None:
+                _sync_round(c, h, port=_port)
+            round_fn = _default_round
         self._round_fn = round_fn
         self._sleep_fn = sleep_fn
+        self._http_port = http_port
+        self._http_host = http_host  # None = auto-detect tailnet IP
+        self._serve_http = serve_http
         self._stop_requested = False
         self._conn: Optional[sqlite3.Connection] = None
+        self._http_server = None  # ThreadingHTTPServer; set in start()
+        self._http_thread: Optional[threading.Thread] = None
 
     # --- lifecycle -----------------------------------------------------
 
@@ -227,7 +301,7 @@ class SyncDaemon:
         return conn
 
     def start(self) -> int:
-        """Open DB, run preflight, then loop until stopped. Returns exit code."""
+        """Open DB, run preflight, start HTTP server, then loop. Returns exit code."""
         self._install_signal_handlers()
         try:
             self._conn = self._open_conn()
@@ -245,6 +319,9 @@ class SyncDaemon:
                 )
                 return 2
 
+            if self._serve_http:
+                self._start_http_server()
+
             while not self._stop_requested:
                 try:
                     self.run_once(self._conn)
@@ -260,8 +337,45 @@ class SyncDaemon:
                 self._sleep_fn(self.interval_seconds)
             return 0
         finally:
+            self._stop_http_server()
             if self._conn is not None:
                 self._conn.close()
+
+    def _start_http_server(self) -> None:
+        """Spin up the pull-endpoint HTTP server on a daemon thread.
+
+        Request threads open their own sqlite connections via the
+        factory — the daemon's main connection is thread-affine and
+        must not be shared across handlers.
+        """
+        def _factory() -> sqlite3.Connection:
+            c = sqlite3.connect(str(self.db_path), isolation_level=None)
+            c.enable_load_extension(True)
+            c.load_extension(
+                str(self.crsqlite_path), entrypoint="sqlite3_crsqlite_init"
+            )
+            return c
+
+        self._http_server = make_server(
+            conn_factory=_factory,
+            port=self._http_port,
+            host=self._http_host,
+        )
+        host, port = self._http_server.server_address[:2]
+        log.info("http server listening on %s:%s", host, port)
+        self._http_thread = serve_forever_in_thread(self._http_server)
+
+    def _stop_http_server(self) -> None:
+        if self._http_server is not None:
+            try:
+                self._http_server.shutdown()
+                self._http_server.server_close()
+            except Exception:
+                log.exception("error shutting down http server")
+            self._http_server = None
+        if self._http_thread is not None and self._http_thread.is_alive():
+            self._http_thread.join(timeout=5.0)
+            self._http_thread = None
 
     # --- per-round ----------------------------------------------------
 
@@ -311,6 +425,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Override cr-sqlite dylib path.",
     )
     parser.add_argument(
+        "--http-port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port for the pull endpoint (default {DEFAULT_PORT}).",
+    )
+    parser.add_argument(
+        "--http-host",
+        default=None,
+        help="Bind host for the pull endpoint. Default: tailnet IP.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         help="Python logging level (DEBUG/INFO/WARNING/ERROR).",
@@ -328,6 +453,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         peer_host=args.peer_host,
         interval_seconds=args.interval_seconds,
         crsqlite_path=args.crsqlite_path,
+        http_port=args.http_port,
+        http_host=args.http_host,
     )
     return daemon.start()
 
