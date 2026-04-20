@@ -196,7 +196,7 @@ class PtIdGenerator:
                     # collide. Busy-wait is acceptable: this path is
                     # vanishingly rare (4M IDs/s per machine sustained).
                     nxt = int(time.time() * 1000) - PT_ID_EPOCH_MS
-                    while nxt == self._last_ms:
+                    while nxt <= self._last_ms:
                         nxt = int(time.time() * 1000) - PT_ID_EPOCH_MS
                     self._last_ms = nxt
                     self._counter = 0
@@ -236,8 +236,19 @@ class PtIdGenerator:
 # Machine-ID resolution
 # ---------------------------------------------------------------------
 
-_CRSQLITE_DYLIB = Path.home() / ".local/lib/crsqlite/crsqlite.dylib"
+_CRSQLITE_DYLIB_CANDIDATES: tuple[Path, ...] = (
+    Path.home() / ".local/lib/crsqlite/crsqlite.dylib",
+    Path.home() / ".local/lib/crsqlite/crsqlite.so",
+)
 _default_zero_warned = False
+
+
+def _find_crsqlite_dylib() -> Optional[Path]:
+    """Return the first existing cr-sqlite dylib candidate, or None."""
+    for candidate in _CRSQLITE_DYLIB_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _warn_default_zero(reason: str) -> int:
@@ -306,11 +317,12 @@ def load_machine_id(db_path: Optional[Path]) -> int:
             return mid
 
         # 2. Derive from crsql_site_id if cr-sqlite can load.
-        if _CRSQLITE_DYLIB.exists():
+        _dylib = _find_crsqlite_dylib()
+        if _dylib is not None:
             try:
                 conn.enable_load_extension(True)
                 conn.load_extension(
-                    str(_CRSQLITE_DYLIB),
+                    str(_dylib),
                     entrypoint="sqlite3_crsqlite_init",
                 )
                 site_hex = conn.execute(

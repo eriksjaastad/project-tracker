@@ -17,8 +17,10 @@ This migration rebuilds each CRR table using SQLite's table-rebuild pattern
        CREATE TABLE <tbl>_new, INSERT INTO <tbl>_new SELECT * FROM <tbl>,
        verify row count, DROP TABLE <tbl>, RENAME <tbl>_new TO <tbl>.
     5. Recreate indexes and triggers.
-    6. PRAGMA foreign_key_check — raise if any violation.
-    7. PRAGMA integrity_check — raise if not "ok".
+    6. PRAGMA integrity_check — raise if not "ok".
+    7. FK integrity is verified by the test suite (separate connection with
+       PRAGMA foreign_keys = ON), not inline, because PRAGMA foreign_keys
+       is a no-op inside a transaction.
 
 This migration does NOT wire pt_id into INSERT call sites — that happens
 per-table as each table is flipped to CRR in §2.5. The schema change here
@@ -173,7 +175,7 @@ def _backup(conn: sqlite3.Connection) -> None:
         # New connection so VACUUM INTO runs outside the open transaction.
         bconn = sqlite3.connect(db_path_str)
         try:
-            bconn.execute(f"VACUUM INTO '{dest}'")
+            bconn.execute(f"VACUUM INTO '{str(dest).replace(chr(39), chr(39)*2)}'")
         finally:
             bconn.close()
         print(f"migration 003: backup → {dest}", file=sys.stderr)
