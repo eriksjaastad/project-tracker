@@ -287,8 +287,8 @@ class DatabaseManager:
                 conn.enable_load_extension(True)
                 conn.load_extension(str(_dylib), entrypoint="sqlite3_crsqlite_init")
                 conn.enable_load_extension(False)
-        except Exception:
-            pass
+        except Exception as _crsql_err:
+            logger.warning("crsqlite load skipped: %s", _crsql_err)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")  # Enable WAL mode for concurrent access
         conn.row_factory = sqlite3.Row  # Enable dict-like access
@@ -1251,6 +1251,18 @@ class DatabaseManager:
                 "SELECT display_id FROM task_display_ids WHERE task_id = ?", (task_id,)
             ).fetchone()
             return row[0] if row else None
+
+    def get_task_display_id_map(self, task_ids: list) -> dict:
+        """Return a {task_id: display_id} mapping for all given task_ids in one query."""
+        if not task_ids:
+            return {}
+        placeholders = ",".join("?" * len(task_ids))
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT task_id, display_id FROM task_display_ids WHERE task_id IN ({placeholders})",
+                task_ids,
+            ).fetchall()
+        return {row[0]: row[1] for row in rows}
 
     def update_task(
         self,
