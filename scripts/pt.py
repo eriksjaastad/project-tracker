@@ -340,6 +340,8 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
         status = task["status"]
         task_id = task["id"]
         task_text = task["text"]
+        display_id = db.get_task_display_id(task_id) if db else None
+        label = display_id if display_id is not None else task_id
         if _has_complete_prompt(task.get("prompt")): prompt_marker = ""
         elif task.get("prompt"): prompt_marker = "[~P] "
         else: prompt_marker = "[!P] "
@@ -349,9 +351,9 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
             if is_blocked:
                 blocked_marker = f"[B:{','.join(str(i) for i in blocking_ids)}] "
         if project:
-            print(f"#{task_id} {prompt_marker}{blocked_marker}| {status} | {priority} | {task_text}")
+            print(f"#{label} {prompt_marker}{blocked_marker}| {status} | {priority} | {task_text}")
         else:
-            print(f"#{task_id} {prompt_marker}{blocked_marker}| {task['project_id']} | {status} | {priority} | {task_text}")
+            print(f"#{label} {prompt_marker}{blocked_marker}| {task['project_id']} | {status} | {priority} | {task_text}")
     status_counts = {}
     for task in task_list:
         status_counts[task["status"]] = status_counts.get(task["status"], 0) + 1
@@ -366,6 +368,16 @@ def _resolve_project_id(db, project):
         if p["name"].lower() == project.lower() or p["id"].lower() == project.lower():
             return p["id"]
     return None
+
+
+def _resolve_task_id(db, token: int) -> int:
+    """Resolve a display_id or Snowflake task_id to the canonical task PK.
+
+    Returns the resolved task_id, or token unchanged if resolution fails
+    (callers that pass a bad ID will get a "not found" from get_task anyway).
+    """
+    resolved = db.resolve_task_id(token)
+    return resolved if resolved is not None else token
 
 
 def _detect_project_from_cwd(db):
@@ -1157,6 +1169,7 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes,
                 console.print("[red]Error: blocked-by must be comma-separated task IDs[/red]"); return
     if not updates:
         console.print("[yellow]No updates specified. Use -s, -t, --priority, --prompt, --notes, or --blocked-by.[/yellow]"); return
+    task_id = _resolve_task_id(db, task_id)
     try:
         db.update_task(task_id, **updates)
         console.print(f"[green]Updated task #{task_id}[/green]")
@@ -1184,6 +1197,7 @@ def tasks_move(project, task_ids):
     success_count = 0
     for task_id in task_ids:
         try:
+            task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
             if not task: print(f"Task #{task_id} not found"); continue
             old_project = task["project_id"]
@@ -1205,6 +1219,7 @@ def tasks_done(task_ids):
     success_count = 0
     for task_id in task_ids:
         try:
+            task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
             if not task: print(f"Task #{task_id} not found"); continue
             db.update_task(task_id, status="Done")
@@ -1230,6 +1245,7 @@ def tasks_start(task_ids):
     success_count = 0
     for task_id in task_ids:
         try:
+            task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
             if not task: print(f"Task #{task_id} not found"); continue
             if task.get("task_type") == "agent" and not task.get("prompt"):
@@ -1256,6 +1272,7 @@ def tasks_review(task_ids):
     success_count = 0
     for task_id in task_ids:
         try:
+            task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
             if not task: print(f"Task #{task_id} not found"); continue
             db.update_task(task_id, status="Review")
@@ -1275,6 +1292,7 @@ def tasks_cancel(task_ids):
     success_count = 0
     for task_id in task_ids:
         try:
+            task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
             if not task: print(f"Task #{task_id} not found"); continue
             db.update_task(task_id, status="Cancelled")
@@ -1338,6 +1356,7 @@ def tasks_reject(task_ids):
 def tasks_delete(task_id, yes):
     """Permanently delete a single task (one at a time for safety)."""
     db = DatabaseManager()
+    task_id = _resolve_task_id(db, task_id)
     task = db.get_task(task_id)
     if not task: print(f"Task #{task_id} not found"); return
     print(f"  #{task['id']} | {task['status']} | {task['text'][:60]}")
@@ -1361,15 +1380,17 @@ def tasks_show(task_ids, json_output):
     tasks = []
     for i, task_id in enumerate(task_ids):
         try:
+            task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
             if not task:
                 if not json_output: console.print(f"[red]Task #{task_id} not found[/red]")
                 continue
+            display_id = db.get_task_display_id(task_id) or task_id
             if json_output:
                 tasks.append(task)
             else:
                 if i > 0: print("\n" + "-" * 40 + "\n")
-                print(f"Task #{task['id']}")
+                print(f"Task #{display_id} (pk: {task['id']})")
                 print(f"Project: {task['project_id']}")
                 print(f"Status: {task['status']}")
                 print(f"Priority: {task.get('priority') or 'None'}")
