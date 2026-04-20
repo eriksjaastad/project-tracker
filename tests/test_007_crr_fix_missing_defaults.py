@@ -216,6 +216,31 @@ def test_no_op_when_already_compliant(tmp_path: Path) -> None:
     assert conn.execute("SELECT COUNT(*) FROM calendar_events").fetchone()[0] == before_cal
 
 
+def test_raises_if_column_type_not_text(tmp_path: Path) -> None:
+    """If created_at is DATETIME (not TEXT), _patch_sql silently no-ops.
+    The post-rebuild verification must catch this and raise RuntimeError."""
+    conn = sqlite3.connect(str(tmp_path / "tracker.db"))
+    conn.executescript("""
+        CREATE TABLE tasks (
+            id INTEGER PRIMARY KEY NOT NULL,
+            text TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'Backlog',
+            project_id TEXT NOT NULL DEFAULT '',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        );
+        INSERT INTO tasks (id, text, status, project_id, created_at, updated_at)
+            VALUES (1, 'task one', 'Backlog', 'p1', '2026-01-01', '2026-01-01');
+    """)
+    conn.commit()
+
+    import pytest
+    conn.execute("BEGIN")
+    with pytest.raises(RuntimeError, match="Column type may not be TEXT"):
+        up(conn)
+    conn.execute("ROLLBACK")
+
+
 def test_idempotent(tmp_path: Path) -> None:
     """Running up() twice on a broken schema must be safe — second run is a no-op."""
     conn = _db_with_broken_defaults(tmp_path)
