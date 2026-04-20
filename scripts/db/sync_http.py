@@ -56,6 +56,21 @@ log = logging.getLogger("pt.sync_http")
 DEFAULT_PORT = 8765
 
 
+# Column indexes in the crsql_changes tuple. Keep in sync with
+# `iter_changes_for_peer`'s SELECT and `json_to_row`'s positional
+# return; downstream callers (e.g. sync_daemon._sync_round) use these
+# to read without duplicating the magic 5 / 6 integers.
+CHANGES_IDX_TABLE = 0
+CHANGES_IDX_PK = 1
+CHANGES_IDX_CID = 2
+CHANGES_IDX_VAL = 3
+CHANGES_IDX_COL_VERSION = 4
+CHANGES_IDX_DB_VERSION = 5
+CHANGES_IDX_SITE_ID = 6
+CHANGES_IDX_CL = 7
+CHANGES_IDX_SEQ = 8
+
+
 # ---------------------------------------------------------------------
 # Encoding helpers — symmetric between server and client.
 # ---------------------------------------------------------------------
