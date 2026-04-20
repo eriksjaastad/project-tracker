@@ -113,10 +113,32 @@ class DuplicateClassificationError(RuntimeError):
 
 
 def live_table_names(conn: sqlite3.Connection) -> frozenset[str]:
-    """Return every real table in the database, excluding SQLite internals."""
+    """Return every user-facing table in the database.
+
+    Excludes:
+      - SQLite's own internals (``sqlite_master``, ``sqlite_sequence``,
+        ``sqlite_autoindex_*`` — anything matching ``sqlite_%``).
+      - cr-sqlite's DB-scoped bookkeeping (``crsql_master``,
+        ``crsql_site_id``, ``crsql_tracked_peers`` — anything matching
+        ``crsql_%``). These are created as soon as cr-sqlite is loaded
+        on *any* connection and are per-machine extension state; they
+        have no business being classified in the CRR manifest.
+      - cr-sqlite's per-table CRR bookkeeping
+        (``<name>__crsql_clock``, ``<name>__crsql_pks`` — anything
+        containing ``__crsql_``). These appear as soon as
+        ``crsql_as_crr(<name>)`` is called on the user table; we
+        classify only the underlying user table.
+
+    The manifest assertion then validates the remaining set — the
+    actual user/application tables — against CRR / LOCAL_ONLY /
+    CONTROL_PLANE classification.
+    """
     cur = conn.execute(
         "SELECT name FROM sqlite_master "
-        "WHERE type='table' AND name NOT LIKE 'sqlite_%' "
+        "WHERE type='table' "
+        "AND name NOT LIKE 'sqlite_%' "
+        "AND name NOT LIKE 'crsql_%' "
+        "AND name NOT LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' "
         "ORDER BY name"
     )
     return frozenset(row[0] for row in cur.fetchall())

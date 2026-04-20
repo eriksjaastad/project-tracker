@@ -73,6 +73,49 @@ def test_live_table_names_empty_db():
     assert live_table_names(conn) == frozenset()
 
 
+def test_live_table_names_excludes_crsql_internal_tables():
+    """cr-sqlite creates ``crsql_master``, ``crsql_site_id``,
+    ``crsql_tracked_peers`` as soon as the extension loads on any
+    connection. These are per-machine extension internals — they must
+    NOT appear in the live-table set the manifest validates, or every
+    boot of pt after the daemon starts would fail
+    ``assert_tables_classified``."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE tasks (id INTEGER PRIMARY KEY)")
+    conn.execute("CREATE TABLE crsql_master (key TEXT, value ANY)")
+    conn.execute("CREATE TABLE crsql_site_id (site_id BLOB)")
+    conn.execute("CREATE TABLE crsql_tracked_peers (site_id BLOB)")
+    live = live_table_names(conn)
+    assert live == frozenset({"tasks"})
+
+
+def test_live_table_names_excludes_per_table_crr_bookkeeping():
+    """When ``crsql_as_crr('<name>')`` runs, cr-sqlite creates
+    ``<name>__crsql_clock`` and ``<name>__crsql_pks``. These are
+    per-table CRR metadata and must not appear in the manifest check —
+    the manifest classifies the underlying user table (e.g. ``tasks``),
+    not the bookkeeping tables cr-sqlite derived from it."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE tasks (id INTEGER PRIMARY KEY)")
+    conn.execute("CREATE TABLE tasks__crsql_clock (id INTEGER)")
+    conn.execute("CREATE TABLE tasks__crsql_pks (id INTEGER)")
+    conn.execute("CREATE TABLE ideas__crsql_clock (id INTEGER)")
+    live = live_table_names(conn)
+    assert live == frozenset({"tasks"})
+
+
+def test_live_table_names_does_not_exclude_user_tables_with_crsql_in_name():
+    """Defensive: only the exact extension-internal patterns are
+    excluded. A user table that happens to have ``crsql`` in its name
+    (unusual but legal) must still show up."""
+    conn = sqlite3.connect(":memory:")
+    # Would match 'crsql_%' if the filter were too greedy? No — leading
+    # underscore disqualifies. Still worth pinning.
+    conn.execute("CREATE TABLE my_crsql_audit (id INTEGER)")
+    live = live_table_names(conn)
+    assert "my_crsql_audit" in live
+
+
 # --- assert_manifest_is_disjoint --------------------------------------
 
 
