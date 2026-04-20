@@ -73,6 +73,69 @@ def test_live_table_names_empty_db():
     assert live_table_names(conn) == frozenset()
 
 
+def test_live_table_names_excludes_crsql_internal_tables():
+    """cr-sqlite creates ``crsql_master``, ``crsql_site_id``,
+    ``crsql_tracked_peers`` as soon as the extension loads on any
+    connection. These are per-machine extension internals — they must
+    NOT appear in the live-table set the manifest validates, or every
+    boot of pt after the daemon starts would fail
+    ``assert_tables_classified``."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE tasks (id INTEGER PRIMARY KEY)")
+    conn.execute("CREATE TABLE crsql_master (key TEXT, value ANY)")
+    conn.execute("CREATE TABLE crsql_site_id (site_id BLOB)")
+    conn.execute("CREATE TABLE crsql_tracked_peers (site_id BLOB)")
+    live = live_table_names(conn)
+    assert live == frozenset({"tasks"})
+
+
+def test_live_table_names_excludes_per_table_crr_bookkeeping():
+    """When ``crsql_as_crr('<name>')`` runs, cr-sqlite creates
+    ``<name>__crsql_clock`` and ``<name>__crsql_pks``. These are
+    per-table CRR metadata and must not appear in the manifest check —
+    the manifest classifies the underlying user table (e.g. ``tasks``),
+    not the bookkeeping tables cr-sqlite derived from it."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE tasks (id INTEGER PRIMARY KEY)")
+    conn.execute("CREATE TABLE tasks__crsql_clock (id INTEGER)")
+    conn.execute("CREATE TABLE tasks__crsql_pks (id INTEGER)")
+    conn.execute("CREATE TABLE ideas__crsql_clock (id INTEGER)")
+    live = live_table_names(conn)
+    assert live == frozenset({"tasks"})
+
+
+def test_live_table_names_does_not_exclude_user_tables_with_crsql_in_name():
+    """User tables with ``crsql`` mid-name (but not starting with
+    ``crsql_``) must still show up — only the namespace prefix is
+    claimed."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE my_crsql_audit (id INTEGER)")
+    conn.execute("CREATE TABLE audit_crsql (id INTEGER)")
+    live = live_table_names(conn)
+    assert "my_crsql_audit" in live
+    assert "audit_crsql" in live
+
+
+def test_live_table_names_claims_full_crsql_prefix_namespace():
+    """Intentional boundary test for the ``crsql_%`` filter: any table
+    starting with ``crsql_`` is excluded, not just the three
+    documented cr-sqlite internals. This keeps the filter forward-
+    compatible with cr-sqlite adding new internal tables in future
+    versions without a manifest code change — at the cost that a
+    user table literally named ``crsql_stats`` or ``crsql_foo`` would
+    also be excluded. Document the namespace claim; don't create
+    user tables in cr-sqlite's prefix."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE tasks (id INTEGER PRIMARY KEY)")
+    # Not one of the current three documented internals, but still
+    # filtered — proves the namespace claim is the filter's intent,
+    # not a code bug.
+    conn.execute("CREATE TABLE crsql_future_internal_table (id INTEGER)")
+    conn.execute("CREATE TABLE crsql_stats (id INTEGER)")
+    live = live_table_names(conn)
+    assert live == frozenset({"tasks"})
+
+
 # --- assert_manifest_is_disjoint --------------------------------------
 
 
