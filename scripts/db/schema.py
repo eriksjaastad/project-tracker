@@ -958,6 +958,15 @@ def ensure_schema(cursor: Any) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_info_project ON project_info(project_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_info_scope_key ON project_info(project_id, key)")
 
+    # Per-machine sequential display IDs for Snowflake task PKs (LOCAL_ONLY — never synced).
+    # Also defined in migrations/009_task_display_ids.py — keep both in sync.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS task_display_ids (
+            task_id    INTEGER PRIMARY KEY NOT NULL,
+            display_id INTEGER NOT NULL UNIQUE
+        )
+    """)
+
     # Update schema version
     cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (9, ?)", (datetime.now().isoformat(),))
 
