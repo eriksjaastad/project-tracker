@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from .schema import get_db_path, create_database, ensure_schema
+from .pt_id import next_id as pt_next_id
 from scripts.utils.validation import (
     BlockedTaskProjectError,
     get_blocked_card_reason,
@@ -355,7 +356,7 @@ class DatabaseManager:
         with self._get_conn() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS task_attachments (
-                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id           INTEGER PRIMARY KEY NOT NULL,
                     task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
                     filename     TEXT NOT NULL,
                     stored_name  TEXT NOT NULL,
@@ -1620,10 +1621,10 @@ class DatabaseManager:
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO ideas (text, created_at, updated_at)
-                VALUES (?, ?, ?)
-            """, (text.strip(), now, now))
-            
+                INSERT INTO ideas (id, text, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+            """, (pt_next_id(self.db_path), text.strip(), now, now))
+
             idea_id = cursor.lastrowid
             conn.commit()
             

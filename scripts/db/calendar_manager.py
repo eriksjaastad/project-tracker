@@ -91,7 +91,7 @@ class CalendarManager:
         with self._conn() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS calendar_events (
-                    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id                    INTEGER PRIMARY KEY NOT NULL,
                     title                 TEXT    NOT NULL,
                     description           TEXT,
                     event_date            TEXT    NOT NULL,

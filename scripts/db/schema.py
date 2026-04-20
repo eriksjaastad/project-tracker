@@ -356,7 +356,7 @@ def ensure_schema(cursor: Any) -> None:
             updated_at TEXT NOT NULL
         )
     """)
-    CURRENT_SCHEMA_VERSION = 8
+    CURRENT_SCHEMA_VERSION = 9
     try:
         cursor.execute("SELECT MAX(version) FROM schema_version")
         row = cursor.fetchone()
@@ -368,7 +368,7 @@ def ensure_schema(cursor: Any) -> None:
     # 1. Core projects table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS projects (
-            id TEXT PRIMARY KEY,
+            id TEXT PRIMARY KEY NOT NULL,
             name TEXT UNIQUE NOT NULL,
             path TEXT NOT NULL,
             status TEXT NOT NULL,
@@ -414,7 +414,7 @@ def ensure_schema(cursor: Any) -> None:
     # Scheduled automation
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cron_jobs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,  -- LOCAL_ONLY: AUTOINCREMENT ok
             project_id TEXT NOT NULL,
             schedule TEXT NOT NULL,
             command TEXT NOT NULL,
@@ -429,7 +429,7 @@ def ensure_schema(cursor: Any) -> None:
     # External services
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS service_dependencies (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY NOT NULL,
             project_id TEXT NOT NULL,
             service_name TEXT NOT NULL,
             purpose TEXT,
@@ -441,7 +441,7 @@ def ensure_schema(cursor: Any) -> None:
     # AI assistance tracking
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ai_agents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY NOT NULL,
             project_id TEXT NOT NULL,
             agent_name TEXT NOT NULL,
             role TEXT,
@@ -480,7 +480,7 @@ def ensure_schema(cursor: Any) -> None:
     # Kanban tasks table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY NOT NULL,
             text TEXT NOT NULL,
             status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done', 'Cancelled', 'TRIAGED', 'READY_FOR_PATCH', 'PR_READY')),
             project_id TEXT NOT NULL,
@@ -541,7 +541,7 @@ def ensure_schema(cursor: Any) -> None:
             
             cursor.execute("""
                 CREATE TABLE tasks_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY NOT NULL,
                     text TEXT NOT NULL,
                     status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done', 'Cancelled')),
                     project_id TEXT NOT NULL,
@@ -646,7 +646,7 @@ def ensure_schema(cursor: Any) -> None:
             col_defs = []
             for col in all_columns:
                 if col == "id":
-                    col_defs.append("id INTEGER PRIMARY KEY AUTOINCREMENT")
+                    col_defs.append("id INTEGER PRIMARY KEY NOT NULL")
                 elif col == "text":
                     col_defs.append("text TEXT NOT NULL")
                 elif col == "status":
@@ -751,7 +751,7 @@ def ensure_schema(cursor: Any) -> None:
     # Task history table for productivity graphs
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS task_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY NOT NULL,
             task_id INTEGER NOT NULL,
             project_id TEXT NOT NULL,
             event_type TEXT NOT NULL CHECK(event_type IN ('created', 'status_changed', 'completed', 'cancelled')),
@@ -766,7 +766,7 @@ def ensure_schema(cursor: Any) -> None:
     # Ideas table for pre-project thoughts (Task #4583)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ideas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY NOT NULL,
             text TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -782,7 +782,7 @@ def ensure_schema(cursor: Any) -> None:
     # Phase 2 migration #6040 will rebuild with explicit NOT NULL on PKs.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS calendar_events (
-            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            id                    INTEGER PRIMARY KEY NOT NULL,
             title                 TEXT    NOT NULL,
             description           TEXT,
             event_date            TEXT    NOT NULL,
@@ -950,7 +950,7 @@ def ensure_schema(cursor: Any) -> None:
     # Project info: centralized key-value reference store for project/global metadata
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS project_info (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY NOT NULL,
             project_id TEXT,
             key TEXT NOT NULL,
             value TEXT NOT NULL,
@@ -961,7 +961,7 @@ def ensure_schema(cursor: Any) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_info_project ON project_info(project_id)")
 
     # Update schema version
-    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (8, ?)", (datetime.now().isoformat(),))
+    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (9, ?)", (datetime.now().isoformat(),))
 
 
 def create_database(db_path: Optional[Path] = None) -> None:
