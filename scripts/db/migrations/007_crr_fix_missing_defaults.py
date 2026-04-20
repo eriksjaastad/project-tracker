@@ -34,7 +34,7 @@ _INDEXES: dict[str, list[str]] = {
     "tasks": [
         "CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)",
         "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",
-        "CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id) WHERE parent_id IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(completed_at) WHERE completed_at IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_tasks_blocked ON tasks(blocked_by) WHERE blocked_by IS NOT NULL",
     ],
@@ -58,7 +58,7 @@ def _needs_fix(conn: sqlite3.Connection, tbl: str, col: str) -> bool:
     return False
 
 
-def _patch_sql(sql: str, tbl: str, cols: list[str]) -> str:
+def _patch_sql(sql: str, cols: list[str]) -> str:
     """Add DEFAULT '' after NOT NULL for target columns that lack a default."""
     for col in cols:
         # Match: `col TEXT NOT NULL` NOT followed by DEFAULT
@@ -132,7 +132,7 @@ def up(conn: sqlite3.Connection) -> None:
         original_sql = row[0] if isinstance(row, (list, tuple)) else row["sql"]
         before = conn.execute(f'SELECT COUNT(*) FROM "{tbl}"').fetchone()[0]
 
-        new_sql = _patch_sql(original_sql, tbl, cols)
+        new_sql = _patch_sql(original_sql, cols)
         new_sql = re.sub(
             r"(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?)(?:\"?"
             + re.escape(tbl) + r"\"?)\b",
@@ -154,6 +154,22 @@ def up(conn: sqlite3.Connection) -> None:
             raise RuntimeError(
                 f"migration 007: row count mismatch on {tbl}: before={before} after={after}"
             )
+
+        # Verify DEFAULT was actually written — catches type-mismatch silent failures.
+        new_defaults = {
+            r[1] if isinstance(r, (list, tuple)) else r["name"]:
+            r[4] if isinstance(r, (list, tuple)) else r["dflt_value"]
+            for r in conn.execute(f'PRAGMA table_info("{tbl}_new")').fetchall()
+        }
+        for col in cols:
+            if _needs_fix(conn, tbl, col):  # original table still exists here
+                if new_defaults.get(col) != "''":
+                    raise RuntimeError(
+                        f"migration 007: {tbl}.{col} DEFAULT not applied in _new table "
+                        f"(dflt_value={new_defaults.get(col)!r}). "
+                        f"Column type may not be TEXT."
+                    )
+
         print(f"migration 007: filled {tbl}_new ({before} rows)", file=sys.stderr)
 
     for tbl in reversed(tables_to_fix):
