@@ -94,6 +94,9 @@ def _backup(conn: sqlite3.Connection, migration_num: str) -> None:
         print(f"migration 007: backup → {dest}", file=sys.stderr)
 
 
+_TRIGGER_NAMES = ["audit_task_delete", "block_task_delete", "audit_project_delete"]
+
+
 def up(conn: sqlite3.Connection) -> None:
     tables_to_fix = [
         tbl for tbl, cols in _TARGETS.items()
@@ -106,6 +109,15 @@ def up(conn: sqlite3.Connection) -> None:
     if not tables_to_fix:
         print("migration 007: all target columns already have defaults — nothing to do", file=sys.stderr)
         return
+
+    # Save trigger SQL before any table is dropped — DROP TABLE silently removes triggers.
+    saved_triggers: dict[str, str] = {}
+    for name in _TRIGGER_NAMES:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?", (name,)
+        ).fetchone()
+        if row:
+            saved_triggers[name] = row[0] if isinstance(row, (list, tuple)) else row["sql"]
 
     _backup(conn, "007")
 
@@ -152,6 +164,11 @@ def up(conn: sqlite3.Connection) -> None:
         for idx_sql in _INDEXES.get(tbl, []):
             conn.execute(idx_sql)
         print(f"migration 007: renamed {tbl}_new → {tbl}", file=sys.stderr)
+
+    for trigger_sql in saved_triggers.values():
+        conn.execute(trigger_sql)
+    if saved_triggers:
+        print(f"migration 007: restored {len(saved_triggers)} trigger(s)", file=sys.stderr)
 
     result = conn.execute("PRAGMA integrity_check").fetchone()
     result_val = result[0] if isinstance(result, (list, tuple)) else result["integrity_check"]
