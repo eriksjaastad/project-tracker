@@ -91,6 +91,24 @@ def test_ntp_drift_returns_none_on_unparseable_output():
         assert ntp_drift_seconds() is None
 
 
+# macOS laptop in 2026 produces shorter output (no leading date/tz):
+#     -11.066506 +/- 0.038576 time.apple.com 2620:149:a0c:4000::1f2
+# Parser must handle this shape too.
+_SAMPLE_SNTP_OUTPUT_NO_DATE_PREFIX = (
+    "-11.066506 +/- 0.038576 time.apple.com 2620:149:a0c:4000::1f2\n"
+)
+
+
+def test_ntp_drift_parses_bare_drift_format_no_date_prefix():
+    """Laptop macOS sntp omits the date/tz prefix Mini's reports had.
+    Same drift/uncertainty token, different lead-in. Parser must
+    handle both shapes."""
+    with patch("db.sync_checks.shutil.which", return_value="/usr/bin/sntp"), \
+         patch("db.sync_checks.subprocess.run",
+               _mock_run(_SAMPLE_SNTP_OUTPUT_NO_DATE_PREFIX)):
+        assert ntp_drift_seconds() == pytest.approx(-11.066506)
+
+
 # ---------------------------------------------------------------------
 # peer_reachable
 # ---------------------------------------------------------------------

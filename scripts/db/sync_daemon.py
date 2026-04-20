@@ -54,6 +54,14 @@ from typing import Callable, Optional
 
 import threading
 
+# When run via `python -m scripts.db.sync_daemon` (how the LaunchAgent
+# invokes us), `scripts/` is not on sys.path and the `from db.*`
+# imports below would fail. Inject it here — matches the pattern in
+# scripts/pt.py.
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
 from db.sync_checks import (
     DEFAULT_NTP_HOST,
     manifest_hash,
