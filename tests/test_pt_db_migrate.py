@@ -79,7 +79,8 @@ def test_pt_db_migrate_applies_pending_and_reports(
     assert "004_crr_notnull_defaults" in result.output
     assert "005_crr_drop_fk_constraints" in result.output
     assert "006_crr_drop_unique_constraints" in result.output
-    assert "applied 5 migration" in result.output
+    assert "007_crr_fix_missing_defaults" in result.output
+    assert "applied 6 migration" in result.output
 
     conn = sqlite3.connect(fresh_db)
     tables = {
