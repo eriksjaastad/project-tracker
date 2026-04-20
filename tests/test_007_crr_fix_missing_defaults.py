@@ -137,10 +137,16 @@ def test_integrity_check_passes(tmp_path: Path) -> None:
 
 
 def test_triggers_restored_after_rebuild(tmp_path: Path) -> None:
-    """audit_task_delete and block_task_delete must survive the tasks table rebuild."""
+    """audit_task_delete and block_task_delete survive the tasks table rebuild.
+
+    Also verifies that audit_project_delete (bound to projects, which is NOT
+    rebuilt) does not cause a 'trigger already exists' collision in the restore
+    loop — this is the production scenario on any machine that has run ensure_schema.
+    """
     conn = _db_with_broken_defaults(tmp_path)
-    # Create dummy support tables so the trigger body is valid SQLite
+    # Add a projects table so audit_project_delete is a valid trigger
     conn.executescript("""
+        CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL DEFAULT '');
         CREATE TABLE IF NOT EXISTS _delete_permissions (id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS delete_audit_log (
             id INTEGER PRIMARY KEY, table_name TEXT, deleted_id INTEGER,
@@ -165,8 +171,15 @@ def test_triggers_restored_after_rebuild(tmp_path: Path) -> None:
             VALUES ('tasks', datetime('now'), 'blocked');
             SELECT RAISE(FAIL, 'blocked');
         END;
+        CREATE TRIGGER audit_project_delete
+        BEFORE DELETE ON projects
+        BEGIN
+            INSERT INTO delete_audit_log (table_name, deleted_id, deleted_data, deleted_at, source)
+            VALUES ('projects', OLD.id, '{}', datetime('now'), 'application');
+        END;
     """)
 
+    # Must not raise — audit_project_delete already exists and projects is not dropped
     conn.execute("BEGIN")
     up(conn)
     conn.execute("COMMIT")
@@ -179,6 +192,7 @@ def test_triggers_restored_after_rebuild(tmp_path: Path) -> None:
     }
     assert "audit_task_delete" in triggers, "audit_task_delete trigger was not restored"
     assert "block_task_delete" in triggers, "block_task_delete trigger was not restored"
+    assert "audit_project_delete" in triggers, "audit_project_delete trigger disappeared"
 
 
 def test_no_op_when_already_compliant(tmp_path: Path) -> None:

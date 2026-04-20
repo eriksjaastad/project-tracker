@@ -165,7 +165,8 @@ def up(conn: sqlite3.Connection) -> None:
             conn.execute(idx_sql)
         print(f"migration 007: renamed {tbl}_new → {tbl}", file=sys.stderr)
 
-    for trigger_sql in saved_triggers.values():
+    for name, trigger_sql in saved_triggers.items():
+        conn.execute(f"DROP TRIGGER IF EXISTS {name}")
         conn.execute(trigger_sql)
     if saved_triggers:
         print(f"migration 007: restored {len(saved_triggers)} trigger(s)", file=sys.stderr)
