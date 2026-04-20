@@ -1820,12 +1820,12 @@ class DatabaseManager:
         
         with self._get_conn() as conn:
             cursor = conn.cursor()
+            idea_id = pt_next_id(self.db_path)
             cursor.execute("""
                 INSERT INTO ideas (id, text, created_at, updated_at)
                 VALUES (?, ?, ?, ?)
-            """, (pt_next_id(self.db_path), text.strip(), now, now))
+            """, (idea_id, text.strip(), now, now))
 
-            idea_id = cursor.lastrowid
             conn.commit()
             
             return self.get_idea(idea_id)
