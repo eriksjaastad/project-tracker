@@ -105,12 +105,13 @@ export function KanbanBoard() {
   }, []);
 
   const handleSearchTask = () => {
-    const taskId = parseInt(searchTaskId.replace('#', ''));
+    const query = searchTaskId.replace('#', '').trim();
+    const taskId = parseInt(query, 10);
     if (isNaN(taskId)) {
       showNotification('Please enter a valid task ID', 'error');
       return;
     }
-    const task = tasks.find(t => t.id === taskId);
+    const task = tasks.find(t => (t.display_id ?? t.id) === taskId || t.id === taskId);
     if (task) {
       setSelectedTask(task);
       setSearchTaskId('');
@@ -208,6 +209,7 @@ export function KanbanBoard() {
         data.status,
         data.priority,
         data.taskType,
+        undefined,
         data.parentId,
         data.blockedBy
       );

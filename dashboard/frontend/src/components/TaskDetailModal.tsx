@@ -98,6 +98,8 @@ export function TaskDetailModal({
   }
 
   const project = projects.find((p) => p.id === task.project_id);
+  const displayId = task.display_id ?? task.id;
+  const parentDisplayId = task.parent_display_id ?? task.parent_id;
 
   const handleSave = async () => {
     if (!editedText.trim()) {
@@ -193,12 +195,12 @@ export function TaskDetailModal({
             <button
               className="task-id-copy-button"
               onClick={() => {
-                navigator.clipboard.writeText(`#${task.id}`);
+                navigator.clipboard.writeText(`#${displayId}`);
                 // Could show a toast notification here
               }}
               title="Copy task ID"
             >
-              #{task.id}
+              #{displayId}
             </button>
           </div>
           <button
@@ -482,11 +484,11 @@ export function TaskDetailModal({
               )}
 
               {/* Parent task indicator (Task #4645) */}
-              {task.parent_id && (
+              {parentDisplayId && (
                 <div className="task-detail-field">
                   <label className="task-detail-label">Parent Task</label>
                   <div className="task-detail-value">
-                    <span className="task-detail-link">#{task.parent_id}</span>
+                    <span className="task-detail-link">#{parentDisplayId}</span>
                     {task.parent && <span className="task-detail-muted"> - {task.parent.text.substring(0, 50)}</span>}
                   </div>
                 </div>
@@ -504,7 +506,7 @@ export function TaskDetailModal({
                         <span className={`subtask-status-${subtask.status.toLowerCase().replace(' ', '-')}`}>
                           {subtask.status === 'Done' ? '✅' : subtask.status === 'In Progress' ? '●' : '○'}
                         </span>
-                        <span>#{subtask.id} - {subtask.text.substring(0, 60)}</span>
+                        <span>#{subtask.display_id ?? subtask.id} - {subtask.text.substring(0, 60)}</span>
                       </div>
                     ))}
                   </div>
@@ -520,7 +522,7 @@ export function TaskDetailModal({
                   <div className="task-detail-blocking-tasks">
                     {task.blocking_tasks.map((blocker) => (
                       <div key={blocker.id} className={`task-detail-blocker-item ${blocker.status !== 'Done' ? 'blocker-incomplete' : ''}`}>
-                        <span>#{blocker.id} - {blocker.text.substring(0, 60)}</span>
+                        <span>#{blocker.display_id ?? blocker.id} - {blocker.text.substring(0, 60)}</span>
                         <span className="blocker-status">[{blocker.status}]</span>
                       </div>
                     ))}

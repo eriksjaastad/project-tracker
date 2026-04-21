@@ -279,6 +279,49 @@ def test_property_2_query_filtering_accuracy(num_tasks, filter_project_id, filte
         db_path.unlink()
 
 
+def test_add_task_inherits_portfolio_label_from_project_info(tmp_path):
+    db_path = tmp_path / "test.db"
+    create_database(db_path)
+    db = DatabaseManager(db_path=db_path)
+    db.add_project(
+        project_id="smart-invoice-workflow",
+        name="Smart Invoice Workflow",
+        path="/tmp/smart-invoice-workflow",
+        status="active",
+    )
+    db.set_info("portfolio_label", "[AP]", project_id="smart-invoice-workflow")
+
+    task = db.add_task(
+        text="Review campaign metrics",
+        project_id="smart-invoice-workflow",
+        status="Backlog",
+    )
+
+    assert task["category"] == "[AP]"
+
+
+def test_add_task_explicit_category_overrides_portfolio_label(tmp_path):
+    db_path = tmp_path / "test.db"
+    create_database(db_path)
+    db = DatabaseManager(db_path=db_path)
+    db.add_project(
+        project_id="smart-invoice-workflow",
+        name="Smart Invoice Workflow",
+        path="/tmp/smart-invoice-workflow",
+        status="active",
+    )
+    db.set_info("portfolio_label", "[AP]", project_id="smart-invoice-workflow")
+
+    task = db.add_task(
+        text="Manual override task",
+        project_id="smart-invoice-workflow",
+        status="Backlog",
+        category="[Ops]",
+    )
+
+    assert task["category"] == "[Ops]"
+
+
 # Property 12: Secret Pattern Detection
 # For any string containing secret patterns (API keys, SSNs, passwords),
 # attempting to create a task with that text should either warn the user

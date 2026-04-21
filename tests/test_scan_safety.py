@@ -68,6 +68,9 @@ def _project_metadata(project_dir: Path, project_id: str, status: str = "active"
         "index_is_valid": False,
         "index_updated_at": None,
         "project_type": "standard",
+        "portfolio_group": None,
+        "portfolio_label": None,
+        "portfolio_parent": None,
     }
 
 
@@ -266,6 +269,31 @@ def test_scan_per_project_transaction_commits_success(scan_env, monkeypatch):
 
     assert db.get_project("a")["status"] == "active"
     assert db.get_project("b")["status"] == "active"
+
+
+def test_scan_persists_portfolio_project_info(scan_env, monkeypatch):
+    schema = scan_env["schema"]
+    manager = scan_env["manager"]
+    pt = scan_env["pt"]
+
+    schema.init_db()
+    db = manager.DatabaseManager()
+
+    project_dir = _make_project_dir(scan_env["base_dir"], "smart-invoice-workflow")
+    project = _project_metadata(project_dir, "smart-invoice-workflow", status="active")
+    project["portfolio_group"] = "AP"
+    project["portfolio_label"] = "[AP]"
+    project["portfolio_parent"] = "auxesis-projects"
+
+    monkeypatch.setattr(pt, "discover_projects", lambda *_args, **_kwargs: [project])
+    monkeypatch.setattr(pt, "scan_health_parallel", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(pt, "parse_external_resources", lambda: {})
+
+    pt.scan(no_graph=True, dry_run=False, force=True)
+
+    assert db.get_info(project_id="smart-invoice-workflow", key="portfolio_group")[0]["value"] == "AP"
+    assert db.get_info(project_id="smart-invoice-workflow", key="portfolio_label")[0]["value"] == "[AP]"
+    assert db.get_info(project_id="smart-invoice-workflow", key="portfolio_parent")[0]["value"] == "auxesis-projects"
 
 
 def test_scan_dry_run_skips_writes(scan_env, monkeypatch, capsys):

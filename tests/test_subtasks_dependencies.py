@@ -21,12 +21,12 @@ def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, str]:
     create_database(db_path)
     db = DatabaseManager(db_path=db_path)
     db.add_project(
-        project_id="project-tracker",
-        name="Project Tracker",
-        path="/tmp/project-tracker",
+        project_id="smart-invoice-workflow",
+        name="Smart Invoice Workflow",
+        path="/tmp/smart-invoice-workflow",
         status="active"
     )
-    return db_path, db, "project-tracker"
+    return db_path, db, "smart-invoice-workflow"
 
 
 def test_manager_subtasks_and_progress(tmp_path: Path):
@@ -117,13 +117,18 @@ def test_api_subtasks_and_blocking(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     parent_response = client.get(f"/api/tasks/{parent['id']}")
     assert parent_response.status_code == 200
     parent_payload = parent_response.json()
+    assert parent_payload["display_id"] == db.get_task_display_id(parent["id"])
     assert parent_payload["subtasks"]
+    assert parent_payload["subtasks"][0]["display_id"] == db.get_task_display_id(parent_payload["subtasks"][0]["id"])
     assert parent_payload["subtask_progress"]["done"] == 1
 
     blocked_response = client.get(f"/api/tasks/{blocked['id']}")
     assert blocked_response.status_code == 200
     blocked_payload = blocked_response.json()
+    assert blocked_payload["display_id"] == db.get_task_display_id(blocked["id"])
+    assert blocked_payload["blocked_by_display_ids"] == [db.get_task_display_id(blocker["id"])]
     assert blocked_payload["blocking_tasks"]
+    assert blocked_payload["blocking_tasks"][0]["display_id"] == db.get_task_display_id(blocker["id"])
     assert blocked_payload["is_blocked"] is True
 
     update_response = client.patch(
@@ -133,6 +138,7 @@ def test_api_subtasks_and_blocking(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert update_response.status_code == 200
     updated = update_response.json()
     assert updated["parent_id"] == parent["id"]
+    assert updated["parent_display_id"] == db.get_task_display_id(parent["id"])
     assert json.loads(updated["blocked_by"]) == [blocker["id"]]
 
     start_response = client.patch(
@@ -140,4 +146,6 @@ def test_api_subtasks_and_blocking(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         json={"status": "In Progress"}
     )
     assert start_response.status_code == 400
-    assert "blocked by" in start_response.json().get("detail", "").lower()
+    detail = start_response.json().get("detail", "").lower()
+    assert "blocked by" in detail
+    assert f"#{db.get_task_display_id(blocker['id'])}" in detail
