@@ -12,6 +12,11 @@ interface ProjectFilterModalProps {
 
 type ProjectOption = Project & { task_count?: number };
 
+const GROUP_TITLES: Record<string, string> = {
+  AP: 'Auxesis Projects',
+  AI: 'Auxesis Incubators',
+};
+
 export function ProjectFilterModal({
   isOpen,
   onClose,
@@ -89,6 +94,32 @@ export function ProjectFilterModal({
     });
   }, [projects, searchTerm]);
 
+  const groupedProjects = useMemo(() => {
+    const grouped = new Map<string, ProjectOption[]>();
+    for (const project of filteredProjects) {
+      const key = project.portfolio_group || 'default';
+      const existing = grouped.get(key) || [];
+      existing.push(project);
+      grouped.set(key, existing);
+    }
+
+    const orderedKeys = [
+      ...Object.keys(GROUP_TITLES).filter((key) => grouped.has(key)),
+      ...Array.from(grouped.keys()).filter(
+        (key) => key !== 'default' && !(key in GROUP_TITLES)
+      ),
+    ];
+    if (grouped.has('default')) {
+      orderedKeys.push('default');
+    }
+
+    return orderedKeys.map((key) => ({
+      key,
+      title: GROUP_TITLES[key] || 'Other Projects',
+      projects: grouped.get(key) || [],
+    }));
+  }, [filteredProjects]);
+
   const handleSelect = (projectId?: string) => {
     if (!projectId) {
       navigate('/kanban');
@@ -143,19 +174,33 @@ export function ProjectFilterModal({
             {filteredProjects.length === 0 ? (
               <div className="project-filter-empty">No projects found</div>
             ) : (
-              filteredProjects.map((project) => (
-                <button
-                  key={project.id}
-                  className={`project-filter-item ${
-                    currentProject === project.id ? 'active' : ''
-                  }`}
-                  onClick={() => handleSelect(project.id)}
-                >
-                  <span className="project-filter-name">{project.name}</span>
-                  {typeof project.task_count === 'number' && (
-                    <span className="project-filter-count">{project.task_count}</span>
+              groupedProjects.map((group) => (
+                <div key={group.key} className="project-filter-group">
+                  {group.key !== 'default' && (
+                    <div className="project-filter-group-title">
+                      {group.projects[0]?.portfolio_label || `[${group.key}]`} {group.title}
+                    </div>
                   )}
-                </button>
+                  {group.projects.map((project) => (
+                    <button
+                      key={project.id}
+                      className={`project-filter-item ${
+                        currentProject === project.id ? 'active' : ''
+                      }`}
+                      onClick={() => handleSelect(project.id)}
+                    >
+                      <span className="project-filter-name-row">
+                        {project.portfolio_label && (
+                          <span className="project-filter-badge">{project.portfolio_label}</span>
+                        )}
+                        <span className="project-filter-name">{project.name}</span>
+                      </span>
+                      {typeof project.task_count === 'number' && (
+                        <span className="project-filter-count">{project.task_count}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
               ))
             )}
           </div>

@@ -40,7 +40,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 from scripts.config import PROJECTS_BASE_DIR
 from db.schema import init_db, get_db_path
 from db.manager import DatabaseManager, _USE_TURSO
-from discovery.project_scanner import discover_projects, extract_project_metadata, scan_health_parallel
+from discovery.project_scanner import (
+    PORTFOLIO_ROOTS,
+    discover_projects,
+    extract_project_metadata,
+    scan_health_parallel,
+)
 from discovery.external_resources_parser import parse_external_resources
 from discovery.graph_builder import GraphBuilder
 # update_directory_index removed — 00_Index generation killed (#5530)
@@ -55,6 +60,46 @@ from skill_invocations_reader import (
 from skills_registry import installed_skills as _installed_skills
 
 console = Console()
+
+
+def _sync_portfolio_project_info(db: DatabaseManager, cursor: sqlite3.Cursor, project: dict) -> None:
+    """Persist tracker-owned portfolio metadata for scanned projects."""
+    db._replace_project_info_entries_with_cursor(
+        cursor,
+        project["id"],
+        {
+            "portfolio_group": project.get("portfolio_group"),
+            "portfolio_label": project.get("portfolio_label"),
+            "portfolio_parent": project.get("portfolio_parent"),
+        },
+    )
+
+
+def _resolve_project_directory(project_name: str) -> Optional[Path]:
+    """Resolve a project directory from the main root or supported portfolio roots."""
+    base_path = Path(PROJECTS_BASE_DIR)
+    direct_path = base_path / project_name
+    if direct_path.is_dir():
+        return direct_path
+
+    for root_name in PORTFOLIO_ROOTS:
+        nested_path = base_path / root_name / project_name
+        if nested_path.is_dir():
+            return nested_path
+
+    return None
+
+
+def _resolve_dashboard_python(project_root: Path) -> str:
+    """Resolve the Python interpreter used to launch the dashboard."""
+    candidates = [
+        project_root / ".venv" / "bin" / "python",
+        project_root / "venv" / "bin" / "python",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return sys.executable
 
 
 
@@ -290,6 +335,7 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
                     index_updated_at=project.get("index_updated_at"),
                     project_type=project.get("project_type", "standard"),
                 )
+                _sync_portfolio_project_info(db, cursor, project)
                 db._sync_ai_agents_with_cursor(cursor=cursor, project_id=project["id"], agents=project.get("ai_agents", []))
                 db._sync_cron_jobs_with_cursor(cursor=cursor, project_id=project["id"], cron_jobs=project.get("cron_jobs", []))
                 db._sync_services_with_cursor(cursor=cursor, project_id=project["id"], services=services_by_project.get(project["id"], []))
@@ -528,10 +574,10 @@ def sync(project_name, no_graph):
     PROJECT_NAME is the directory name under the projects root.
     """
     base_path = Path(PROJECTS_BASE_DIR)
-    project_dir = base_path / project_name
+    project_dir = _resolve_project_directory(project_name)
 
-    if not project_dir.exists() or not project_dir.is_dir():
-        console.print(f"[red]Directory not found: {project_dir}[/red]")
+    if not project_dir or not project_dir.exists() or not project_dir.is_dir():
+        console.print(f"[red]Directory not found for project '{project_name}' under {base_path}[/red]")
         raise SystemExit(1)
 
     db_path = get_db_path()
@@ -575,6 +621,7 @@ def sync(project_name, no_graph):
                 index_updated_at=project.get("index_updated_at"),
                 project_type=project.get("project_type", "standard"),
             )
+            _sync_portfolio_project_info(db, cursor, project)
             db._sync_ai_agents_with_cursor(
                 cursor=cursor, project_id=project["id"],
                 agents=project.get("ai_agents", []),
@@ -650,7 +697,8 @@ def launch(port, no_scan, reload):
         time.sleep(2)
         webbrowser.open(url)
     threading.Thread(target=open_browser, daemon=True).start()
-    venv_python = Path(__file__).parent.parent / "venv" / "bin" / "python"
+    project_root = Path(__file__).parent.parent
+    venv_python = _resolve_dashboard_python(project_root)
     uvicorn_cmd = [str(venv_python), "-m", "uvicorn", "dashboard.app:app", "--host", "0.0.0.0", "--port", str(port)]
     if reload: uvicorn_cmd.append("--reload")
     # Secrets injected via doppler run (doppler.yaml in project root)
@@ -660,7 +708,7 @@ def launch(port, no_scan, reload):
         raise SystemExit(1)
     cmd = [doppler_bin, "run", "--"] + uvicorn_cmd
     try:
-        subprocess.run(cmd, cwd=Path(__file__).parent.parent)
+        subprocess.run(cmd, cwd=project_root)
     except KeyboardInterrupt:
         console.print("\n\n[yellow]Dashboard stopped[/yellow]")
 
@@ -1080,12 +1128,13 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
 @click.option("-s", "--status", default="Backlog", help="Initial status")
 @click.option("--priority", default=None, help="Priority: Critical, High, Medium, Low")
 @click.option("--prompt", default=None, help="Agent prompt (execution instructions for AI)")
+@click.option("--category", default=None, help="Task category label (defaults from project portfolio metadata)")
 @click.option("-d", "--description", default=None, help="Rich description / acceptance criteria (stored in notes field)")
 @click.option("--parent", type=int, default=None, help="Parent task ID (creates subtask)")
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs that block this task")
 @click.option("--proposal", is_flag=True, help="Create as a proposal (hidden from default listing until approved)")
 @click.option("--created-by", "created_by", default=None, help="Origin label (defaults to cwd-derived: 'architect', project name, or 'unknown')")
-def tasks_create(text, project, status, priority, prompt, description, parent, blocked_by, proposal, created_by):
+def tasks_create(text, project, status, priority, prompt, category, description, parent, blocked_by, proposal, created_by):
     """Create a new task.
 
     Auto-detects project from current directory.
@@ -1116,7 +1165,7 @@ def tasks_create(text, project, status, priority, prompt, description, parent, b
         if prompt: final_prompt = prompt.rstrip() + WORKFLOW_FOOTER
         task_type = "proposal" if proposal else None
         resolved_created_by = created_by if created_by else _resolve_created_by()
-        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, task_type=task_type, parent_id=parent, blocked_by=blocked_by_json, notes=description, created_by=resolved_created_by)
+        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, task_type=task_type, category=category, parent_id=parent, blocked_by=blocked_by_json, notes=description, created_by=resolved_created_by)
         msg = f"[green]Created {'proposal' if proposal else 'task'} #{task['id']}: {text[:50]}{'...' if len(text) > 50 else ''}[/green]"
         if description: msg += f" [dim](+ description)[/dim]"
         if parent: msg += f" [dim](subtask of #{parent})[/dim]"

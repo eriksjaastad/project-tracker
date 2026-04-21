@@ -17,6 +17,19 @@ from scripts.logger import get_logger
 
 logger = get_logger(__name__)
 
+PORTFOLIO_ROOTS = {
+    "auxesis-projects": {
+        "portfolio_group": "AP",
+        "portfolio_label": "[AP]",
+        "portfolio_parent": "auxesis-projects",
+    },
+    "auxesis-incubators": {
+        "portfolio_group": "AI",
+        "portfolio_label": "[AI]",
+        "portfolio_parent": "auxesis-incubators",
+    },
+}
+
 
 def clean_description(text: Optional[str]) -> str:
     """Remove placeholders and malformed wiki-style links from descriptions."""
@@ -91,14 +104,24 @@ def discover_projects(
     code_dirs = ["src", "lib", "app", "apps", "packages", "backend", "frontend", "server", "client"]
     code_exts = [".py", ".js", ".ts"]
     
+    candidate_dirs: list[tuple[Path, Optional[dict[str, str]]]] = []
     for item in _safe_iterdir(base):
         if not item.is_dir():
             continue
-        
-        # Skip common non-project directories and junk
+
         if should_skip_directory(item):
             continue
-        
+
+        portfolio_meta = PORTFOLIO_ROOTS.get(item.name)
+        if portfolio_meta:
+            for nested in _safe_iterdir(item):
+                if nested.is_dir() and not should_skip_directory(nested):
+                    candidate_dirs.append((nested, portfolio_meta))
+            continue
+
+        candidate_dirs.append((item, None))
+
+    for item, portfolio_meta in candidate_dirs:
         # Check for indicators of a project (fast path)
         has_marker = (item / ".git").is_dir() or any((item / marker).exists() for marker in marker_files)
 
@@ -119,7 +142,7 @@ def discover_projects(
 
         # If it looks like a project, extract metadata
         if has_marker or has_code:
-            project = extract_project_metadata(item)
+            project = extract_project_metadata(item, portfolio_metadata=portfolio_meta)
             if project:
                 projects.append(project)
     
@@ -148,7 +171,10 @@ def scan_health_parallel(projects: List[Dict], max_workers: int = 8) -> Dict[str
 
 
 
-def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
+def extract_project_metadata(
+    project_path: Path,
+    portfolio_metadata: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     """Extract all metadata from a project."""
     metadata = {
         "id": project_path.name.lower().replace(" ", "-"),
@@ -166,7 +192,10 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
         "has_index": False,
         "index_is_valid": False,
         "index_updated_at": None,
-        "project_type": "standard"
+        "project_type": "standard",
+        "portfolio_group": None,
+        "portfolio_label": None,
+        "portfolio_parent": None,
     }
     
     # Index metadata fields kept for schema compat but always default
@@ -179,6 +208,10 @@ def extract_project_metadata(project_path: Path) -> Dict[str, Any]:
             metadata["description"] = clean_description(extract_readme_description(readme_path))
 
     metadata["agent_config_health"] = get_agent_config_health(project_path)
+
+    effective_portfolio_metadata = portfolio_metadata or PORTFOLIO_ROOTS.get(project_path.parent.name)
+    if effective_portfolio_metadata:
+        metadata.update(effective_portfolio_metadata)
     
     return metadata
 
@@ -293,4 +326,3 @@ def should_skip_directory(dir_path: Path) -> bool:
     all_skip_names = skip_names | _ptignore_cache
 
     return dir_path.name in all_skip_names or dir_path.name.startswith('.')
-

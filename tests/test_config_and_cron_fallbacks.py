@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 import scripts.discovery.cron_monitor as cron_monitor
 import scripts.db.schema as schema
+import scripts.pt as pt
 from scripts.db.schema import _check_fresh_database
 
 logger = logging.getLogger(__name__)
@@ -117,3 +118,24 @@ def test_fresh_database_check_blocks_when_prior_task_activity_exists(tmp_path, m
         _check_fresh_database(Path(db_path))
 
     assert "SUSPICIOUS EMPTY TASK BOARD DETECTED" in str(excinfo.value)
+
+
+def test_launch_prefers_dot_venv_python(tmp_path):
+    project_root = tmp_path / "project-tracker"
+    dot_venv_python = project_root / ".venv" / "bin" / "python"
+    dot_venv_python.parent.mkdir(parents=True)
+    dot_venv_python.write_text("")
+
+    resolved = pt._resolve_dashboard_python(project_root)
+
+    assert resolved == str(dot_venv_python)
+
+
+def test_launch_falls_back_to_sys_executable_when_no_venv_exists(tmp_path, monkeypatch):
+    project_root = tmp_path / "project-tracker"
+    project_root.mkdir()
+    monkeypatch.setattr(pt.sys, "executable", "/tmp/current-python")
+
+    resolved = pt._resolve_dashboard_python(project_root)
+
+    assert resolved == "/tmp/current-python"

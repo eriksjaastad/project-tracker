@@ -44,6 +44,7 @@ export type TaskPriority = 'Critical' | 'High' | 'Medium' | 'Low';
 
 export interface Task {
   id: number;
+  display_id?: number | null;
   text: string;
   status: TaskStatus;
   project_id: string;
@@ -61,6 +62,7 @@ export interface Task {
 
   // Parent-child relationships (Task #4645)
   parent_id: number | null;
+  parent_display_id?: number | null;
   subtasks?: Task[];
   subtask_progress?: {
     total: number;
@@ -72,9 +74,11 @@ export interface Task {
   // Task dependencies (Task #4579)
   blocked_by: string | null;  // JSON array as string
   blocked_by_ids?: number[];
+  blocked_by_display_ids?: number[];
   blocking_tasks?: Task[];
   is_blocked?: boolean;
   incomplete_blocking_ids?: number[];
+  incomplete_blocking_display_ids?: number[];
   sequence_order: number | null;
 
   // File attachments (#5216)
@@ -99,6 +103,9 @@ export interface Project {
   status: string;
   can_create_cards?: boolean;
   blocked_card_reason?: string | null;
+  portfolio_group?: string | null;
+  portfolio_label?: string | null;
+  portfolio_parent?: string | null;
 }
 
 export interface NavigationItem {
