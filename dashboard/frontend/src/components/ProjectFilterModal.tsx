@@ -12,10 +12,7 @@ interface ProjectFilterModalProps {
 
 type ProjectOption = Project & { task_count?: number };
 
-const GROUP_TITLES: Record<string, string> = {
-  AP: 'Auxesis Projects',
-  AI: 'Auxesis Incubators',
-};
+import { groupByPortfolio } from '../utils/portfolio';
 
 export function ProjectFilterModal({
   isOpen,
@@ -94,31 +91,7 @@ export function ProjectFilterModal({
     });
   }, [projects, searchTerm]);
 
-  const groupedProjects = useMemo(() => {
-    const grouped = new Map<string, ProjectOption[]>();
-    for (const project of filteredProjects) {
-      const key = project.portfolio_group || 'default';
-      const existing = grouped.get(key) || [];
-      existing.push(project);
-      grouped.set(key, existing);
-    }
-
-    const orderedKeys = [
-      ...Object.keys(GROUP_TITLES).filter((key) => grouped.has(key)),
-      ...Array.from(grouped.keys()).filter(
-        (key) => key !== 'default' && !(key in GROUP_TITLES)
-      ),
-    ];
-    if (grouped.has('default')) {
-      orderedKeys.push('default');
-    }
-
-    return orderedKeys.map((key) => ({
-      key,
-      title: GROUP_TITLES[key] || 'Other Projects',
-      projects: grouped.get(key) || [],
-    }));
-  }, [filteredProjects]);
+  const groupedProjects = useMemo(() => groupByPortfolio(filteredProjects), [filteredProjects]);
 
   const handleSelect = (projectId?: string) => {
     if (!projectId) {
