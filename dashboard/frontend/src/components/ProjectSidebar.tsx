@@ -14,10 +14,7 @@ export interface Project {
   portfolio_parent?: string | null;
 }
 
-const GROUP_TITLES: Record<string, string> = {
-  AP: 'Auxesis Projects',
-  AI: 'Auxesis Incubators',
-};
+import { groupByPortfolio } from '../utils/portfolio';
 
 interface ProjectSidebarProps {
   projects: Project[];
@@ -152,31 +149,7 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
     return sorted;
   }, [projects, taskCounts, externalSortOrder]);
 
-  const groupedProjects = useMemo(() => {
-    const grouped = new Map<string, Project[]>();
-    for (const project of sortedProjects) {
-      const key = project.portfolio_group || 'default';
-      const existing = grouped.get(key) || [];
-      existing.push(project);
-      grouped.set(key, existing);
-    }
-
-    const orderedKeys = [
-      ...Object.keys(GROUP_TITLES).filter((key) => grouped.has(key)),
-      ...Array.from(grouped.keys()).filter(
-        (key) => key !== 'default' && !(key in GROUP_TITLES)
-      ),
-    ];
-    if (grouped.has('default')) {
-      orderedKeys.push('default');
-    }
-
-    return orderedKeys.map((key) => ({
-      key,
-      title: GROUP_TITLES[key] || 'Other Projects',
-      projects: grouped.get(key) || [],
-    }));
-  }, [sortedProjects]);
+  const groupedProjects = useMemo(() => groupByPortfolio(sortedProjects), [sortedProjects]);
 
   // Select All / Deselect All handlers
   const handleSelectAll = () => {

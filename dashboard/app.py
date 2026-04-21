@@ -479,6 +479,7 @@ def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
         project_id = entry.get("project_id")
         key = entry.get("key")
         if not project_id or not key:
+            logger.warning("Skipping malformed project_info row: %s", entry)
             continue
         project_info_by_project.setdefault(project_id, {})[key] = entry.get("value", "")
 

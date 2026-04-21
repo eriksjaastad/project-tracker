@@ -93,7 +93,8 @@ def test_api_projects_include_portfolio_metadata(tmp_path: Path, monkeypatch: py
     response = TestClient(dashboard_app.app).get("/api/projects")
 
     assert response.status_code == 200, response.text
-    project = response.json()["projects"][0]
+    projects_by_id = {p["id"]: p for p in response.json()["projects"]}
+    project = projects_by_id["smart-invoice-workflow"]
     assert project["portfolio_group"] == "AP"
     assert project["portfolio_label"] == "[AP]"
     assert project["portfolio_parent"] == "auxesis-projects"

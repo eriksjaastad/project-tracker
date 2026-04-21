@@ -99,7 +99,11 @@ def _resolve_dashboard_python(project_root: Path) -> str:
     for candidate in candidates:
         if candidate.exists():
             return str(candidate)
-    return sys.executable
+    console.print(
+        f"[red]ERROR: No .venv or venv found under {project_root}. "
+        "Create a virtual environment before launching the dashboard.[/red]"
+    )
+    sys.exit(1)
 
 
 
