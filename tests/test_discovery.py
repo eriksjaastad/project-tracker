@@ -1,7 +1,7 @@
 import pytest
 import tempfile
 from pathlib import Path
-from scripts.discovery.project_scanner import extract_project_metadata
+from scripts.discovery.project_scanner import discover_projects, extract_project_metadata
 
 
 @pytest.fixture
@@ -46,3 +46,34 @@ def test_extract_project_metadata_includes_agent_config_health(temp_project):
     )
     assert claude_health["over_limit"] is True
     assert any("205 lines" in warning for warning in claude_health["warnings"])
+
+
+def test_discover_projects_finds_auxesis_portfolio_children(tmp_path: Path):
+    portfolio_root = tmp_path / "auxesis-projects"
+    portfolio_root.mkdir()
+    child_project = portfolio_root / "smart-invoice-workflow"
+    child_project.mkdir()
+    (child_project / "README.md").write_text("# Smart Invoice Workflow\nRun invoices faster.\n")
+
+    projects = discover_projects(tmp_path)
+
+    assert len(projects) == 1
+    project = projects[0]
+    assert project["id"] == "smart-invoice-workflow"
+    assert project["portfolio_group"] == "AP"
+    assert project["portfolio_label"] == "[AP]"
+    assert project["portfolio_parent"] == "auxesis-projects"
+
+
+def test_extract_project_metadata_infers_portfolio_from_parent_directory(tmp_path: Path):
+    portfolio_root = tmp_path / "auxesis-incubators"
+    portfolio_root.mkdir()
+    child_project = portfolio_root / "ideas-lab"
+    child_project.mkdir()
+    (child_project / "README.md").write_text("# Ideas Lab\nIncubation repo.\n")
+
+    project = extract_project_metadata(child_project)
+
+    assert project["portfolio_group"] == "AI"
+    assert project["portfolio_label"] == "[AI]"
+    assert project["portfolio_parent"] == "auxesis-incubators"

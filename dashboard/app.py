@@ -473,6 +473,15 @@ def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
     all_crons = _group_by_project(db.get_cron_jobs())
     all_services = _group_by_project(db.get_services())
     all_tasks = _group_by_project(db.get_tasks())
+    all_project_info_entries = db.get_info(project_id="__all__")
+    project_info_by_project: dict[str, dict[str, str]] = {}
+    for entry in all_project_info_entries:
+        project_id = entry.get("project_id")
+        key = entry.get("key")
+        if not project_id or not key:
+            logger.warning("Skipping malformed project_info row: %s", entry)
+            continue
+        project_info_by_project.setdefault(project_id, {})[key] = entry.get("value", "")
 
     for project in projects:
         pid = project["id"]
@@ -521,9 +530,98 @@ def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
         else:
             project["agent_config_health"] = build_empty_agent_config_health(project.get("name", pid))
 
+        project_info = project_info_by_project.get(pid, {})
+        project["portfolio_group"] = project_info.get("portfolio_group")
+        project["portfolio_label"] = project_info.get("portfolio_label")
+        project["portfolio_parent"] = project_info.get("portfolio_parent")
         project["version_status"] = "unmanaged"
 
     return projects
+
+
+def _sync_portfolio_project_info(db: DatabaseManager, cursor, project: dict) -> None:
+    """Persist tracker-owned portfolio metadata without overwriting other project info."""
+    db._replace_project_info_entries_with_cursor(
+        cursor,
+        project["id"],
+        {
+            "portfolio_group": project.get("portfolio_group"),
+            "portfolio_label": project.get("portfolio_label"),
+            "portfolio_parent": project.get("portfolio_parent"),
+        },
+    )
+
+
+def _collect_task_display_ids(task_payload: dict, acc: set[int]) -> None:
+    """Collect task ids referenced by a task payload, including nested relations."""
+    task_id = task_payload.get("id")
+    if isinstance(task_id, int):
+        acc.add(task_id)
+
+    parent_id = task_payload.get("parent_id")
+    if isinstance(parent_id, int):
+        acc.add(parent_id)
+
+    for key in ("blocked_by_ids", "incomplete_blocking_ids"):
+        for ref_id in task_payload.get(key, []) or []:
+            if isinstance(ref_id, int):
+                acc.add(ref_id)
+
+    parent = task_payload.get("parent")
+    if isinstance(parent, dict):
+        _collect_task_display_ids(parent, acc)
+
+    for nested_key in ("subtasks", "blocking_tasks"):
+        for nested_task in task_payload.get(nested_key, []) or []:
+            if isinstance(nested_task, dict):
+                _collect_task_display_ids(nested_task, acc)
+
+
+def _apply_task_display_ids(task_payload: dict, display_map: dict[int, int]) -> dict:
+    """Attach human display ids to a task payload recursively."""
+    task_id = task_payload.get("id")
+    if isinstance(task_id, int):
+        task_payload["display_id"] = display_map.get(task_id, task_id)
+
+    parent_id = task_payload.get("parent_id")
+    if isinstance(parent_id, int):
+        task_payload["parent_display_id"] = display_map.get(parent_id, parent_id)
+
+    blocked_by_ids = task_payload.get("blocked_by_ids")
+    if isinstance(blocked_by_ids, list):
+        task_payload["blocked_by_display_ids"] = [
+            display_map.get(ref_id, ref_id) for ref_id in blocked_by_ids if isinstance(ref_id, int)
+        ]
+
+    incomplete_ids = task_payload.get("incomplete_blocking_ids")
+    if isinstance(incomplete_ids, list):
+        task_payload["incomplete_blocking_display_ids"] = [
+            display_map.get(ref_id, ref_id) for ref_id in incomplete_ids if isinstance(ref_id, int)
+        ]
+
+    parent = task_payload.get("parent")
+    if isinstance(parent, dict):
+        task_payload["parent"] = _apply_task_display_ids(parent, display_map)
+
+    for nested_key in ("subtasks", "blocking_tasks"):
+        nested_tasks = task_payload.get(nested_key)
+        if isinstance(nested_tasks, list):
+            task_payload[nested_key] = [
+                _apply_task_display_ids(nested_task, display_map)
+                for nested_task in nested_tasks
+                if isinstance(nested_task, dict)
+            ]
+
+    return task_payload
+
+
+def _enrich_task_payloads_with_display_ids(tasks: list[dict], db: DatabaseManager) -> list[dict]:
+    """Bulk-attach display ids to task payloads."""
+    task_ids: set[int] = set()
+    for task in tasks:
+        _collect_task_display_ids(task, task_ids)
+    display_map = db.get_task_display_id_map(list(task_ids))
+    return [_apply_task_display_ids(task, display_map) for task in tasks]
 
 
 def _build_dashboard_data() -> Dict:
@@ -729,21 +827,27 @@ async def refresh_data():
         
         # Update database
         for project in projects:
-            db.add_project(
-                project_id=project["id"],
-                name=project["name"],
-                path=project["path"],
-                status=project["status"],
-                description=project.get("description"),
-                phase=project.get("phase"),
-                last_modified=project["last_modified"],
-                completion_pct=project.get("completion_pct", 0),
-                is_infrastructure=project.get("is_infrastructure", False),
-                has_index=project.get("has_index", False),
-                index_is_valid=project.get("index_is_valid", False),
-                index_updated_at=project.get("index_updated_at"),
-                project_type=project.get("project_type", "standard"),
-            )
+            with db._get_conn() as conn:
+                cursor = conn.cursor()
+                cursor.execute("BEGIN")
+                db._add_project_with_cursor(
+                    cursor=cursor,
+                    project_id=project["id"],
+                    name=project["name"],
+                    path=project["path"],
+                    status=project["status"],
+                    description=project.get("description"),
+                    phase=project.get("phase"),
+                    last_modified=project["last_modified"],
+                    completion_pct=project.get("completion_pct", 0),
+                    is_infrastructure=project.get("is_infrastructure", False),
+                    has_index=project.get("has_index", False),
+                    index_is_valid=project.get("index_is_valid", False),
+                    index_updated_at=project.get("index_updated_at"),
+                    project_type=project.get("project_type", "standard"),
+                )
+                _sync_portfolio_project_info(db, cursor, project)
+                conn.commit()
 
         # Clean up stale projects whose directories no longer exist on disk.
         # Only remove projects whose path is under the local PROJECTS_BASE_DIR
@@ -1650,6 +1754,7 @@ class TaskCreateRequest(BaseModel):
     status: Optional[str] = "Backlog"
     priority: Optional[str] = None
     task_type: Optional[str] = None
+    category: Optional[str] = None
     parent_id: Optional[int] = None  # Task #4645
     blocked_by: Optional[List[int]] = None  # Task #4579
 
@@ -1968,10 +2073,11 @@ async def create_task(task_data: TaskCreateRequest):
             status=task_data.status or "Backlog",
             priority=task_data.priority,
             task_type=task_data.task_type,
+            category=task_data.category,
             parent_id=task_data.parent_id,
             blocked_by=blocked_by_json
         )
-        return task
+        return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
     except ValueError:
         # Re-raise to be caught by error handler
         raise
@@ -2041,6 +2147,7 @@ async def list_tasks(
 
             enriched_tasks.append(task_dict)
 
+        enriched_tasks = _enrich_task_payloads_with_display_ids(enriched_tasks, db)
         return {
             "tasks": enriched_tasks,
             "total": len(enriched_tasks)
@@ -2110,7 +2217,7 @@ async def get_task(task_id: int):
             except (json.JSONDecodeError, TypeError):
                 pass
         
-        return task_dict
+        return _enrich_task_payloads_with_display_ids([task_dict], db)[0]
     except ValueError:
         # Re-raise to be caught by error handler
         raise
@@ -2183,7 +2290,8 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
                 logger.warning(f"Agent task #{task_id} started without a prompt")
             is_blocked, blocking_ids = db.is_blocked(task_id)
             if is_blocked:
-                blocking_str = ", ".join([f"#{bid}" for bid in blocking_ids])
+                blocking_display_map = db.get_task_display_id_map(blocking_ids)
+                blocking_str = ", ".join([f"#{blocking_display_map.get(bid, bid)}" for bid in blocking_ids])
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Cannot start task while blocked by: {blocking_str}"
@@ -2194,11 +2302,11 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
             task = db.get_task(task_id)
             if not task:
                 raise ValueError(f"Task with ID {task_id} not found")
-            return task
+            return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
         
         # update_task handles history recording for status changes
         task = db.update_task(task_id, **updates)
-        return task
+        return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
     except ValueError:
         # Re-raise to be caught by error handler
         raise

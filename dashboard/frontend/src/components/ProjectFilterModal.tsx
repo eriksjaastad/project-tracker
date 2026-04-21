@@ -12,6 +12,8 @@ interface ProjectFilterModalProps {
 
 type ProjectOption = Project & { task_count?: number };
 
+import { groupByPortfolio } from '../utils/portfolio';
+
 export function ProjectFilterModal({
   isOpen,
   onClose,
@@ -89,6 +91,8 @@ export function ProjectFilterModal({
     });
   }, [projects, searchTerm]);
 
+  const groupedProjects = useMemo(() => groupByPortfolio(filteredProjects), [filteredProjects]);
+
   const handleSelect = (projectId?: string) => {
     if (!projectId) {
       navigate('/kanban');
@@ -143,19 +147,33 @@ export function ProjectFilterModal({
             {filteredProjects.length === 0 ? (
               <div className="project-filter-empty">No projects found</div>
             ) : (
-              filteredProjects.map((project) => (
-                <button
-                  key={project.id}
-                  className={`project-filter-item ${
-                    currentProject === project.id ? 'active' : ''
-                  }`}
-                  onClick={() => handleSelect(project.id)}
-                >
-                  <span className="project-filter-name">{project.name}</span>
-                  {typeof project.task_count === 'number' && (
-                    <span className="project-filter-count">{project.task_count}</span>
+              groupedProjects.map((group) => (
+                <div key={group.key} className="project-filter-group">
+                  {group.key !== 'default' && (
+                    <div className="project-filter-group-title">
+                      {group.projects[0]?.portfolio_label || `[${group.key}]`} {group.title}
+                    </div>
                   )}
-                </button>
+                  {group.projects.map((project) => (
+                    <button
+                      key={project.id}
+                      className={`project-filter-item ${
+                        currentProject === project.id ? 'active' : ''
+                      }`}
+                      onClick={() => handleSelect(project.id)}
+                    >
+                      <span className="project-filter-name-row">
+                        {project.portfolio_label && (
+                          <span className="project-filter-badge">{project.portfolio_label}</span>
+                        )}
+                        <span className="project-filter-name">{project.name}</span>
+                      </span>
+                      {typeof project.task_count === 'number' && (
+                        <span className="project-filter-count">{project.task_count}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
               ))
             )}
           </div>

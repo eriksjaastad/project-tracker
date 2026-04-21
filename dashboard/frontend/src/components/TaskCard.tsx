@@ -41,6 +41,8 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
   };
 
   const priorityColor = task.priority ? priorityColors[task.priority] : undefined;
+  const displayId = task.display_id ?? task.id;
+  const parentDisplayId = task.parent_display_id ?? task.parent_id;
 
   const handleClick = (e: React.MouseEvent) => {
     // Don't trigger click when dragging
@@ -66,7 +68,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
         />
       )}
       <div className="task-card-content">
-        <div className="task-card-id">#{task.id}</div>
+        <div className="task-card-id">#{displayId}</div>
         <p className="task-card-text" title={task.title ? task.text : undefined}>
           {task.title || truncatedText}
         </p>
@@ -95,9 +97,9 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
             </span>
           )}
           {/* Parent indicator (Task #4645) */}
-          {task.parent_id && (
-            <span className="task-card-parent-badge" title={`Subtask of #${task.parent_id}`}>
-              ↳ #{task.parent_id}
+          {parentDisplayId && (
+            <span className="task-card-parent-badge" title={`Subtask of #${parentDisplayId}`}>
+              ↳ #{parentDisplayId}
             </span>
           )}
         </div>

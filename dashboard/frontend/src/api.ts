@@ -121,6 +121,7 @@ export async function createTask(
   status: TaskStatus = 'Backlog',
   priority?: TaskPriority | null,
   taskType: TaskType = 'manual',
+  category?: string | null,
   parentId?: number | null,
   blockedBy?: number[] | null
 ): Promise<Task> {
@@ -136,6 +137,7 @@ export async function createTask(
         status,
         priority,
         task_type: taskType,
+        category,
         parent_id: parentId,
         blocked_by: blockedBy,
       }),

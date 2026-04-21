@@ -101,7 +101,14 @@ export function TaskForm({
     let blockedBy: number[] | null = null;
     if (blockedByInput.trim()) {
       try {
-        blockedBy = blockedByInput.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+        blockedBy = blockedByInput
+          .split(',')
+          .map((rawId) => parseInt(rawId.trim().replace('#', ''), 10))
+          .filter((id) => !isNaN(id))
+          .map((enteredId) => {
+            const matchedTask = tasks.find((task) => (task.display_id ?? task.id) === enteredId || task.id === enteredId);
+            return matchedTask ? matchedTask.id : enteredId;
+          });
         if (blockedBy.length === 0) blockedBy = null;
       } catch {
         setError('Invalid task IDs in blocked-by field');
@@ -188,7 +195,7 @@ export function TaskForm({
             <option value="">Select a project...</option>
             {eligibleProjects.map((project) => (
               <option key={project.id} value={project.id}>
-                {project.name || project.id}
+                {project.portfolio_label ? `${project.portfolio_label} ` : ''}{project.name || project.id}
               </option>
             ))}
           </select>
@@ -273,7 +280,7 @@ export function TaskForm({
             <option value="">None (top-level task)</option>
             {tasks.filter(t => t.parent_id === null && t.project_id === projectId).map((task) => (
               <option key={task.id} value={task.id}>
-                #{task.id} - {task.text.substring(0, 40)}{task.text.length > 40 ? '...' : ''}
+                #{task.display_id ?? task.id} - {task.text.substring(0, 40)}{task.text.length > 40 ? '...' : ''}
               </option>
             ))}
           </select>
