@@ -68,6 +68,19 @@
   overflow-y: auto;
 }
 
+.project-filter-group + .project-filter-group {
+  margin-top: var(--space-sm);
+}
+
+.project-filter-group-title {
+  padding: 0 var(--space-lg) var(--space-xs);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .project-filter-item {
   width: 100%;
   background: transparent;
@@ -93,6 +106,18 @@
 
 .project-filter-name {
   font-weight: 500;
+}
+
+.project-filter-name-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-filter-badge {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .project-filter-count {

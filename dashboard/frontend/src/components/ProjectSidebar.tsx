@@ -9,7 +9,12 @@ export interface Project {
   path: string;
   status?: string;
   task_count?: number; // Optional: will be fetched separately if not provided
+  portfolio_group?: string | null;
+  portfolio_label?: string | null;
+  portfolio_parent?: string | null;
 }
+
+import { groupByPortfolio } from '../utils/portfolio';
 
 interface ProjectSidebarProps {
   projects: Project[];
@@ -144,6 +149,8 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
     return sorted;
   }, [projects, taskCounts, externalSortOrder]);
 
+  const groupedProjects = useMemo(() => groupByPortfolio(sortedProjects), [sortedProjects]);
+
   // Select All / Deselect All handlers
   const handleSelectAll = () => {
     sortedProjects.forEach(project => {
@@ -237,34 +244,46 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
           {sortedProjects.length === 0 ? (
             <div className="no-projects">No projects found</div>
           ) : (
-            sortedProjects.map((project) => {
-              const isSelected = externalSelectedProjects.has(project.id);
-              const taskCount = taskCounts[project.id] ?? project.task_count ?? 0;
+            groupedProjects.map((group) => (
+              <div key={group.key} className="project-group">
+                {group.key !== 'default' && (
+                  <div className="project-group-title">
+                    {group.projects[0]?.portfolio_label || `[${group.key}]`} {group.title}
+                  </div>
+                )}
+                {group.projects.map((project) => {
+                  const isSelected = externalSelectedProjects.has(project.id);
+                  const taskCount = taskCounts[project.id] ?? project.task_count ?? 0;
 
-              return (
-                <div
-                  key={project.id}
-                  className={`project-item ${isSelected ? 'selected' : ''}`}
-                  role="option"
-                  aria-selected={isSelected}
-                >
-                  <label className="project-checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => onToggleProject(project.id)}
-                      aria-label={`Toggle ${project.name}`}
-                    />
-                    <span className="project-name">{project.name}</span>
-                    {externalSortOrder === 'task-count' && (
-                      <span className="task-count-badge" aria-label={`${taskCount} tasks`}>
-                        {taskCount}
-                      </span>
-                    )}
-                  </label>
-                </div>
-              );
-            })
+                  return (
+                    <div
+                      key={project.id}
+                      className={`project-item ${isSelected ? 'selected' : ''}`}
+                      role="option"
+                      aria-selected={isSelected}
+                    >
+                      <label className="project-checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => onToggleProject(project.id)}
+                          aria-label={`Toggle ${project.name}`}
+                        />
+                        {project.portfolio_label && (
+                          <span className="project-badge">{project.portfolio_label}</span>
+                        )}
+                        <span className="project-name">{project.name}</span>
+                        {externalSortOrder === 'task-count' && (
+                          <span className="task-count-badge" aria-label={`${taskCount} tasks`}>
+                            {taskCount}
+                          </span>
+                        )}
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+            ))
           )}
         </div>
       )}

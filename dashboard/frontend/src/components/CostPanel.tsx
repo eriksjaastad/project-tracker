@@ -28,6 +28,8 @@ interface CostData {
   projects: ProjectEntry[];
 }
 
+type UnknownRow = Record<string, unknown>;
+
 function formatCost(cost: number): string {
   if (cost < 0.01) return '<$0.01';
   return `$${cost.toFixed(2)}`;
@@ -56,18 +58,52 @@ export function CostPanel() {
     ])
       .then(([daily, providers, projects]) => {
         // Handle both direct arrays and wrapped responses
-        const toArray = (v: unknown) => (Array.isArray(v) ? v : (v as Record<string, unknown>).data || []);
-        // API returns total_cost as string and calls instead of total_calls — normalize at the boundary
-        const coerce = <T extends Record<string, unknown>>(rows: T[]): T[] =>
-          rows.map(r => ({
-            ...r,
-            total_cost: parseFloat(r.total_cost as string) || 0,
-            total_calls: Number(r.calls ?? r.total_calls) || 0,
+        const toArray = (value: unknown): UnknownRow[] => {
+          if (Array.isArray(value)) {
+            return value.filter((row): row is UnknownRow => typeof row === 'object' && row !== null);
+          }
+          if (typeof value === 'object' && value !== null && Array.isArray((value as { data?: unknown }).data)) {
+            return (value as { data: unknown[] }).data.filter(
+              (row): row is UnknownRow => typeof row === 'object' && row !== null
+            );
+          }
+          return [];
+        };
+        const toNumber = (value: unknown): number => {
+          if (typeof value === 'number') {
+            return Number.isFinite(value) ? value : 0;
+          }
+          if (typeof value === 'string') {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : 0;
+          }
+          return 0;
+        };
+        const coerceDaily = (rows: UnknownRow[]): DailyEntry[] =>
+          rows.map((row) => ({
+            date: typeof row.date === 'string' ? row.date : '',
+            total_calls: toNumber(row.calls ?? row.total_calls),
+            total_tokens: toNumber(row.total_tokens),
+            total_cost: toNumber(row.total_cost),
+          }));
+        const coerceProviders = (rows: UnknownRow[]): ProviderEntry[] =>
+          rows.map((row) => ({
+            provider: typeof row.provider === 'string' ? row.provider : 'unknown',
+            total_calls: toNumber(row.calls ?? row.total_calls),
+            total_tokens: toNumber(row.total_tokens),
+            total_cost: toNumber(row.total_cost),
+          }));
+        const coerceProjects = (rows: UnknownRow[]): ProjectEntry[] =>
+          rows.map((row) => ({
+            project: typeof row.project === 'string' ? row.project : '',
+            total_calls: toNumber(row.calls ?? row.total_calls),
+            total_tokens: toNumber(row.total_tokens),
+            total_cost: toNumber(row.total_cost),
           }));
         setData({
-          daily: coerce(toArray(daily)),
-          providers: coerce(toArray(providers)),
-          projects: coerce(toArray(projects)),
+          daily: coerceDaily(toArray(daily)),
+          providers: coerceProviders(toArray(providers)),
+          projects: coerceProjects(toArray(projects)),
         });
         setLoading(false);
       })

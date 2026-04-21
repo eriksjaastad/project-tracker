@@ -1052,6 +1052,7 @@ class DatabaseManager:
         priority: Optional[str] = None,
         prompt: Optional[str] = None,
         task_type: Optional[str] = None,
+        category: Optional[str] = None,
         review_comment: Optional[str] = None,
         notes: Optional[str] = None,
         parent_id: Optional[int] = None,
@@ -1115,6 +1116,11 @@ class DatabaseManager:
         
         with self._get_conn() as conn:
             cursor = conn.cursor()
+            effective_category = self._resolve_default_task_category(
+                cursor,
+                project_id,
+                explicit_category=category,
+            )
             
             # Insert task with sanitized text
             cursor.execute("""
@@ -1129,6 +1135,7 @@ class DatabaseManager:
                     completed_at,
                     prompt,
                     task_type,
+                    category,
                     review_comment,
                     notes,
                     parent_id,
@@ -1136,7 +1143,7 @@ class DatabaseManager:
                     sequence_order,
                     created_by
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 task_id,
                 sanitized_text,
@@ -1148,6 +1155,7 @@ class DatabaseManager:
                 None if status != "Done" else now,
                 prompt,
                 effective_task_type,
+                effective_category,
                 review_comment,
                 notes,
                 parent_id,
@@ -1174,6 +1182,51 @@ class DatabaseManager:
 
             # Return the created task
             return self.get_task(task_id)
+
+    def _resolve_default_task_category(
+        self,
+        cursor: sqlite3.Cursor,
+        project_id: str,
+        *,
+        explicit_category: Optional[str] = None,
+    ) -> Optional[str]:
+        """Resolve the task category, defaulting from tracker-owned project metadata."""
+        if explicit_category is not None:
+            cleaned = explicit_category.strip()
+            return cleaned or None
+
+        row = cursor.execute(
+            "SELECT value FROM project_info WHERE project_id = ? AND key = ? "
+            "ORDER BY updated_at DESC, id DESC LIMIT 1",
+            (project_id, "portfolio_label"),
+        ).fetchone()
+        if not row:
+            return None
+        value = row["value"] if hasattr(row, "keys") else row[0]
+        cleaned = (value or "").strip()
+        return cleaned or None
+
+    def _replace_project_info_entries_with_cursor(
+        self,
+        cursor: sqlite3.Cursor,
+        project_id: str,
+        entries: Dict[str, Optional[str]],
+    ) -> None:
+        """Replace only the specified project_info keys for a project."""
+        for key, value in entries.items():
+            cursor.execute(
+                "DELETE FROM project_info WHERE project_id = ? AND key = ?",
+                (project_id, key),
+            )
+            if value is None:
+                continue
+            cleaned = value.strip()
+            if not cleaned:
+                continue
+            cursor.execute(
+                "INSERT INTO project_info (id, project_id, key, value, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (pt_next_id(self.db_path), project_id, key, cleaned, datetime.now(timezone.utc).isoformat()),
+            )
     
     def get_tasks(
         self,
