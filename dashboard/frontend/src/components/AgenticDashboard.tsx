@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   LineChart,
   Line,
@@ -17,12 +17,20 @@ import {
   updateMarker,
   deleteMarker,
   fetchProjects,
+  fetchToolStats,
+  fetchBashStats,
 } from '../api';
-import type { AgenticMarker, AgenticSeriesEntry, AgenticSummaryResponse, Project } from '../types';
+import type { AgenticMarker, AgenticSeriesEntry, AgenticSummaryResponse, BashStatsResponse, Project, ToolStatsResponse } from '../types';
 import { PageShell } from './PageShell';
 import './AgenticDashboard.css';
 
 type TimeRange = 'week' | 'month';
+type ToolView = 'all' | 'by-project';
+
+const PROJECT_COLORS = [
+  '#4f9dff', '#51cf66', '#ff6b6b', '#ffd43b', '#cc5de8',
+  '#ff922b', '#20c997', '#f06595', '#74c0fc', '#a9e34b',
+];
 
 export function AgenticDashboard() {
   const [timeRange, setTimeRange] = useState<TimeRange>('month');
@@ -31,6 +39,16 @@ export function AgenticDashboard() {
   const [summary, setSummary] = useState<AgenticSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // WebSearch tracking
+  const [toolView, setToolView] = useState<ToolView>('all');
+  const [toolStats, setToolStats] = useState<ToolStatsResponse | null>(null);
+  const [toolStatsLoading, setToolStatsLoading] = useState(true);
+
+  // Stuck score (bash error rate)
+  const [bashView, setBashView] = useState<ToolView>('all');
+  const [bashStats, setBashStats] = useState<BashStatsResponse | null>(null);
+  const [bashStatsLoading, setBashStatsLoading] = useState(true);
 
   // Marker state
   const [markers, setMarkers] = useState<AgenticMarker[]>([]);
@@ -73,6 +91,64 @@ export function AgenticDashboard() {
     }
     loadSummary();
   }, [timeRange, selectedProject]);
+
+  useEffect(() => {
+    async function loadToolStats() {
+      setToolStatsLoading(true);
+      try {
+        const days = timeRange === 'week' ? 7 : 30;
+        const data = await fetchToolStats(days);
+        setToolStats(data);
+      } catch (err) {
+        console.error('Failed to load tool stats:', err);
+      } finally {
+        setToolStatsLoading(false);
+      }
+    }
+    loadToolStats();
+  }, [timeRange]);
+
+  useEffect(() => {
+    async function loadBashStats() {
+      setBashStatsLoading(true);
+      try {
+        const days = timeRange === 'week' ? 7 : 30;
+        const data = await fetchBashStats(days);
+        setBashStats(data);
+      } catch (err) {
+        console.error('Failed to load bash stats:', err);
+      } finally {
+        setBashStatsLoading(false);
+      }
+    }
+    loadBashStats();
+  }, [timeRange]);
+
+  const projectChartData = useMemo(() => {
+    if (!toolStats) return [];
+    const dateMap: Record<string, Record<string, number>> = {};
+    for (const entry of toolStats.by_project) {
+      if (!dateMap[entry.date]) dateMap[entry.date] = {};
+      dateMap[entry.date][entry.project] = entry.count;
+    }
+    return toolStats.by_date.map(({ date }) => ({
+      date,
+      ...Object.fromEntries(toolStats.projects.map(p => [p, dateMap[date]?.[p] ?? 0])),
+    }));
+  }, [toolStats]);
+
+  const bashProjectChartData = useMemo(() => {
+    if (!bashStats) return [];
+    const dateMap: Record<string, Record<string, number>> = {};
+    for (const entry of bashStats.by_project) {
+      if (!dateMap[entry.date]) dateMap[entry.date] = {};
+      dateMap[entry.date][entry.project] = entry.error_rate;
+    }
+    return bashStats.by_date.map(({ date }) => ({
+      date,
+      ...Object.fromEntries(bashStats.projects.map(p => [p, dateMap[date]?.[p] ?? 0])),
+    }));
+  }, [bashStats]);
 
   const chartData = (summary?.series || []).map((entry: AgenticSeriesEntry) => ({
     date: entry.date,
@@ -286,6 +362,143 @@ export function AgenticDashboard() {
             </section>
           </>
         )}
+
+        {/* WebSearch frequency chart */}
+        <section className="agentic-chart">
+          <div className="chart-header">
+            <h2>WebSearch Calls Over Time</h2>
+            <div className="time-range-buttons">
+              <button
+                className={toolView === 'all' ? 'active' : ''}
+                onClick={() => setToolView('all')}
+                type="button"
+              >
+                All Projects
+              </button>
+              <button
+                className={toolView === 'by-project' ? 'active' : ''}
+                onClick={() => setToolView('by-project')}
+                type="button"
+              >
+                By Project
+              </button>
+            </div>
+          </div>
+          {toolStatsLoading ? (
+            <div className="agentic-loading">Loading search data...</div>
+          ) : !toolStats || toolStats.by_date.every(d => d.total === 0) ? (
+            <div className="agentic-empty">No WebSearch data yet — hook must fire at least once.</div>
+          ) : toolView === 'all' ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={toolStats.by_date} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tickFormatter={formatDate} angle={-40} textAnchor="end" height={70} />
+                <YAxis allowDecimals={false} />
+                <Tooltip labelFormatter={(v) => `Date: ${formatDate(v as string)}`} />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="total"
+                  stroke="#4f9dff"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  name="WebSearch Calls"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={projectChartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tickFormatter={formatDate} angle={-40} textAnchor="end" height={70} />
+                <YAxis allowDecimals={false} />
+                <Tooltip labelFormatter={(v) => `Date: ${formatDate(v as string)}`} />
+                <Legend />
+                {(toolStats.projects).map((project, i) => (
+                  <Line
+                    key={project}
+                    type="monotone"
+                    dataKey={project}
+                    stroke={PROJECT_COLORS[i % PROJECT_COLORS.length]}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    name={project}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </section>
+
+        {/* Stuck score: bash error rate per day */}
+        <section className="agentic-chart">
+          <div className="chart-header">
+            <h2>Stuck Score — Bash Error Rate %</h2>
+            <div className="time-range-buttons">
+              <button
+                className={bashView === 'all' ? 'active' : ''}
+                onClick={() => setBashView('all')}
+                type="button"
+              >
+                All Projects
+              </button>
+              <button
+                className={bashView === 'by-project' ? 'active' : ''}
+                onClick={() => setBashView('by-project')}
+                type="button"
+              >
+                By Project
+              </button>
+            </div>
+          </div>
+          {bashStatsLoading ? (
+            <div className="agentic-loading">Loading stuck score...</div>
+          ) : !bashStats || bashStats.by_date.length === 0 ? (
+            <div className="agentic-empty">No bash call data yet.</div>
+          ) : bashView === 'all' ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={bashStats.by_date} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tickFormatter={formatDate} angle={-40} textAnchor="end" height={70} />
+                <YAxis unit="%" domain={[0, 100]} />
+                <Tooltip
+                  labelFormatter={(v) => `Date: ${formatDate(v as string)}`}
+                  formatter={(v, _name, props) => [`${v}% (${props.payload.errors}/${props.payload.total})`, 'Error Rate']}
+                />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="error_rate"
+                  stroke="#ff6b6b"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  name="Error Rate %"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={bashProjectChartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tickFormatter={formatDate} angle={-40} textAnchor="end" height={70} />
+                <YAxis unit="%" domain={[0, 100]} />
+                <Tooltip labelFormatter={(v) => `Date: ${formatDate(v as string)}`} />
+                <Legend />
+                {bashStats.projects.map((project, i) => (
+                  <Line
+                    key={project}
+                    type="monotone"
+                    dataKey={project}
+                    stroke={PROJECT_COLORS[i % PROJECT_COLORS.length]}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    name={project}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </section>
 
         {/* Marker management — always rendered, independent of chart loading */}
         <section className="agentic-markers">

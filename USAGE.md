@@ -94,6 +94,9 @@ Click **"Details"** to see:
 
 # Refresh all data
 ./pt refresh
+
+# Sync one project only (faster than a full scan)
+./pt sync-project "project-name"
 ```
 
 ### Managing AI Agents
@@ -122,11 +125,27 @@ Click **"Details"** to see:
 
 ```bash
 # Add a service dependency to a project
-./pt add-service "project-name" "Service Name" 5.00 "Purpose description"
+./pt add-service "project-name" "Service Name" --cost 5.00 --purpose "Purpose description"
 
 # Examples:
-./pt add-service "trading-copilot" "Railway" 5.00 "Hosting + Postgres"
-./pt add-service "image-workflow" "OpenAI" 15.00 "AI processing"
+./pt add-service "trading-copilot" "Railway" --cost 5.00 --purpose "Hosting + Postgres"
+./pt add-service "image-workflow" "OpenAI" --cost 15.00 --purpose "AI processing"
+```
+
+### Sync Controls
+
+```bash
+# Show replication state
+./pt sync status
+
+# Pause data-plane replication
+./pt sync pause
+
+# Resume data-plane replication
+./pt sync resume
+
+# Rare: pause everything, including control-plane announcements
+./pt sync pause --all
 ```
 
 ---

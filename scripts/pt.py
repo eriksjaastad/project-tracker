@@ -569,13 +569,14 @@ def refresh(no_graph):
     _scan_impl(no_graph=no_graph)
 
 
-@cli.command()
+@cli.command(name="sync-project")
 @click.argument("project_name")
 @click.option("--no-graph", is_flag=True, help="Skip rebuilding the project graph")
-def sync(project_name, no_graph):
-    """Sync a single project to the database (fast alternative to full scan).
+def sync_project(project_name, no_graph):
+    """Sync one project to the database (fast alternative to full scan).
 
     PROJECT_NAME is the directory name under the projects root.
+    This is distinct from ``pt sync``, which manages replication state.
     """
     base_path = Path(PROJECTS_BASE_DIR)
     project_dir = _resolve_project_directory(project_name)
@@ -3304,10 +3305,11 @@ def db_migrate():
 def sync_group(ctx):
     """Data-plane sync control (cr-sqlite replication, Phase 2).
 
+    \b
     Commands:
         pt sync status     — show pause state + last sync + engine state
         pt sync pause      — halt data-plane replication (control plane keeps running)
-        pt sync pause --all— halt everything (rare; stops migration announcements too)
+        pt sync pause --all — halt everything (rare; stops migration announcements too)
         pt sync resume     — resume data-plane replication
     """
     if ctx.invoked_subcommand is None:
