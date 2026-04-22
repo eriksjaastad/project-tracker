@@ -73,3 +73,6 @@ project-graph-screenshots-movies/
 
 # Manual Anthropic cost exports — portfolio-level, not project-scoped
 *.csv
+
+# Per-session floor manager notes — updated every session, machine-local
+PROGRESS.md
