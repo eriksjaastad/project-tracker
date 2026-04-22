@@ -36,26 +36,8 @@ VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"]
 # Valid task types
 VALID_TASK_TYPES = ["manual", "agent", "proposal"]
 
-# Projects that should not receive Kanban cards/tasks on the Mac Mini.
-# On any other machine these restrictions do not apply.
-_MAC_MINI_EXCLUDED_CARD_PROJECT_IDS = {
-    "ai-journal",
-    "ai-memory",
-    "project-scaffolding",
-    "project-tracker",
-}
-
-
-def _is_mac_mini() -> bool:
-    """Return True when running on the Mac Mini (eriks-mac-mini)."""
-    import socket
-    return socket.gethostname().lower().startswith("eriks-mac-mini")
-
-
 def _get_excluded_card_project_ids() -> set[str]:
-    """Return the active exclusion set based on the current machine."""
-    if _is_mac_mini():
-        return _MAC_MINI_EXCLUDED_CARD_PROJECT_IDS
+    """Return the active exclusion set for card creation."""
     return set()
 
 
