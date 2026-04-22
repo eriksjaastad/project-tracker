@@ -190,6 +190,29 @@ def build_template_context(request: Request, **context) -> Dict[str, object]:
     }
 
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _is_loopback_host(host: Optional[str]) -> bool:
+    """Return True when the host is local to this machine."""
+    return bool(host and host in _LOOPBACK_HOSTS)
+
+
+def _require_local_admin_request(request: Request) -> None:
+    """Restrict sensitive execution endpoints to loopback by default."""
+    if os.getenv("PT_ALLOW_REMOTE_ADMIN") == "1":
+        return
+
+    client_host = request.client.host if request.client else None
+    if _is_loopback_host(client_host):
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="This endpoint is restricted to local requests. Set PT_ALLOW_REMOTE_ADMIN=1 to override.",
+    )
+
+
 def build_spa_shell_html(index_html: str, current_path: str) -> str:
     """Inject backend-owned navigation metadata into the SPA shell."""
     payload = json.dumps(build_navigation_payload(current_path)).replace("<", "\\u003c")
@@ -1884,12 +1907,13 @@ async def list_agents():
 
 # POST /api/agents/run - Execute agent command
 @app.post("/api/agents/run")
-async def run_agent(request: AgentRunRequest):
+async def run_agent(request: Request, payload: AgentRunRequest):
     """Execute an agent command and return result."""
+    _require_local_admin_request(request)
     result = run_agent_command(
-        request.agent_name,
-        request.command_name,
-        request.args or ""
+        payload.agent_name,
+        payload.command_name,
+        payload.args or ""
     )
 
     return {
@@ -2285,32 +2309,37 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
     """
     try:
         db = DatabaseManager()
+        provided_fields = getattr(task_data, "model_fields_set", None)
+        if provided_fields is None:
+            provided_fields = getattr(task_data, "__fields_set__", set())
         
         # Build update dict from non-None fields
         updates = {}
-        if task_data.text is not None:
+        if "text" in provided_fields:
             updates["text"] = task_data.text
-        if task_data.title is not None:
+        if "title" in provided_fields:
             updates["title"] = task_data.title
-        if task_data.notes is not None:
+        if "notes" in provided_fields:
             updates["notes"] = task_data.notes
-        if task_data.commit_sha is not None:
+        if "commit_sha" in provided_fields:
             updates["commit_sha"] = task_data.commit_sha
-        if task_data.category is not None:
+        if "category" in provided_fields:
             updates["category"] = task_data.category
-        if task_data.review_comment is not None:
+        if "review_comment" in provided_fields:
             updates["review_comment"] = task_data.review_comment
-        if task_data.status is not None:
+        if "status" in provided_fields:
             updates["status"] = task_data.status
-        if task_data.priority is not None:
+        if "priority" in provided_fields:
             updates["priority"] = task_data.priority
-        if task_data.task_type is not None:
+        if "task_type" in provided_fields:
             updates["task_type"] = task_data.task_type
-        if task_data.parent_id is not None:
+        if "parent_id" in provided_fields:
             updates["parent_id"] = task_data.parent_id
-        if task_data.blocked_by is not None:
+        if "blocked_by" in provided_fields:
             import json
-            updates["blocked_by"] = json.dumps(task_data.blocked_by)
+            updates["blocked_by"] = (
+                json.dumps(task_data.blocked_by) if task_data.blocked_by is not None else None
+            )
         
         # Prompt check for In Progress — warn but don't block
         if updates.get("status") == "In Progress":
@@ -2446,7 +2475,7 @@ async def delete_attachment(task_id: int, attachment_id: int):
     record = db.delete_attachment(attachment_id=attachment_id, task_id=task_id)
     if not record:
         raise HTTPException(status_code=404, detail="Attachment not found")
-    file_path = DatabaseManager._attachments_dir(task_id) / record["stored_name"]
+    file_path = DatabaseManager._attachments_dir(task_id, create=False) / record["stored_name"]
     if file_path.exists():
         file_path.unlink()
     return {"deleted": True, "attachment_id": attachment_id}
@@ -2457,7 +2486,11 @@ async def serve_attachment(task_id: int, stored_name: str):
     """Serve an attachment file for inline preview."""
     from fastapi.responses import FileResponse
     import mimetypes
-    attach_dir = DatabaseManager._attachments_dir(task_id)
+    db = DatabaseManager()
+    attachment = db.get_attachment(task_id, stored_name)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    attach_dir = DatabaseManager._attachments_dir(task_id, create=False)
     file_path = (attach_dir / stored_name).resolve()
     # Path traversal guard: resolved path must stay inside the task's attachment dir
     if not file_path.is_relative_to(attach_dir.resolve()):
