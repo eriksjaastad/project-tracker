@@ -364,11 +364,36 @@ class DatabaseManager:
     # ==================== ATTACHMENT OPERATIONS (#5216) ====================
 
     @staticmethod
-    def _attachments_dir(task_id: int) -> Path:
+    def _attachments_dir(task_id: int, *, create: bool = True) -> Path:
         """Return (and create) the storage directory for a task's attachments."""
         base = Path.home() / ".project-tracker" / "attachments" / str(task_id)
-        base.mkdir(parents=True, exist_ok=True)
+        if create:
+            base.mkdir(parents=True, exist_ok=True)
         return base
+
+    @classmethod
+    def _delete_attachment_files(cls, attachments: List[Dict[str, Any]]) -> None:
+        """Best-effort cleanup for attachment files after DB rows are deleted."""
+        for attachment in attachments:
+            task_id = attachment.get("task_id")
+            stored_name = attachment.get("stored_name")
+            if task_id is None or not stored_name:
+                continue
+
+            attachment_dir = cls._attachments_dir(int(task_id), create=False)
+            file_path = attachment_dir / str(stored_name)
+            try:
+                if file_path.exists():
+                    file_path.unlink()
+                if attachment_dir.exists() and not any(attachment_dir.iterdir()):
+                    attachment_dir.rmdir()
+            except OSError as exc:
+                logger.warning(
+                    "Failed to clean attachment file for task %s (%s): %s",
+                    task_id,
+                    stored_name,
+                    exc,
+                )
 
     def migrate_attachments_table(self) -> None:
         """Idempotent migration — create task_attachments table if not present."""
@@ -420,6 +445,7 @@ class DatabaseManager:
 
     def get_attachments(self, task_id: int) -> List[Dict[str, Any]]:
         """Return all attachments for a task, newest first."""
+        self.migrate_attachments_table()
         with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM task_attachments WHERE task_id = ? ORDER BY uploaded_at DESC",
@@ -427,11 +453,25 @@ class DatabaseManager:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def get_attachment(self, task_id: int, stored_name: str) -> Optional[Dict[str, Any]]:
+        """Return a single attachment for a task by stored filename."""
+        self.migrate_attachments_table()
+        with self._get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM task_attachments
+                WHERE task_id = ? AND stored_name = ?
+                """,
+                (task_id, stored_name),
+            ).fetchone()
+            return dict(row) if row else None
+
     def delete_attachment(self, attachment_id: int, task_id: int) -> Optional[Dict[str, Any]]:
         """Delete an attachment record and return it (so caller can remove the file).
 
         Verifies task ownership — only deletes if the attachment belongs to task_id.
         """
+        self.migrate_attachments_table()
         with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM task_attachments WHERE id = ? AND task_id = ?",
@@ -685,6 +725,7 @@ class DatabaseManager:
         
         with self._get_conn() as conn:
             cursor = conn.cursor()
+            attachment_rows: List[Dict[str, Any]] = []
             try:
                 # Enable delete permission (block_task_delete trigger checks this flag)
                 cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
@@ -713,6 +754,17 @@ class DatabaseManager:
                         "UPDATE calendar_events SET project_id = NULL WHERE project_id = ?", (project_id,)
                     )
                 if _tbl_exists("task_attachments"):
+                    attachment_rows = [
+                        dict(row)
+                        for row in cursor.execute(
+                            """
+                            SELECT task_id, stored_name
+                            FROM task_attachments
+                            WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?)
+                            """,
+                            (project_id,),
+                        ).fetchall()
+                    ]
                     cursor.execute(
                         "DELETE FROM task_attachments WHERE task_id IN "
                         "(SELECT id FROM tasks WHERE project_id = ?)", (project_id,)
@@ -727,6 +779,7 @@ class DatabaseManager:
                 cursor.execute("DELETE FROM cron_jobs WHERE project_id = ?", (project_id,))
                 cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
                 conn.commit()
+                self._delete_attachment_files(attachment_rows)
             finally:
                 # Always disable delete permission after
                 cursor.execute("UPDATE _delete_permissions SET enabled = 0 WHERE id = 1")
@@ -1607,6 +1660,7 @@ class DatabaseManager:
 
         with self._get_conn() as conn:
             cursor = conn.cursor()
+            attachment_rows: List[Dict[str, Any]] = []
             try:
                 # Collect all descendant task IDs before enabling delete permission
                 cursor.execute("""
@@ -1638,6 +1692,13 @@ class DatabaseManager:
                             descendant_ids,
                         )
                     if _tbl_exists_task("task_attachments"):
+                        attachment_rows.extend(
+                            dict(row)
+                            for row in cursor.execute(
+                                f"SELECT task_id, stored_name FROM task_attachments WHERE task_id IN ({placeholders})",
+                                descendant_ids,
+                            ).fetchall()
+                        )
                         cursor.execute(
                             f"DELETE FROM task_attachments WHERE task_id IN ({placeholders})",
                             descendant_ids,
@@ -1654,10 +1715,18 @@ class DatabaseManager:
                 if _tbl_exists_task("calendar_event_tasks"):
                     cursor.execute("DELETE FROM calendar_event_tasks WHERE task_id = ?", (task_id,))
                 if _tbl_exists_task("task_attachments"):
+                    attachment_rows.extend(
+                        dict(row)
+                        for row in cursor.execute(
+                            "SELECT task_id, stored_name FROM task_attachments WHERE task_id = ?",
+                            (task_id,),
+                        ).fetchall()
+                    )
                     cursor.execute("DELETE FROM task_attachments WHERE task_id = ?", (task_id,))
                 cursor.execute("DELETE FROM task_history WHERE task_id = ?", (task_id,))
                 cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
                 conn.commit()
+                self._delete_attachment_files(attachment_rows)
             finally:
                 # Always disable delete permission after
                 cursor.execute("UPDATE _delete_permissions SET enabled = 0 WHERE id = 1")
@@ -1694,6 +1763,7 @@ class DatabaseManager:
         
         with self._get_conn() as conn:
             cursor = conn.cursor()
+            attachment_rows: List[Dict[str, Any]] = []
             try:
                 # Collect task IDs to be deleted so we can clean child rows first
                 if project_id:
@@ -1722,6 +1792,13 @@ class DatabaseManager:
                             done_ids,
                         )
                     if has_ta:
+                        attachment_rows = [
+                            dict(row)
+                            for row in cursor.execute(
+                                f"SELECT task_id, stored_name FROM task_attachments WHERE task_id IN ({placeholders})",
+                                done_ids,
+                            ).fetchall()
+                        ]
                         cursor.execute(
                             f"DELETE FROM task_attachments WHERE task_id IN ({placeholders})",
                             done_ids,
@@ -1737,6 +1814,7 @@ class DatabaseManager:
                     cursor.execute("DELETE FROM tasks WHERE status = 'Done'")
                 deleted_count = cursor.rowcount
                 conn.commit()
+                self._delete_attachment_files(attachment_rows)
                 return deleted_count
             finally:
                 # Always disable delete permission after
@@ -1778,6 +1856,7 @@ class DatabaseManager:
                     LIMIT ?
                 """, (to_delete,))
                 trim_ids = [r[0] for r in cursor.fetchall()]
+                attachment_rows: List[Dict[str, Any]] = []
 
                 cursor.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
 
@@ -1796,6 +1875,13 @@ class DatabaseManager:
                             trim_ids,
                         )
                     if has_ta:
+                        attachment_rows = [
+                            dict(row)
+                            for row in cursor.execute(
+                                f"SELECT task_id, stored_name FROM task_attachments WHERE task_id IN ({placeholders})",
+                                trim_ids,
+                            ).fetchall()
+                        ]
                         cursor.execute(
                             f"DELETE FROM task_attachments WHERE task_id IN ({placeholders})",
                             trim_ids,
@@ -1811,6 +1897,7 @@ class DatabaseManager:
                 )
                 trimmed = cursor.rowcount
                 conn.commit()
+                self._delete_attachment_files(attachment_rows)
                 return trimmed
             finally:
                 cursor.execute("UPDATE _delete_permissions SET enabled = 0 WHERE id = 1")

@@ -113,10 +113,14 @@ def test_get_info_collapses_duplicate_scope_key_rows(tmp_path: Path):
 
 
 def test_delete_project_cleans_children_without_fk_cascade(tmp_path: Path):
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("HOME", str(tmp_path))
     db_path, db, cal = _setup_db(tmp_path)
     db.add_project("proj", "Proj", "/tmp/proj", "active")
     task = db.add_task("Task", "proj")
     db.add_attachment(task["id"], "file.txt", "stored.txt", "text/plain", 12)
+    stored_file = DatabaseManager._attachments_dir(task["id"]) / "stored.txt"
+    stored_file.write_text("payload")
     db.add_ai_agent("proj", "architect", "reviewer")
     db.add_service("proj", "github", "hosting", 0.0)
     db.add_cron_job("proj", "0 * * * *", "echo hi", "demo")
@@ -137,16 +141,23 @@ def test_delete_project_cleans_children_without_fk_cascade(tmp_path: Path):
         assert _count(conn, "service_dependencies") == 0
         assert _count(conn, "cron_jobs") == 0
         assert conn.execute("SELECT project_id FROM calendar_events WHERE id = ?", (event_id,)).fetchone()[0] is None
+    assert not stored_file.exists()
+    monkeypatch.undo()
 
 
 def test_delete_task_cleans_descendants_and_children(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("SAFE_MODE", "0")
+    monkeypatch.setenv("HOME", str(tmp_path))
     db_path, db, cal = _setup_db(tmp_path)
     db.add_project("proj", "Proj", "/tmp/proj", "active")
     parent = db.add_task("Parent", "proj")
     child = db.add_task("Child", "proj", parent_id=parent["id"])
     db.add_attachment(parent["id"], "p.txt", "p.bin", "text/plain", 1)
     db.add_attachment(child["id"], "c.txt", "c.bin", "text/plain", 1)
+    parent_file = DatabaseManager._attachments_dir(parent["id"]) / "p.bin"
+    child_file = DatabaseManager._attachments_dir(child["id"]) / "c.bin"
+    parent_file.write_text("parent")
+    child_file.write_text("child")
     event_id = cal.add_event("Milestone", "2026-06-01", project_id="proj")
     cal.link_task(event_id, parent["id"])
     cal.link_task(event_id, child["id"])
@@ -158,6 +169,8 @@ def test_delete_task_cleans_descendants_and_children(monkeypatch, tmp_path: Path
         assert _count(conn, "task_history") == 0
         assert _count(conn, "task_attachments") == 0
         assert _count(conn, "calendar_event_tasks") == 0
+    assert not parent_file.exists()
+    assert not child_file.exists()
 
 
 def test_delete_done_tasks_cleans_children(monkeypatch, tmp_path: Path):
