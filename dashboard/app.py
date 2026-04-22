@@ -11,7 +11,7 @@ import subprocess
 import threading
 import httpx
 
-from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File, BackgroundTasks, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -2092,6 +2092,7 @@ async def create_task(task_data: TaskCreateRequest):
 @app.get("/api/tasks")
 async def list_tasks(
     project_id: Optional[str] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
     task_status: Optional[str] = None,
     include_subtasks: bool = True,
     parent_id: Optional[int] = None
@@ -2100,7 +2101,8 @@ async def list_tasks(
 
     Args:
         project_id: Filter by project ID (optional)
-        task_status: Filter by status (optional)
+        status_filter: Filter by status (optional; canonical query param)
+        task_status: Legacy filter alias preserved for compatibility
         include_subtasks: Include subtasks in results (default: True)
         parent_id: Filter to subtasks of specific parent (optional)
 
@@ -2110,7 +2112,15 @@ async def list_tasks(
     try:
         import json
         db = DatabaseManager()
-        tasks = db.get_tasks(project_id=project_id, status=task_status)
+        effective_status = status_filter if status_filter is not None else task_status
+        tasks = db.get_tasks(project_id=project_id, status=effective_status)
+
+        subtasks_by_parent: Dict[int, List[Dict[str, object]]] = {}
+        task_lookup = {task["id"]: dict(task) for task in tasks}
+        for task in tasks:
+            parent = task.get("parent_id")
+            if parent is not None:
+                subtasks_by_parent.setdefault(parent, []).append(dict(task))
 
         # Filter by parent_id if specified
         if parent_id is not None:
@@ -2126,24 +2136,51 @@ async def list_tasks(
         for task in tasks:
             task_dict = dict(task)
 
-            # Add subtask progress if task is a parent (when implemented)
-            if hasattr(db, 'get_subtasks'):
-                subtasks = db.get_subtasks(task["id"])
-                if subtasks:
-                    task_dict["subtasks"] = subtasks
-                    task_dict["subtask_progress"] = db.get_subtask_progress(task["id"])
+            # Build subtask metadata from the already-fetched task set so we
+            # do not open a new SQLite connection for every row in the board.
+            subtasks = subtasks_by_parent.get(task["id"], []) if include_subtasks else []
+            if subtasks:
+                ordered_subtasks = sorted(
+                    subtasks,
+                    key=lambda item: (
+                        item.get("sequence_order") is None,
+                        item.get("sequence_order") if item.get("sequence_order") is not None else 0,
+                        item.get("created_at", ""),
+                    ),
+                )
+                done_count = len([item for item in ordered_subtasks if item.get("status") == "Done"])
+                task_dict["subtasks"] = ordered_subtasks
+                task_dict["subtask_progress"] = {
+                    "total": len(ordered_subtasks),
+                    "done": done_count,
+                    "percent": int(done_count / len(ordered_subtasks) * 100),
+                }
 
-            # Add blocking info if task has blocked_by (when implemented)
-            if task.get("blocked_by") and hasattr(db, 'get_blocking_tasks'):
+            # Resolve blocking data from the same in-memory task set to avoid
+            # N additional DB reads while rendering the Kanban board.
+            if task.get("blocked_by"):
                 try:
                     blocked_by_ids = json.loads(task["blocked_by"])
                     task_dict["blocked_by_ids"] = blocked_by_ids
-                    task_dict["blocking_tasks"] = db.get_blocking_tasks(task["id"])
-                    is_blocked, blocking_ids = db.is_blocked(task["id"])
-                    task_dict["is_blocked"] = is_blocked
-                    task_dict["incomplete_blocking_ids"] = blocking_ids
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                    blocking_tasks = [
+                        blocking_task
+                        for blocked_id in blocked_by_ids
+                        if (blocking_task := task_lookup.get(blocked_id)) is not None
+                    ]
+                    incomplete_ids = [
+                        blocking_task["id"]
+                        for blocking_task in blocking_tasks
+                        if blocking_task.get("status") != "Done"
+                    ]
+                    task_dict["blocking_tasks"] = blocking_tasks
+                    task_dict["is_blocked"] = len(incomplete_ids) > 0
+                    task_dict["incomplete_blocking_ids"] = incomplete_ids
+                except (json.JSONDecodeError, TypeError) as exc:
+                    logger.warning(
+                        "Could not resolve blocked_by for task %s: %s",
+                        task.get("id"),
+                        exc,
+                    )
 
             enriched_tasks.append(task_dict)
 

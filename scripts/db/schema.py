@@ -212,15 +212,14 @@ def _get_or_create_fingerprint(db_path: Path) -> str:
     # Check if database has fingerprint in _metadata table
     db_fingerprint = None
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_metadata'")
-        if cursor.fetchone():
-            cursor.execute("SELECT value FROM _metadata WHERE key='fingerprint'")
-            row = cursor.fetchone()
-            if row:
-                db_fingerprint = row[0]
-        conn.close()
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_metadata'")
+            if cursor.fetchone():
+                cursor.execute("SELECT value FROM _metadata WHERE key='fingerprint'")
+                row = cursor.fetchone()
+                if row:
+                    db_fingerprint = row[0]
     except Exception:
         pass
     
@@ -270,33 +269,31 @@ def _check_fresh_database(db_path: Path) -> None:
         return
     
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Check if tasks table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
-        if not cursor.fetchone():
-            conn.close()
-            return  # No tasks table yet - this is a truly new database
-        
-        # Check task and project counts
-        cursor.execute("SELECT COUNT(*) FROM tasks")
-        task_count = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM projects")
-        project_count = cursor.fetchone()[0]
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Check if tasks table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+            if not cursor.fetchone():
+                return  # No tasks table yet - this is a truly new database
+            
+            # Check task and project counts
+            cursor.execute("SELECT COUNT(*) FROM tasks")
+            task_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM projects")
+            project_count = cursor.fetchone()[0]
 
-        history_count = 0
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='task_history'")
-        if cursor.fetchone():
-            cursor.execute("SELECT COUNT(*) FROM task_history")
-            history_count = cursor.fetchone()[0]
+            history_count = 0
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='task_history'")
+            if cursor.fetchone():
+                cursor.execute("SELECT COUNT(*) FROM task_history")
+                history_count = cursor.fetchone()[0]
 
-        delete_audit_count = 0
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='delete_audit_log'")
-        if cursor.fetchone():
-            cursor.execute("SELECT COUNT(*) FROM delete_audit_log")
-            delete_audit_count = cursor.fetchone()[0]
-        conn.close()
+            delete_audit_count = 0
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='delete_audit_log'")
+            if cursor.fetchone():
+                cursor.execute("SELECT COUNT(*) FROM delete_audit_log")
+                delete_audit_count = cursor.fetchone()[0]
         
         if task_count == 0:
             # Check if fingerprint file exists - if so, we expected data!
