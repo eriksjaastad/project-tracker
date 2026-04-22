@@ -36,6 +36,7 @@ logs/
 
 # Testing
 .pytest_cache/
+.pytest_tmp/
 .coverage
 htmlcov/
 .hypothesis/
