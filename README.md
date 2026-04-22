@@ -1,6 +1,6 @@
 # project-tracker
 
-The central nervous system for Erik's multi-project portfolio. A CLI (`pt`) and Flask dashboard that tracks tasks, projects, and cross-project relationships.
+The central nervous system for Erik's multi-project portfolio. A CLI (`pt`) and FastAPI-backed dashboard that track tasks, projects, and cross-project relationships.
 
 ## Quick Start
 
@@ -9,6 +9,7 @@ The central nervous system for Erik's multi-project portfolio. A CLI (`pt`) and 
 ./pt tasks         # View Kanban board
 ./pt info          # Reference data (credentials, infrastructure)
 ./pt memory search "query"  # Cross-agent shared memory
+./pt sync status   # Replication status / pause / resume controls
 ```
 
 ## What It Does
@@ -18,6 +19,7 @@ The central nervous system for Erik's multi-project portfolio. A CLI (`pt`) and 
 - **Memory** — Cross-agent semantic search via Open Brain (`pt memory`)
 - **Info** — Centralized reference store for env vars, credentials, infrastructure (`pt info`)
 - **Graph** — D3.js visualization of file relationships across the ecosystem
+- **Sync Controls** — Replication pause/resume/status for Phase 2 (`pt sync`)
 
 ## Project Structure
 
@@ -48,6 +50,7 @@ project-tracker/
 uv run pytest tests/                    # Run tests
 cd dashboard/frontend && npm run build  # Rebuild React frontend
 ./pt scan                               # Rescan projects directory
+./pt sync-project project-tracker       # Refresh one project only
 ```
 
 ## CI
