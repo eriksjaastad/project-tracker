@@ -13,6 +13,9 @@ cd "$PROJECT_DIR"
 BREW_PREFIX="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$BREW_PREFIX/bin:$PATH"
 
+HOST="${PT_DASHBOARD_HOST:-127.0.0.1}"
+PORT="${PT_DASHBOARD_PORT:-8000}"
+
 exec doppler run -- \
-  "$PROJECT_DIR/venv/bin/python" \
-  -m uvicorn dashboard.app:app --host 0.0.0.0 --port 8000
+  uv run --project "$PROJECT_DIR" \
+  uvicorn dashboard.app:app --host "$HOST" --port "$PORT"

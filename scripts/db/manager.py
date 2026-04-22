@@ -66,6 +66,8 @@ _CONN_LOCK = threading.Lock()
 _turso_conn: Any = None
 _turso_conn_created: float = 0.0
 _schema_ensured: bool = False
+_LOCAL_SCHEMA_LOCK = threading.Lock()
+_local_schema_ensured_paths: set[str] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -210,8 +212,13 @@ class DatabaseManager:
                     conn.commit()
                 _schema_ensured = True
         else:
-            # Local SQLite: safety checks + schema migrations
-            create_database(self.db_path)
+            # Local SQLite: run safety checks + schema migrations once per DB path.
+            db_key = str(self.db_path.resolve())
+            if db_key not in _local_schema_ensured_paths:
+                with _LOCAL_SCHEMA_LOCK:
+                    if db_key not in _local_schema_ensured_paths:
+                        create_database(self.db_path)
+                        _local_schema_ensured_paths.add(db_key)
         
     @staticmethod
     def _create_turso_conn() -> Any:
