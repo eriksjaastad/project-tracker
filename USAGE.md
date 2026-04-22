@@ -25,6 +25,8 @@ You can configure the behavior of Project Tracker using these environment variab
 | `PROJECTS_ROOT` | The root directory where your projects are located. | `../` |
 | `PT_ALLOW_FRESH_DB` | Set to `1` to bypass the "unexpected fresh database" safety check. | `0` |
 | `SAFE_MODE` | Set to `0` to allow permanent deletions (for Erik only). | `1` |
+| `PT_DASHBOARD_HOST` | Bind host for the dashboard server. Stays on loopback by default so the admin API is not reachable from the LAN. | `127.0.0.1` |
+| `PT_ALLOW_REMOTE_ADMIN` | Set to `1` to allow non-loopback callers to hit `/api/agents/run` (runs arbitrary agent commands). Off by default — do not enable in shared environments without a front-end auth layer. | `0` |
 
 ---
 

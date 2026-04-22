@@ -703,7 +703,8 @@ def launch(port, no_scan, reload):
     threading.Thread(target=open_browser, daemon=True).start()
     project_root = Path(__file__).parent.parent
     venv_python = _resolve_dashboard_python(project_root)
-    uvicorn_cmd = [str(venv_python), "-m", "uvicorn", "dashboard.app:app", "--host", "0.0.0.0", "--port", str(port)]
+    bind_host = os.getenv("PT_DASHBOARD_HOST", "127.0.0.1")
+    uvicorn_cmd = [str(venv_python), "-m", "uvicorn", "dashboard.app:app", "--host", bind_host, "--port", str(port)]
     if reload: uvicorn_cmd.append("--reload")
     # Secrets injected via doppler run (doppler.yaml in project root)
     doppler_bin = shutil.which("doppler")
