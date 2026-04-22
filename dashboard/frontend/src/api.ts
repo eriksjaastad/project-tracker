@@ -4,6 +4,7 @@ import type {
   AgenticMarker,
   AgenticSummaryResponse,
   Attachment,
+  BashStatsResponse,
   Idea,
   NavigationResponse,
   Project,
@@ -12,6 +13,7 @@ import type {
   TaskPriority,
   TaskStatus,
   TaskType,
+  ToolStatsResponse,
 } from './types';
 
 const API_BASE = '/api';
@@ -303,6 +305,28 @@ export async function fetchAgenticSummary(days: number = 30, projectId?: string)
     }
     throw new Error('Failed to fetch agentic summary');
   }
+}
+
+// ==================== TOOL STATS API (WebSearch tracking) ====================
+
+export async function fetchToolStats(days: number = 30, tool: string = 'WebSearch'): Promise<ToolStatsResponse> {
+  const params = new URLSearchParams({ days: days.toString(), tool });
+  const response = await fetchWithErrorHandling(`${API_BASE}/tool-stats?${params}`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch tool stats');
+  }
+  return response.json();
+}
+
+export async function fetchBashStats(days: number = 30): Promise<BashStatsResponse> {
+  const params = new URLSearchParams({ days: days.toString() });
+  const response = await fetchWithErrorHandling(`${API_BASE}/bash-stats?${params}`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch bash stats');
+  }
+  return response.json();
 }
 
 // ==================== AGENTIC MARKERS API (#5009) ====================

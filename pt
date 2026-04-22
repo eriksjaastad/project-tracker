@@ -4,12 +4,30 @@
 # Example: ./pt launch
 
 export PT_CALLER_CWD="$PWD"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/pt-uv-cache}"
 cd "$(dirname "$0")"
 
 # Database backend controlled by ~/projects/.turso-config.json (single switch
 # for both project-tracker and ai-memory). No env var overrides needed.
 
-if command -v doppler >/dev/null 2>&1; then
+should_skip_doppler=0
+if [ "${PT_SKIP_DOPPLER:-0}" = "1" ]; then
+  should_skip_doppler=1
+else
+  for arg in "$@"; do
+    case "$arg" in
+      --help|-h)
+        should_skip_doppler=1
+        break
+        ;;
+    esac
+  done
+  if [ "$1" = "help" ]; then
+    should_skip_doppler=1
+  fi
+fi
+
+if [ "$should_skip_doppler" -ne 1 ] && command -v doppler >/dev/null 2>&1; then
   doppler_project="${PT_DOPPLER_PROJECT:-project-tracker}"
   doppler_config="${PT_DOPPLER_CONFIG:-dev}"
   if [ -z "$doppler_project" ] || [ -z "$doppler_config" ]; then
