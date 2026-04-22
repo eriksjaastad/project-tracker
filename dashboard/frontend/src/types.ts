@@ -169,6 +169,89 @@ export interface AgenticMarker {
   agent?: string;   // Which agent the marker is about (optional)
 }
 
+// Tool invocation stats (WebSearch tracking)
+export interface ToolStatsByDate {
+  date: string;
+  total: number;
+}
+
+export interface ToolStatsByProject {
+  date: string;
+  project: string;
+  count: number;
+}
+
+export interface ToolStatsResponse {
+  by_date: ToolStatsByDate[];
+  by_project: ToolStatsByProject[];
+  projects: string[];
+}
+
+// Bash error rate (stuck score)
+export interface BashStatsByDate {
+  date: string;
+  error_rate: number;
+  total: number;
+  errors: number;
+}
+
+export interface BashStatsByProject {
+  date: string;
+  project: string;
+  error_rate: number;
+}
+
+export interface BashStatsSummary {
+  total: number;
+  errors: number;
+  error_rate: number;
+  retries: number;
+  retry_rate: number;
+  hook_blocks: number;
+  hook_block_rate: number;
+  auth_errors: number;
+  auth_error_rate: number;
+}
+
+export interface BashStatsAnomalyByDate {
+  date: string;
+  retries: number;
+  hook_blocks: number;
+  auth_errors: number;
+  usage_errors: number;
+}
+
+export interface BashStatsErrorKind {
+  error_kind: string;
+  count: number;
+}
+
+export interface BashStatsPrefixStat {
+  command_prefix: string;
+  total: number;
+  errors: number;
+  hook_blocks: number;
+  auth_errors: number;
+}
+
+export interface BashStatsCallerTypeStat {
+  caller_type: string;
+  total: number;
+  errors: number;
+  error_rate: number;
+}
+
+export interface BashStatsResponse {
+  by_date: BashStatsByDate[];
+  by_project: BashStatsByProject[];
+  projects: string[];
+  summary?: BashStatsSummary;
+  anomalies_by_date?: BashStatsAnomalyByDate[];
+  error_kinds?: BashStatsErrorKind[];
+  top_prefixes?: BashStatsPrefixStat[];
+  by_caller_type?: BashStatsCallerTypeStat[];
+}
+
 // Ideas (Task #4583)
 export interface Idea {
   id: number;

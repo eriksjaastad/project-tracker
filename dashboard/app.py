@@ -2720,6 +2720,366 @@ async def delete_marker(marker_id: str):
     return None
 
 
+@app.get("/api/tool-stats")
+async def get_tool_stats(tool: str = "WebSearch", days: int = 30):
+    """Tool invocation counts from ai-memory's brain.db tool_invocations table.
+
+    Returns two parallel series for the /agentic chart:
+      by_date   — total calls per day (All Projects view)
+      by_project — calls per day per project (By Project view)
+
+    Returns empty series if brain.db is absent or the table doesn't exist yet.
+    """
+    projects_root = Path.home() / "projects"
+    brain_db = projects_root / "ai-memory" / "brain.db"
+
+    empty = {"by_date": [], "by_project": [], "projects": []}
+    if not brain_db.is_file():
+        return empty
+
+    end_date = datetime.now().date()
+    days = min(max(days, 1), 365)
+    start_date = end_date - timedelta(days=days - 1)
+    start_iso = start_date.isoformat()
+
+    try:
+        uri = f"file:{brain_db}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=2.0)
+        conn.row_factory = sqlite3.Row
+        try:
+            if conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='tool_invocations'"
+            ).fetchone() is None:
+                return empty
+
+            by_date_rows = conn.execute(
+                """
+                SELECT DATE(invoked_at) AS date, COUNT(*) AS total
+                FROM tool_invocations
+                WHERE tool_name = ? AND DATE(invoked_at) >= ?
+                GROUP BY DATE(invoked_at)
+                ORDER BY date ASC
+                """,
+                (tool, start_iso),
+            ).fetchall()
+
+            by_project_rows = conn.execute(
+                """
+                SELECT DATE(invoked_at) AS date,
+                       COALESCE(project, 'unknown') AS project,
+                       COUNT(*) AS count
+                FROM tool_invocations
+                WHERE tool_name = ? AND DATE(invoked_at) >= ?
+                GROUP BY DATE(invoked_at), COALESCE(project, 'unknown')
+                ORDER BY date ASC
+                """,
+                (tool, start_iso),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("Failed to read tool_invocations from brain.db: %s", exc)
+        return empty
+
+    date_map = {row["date"]: row["total"] for row in by_date_rows}
+    by_date = []
+    current = start_date
+    while current <= end_date:
+        ds = current.isoformat()
+        by_date.append({"date": ds, "total": date_map.get(ds, 0)})
+        current += timedelta(days=1)
+
+    projects = sorted({row["project"] for row in by_project_rows})
+    by_project = [
+        {"date": row["date"], "project": row["project"], "count": row["count"]}
+        for row in by_project_rows
+    ]
+
+    return {"by_date": by_date, "by_project": by_project, "projects": projects}
+
+
+@app.get("/api/bash-stats")
+async def get_bash_stats(days: int = 30):
+    """Bash error rate (stuck score) per day from ai-memory's bash_calls table.
+
+    Returns:
+      by_date    — overall error_rate % per day (All Projects view)
+      by_project — error_rate % per day per project (By Project view)
+      summary    — aggregate anomaly counts/rates across the requested window
+      anomalies_by_date — retry/hook/auth/usage-error counts per day
+      error_kinds — top error_kind counts across the requested window
+      top_prefixes — top command_prefix aggregates across the requested window
+      by_caller_type — aggregate totals/errors by caller_type
+
+    Returns empty series if brain.db is absent or the table doesn't exist.
+    """
+    projects_root = Path.home() / "projects"
+    brain_db = projects_root / "ai-memory" / "brain.db"
+
+    empty_summary = {
+        "total": 0,
+        "errors": 0,
+        "error_rate": 0.0,
+        "retries": 0,
+        "retry_rate": 0.0,
+        "hook_blocks": 0,
+        "hook_block_rate": 0.0,
+        "auth_errors": 0,
+        "auth_error_rate": 0.0,
+    }
+    empty = {
+        "by_date": [],
+        "by_project": [],
+        "projects": [],
+        "summary": empty_summary,
+        "anomalies_by_date": [],
+        "error_kinds": [],
+        "top_prefixes": [],
+        "by_caller_type": [],
+    }
+    if not brain_db.is_file():
+        return empty
+
+    end_date = datetime.now().date()
+    days = min(max(days, 1), 365)
+    start_date = end_date - timedelta(days=days - 1)
+    start_iso = start_date.isoformat()
+
+    try:
+        uri = f"file:{brain_db}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=2.0)
+        conn.row_factory = sqlite3.Row
+        try:
+            if conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='bash_calls'"
+            ).fetchone() is None:
+                return empty
+
+            bash_call_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info('bash_calls')").fetchall()
+            }
+
+            def _sum_expr(column: str, alias: str) -> str:
+                if column in bash_call_columns:
+                    return f"COALESCE(SUM(COALESCE({column}, 0)), 0) AS {alias}"
+                return f"0 AS {alias}"
+
+            usage_errors_expr = (
+                "COALESCE(SUM(CASE WHEN LOWER(COALESCE(error_kind, '')) = 'usage_error' "
+                "THEN 1 ELSE 0 END), 0) AS usage_errors"
+                if "error_kind" in bash_call_columns
+                else "0 AS usage_errors"
+            )
+
+            by_date_rows = conn.execute(
+                """
+                SELECT substr(invoked_at, 1, 10) AS date,
+                       COUNT(*) AS total,
+                       SUM(is_error) AS errors,
+                       ROUND(SUM(is_error) * 100.0 / COUNT(*), 1) AS error_rate
+                FROM bash_calls
+                WHERE substr(invoked_at, 1, 10) >= ?
+                GROUP BY substr(invoked_at, 1, 10)
+                ORDER BY date ASC
+                """,
+                (start_iso,),
+            ).fetchall()
+
+            summary_row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS total,
+                       COALESCE(SUM(COALESCE(is_error, 0)), 0) AS errors,
+                       CASE
+                           WHEN COUNT(*) = 0 THEN 0.0
+                           ELSE ROUND(COALESCE(SUM(COALESCE(is_error, 0)), 0) * 100.0 / COUNT(*), 1)
+                       END AS error_rate,
+                       {_sum_expr("is_retry", "retries")},
+                       CASE
+                           WHEN COUNT(*) = 0 THEN 0.0
+                           ELSE ROUND(({ "COALESCE(SUM(COALESCE(is_retry, 0)), 0)" if "is_retry" in bash_call_columns else "0" }) * 100.0 / COUNT(*), 1)
+                       END AS retry_rate,
+                       {_sum_expr("is_hook_blocked", "hook_blocks")},
+                       CASE
+                           WHEN COUNT(*) = 0 THEN 0.0
+                           ELSE ROUND(({ "COALESCE(SUM(COALESCE(is_hook_blocked, 0)), 0)" if "is_hook_blocked" in bash_call_columns else "0" }) * 100.0 / COUNT(*), 1)
+                       END AS hook_block_rate,
+                       {_sum_expr("is_auth_error", "auth_errors")},
+                       CASE
+                           WHEN COUNT(*) = 0 THEN 0.0
+                           ELSE ROUND(({ "COALESCE(SUM(COALESCE(is_auth_error, 0)), 0)" if "is_auth_error" in bash_call_columns else "0" }) * 100.0 / COUNT(*), 1)
+                       END AS auth_error_rate
+                FROM bash_calls
+                WHERE substr(invoked_at, 1, 10) >= ?
+                """,
+                (start_iso,),
+            ).fetchone()
+
+            anomalies_rows = conn.execute(
+                f"""
+                SELECT substr(invoked_at, 1, 10) AS date,
+                       {_sum_expr("is_retry", "retries")},
+                       {_sum_expr("is_hook_blocked", "hook_blocks")},
+                       {_sum_expr("is_auth_error", "auth_errors")},
+                       {usage_errors_expr}
+                FROM bash_calls
+                WHERE substr(invoked_at, 1, 10) >= ?
+                GROUP BY substr(invoked_at, 1, 10)
+                ORDER BY date ASC
+                """,
+                (start_iso,),
+            ).fetchall()
+
+            error_kind_rows = []
+            if "error_kind" in bash_call_columns:
+                error_kind_rows = conn.execute(
+                    """
+                    SELECT error_kind, COUNT(*) AS count
+                    FROM bash_calls
+                    WHERE substr(invoked_at, 1, 10) >= ?
+                      AND COALESCE(error_kind, '') <> ''
+                    GROUP BY error_kind
+                    ORDER BY count DESC, error_kind ASC
+                    LIMIT 10
+                    """,
+                    (start_iso,),
+                ).fetchall()
+
+            top_prefix_rows = []
+            if "command_prefix" in bash_call_columns:
+                top_prefix_rows = conn.execute(
+                    f"""
+                    SELECT command_prefix,
+                           COUNT(*) AS total,
+                           COALESCE(SUM(COALESCE(is_error, 0)), 0) AS errors,
+                           {_sum_expr("is_hook_blocked", "hook_blocks")},
+                           {_sum_expr("is_auth_error", "auth_errors")}
+                    FROM bash_calls
+                    WHERE substr(invoked_at, 1, 10) >= ?
+                      AND COALESCE(command_prefix, '') <> ''
+                    GROUP BY command_prefix
+                    ORDER BY total DESC, errors DESC, command_prefix ASC
+                    LIMIT 10
+                    """,
+                    (start_iso,),
+                ).fetchall()
+
+            caller_type_rows = []
+            if "caller_type" in bash_call_columns:
+                caller_type_rows = conn.execute(
+                    """
+                    SELECT COALESCE(NULLIF(caller_type, ''), 'unknown') AS caller_type,
+                           COUNT(*) AS total,
+                           COALESCE(SUM(COALESCE(is_error, 0)), 0) AS errors,
+                           CASE
+                               WHEN COUNT(*) = 0 THEN 0.0
+                               ELSE ROUND(COALESCE(SUM(COALESCE(is_error, 0)), 0) * 100.0 / COUNT(*), 1)
+                           END AS error_rate
+                    FROM bash_calls
+                    WHERE substr(invoked_at, 1, 10) >= ?
+                    GROUP BY COALESCE(NULLIF(caller_type, ''), 'unknown')
+                    ORDER BY total DESC, caller_type ASC
+                    """,
+                    (start_iso,),
+                ).fetchall()
+
+            by_project_rows = conn.execute(
+                """
+                SELECT substr(invoked_at, 1, 10) AS date,
+                       COALESCE(project, 'unknown') AS project,
+                       COUNT(*) AS total,
+                       SUM(is_error) AS errors,
+                       ROUND(SUM(is_error) * 100.0 / COUNT(*), 1) AS error_rate
+                FROM bash_calls
+                WHERE substr(invoked_at, 1, 10) >= ?
+                GROUP BY substr(invoked_at, 1, 10), COALESCE(project, 'unknown')
+                ORDER BY date ASC
+                """,
+                (start_iso,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("Failed to read bash_calls from brain.db: %s", exc)
+        return empty
+
+    date_map = {row["date"]: {"error_rate": row["error_rate"], "total": row["total"], "errors": row["errors"]} for row in by_date_rows}
+    by_date = []
+    current = start_date
+    while current <= end_date:
+        ds = current.isoformat()
+        entry = date_map.get(ds, {"error_rate": 0.0, "total": 0, "errors": 0})
+        by_date.append({"date": ds, **entry})
+        current += timedelta(days=1)
+
+    anomaly_map = {
+        row["date"]: {
+            "retries": row["retries"],
+            "hook_blocks": row["hook_blocks"],
+            "auth_errors": row["auth_errors"],
+            "usage_errors": row["usage_errors"],
+        }
+        for row in anomalies_rows
+    }
+    anomalies_by_date = []
+    current = start_date
+    while current <= end_date:
+        ds = current.isoformat()
+        entry = anomaly_map.get(
+            ds,
+            {"retries": 0, "hook_blocks": 0, "auth_errors": 0, "usage_errors": 0},
+        )
+        anomalies_by_date.append({"date": ds, **entry})
+        current += timedelta(days=1)
+
+    projects = sorted({row["project"] for row in by_project_rows})
+    by_project = [
+        {"date": row["date"], "project": row["project"], "error_rate": row["error_rate"]}
+        for row in by_project_rows
+    ]
+
+    summary = dict(summary_row) if summary_row else dict(empty_summary)
+    summary["error_rate"] = float(summary.get("error_rate", 0.0) or 0.0)
+    summary["retry_rate"] = float(summary.get("retry_rate", 0.0) or 0.0)
+    summary["hook_block_rate"] = float(summary.get("hook_block_rate", 0.0) or 0.0)
+    summary["auth_error_rate"] = float(summary.get("auth_error_rate", 0.0) or 0.0)
+
+    error_kinds = [
+        {"error_kind": row["error_kind"], "count": row["count"]}
+        for row in error_kind_rows
+    ]
+    top_prefixes = [
+        {
+            "command_prefix": row["command_prefix"],
+            "total": row["total"],
+            "errors": row["errors"],
+            "hook_blocks": row["hook_blocks"],
+            "auth_errors": row["auth_errors"],
+        }
+        for row in top_prefix_rows
+    ]
+    by_caller_type = [
+        {
+            "caller_type": row["caller_type"],
+            "total": row["total"],
+            "errors": row["errors"],
+            "error_rate": float(row["error_rate"] or 0.0),
+        }
+        for row in caller_type_rows
+    ]
+
+    return {
+        "by_date": by_date,
+        "by_project": by_project,
+        "projects": projects,
+        "summary": summary,
+        "anomalies_by_date": anomalies_by_date,
+        "error_kinds": error_kinds,
+        "top_prefixes": top_prefixes,
+        "by_caller_type": by_caller_type,
+    }
+
+
 # --- Ideas API Endpoints (Task #4583) ---
 
 class IdeaCreateRequest(BaseModel):
