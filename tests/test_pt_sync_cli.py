@@ -349,5 +349,65 @@ def test_pause_reports_clean_error_on_db_open_failure(
 def test_sync_help_lists_all_three_subcommands(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["sync", "--help"])
     assert result.exit_code == 0
-    for sub in ("status", "pause", "resume"):
+    for sub in ("status", "check", "pause", "resume", "set-machine-id"):
         assert sub in result.output
+
+
+def test_sync_check_reports_missing_machine_id(
+    runner: CliRunner, cli_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Check:
+        def __init__(self, name: str, ok: bool, detail: str):
+            self.name = name
+            self.ok = ok
+            self.detail = detail
+
+    monkeypatch.setattr(
+        "db.sync_checks.local_sync_readiness",
+        lambda conn: [
+            _Check("manifest", True, "ok"),
+            _Check("machine_id", False, "missing _metadata['pt.machine_id']"),
+        ],
+    )
+    result = runner.invoke(cli, ["sync", "check"])
+    assert result.exit_code == 3, result.output
+    assert "machine_id" in result.output
+    assert "missing" in result.output
+
+
+def test_sync_check_passes_when_all_checks_green(
+    runner: CliRunner, cli_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Check:
+        def __init__(self, name: str, ok: bool, detail: str):
+            self.name = name
+            self.ok = ok
+            self.detail = detail
+
+    monkeypatch.setattr(
+        "db.sync_checks.local_sync_readiness",
+        lambda conn: [
+            _Check("manifest", True, "ok"),
+            _Check("machine_id", True, "pt.machine_id=7"),
+        ],
+    )
+    result = runner.invoke(cli, ["sync", "check"])
+    assert result.exit_code == 0, result.output
+    assert "pt.machine_id=7" in result.output
+
+
+def test_set_machine_id_persists_value(
+    runner: CliRunner, cli_env: Path
+) -> None:
+    result = runner.invoke(cli, ["sync", "set-machine-id", "42"])
+    assert result.exit_code == 0, result.output
+    assert "42" in result.output
+
+    conn = sqlite3.connect(cli_env, isolation_level=None)
+    try:
+        row = conn.execute(
+            "SELECT value FROM _metadata WHERE key = 'pt.machine_id'"
+        ).fetchone()
+        assert row == ("42",)
+    finally:
+        conn.close()

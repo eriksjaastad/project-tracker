@@ -57,3 +57,26 @@ def test_safety_backup_rotation_sends_old_backups_to_trash(tmp_path, monkeypatch
     assert local_old[1] in trashed
     assert external_old[0] in trashed
     assert external_old[1] in trashed
+
+
+def test_current_schema_startup_does_not_create_safety_backup(tmp_path, monkeypatch):
+    db_path = tmp_path / "tracker.db"
+    external_backup_dir = tmp_path / "external-backups"
+
+    monkeypatch.setattr(schema, "EXTERNAL_BACKUP_DIR", external_backup_dir)
+
+    schema.create_database(db_path)
+    db = DatabaseManager(db_path=db_path)
+    db.add_project(project_id="demo", name="Demo", path="./demo", status="active")
+    db.add_task(text="Do not back up on read-only startup", project_id="demo", status="Backlog")
+
+    local_backup_dir = db_path.parent / "backups"
+    for path in local_backup_dir.glob("tasks_safety_backup_*.json"):
+        path.unlink()
+    for path in external_backup_dir.glob("tasks_safety_backup_*.json"):
+        path.unlink()
+
+    schema.create_database(db_path)
+
+    assert list(local_backup_dir.glob("tasks_safety_backup_*.json")) == []
+    assert list(external_backup_dir.glob("tasks_safety_backup_*.json")) == []

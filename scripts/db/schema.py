@@ -339,6 +339,25 @@ def get_db_path() -> Path:
     return Path(env_path) if env_path else DATABASE_PATH
 
 
+CURRENT_SCHEMA_VERSION = 9
+
+
+def _schema_is_current(db_path: Path) -> bool:
+    """Return whether an existing SQLite database is already at current schema."""
+    if not db_path.exists():
+        return False
+
+    try:
+        uri = f"file:{db_path}?mode=ro"
+        with sqlite3.connect(uri, uri=True) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT MAX(version) FROM schema_version")
+            row = cursor.fetchone()
+            return bool(row and row[0] and row[0] >= CURRENT_SCHEMA_VERSION)
+    except Exception:
+        return False
+
+
 def ensure_schema(cursor: Any) -> None:
     """Run all DDL migrations against the given cursor.
 
@@ -353,7 +372,6 @@ def ensure_schema(cursor: Any) -> None:
             updated_at TEXT NOT NULL
         )
     """)
-    CURRENT_SCHEMA_VERSION = 9
     try:
         cursor.execute("SELECT MAX(version) FROM schema_version")
         row = cursor.fetchone()
@@ -965,7 +983,7 @@ def ensure_schema(cursor: Any) -> None:
     """)
 
     # Update schema version
-    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (9, ?)", (datetime.now().isoformat(),))
+    cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (?, ?)", (CURRENT_SCHEMA_VERSION, datetime.now().isoformat()))
 
 
 def create_database(db_path: Optional[Path] = None) -> None:
@@ -980,6 +998,9 @@ def create_database(db_path: Optional[Path] = None) -> None:
     # SAFETY: Check for unexpected fresh database
     if db_path.exists():
         _check_fresh_database(db_path)
+
+    if _schema_is_current(db_path):
+        return
 
     # SAFETY: Backup tasks before any schema operation
     _safety_backup_tasks(db_path)
