@@ -60,12 +60,17 @@ else:
 EXTERNAL_RESOURCES_FILE = Path(
     os.getenv(
         "PT_RESOURCES_FILE",
-        PROJECTS_BASE_DIR / "project-scaffolding" / "EXTERNAL_RESOURCES.yaml"
+        PROJECT_ROOT / "EXTERNAL_RESOURCES.yaml"
     )
 )
 
 # Project reindex script path
-REINDEX_SCRIPT_PATH = PROJECTS_BASE_DIR / "project-scaffolding" / "scripts" / "reindex_projects.py"
+REINDEX_SCRIPT_PATH = Path(
+    os.getenv(
+        "PT_REINDEX_SCRIPT",
+        PROJECT_ROOT / "scripts" / "reindex_projects.py"
+    )
+)
 
 # Audit Agent (Go CLI) binary path
 _default_audit_bin = PROJECTS_BASE_DIR / "audit-agent" / "audit"
@@ -73,4 +78,3 @@ AUDIT_BIN_PATH = os.getenv("PT_AUDIT_BIN", str(_default_audit_bin) if _default_a
 
 # Ensure data directory exists
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-

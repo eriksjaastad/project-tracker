@@ -14,7 +14,6 @@ from collections import defaultdict
 
 # Add project root to sys.path for logger
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from scripts.config import PROJECTS_BASE_DIR
 from scripts.logger import get_logger
 
 # Max file size for relationship extraction (skip files > 1 MB to prevent OOM)
@@ -22,9 +21,8 @@ MAX_FILE_SIZE_BYTES = 1_000_000
 
 logger = get_logger(__name__)
 
-# Load config from shared YAML file (lives in project-scaffolding)
-PROJECTS_ROOT = PROJECTS_BASE_DIR
-CONFIG_PATH = PROJECTS_ROOT / "project-scaffolding" / "config" / "scan_config.yaml"
+# Load config from project-tracker's bundled defaults.
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "scan_config.yaml"
 
 
 def load_config() -> dict:
