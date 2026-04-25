@@ -150,7 +150,7 @@ def validate_project_exists(project_id: str, db_manager: Optional[Any] = None) -
 
 
 def validate_card_creation_project(project_id: str) -> Tuple[bool, Optional[str]]:
-    """Validate that a project is allowed to receive Kanban cards/tasks."""
+    """Validate that a project is allowed to receive pt task-board cards."""
     blocked_reason = get_blocked_card_reason(project_id)
     if blocked_reason:
         return (False, blocked_reason)
@@ -315,7 +315,7 @@ def validate_task_input(
     if not is_valid:
         return (False, error)
 
-    # Validate project is eligible for Kanban cards/tasks
+    # Validate project is eligible for pt task-board cards
     is_valid, error = validate_card_creation_project(project_id)
     if not is_valid:
         return (False, error)

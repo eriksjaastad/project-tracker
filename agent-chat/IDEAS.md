@@ -14,7 +14,7 @@
 - Hook reads this file. If recent (< 5 min), use short interval. Otherwise, long interval.
 - When a message is found, update the file → next check uses the short interval.
 
-**Open question:** Should we move from pull (hook polling) to push (notification daemon actively interrupts the agent)? Push would be faster but more complex. The notification daemon kanban card on the Mac Mini covers this.
+**Open question:** Should we move from pull (hook polling) to push (notification daemon actively interrupts the agent)? Push would be faster but more complex. The notification daemon `pt tasks` card on the Mac Mini covers this.
 
 ## Push Notifications via Notification Daemon
 

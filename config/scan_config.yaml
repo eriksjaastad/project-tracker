@@ -1,0 +1,20 @@
+scan_extensions:
+  .md: markdown
+  .py: python
+  .ts: typescript
+  .tsx: typescript
+  .js: javascript
+  .jsx: javascript
+  .go: go
+  .swift: swift
+  .json: config
+  .yaml: config
+  .yml: config
+
+skip_dirs: []
+skip_files: []
+skip_patterns: []
+ignore_projects: []
+protected_projects: []
+orphan_exempt_projects:
+  - root

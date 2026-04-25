@@ -37,6 +37,8 @@ import re
 import shutil
 import sqlite3
 import subprocess
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -54,6 +56,13 @@ _SNTP_DRIFT_RE = re.compile(
 DEFAULT_NTP_HOST = "time.apple.com"
 DEFAULT_NTP_TIMEOUT_S = 5.0
 DEFAULT_TAILSCALE_PING_TIMEOUT_S = 3.0
+
+
+@dataclass(frozen=True)
+class SyncReadinessCheck:
+    name: str
+    ok: bool
+    detail: str
 
 
 def ntp_drift_seconds(
@@ -150,3 +159,145 @@ def manifest_hash(conn: Optional[sqlite3.Connection] = None) -> str:
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def explicit_machine_id(conn: sqlite3.Connection) -> Optional[int]:
+    """Return operator-configured ``pt.machine_id`` or ``None`` if absent."""
+    try:
+        row = conn.execute(
+            "SELECT value FROM _metadata WHERE key = 'pt.machine_id'"
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            return None
+        raise
+    if row is None:
+        return None
+    try:
+        value = int(row[0])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"_metadata['pt.machine_id'] must be an int, got {row[0]!r}") from exc
+
+    from db.pt_id import _MID_MAX
+
+    if not (0 <= value <= _MID_MAX):
+        raise ValueError(f"_metadata['pt.machine_id']={value} out of range 0..{_MID_MAX}")
+    return value
+
+
+def set_explicit_machine_id(conn: sqlite3.Connection, machine_id: int) -> None:
+    """Persist ``_metadata['pt.machine_id']`` after validating range."""
+    from db.pt_id import _MID_MAX
+
+    if not (0 <= machine_id <= _MID_MAX):
+        raise ValueError(f"machine_id out of range 0..{_MID_MAX}: {machine_id}")
+    conn.execute(
+        "INSERT OR REPLACE INTO _metadata (key, value, created_at) VALUES (?, ?, ?)",
+        ("pt.machine_id", str(machine_id), datetime.now(timezone.utc).isoformat(timespec="seconds")),
+    )
+
+
+def _table_info(conn: sqlite3.Connection, table: str) -> dict[str, dict[str, object]]:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return {
+        row[1]: {
+            "type": row[2],
+            "notnull": bool(row[3]),
+            "default": row[4],
+            "pk": row[5],
+        }
+        for row in rows
+    }
+
+
+def local_sync_readiness(conn: sqlite3.Connection) -> list[SyncReadinessCheck]:
+    """Return Mini-local sync rollout checks based on the live DB."""
+    from db.crr_manifest import (
+        CONTROL_PLANE_TABLES,
+        CRR_TABLES,
+        assert_tables_classified,
+        live_table_names,
+    )
+
+    checks: list[SyncReadinessCheck] = []
+    live = live_table_names(conn)
+
+    try:
+        assert_tables_classified(conn)
+    except Exception as exc:
+        checks.append(SyncReadinessCheck("manifest", False, str(exc)))
+    else:
+        checks.append(
+            SyncReadinessCheck(
+                "manifest",
+                True,
+                f"all live tables classified; manifest={manifest_hash(conn)[:12]}",
+            )
+        )
+
+    required_tables = (CRR_TABLES | CONTROL_PLANE_TABLES | frozenset({"_metadata"}))
+    missing_tables = sorted(required_tables - live)
+    checks.append(
+        SyncReadinessCheck(
+            "required_tables",
+            not missing_tables,
+            "all required sync tables present" if not missing_tables else f"missing: {', '.join(missing_tables)}",
+        )
+    )
+
+    try:
+        machine_id = explicit_machine_id(conn)
+    except ValueError as exc:
+        checks.append(SyncReadinessCheck("machine_id", False, str(exc)))
+    else:
+        checks.append(
+            SyncReadinessCheck(
+                "machine_id",
+                machine_id is not None,
+                f"pt.machine_id={machine_id}" if machine_id is not None else "missing _metadata['pt.machine_id']",
+            )
+        )
+
+    def _shape_check(table: str, required: dict[str, dict[str, object]]) -> SyncReadinessCheck:
+        if table not in live:
+            return SyncReadinessCheck(table, False, f"{table} missing")
+        info = _table_info(conn, table)
+        problems: list[str] = []
+        for column, expectations in required.items():
+            actual = info.get(column)
+            if actual is None:
+                problems.append(f"{column} missing")
+                continue
+            for key, expected in expectations.items():
+                if actual[key] != expected:
+                    problems.append(f"{column}.{key}={actual[key]!r} expected {expected!r}")
+        return SyncReadinessCheck(
+            table,
+            not problems,
+            "schema matches sync expectations" if not problems else "; ".join(problems),
+        )
+
+    checks.append(
+        _shape_check(
+            "calendar_events",
+            {
+                "id": {"notnull": True, "pk": 1},
+                "title": {"notnull": True, "default": "''"},
+                "event_date": {"notnull": True, "default": "''"},
+                "created_at": {"notnull": True, "default": "''"},
+                "updated_at": {"notnull": True, "default": "''"},
+            },
+        )
+    )
+    checks.append(
+        _shape_check(
+            "calendar_event_tasks",
+            {
+                "event_id": {"notnull": True, "pk": 1},
+                "task_id": {"notnull": True, "pk": 2},
+                "link_type": {"notnull": True, "default": "'related'"},
+            },
+        )
+    )
+
+    return checks
