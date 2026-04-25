@@ -49,6 +49,34 @@ def test_config_defaults_external_backup_dir_under_home(tmp_path, monkeypatch):
     assert reloaded.EXTERNAL_BACKUP_DIR == home_dir / ".project-tracker" / "backups"
 
 
+def test_config_runtime_defaults_are_project_tracker_local(monkeypatch):
+    import scripts.config as config
+
+    monkeypatch.delenv("PT_RESOURCES_FILE", raising=False)
+    monkeypatch.delenv("PT_REINDEX_SCRIPT", raising=False)
+
+    reloaded = importlib.reload(config)
+
+    assert reloaded.EXTERNAL_RESOURCES_FILE == reloaded.PROJECT_ROOT / "EXTERNAL_RESOURCES.yaml"
+    assert reloaded.REINDEX_SCRIPT_PATH == reloaded.PROJECT_ROOT / "scripts" / "reindex_projects.py"
+    assert "project-scaffolding" not in str(reloaded.EXTERNAL_RESOURCES_FILE)
+    assert "project-scaffolding" not in str(reloaded.REINDEX_SCRIPT_PATH)
+
+
+def test_graph_builder_uses_bundled_scan_config_without_warning(caplog):
+    import scripts.discovery.graph_builder as graph_builder
+
+    with caplog.at_level(logging.WARNING):
+        reloaded = importlib.reload(graph_builder)
+
+    assert reloaded.CONFIG_PATH == reloaded.Path(__file__).resolve().parents[1] / "config" / "scan_config.yaml"
+    assert reloaded.CONFIG_PATH.exists()
+    assert reloaded.SCAN_EXTENSIONS[".py"] == "python"
+    assert reloaded.ORPHAN_EXEMPT_PROJECTS == {"root"}
+    assert "project-scaffolding" not in str(reloaded.CONFIG_PATH)
+    assert "Config not found" not in caplog.text
+
+
 def test_is_valid_cron_accepts_special_alias_without_croniter(monkeypatch):
     monkeypatch.setattr(cron_monitor, "croniter", None)
 
