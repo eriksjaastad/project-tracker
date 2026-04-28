@@ -96,17 +96,7 @@ These tests cover the command-line interface.
 
 These tests ensure the application is secure and data is valid.
 
-- [ ] **warden_audit.py**:
-    - [ ] Tests for detecting dangerous patterns (e.g., SQL injection, cross-site scripting).
-    - [ ] Tests for detecting hardcoded paths and credentials.
-    - [ ] Tests for handling different code styles and languages.
-    - [ ] Tests for false positive and false negative rates.
-- [ ] **validate_project.py**:
-    - [ ] Tests for validating project structure against defined rules.
-    - [ ] Tests for validating project metadata.
-    - [ ] Tests for handling invalid or missing project files.
-    - [ ] Tests for different project types and configurations.
-    - [ ] Tests for custom validation rules.
+~~**warden_audit.py / validate_project.py**~~ — both retired in audit Phase F (delete-only, no replacement). Test coverage TODOs N/A.
 
 ## Priority Recommendations:
 

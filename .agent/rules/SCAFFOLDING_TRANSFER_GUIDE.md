@@ -43,8 +43,7 @@ The project-scaffolding README should be updated to include:
 2. **Prompt Pattern** - Micro-task prompts with acceptance criteria for local models
 3. **[Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md)** - Institutional memory for AI model behavior
 4. **Global Rules Injection** - The update_cursorrules.py system
-5. **[[WARDEN_AUDIT]]** - Security audit tool (warden_audit.py)
-6. **Timeline Update** - Current dates (we're past "Month 6" in the timeline)
+5. **Timeline Update** - Current dates (we're past "Month 6" in the timeline)
 
 ---
 
