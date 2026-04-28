@@ -7,8 +7,9 @@
 
 set -euo pipefail
 
-DB="$HOME/projects/project-tracker/data/tracker.db"
-BACKUP_DIR="$HOME/.project-tracker/backups"
+DB="${PT_BACKUP_DB_PATH:-$HOME/projects/project-tracker/data/tracker.db}"
+BACKUP_DIR="${PT_FULL_BACKUP_DIR:-$HOME/.project-tracker/backups}"
+RCLONE_DEST="${PT_BACKUP_RCLONE_DEST:-}"
 RETENTION_DAYS=30
 
 # Bail if DB doesn't exist
@@ -38,3 +39,27 @@ find "$BACKUP_DIR" -name "tracker_*.db" -mtime +"$RETENTION_DAYS" -delete 2>/dev
 
 # Log success (one line, parseable)
 echo "$(date -Iseconds) | backup | ${BACKUP_SIZE} bytes | ${BACKUP_FILE}"
+
+# Optional: copy one successful full backup off-machine once per day.
+# This is best-effort and must never suppress the local backup success.
+if [ -n "$RCLONE_DEST" ]; then
+  CLOUD_STATE_FILE="${PT_BACKUP_CLOUD_STATE_FILE:-$BACKUP_DIR/.cloud-copy-last-success}"
+  TODAY="$(date +%F)"
+  LAST_CLOUD_DAY=""
+  if [ -f "$CLOUD_STATE_FILE" ]; then
+    LAST_CLOUD_DAY="$(cat "$CLOUD_STATE_FILE" 2>/dev/null || true)"
+  fi
+
+  if [ "$LAST_CLOUD_DAY" != "$TODAY" ]; then
+    REMOTE_FILE="${RCLONE_DEST%/}/tracker_daily_$(date +%Y%m%d).db"
+    if ! command -v rclone >/dev/null 2>&1; then
+      echo "$(date -Iseconds) | cloud_copy | failure | ${REMOTE_FILE} | rclone_not_found"
+    elif rclone copyto "$BACKUP_FILE" "$REMOTE_FILE"; then
+      printf '%s' "$TODAY" > "$CLOUD_STATE_FILE" || true
+      echo "$(date -Iseconds) | cloud_copy | success | ${REMOTE_FILE}"
+    else
+      CLOUD_EXIT=$?
+      echo "$(date -Iseconds) | cloud_copy | failure | ${REMOTE_FILE} | exit=${CLOUD_EXIT}"
+    fi
+  fi
+fi
