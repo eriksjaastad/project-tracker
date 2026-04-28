@@ -27,6 +27,7 @@ def test_root_help_lists_expected_sync_surfaces() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
+    assert "backup" in result.output
     assert "sync" in result.output
     assert "sync-project" in result.output
 

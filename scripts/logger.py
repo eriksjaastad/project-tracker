@@ -13,8 +13,8 @@ handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
 try:
     LOGS_DIR.mkdir(exist_ok=True)
     handlers.insert(0, logging.FileHandler(LOGS_DIR / 'project_tracker.log'))
-except OSError:
-    pass
+except OSError as err:
+    print(f"project-tracker: file logging unavailable: {err}", file=sys.stderr)
 
 # Configure logging
 logging.basicConfig(
