@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from .cron_monitor import check_cron_health
-from .agent_config_health import build_empty_agent_config_health, get_agent_config_health
 from .code_review_parser import parse_code_review
 from .telemetry_reader import get_telemetry_stats, get_critical_errors
 from .cron_health import get_stale_crons
@@ -150,47 +149,6 @@ def detect_missing_index(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return []
 
 
-def detect_agent_config_health(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Detect projects whose agent config files have health warnings."""
-    alerts = []
-
-    for project in projects:
-        project_path = Path(project.get("path", "")) if project.get("path") else None
-        health = project.get("agent_config_health")
-        if health is None:
-            if project_path and project_path.exists():
-                health = get_agent_config_health(project_path)
-            else:
-                health = build_empty_agent_config_health(project.get("name", project.get("id", "")))
-
-        warning_count = health.get("warning_count", 0)
-        if warning_count <= 0:
-            continue
-
-        first_warning = next(
-            (
-                f"{file_health['path']}: {warning}"
-                for file_health in health.get("files", [])
-                for warning in file_health.get("warnings", [])
-            ),
-            "Agent config health warnings detected",
-        )
-        message = first_warning
-        if warning_count > 1:
-            message = f"{warning_count} agent config warnings — {first_warning}"
-
-        alerts.append({
-            "project_id": project["id"],
-            "project_name": project["name"],
-            "type": "agent_config_health",
-            "severity": "warning",
-            "message": message,
-            "details": first_warning,
-        })
-
-    return alerts
-
-
 def detect_invalid_frontmatter(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Detect projects with invalid frontmatter using audit check.
 
@@ -233,7 +191,6 @@ def get_all_alerts(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     all_alerts.extend(detect_cron_failures(projects))
     all_alerts.extend(detect_stalled_projects(projects))
     all_alerts.extend(detect_missing_index(projects))  # Only missing, not incomplete
-    all_alerts.extend(detect_agent_config_health(projects))
     # Sort by severity (critical first, then warning, then info)
     severity_order = {"critical": 0, "warning": 1, "info": 2}
     all_alerts.sort(key=lambda x: (severity_order.get(x["severity"], 3), x["project_name"]))

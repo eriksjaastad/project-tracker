@@ -33,7 +33,6 @@ from scripts.logger import get_logger
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.manager import DatabaseManager
-from discovery.agent_config_health import build_empty_agent_config_health, get_agent_config_health
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
@@ -396,14 +395,6 @@ def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
     # Format index time
     if project.get("index_updated_at"):
         project["index_updated_human"] = format_time_ago(project["index_updated_at"])
-    
-    # Agent config health check
-    project_id = project.get("id", "")
-    project_path = Path(project.get("path", ""))
-    if project_path.exists():
-        project["agent_config_health"] = get_agent_config_health(project_path)
-    else:
-        project["agent_config_health"] = build_empty_agent_config_health(project.get("name", project_id))
 
     project["version_status"] = "unmanaged"
 
@@ -440,7 +431,6 @@ def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, Li
 
 _ALERT_TYPE_LABELS = {
     "rules_drift": "Rules Drift",
-    "agent_config_health": "Agent Config Health",
     "missing_index": "Missing Index",
     "stalled": "Stalled Projects",
     "blocked": "Project Blocked",
@@ -490,7 +480,7 @@ def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
     """Enrich all projects using bulk-fetched data (4 DB queries instead of 4N).
 
     Populates: ai_agents, cron_jobs, services, tasks, code_review,
-    agent_config_health, and time formatting fields.
+    and time formatting fields.
     """
     all_agents = _group_by_project(db.get_ai_agents())
     all_crons = _group_by_project(db.get_cron_jobs())
@@ -547,12 +537,6 @@ def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
             project["index_updated_human"] = format_time_ago(project["index_updated_at"])
 
         # Agent config health
-        project_path = Path(project.get("path", ""))
-        if project_path.exists():
-            project["agent_config_health"] = get_agent_config_health(project_path)
-        else:
-            project["agent_config_health"] = build_empty_agent_config_health(project.get("name", pid))
-
         project_info = project_info_by_project.get(pid, {})
         project["portfolio_group"] = project_info.get("portfolio_group")
         project["portfolio_label"] = project_info.get("portfolio_label")
