@@ -5,7 +5,18 @@
 
 export PT_CALLER_CWD="$PWD"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/pt-uv-cache}"
-cd "$(dirname "$0")"
+
+launcher_source="${BASH_SOURCE[0]:-$0}"
+while [ -h "$launcher_source" ]; do
+  launcher_dir="$(cd -P "$(dirname "$launcher_source")" >/dev/null 2>&1 && pwd)"
+  launcher_source="$(readlink "$launcher_source")"
+  case "$launcher_source" in
+    /*) ;;
+    *) launcher_source="$launcher_dir/$launcher_source" ;;
+  esac
+done
+launcher_dir="$(cd -P "$(dirname "$launcher_source")" >/dev/null 2>&1 && pwd)"
+cd "$launcher_dir"
 
 # Database backend controlled by ~/projects/.turso-config.json (single switch
 # for both project-tracker and ai-memory). No env var overrides needed.
@@ -24,6 +35,14 @@ else
   done
   if [ "$1" = "help" ]; then
     should_skip_doppler=1
+  fi
+
+  turso_config="$HOME/projects/.turso-config.json"
+  if [ "$should_skip_doppler" -ne 1 ] && [ -f "$turso_config" ]; then
+    turso_enabled=$(/usr/bin/python3 -c 'import json, sys; print("1" if json.load(open(sys.argv[1])).get("turso_enabled") else "0")' "$turso_config" 2>/dev/null || printf "unknown")
+    if [ "$turso_enabled" = "0" ]; then
+      should_skip_doppler=1
+    fi
   fi
 fi
 

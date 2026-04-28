@@ -8,6 +8,7 @@ The central nervous system for Erik's multi-project portfolio. A CLI (`pt`) and 
 ./pt launch        # Dashboard at localhost:8000
 ./pt tasks         # View Kanban board
 ./pt info          # Reference data (credentials, infrastructure)
+./pt backup status # Full backup + off-machine backup health
 ./pt memory search "query"  # Cross-agent shared memory
 ./pt sync status   # Replication status / pause / resume controls
 ```

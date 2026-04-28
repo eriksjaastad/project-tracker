@@ -159,27 +159,42 @@
                     <p class="status-text {{ backup_status.status }}">
                         {{ backup_status.message }}
                     </p>
+                    <div class="remote-list-compact">
+                        <small class="text-muted">Local full:</small>
+                        <div class="model-list-compact">
+                            <div class="model-item">{{ backup_status.local_full.age_human or "missing" }}</div>
+                            <div class="model-item">{{ backup_status.local_full.count }} snapshots</div>
+                        </div>
+                    </div>
+                    <div class="unbacked-warning mt-2">
+                        <small class="text-muted">Off-machine:</small>
+                        <ul class="unbacked-list">
+                            <li><small>{{ backup_status.cloud.message }}</small></li>
+                            {% if backup_status.cloud.configured_dest %}
+                            <li><small>{{ backup_status.cloud.configured_dest }}</small></li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                    <div class="remote-list-compact">
+                        <small class="text-muted">Safety backup:</small>
+                        <div class="model-list-compact">
+                            <div class="model-item">{{ backup_status.safety.age_human or "missing" }}</div>
+                            <div class="model-item">{{ backup_status.safety.count }} snapshots</div>
+                        </div>
+                    </div>
+                    {% if backup_status.launch_agent.present %}
+                    <small class="text-muted">LaunchAgent: {{ backup_status.launch_agent.schedule or "installed" }}</small>
+                    {% else %}
+                    <small class="text-muted">LaunchAgent missing</small>
+                    {% endif %}
                     {% if backup_status.remotes %}
                     <div class="remote-list-compact">
-                        <small class="text-muted">Remotes:</small>
+                        <small class="text-muted">Rclone remotes:</small>
                         <div class="model-list-compact">
                             {% for remote in backup_status.remotes %}
                             <div class="model-item">{{ remote }}</div>
                             {% endfor %}
                         </div>
-                    </div>
-                    {% endif %}
-                    {% if backup_status.critical_unbacked %}
-                    <div class="unbacked-warning mt-2">
-                        <small class="text-danger">⚠️ Unbacked paths:</small>
-                        <ul class="unbacked-list">
-                            {% for path in backup_status.critical_unbacked[:2] %}
-                            <li><small>{{ path }}</small></li>
-                            {% endfor %}
-                            {% if backup_status.critical_unbacked|length > 2 %}
-                            <li><small>... and {{ backup_status.critical_unbacked|length - 2 }} more</small></li>
-                            {% endif %}
-                        </ul>
                     </div>
                     {% endif %}
                 </div>
