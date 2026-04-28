@@ -23,6 +23,7 @@ import sqlite3
 import sys
 import webbrowser
 import time
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -48,10 +49,12 @@ from discovery.project_scanner import (
 )
 from discovery.external_resources_parser import parse_external_resources
 from discovery.graph_builder import GraphBuilder
+from discovery.backup_reader import get_backup_status
 # update_directory_index removed — 00_Index generation killed (#5530)
 from discovery.journal_specialist import JournalSpecialist
 from utils.validation import BlockedTaskProjectError
 from origin import resolve_created_by as _resolve_created_by
+from restore_db import BackupRestoreError, restore_database
 from skill_invocations_reader import (
     iter_invocations as _iter_skill_invocations,
     SkillInvocationsTableMissing as _SkillInvocationsTableMissing,
@@ -1010,6 +1013,105 @@ def retire_project(project, execute, keep_files, yes):
 def help(ctx):
     """Show this help message."""
     click.echo(ctx.parent.get_help())
+
+
+# =============================================================================
+# Backup group
+# =============================================================================
+
+@click.group(name="backup", invoke_without_command=True)
+@click.pass_context
+def backup_group(ctx):
+    """Inspect backup health and restore from full database snapshots."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@backup_group.command(name="status")
+@click.option("--json", "json_output", is_flag=True, help="Output status as JSON")
+def backup_status(json_output: bool):
+    """Show local and off-machine backup health for project-tracker."""
+    status = get_backup_status()
+    if json_output:
+        click.echo(json.dumps(status, indent=2))
+        return
+
+    color = status.get("status_color", "blue")
+    console.print(f"[bold]Backup Status:[/bold] [{color}]{status['status']}[/]")
+    click.echo(status["message"])
+
+    local = status["local_full"]
+    click.echo(
+        "Local full backup: "
+        f"{local['message']} "
+        f"(count: {local['count']}, path: {local['path'] or 'none'})"
+    )
+
+    safety = status["safety"]
+    click.echo(
+        "Task safety backup: "
+        f"{safety['message']} "
+        f"(count: {safety['count']}, path: {safety['path'] or 'none'})"
+    )
+
+    cloud = status["cloud"]
+    cloud_suffix = f" target: {cloud['configured_dest']}" if cloud["configured_dest"] else ""
+    click.echo(f"Off-machine copy: {cloud['message']}{cloud_suffix}")
+
+    launch_agent = status["launch_agent"]
+    if launch_agent["present"]:
+        schedule = launch_agent.get("schedule") or "configured"
+        click.echo(f"LaunchAgent: installed ({schedule}) at {launch_agent['path']}")
+    else:
+        click.echo(f"LaunchAgent: not found at {launch_agent['path']}")
+
+    log = status["log"]
+    if log["exists"]:
+        click.echo(
+            "Backup log: "
+            f"last local success {log['last_local_success_age_human'] or 'unknown'} "
+            f"({log['path']})"
+        )
+        if log["last_cloud_failure_at"] and log["last_cloud_failure_at"] != log["last_cloud_success_at"]:
+            click.echo(
+                "Last cloud-copy failure: "
+                f"{log['last_cloud_failure_at']}"
+                + (f" ({log['last_cloud_failure_detail']})" if log["last_cloud_failure_detail"] else "")
+            )
+    else:
+        click.echo(f"Backup log: missing ({log['path']})")
+
+    if status["remotes"]:
+        click.echo(f"Rclone remotes: {', '.join(status['remotes'])}")
+
+
+@backup_group.command(name="restore")
+@click.argument("backup_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
+def backup_restore(backup_file: Path, yes: bool):
+    """Restore tracker.db from a full backup snapshot."""
+    if not yes:
+        confirm = click.confirm(
+            f"Restore tracker database from '{backup_file}'? This replaces the live DB.",
+            default=False,
+        )
+        if not confirm:
+            click.echo("Cancelled")
+            return
+
+    try:
+        result = restore_database(backup_file)
+    except BackupRestoreError as err:
+        console.print(f"[red]{err}[/red]")
+        raise SystemExit(2)
+
+    console.print(f"[green]Restored database from {result['source_backup']}[/green]")
+    if result["pre_restore_backup"]:
+        click.echo(f"Pre-restore backup: {result['pre_restore_backup']}")
+    if result["removed_sidecars"]:
+        click.echo("Removed stale sidecars:")
+        for sidecar in result["removed_sidecars"]:
+            click.echo(f"  - {sidecar}")
 
 
 # =============================================================================
@@ -3578,6 +3680,7 @@ def _sync_resume_blocked_versions(conn: sqlite3.Connection) -> list[int]:
 # Register subgroups and run
 # =============================================================================
 
+cli.add_command(backup_group)
 cli.add_command(tasks_group)
 cli.add_command(inbox_group)
 cli.add_command(calendar_group)

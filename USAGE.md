@@ -27,6 +27,9 @@ You can configure the behavior of Project Tracker using these environment variab
 | `SAFE_MODE` | Set to `0` to allow permanent deletions (for Erik only). | `1` |
 | `PT_DASHBOARD_HOST` | Bind host for the dashboard server. Stays on loopback by default so the admin API is not reachable from the LAN. | `127.0.0.1` |
 | `PT_ALLOW_REMOTE_ADMIN` | Set to `1` to allow non-loopback callers to hit `/api/agents/run` (runs arbitrary agent commands). Off by default — do not enable in shared environments without a front-end auth layer. | `0` |
+| `PT_FULL_BACKUP_DIR` | Directory for full `tracker_*.db` snapshot backups. | `~/.project-tracker/backups/` |
+| `PT_BACKUP_LOG_PATH` | Backup job log consumed by `pt backup status` and the dashboard. | `~/.project-tracker/backup.log` |
+| `PT_BACKUP_RCLONE_DEST` | Optional rclone destination for one off-machine full backup per day. | unset |
 
 ---
 
@@ -79,6 +82,10 @@ Click **"Details"** to see:
 ```bash
 # Launch web dashboard (recommended)
 ./pt launch
+
+# Backup health / recovery
+./pt backup status
+./pt backup restore ~/.project-tracker/backups/tracker_20260423_141355.db
 
 # Initialize database
 ./pt init
