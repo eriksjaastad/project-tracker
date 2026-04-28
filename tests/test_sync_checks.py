@@ -15,13 +15,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import sqlite3
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.sync_checks import (  # noqa: E402
+    explicit_machine_id,
+    local_sync_readiness,
     manifest_hash,
     ntp_drift_seconds,
     peer_reachable,
+    set_explicit_machine_id,
 )
 
 
@@ -204,3 +208,134 @@ def test_manifest_hash_is_order_independent(monkeypatch):
     shuffled = frozenset(reversed(list(mod.CRR_TABLES)))
     monkeypatch.setattr("db.crr_manifest.CRR_TABLES", shuffled)
     assert manifest_hash() == baseline
+
+
+# ---------------------------------------------------------------------
+# local_sync_readiness / machine-id helpers
+# ---------------------------------------------------------------------
+
+
+def _sync_ready_db(tmp_path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(tmp_path / "tracker.db")
+    conn.execute("CREATE TABLE _metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL, created_at TEXT NOT NULL)")
+    conn.execute(
+        "CREATE TABLE tasks (id INTEGER PRIMARY KEY NOT NULL, title TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'Backlog')"
+    )
+    conn.execute(
+        "CREATE TABLE ideas (id INTEGER PRIMARY KEY NOT NULL, title TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE task_history (id INTEGER PRIMARY KEY NOT NULL, task_id INTEGER NOT NULL DEFAULT 0)"
+    )
+    conn.execute(
+        "CREATE TABLE task_attachments (id INTEGER PRIMARY KEY NOT NULL, task_id INTEGER NOT NULL DEFAULT 0)"
+    )
+    conn.execute(
+        "CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE project_info (project_id TEXT PRIMARY KEY NOT NULL, summary TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE ai_agents (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE service_dependencies (id INTEGER PRIMARY KEY NOT NULL, service_name TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE calendar_events ("
+        "id INTEGER PRIMARY KEY NOT NULL, "
+        "title TEXT NOT NULL DEFAULT '', "
+        "description TEXT, "
+        "event_date TEXT NOT NULL DEFAULT '', "
+        "event_time TEXT, "
+        "event_type TEXT NOT NULL DEFAULT 'reminder', "
+        "recurrence TEXT, "
+        "project_id TEXT, "
+        "machine TEXT, "
+        "prompt TEXT, "
+        "notify_before_minutes INTEGER NOT NULL DEFAULT 60, "
+        "notified_at TEXT, "
+        "status TEXT NOT NULL DEFAULT 'active', "
+        "created_by TEXT, "
+        "metadata TEXT DEFAULT '{}', "
+        "created_at TEXT NOT NULL DEFAULT '', "
+        "updated_at TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE calendar_event_tasks ("
+        "event_id INTEGER NOT NULL, "
+        "task_id INTEGER NOT NULL, "
+        "link_type TEXT NOT NULL DEFAULT 'related', "
+        "PRIMARY KEY (event_id, task_id))"
+    )
+    conn.execute(
+        "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE _delete_permissions (id INTEGER PRIMARY KEY NOT NULL, permission TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE delete_attempt_log (id INTEGER PRIMARY KEY NOT NULL, detail TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE delete_audit_log (id INTEGER PRIMARY KEY NOT NULL, detail TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE cron_jobs (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE loop_executions (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "CREATE TABLE task_display_ids (id INTEGER PRIMARY KEY NOT NULL, value INTEGER NOT NULL DEFAULT 0)"
+    )
+    conn.execute(
+        "CREATE TABLE schema_migration_announcements (version INTEGER PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL DEFAULT '')"
+    )
+    conn.commit()
+    return conn
+
+
+def test_set_and_read_explicit_machine_id(tmp_path: Path):
+    conn = _sync_ready_db(tmp_path)
+    try:
+        set_explicit_machine_id(conn, 42)
+        assert explicit_machine_id(conn) == 42
+    finally:
+        conn.close()
+
+
+def test_set_explicit_machine_id_rejects_out_of_range(tmp_path: Path):
+    conn = _sync_ready_db(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="out of range"):
+            set_explicit_machine_id(conn, 2048)
+    finally:
+        conn.close()
+
+
+def test_local_sync_readiness_flags_missing_machine_id(tmp_path: Path):
+    conn = _sync_ready_db(tmp_path)
+    try:
+        checks = {check.name: check for check in local_sync_readiness(conn)}
+        assert checks["required_tables"].ok is True
+        assert checks["calendar_events"].ok is True
+        assert checks["calendar_event_tasks"].ok is True
+        assert checks["machine_id"].ok is False
+        assert "missing" in checks["machine_id"].detail
+    finally:
+        conn.close()
+
+
+def test_local_sync_readiness_passes_when_machine_id_present(tmp_path: Path):
+    conn = _sync_ready_db(tmp_path)
+    try:
+        set_explicit_machine_id(conn, 7)
+        checks = local_sync_readiness(conn)
+        assert all(check.ok for check in checks), checks
+    finally:
+        conn.close()

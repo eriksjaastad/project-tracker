@@ -3410,9 +3410,11 @@ def sync_group(ctx):
     \b
     Commands:
         pt sync status     — show pause state + last sync + engine state
+        pt sync check      — verify local sync readiness before broader rollout
         pt sync pause      — halt data-plane replication (control plane keeps running)
         pt sync pause --all — halt everything (rare; stops migration announcements too)
         pt sync resume     — resume data-plane replication
+        pt sync set-machine-id <id> — persist _metadata['pt.machine_id']
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -3486,6 +3488,67 @@ def sync_status():
     console.print(f"state:         {state}")
     console.print(f"last sync:     {last_line}")
     console.print(engine_line)
+
+
+@sync_group.command(name="check")
+def sync_check():
+    """Verify local sync-readiness prerequisites against the live DB."""
+    if _USE_TURSO:
+        console.print("[yellow]pt sync check: Turso mode — local SQLite readiness does not apply.[/yellow]")
+        return
+    from db.sync_checks import local_sync_readiness
+
+    try:
+        conn = _sync_conn()
+    except sqlite3.Error as err:
+        _handle_sync_db_error("check", err)
+        return  # pragma: no cover
+    try:
+        checks = local_sync_readiness(conn)
+    except sqlite3.Error as err:
+        _handle_sync_db_error("check", err)
+        return  # pragma: no cover
+    finally:
+        conn.close()
+
+    all_ok = True
+    for check in checks:
+        label = "[green]ok[/green]" if check.ok else "[red]fail[/red]"
+        if not check.ok:
+            all_ok = False
+        console.print(f"{label} {check.name}: {check.detail}")
+
+    if not all_ok:
+        sys.exit(3)
+
+
+@sync_group.command(name="set-machine-id")
+@click.argument("machine_id", type=int)
+def sync_set_machine_id(machine_id: int):
+    """Persist _metadata['pt.machine_id'] for this machine."""
+    if _USE_TURSO:
+        console.print("[red]pt sync set-machine-id: Turso mode — local SQLite metadata is not active.[/red]")
+        sys.exit(2)
+
+    from db.sync_checks import set_explicit_machine_id
+
+    try:
+        conn = _sync_conn()
+    except sqlite3.Error as err:
+        _handle_sync_db_error("set-machine-id", err)
+        return  # pragma: no cover
+    try:
+        set_explicit_machine_id(conn, machine_id)
+    except ValueError as err:
+        console.print(f"[red]pt sync set-machine-id: {err}[/red]")
+        sys.exit(2)
+    except sqlite3.Error as err:
+        _handle_sync_db_error("set-machine-id", err)
+        return  # pragma: no cover
+    finally:
+        conn.close()
+
+    console.print(f"[green]✓ pt.machine_id set to {machine_id}.[/green]")
 
 
 @sync_group.command(name="pause")
