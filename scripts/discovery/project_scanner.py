@@ -7,7 +7,6 @@ from typing import List, Dict, Any, Optional, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .git_metadata import get_last_modified
-from .agent_config_health import get_agent_config_health
 from .providers import get_provider
 
 # Add parent directory to path for config and logger imports
@@ -206,8 +205,6 @@ def extract_project_metadata(
         readme_path = project_path / "README.md"
         if readme_path.exists():
             metadata["description"] = clean_description(extract_readme_description(readme_path))
-
-    metadata["agent_config_health"] = get_agent_config_health(project_path)
 
     effective_portfolio_metadata = portfolio_metadata or PORTFOLIO_ROOTS.get(project_path.parent.name)
     if effective_portfolio_metadata:
