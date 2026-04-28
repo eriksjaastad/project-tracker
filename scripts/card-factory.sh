@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# card-factory.sh — Scan projects and generate Kanban cards
+# card-factory.sh — Scan projects and generate pt task-board cards
 #
 # Usage:
 #   card-factory.sh                     # Scan all active projects

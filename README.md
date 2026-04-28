@@ -11,6 +11,8 @@ The central nervous system for Erik's multi-project portfolio. A CLI (`pt`) and 
 ./pt backup status # Full backup + off-machine backup health
 ./pt memory search "query"  # Cross-agent shared memory
 ./pt sync status   # Replication status / pause / resume controls
+./pt sync check    # Mini-local sync rollout readiness check
+./pt sync set-machine-id 883  # Persist explicit machine identity for sync
 ```
 
 ## What It Does
@@ -20,7 +22,7 @@ The central nervous system for Erik's multi-project portfolio. A CLI (`pt`) and 
 - **Memory** — Cross-agent semantic search via Open Brain (`pt memory`)
 - **Info** — Centralized reference store for env vars, credentials, infrastructure (`pt info`)
 - **Graph** — D3.js visualization of file relationships across the ecosystem
-- **Sync Controls** — Replication pause/resume/status for Phase 2 (`pt sync`)
+- **Sync Controls** — Replication pause/resume/status plus Mini-local readiness checks for Phase 2 (`pt sync`)
 
 ## Project Structure
 
