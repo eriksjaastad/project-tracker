@@ -845,6 +845,69 @@ def remove_project(project):
     console.print(f"[green]✅ Removed '{target['name']}' from the database.[/green]")
 
 
+@cli.group(name="project")
+def project_group():
+    """Manage manually tracked project records."""
+    pass
+
+
+@project_group.command(name="add")
+@click.argument("project_id")
+@click.option("--name", default=None, help="Display name. Defaults to PROJECT_ID.")
+@click.option("--path", "project_path", default=None, help="Existing project directory for non-virtual projects.")
+@click.option("--virtual", is_flag=True, help="Create a board-only project with no filesystem directory.")
+@click.option("--description", default=None, help="Project description.")
+@click.option("--status", default="active", help="Project status.")
+def project_add(project_id, name, project_path, virtual, description, status):
+    """Add a project record without running a filesystem scan.
+
+    Virtual projects are board-only records. They intentionally use a
+    virtual:// path and do not create a directory under PROJECTS_ROOT.
+    """
+    cleaned_id = project_id.strip()
+    allowed_slug_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+    if not cleaned_id or any(ch not in allowed_slug_chars for ch in cleaned_id):
+        raise click.ClickException("Project ID must be a simple slug, e.g. openclaw")
+
+    if virtual and project_path:
+        raise click.ClickException("Use either --virtual or --path, not both")
+
+    if not virtual and not project_path:
+        raise click.ClickException("Provide --virtual for board-only projects or --path for real directories")
+
+    if virtual:
+        resolved_path = f"virtual://{cleaned_id}"
+        project_type = "virtual"
+    else:
+        path_obj = Path(project_path).expanduser().resolve()
+        if not path_obj.is_dir():
+            raise click.ClickException(f"Project path does not exist or is not a directory: {path_obj}")
+        resolved_path = str(path_obj)
+        project_type = "standard"
+
+    db = DatabaseManager()
+    if db.get_project(cleaned_id):
+        raise click.ClickException(f"Project '{cleaned_id}' already exists")
+
+    display_name = name.strip() if name and name.strip() else cleaned_id
+    now = datetime.now().isoformat()
+    db.add_project(
+        project_id=cleaned_id,
+        name=display_name,
+        path=resolved_path,
+        status=status,
+        description=description,
+        last_modified=now,
+        project_type=project_type,
+    )
+
+    console.print(
+        f"[green]✅ Added {'virtual ' if virtual else ''}project '{display_name}' "
+        f"({cleaned_id})[/green]"
+    )
+    console.print(f"[dim]Path: {resolved_path}[/dim]")
+
+
 def _scan_portfolio_for_references(project_id: str, project_name: str, projects_root: Path) -> tuple[list[tuple[Path, int, str]], list[tuple[Path, str]]]:
     """Scan portfolio markdown/yaml/json for stale references to a project.
 
