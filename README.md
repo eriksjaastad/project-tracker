@@ -10,6 +10,7 @@ The central nervous system for Erik's multi-project portfolio. A CLI (`pt`) and 
 ./pt info          # Reference data (credentials, infrastructure)
 ./pt backup status # Full backup + off-machine backup health
 ./pt memory search "query"  # Cross-agent shared memory
+PT_SKIP_DOPPLER=1 ./pt memory recent --since 7d --json  # Read-only cron/SSH memory query
 ./pt sync status   # Replication status / pause / resume controls
 ./pt sync check    # Mini-local sync rollout readiness check
 ./pt sync set-machine-id 883  # Persist explicit machine identity for sync
@@ -20,6 +21,7 @@ The central nervous system for Erik's multi-project portfolio. A CLI (`pt`) and 
 - **Kanban** — Task management across all projects (`pt tasks`)
 - **Dashboard** — Project health, GitHub activity, memory graph visualization
 - **Memory** — Cross-agent semantic search via Open Brain (`pt memory`)
+- **Automation** — Read-only JSON memory commands for SSH/cron integrations (`pt memory recent --json`, `pt doctor --json`)
 - **Info** — Centralized reference store for env vars, credentials, infrastructure (`pt info`)
 - **Graph** — D3.js visualization of file relationships across the ecosystem
 - **Sync Controls** — Replication pause/resume/status plus Mini-local readiness checks for Phase 2 (`pt sync`)

@@ -30,6 +30,8 @@ You can configure the behavior of Project Tracker using these environment variab
 | `PT_FULL_BACKUP_DIR` | Directory for full `tracker_*.db` snapshot backups. | `~/.project-tracker/backups/` |
 | `PT_BACKUP_LOG_PATH` | Backup job log consumed by `pt backup status` and the dashboard. | `~/.project-tracker/backup.log` |
 | `PT_BACKUP_RCLONE_DEST` | Optional rclone destination for one off-machine full backup per day. | unset |
+| `PT_MEMORY_DB_PATH` | Optional override for read-only `pt memory` JSON commands. | `$PROJECTS_ROOT/ai-memory/brain.db` |
+| `PT_SKIP_DOPPLER` | Set to `1` for read-only SSH/cron commands that should not invoke Doppler. | `0` |
 
 ---
 
@@ -154,6 +156,22 @@ Click **"Details"** to see:
 # Rare: pause everything, including control-plane announcements
 ./pt sync pause --all
 ```
+
+### Read-Only Memory Automation
+
+Use these commands from SSH `BatchMode` sessions, cron jobs, or service users that need memory data without touching databases directly:
+
+```bash
+cd $PROJECTS_ROOT/project-tracker
+PT_SKIP_DOPPLER=1 ./pt memory search --query "LoopLens" --since 7d --limit 50 --json
+PT_SKIP_DOPPLER=1 ./pt memory recent --since 7d --project project-tracker --limit 50 --json
+PT_SKIP_DOPPLER=1 ./pt memory stats --json
+PT_SKIP_DOPPLER=1 ./pt memory export --format ndjson --since 7d --limit 500
+PT_SKIP_DOPPLER=1 ./pt config show --effective --json
+PT_SKIP_DOPPLER=1 ./pt doctor --json
+```
+
+JSON responses include a `schema_version`, `ok`, `read_only`, backend metadata, filters, pagination, and result rows. JSON mode does not mix prose into the payload. Validation errors exit `2`; backend/readiness failures exit `3`; query failures exit `4`.
 
 ---
 
