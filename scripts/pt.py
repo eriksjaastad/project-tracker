@@ -26,7 +26,7 @@ import time
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import NoReturn, Optional
 import subprocess
 
 import click
@@ -220,8 +220,9 @@ def cli(ctx):
     # Phase 2.1a step 5 — surface any unapplied migrations so the
     # operator knows to run `pt db migrate`. Skipped when the user is
     # already running `db migrate` (the fix) or when explicitly silenced.
-    if "--json" in sys.argv:
-        return
+    # Automation callers (cron/SSH) set PT_SUPPRESS_MIGRATION_WARNING=1
+    # to silence; the warning otherwise goes to stderr and never pollutes
+    # stdout JSON output.
     if ctx.invoked_subcommand not in ("db",) and not os.environ.get(
         "PT_SUPPRESS_MIGRATION_WARNING"
     ):
@@ -2359,8 +2360,14 @@ def _emit_json(payload: dict) -> None:
     click.echo(_json_dumps(payload))
 
 
-def _emit_json_error(error: PtJsonError, command: str) -> None:
-    _emit_json({
+def _emit_json_error(error: PtJsonError, command: str, *, err: bool = False) -> NoReturn:
+    """Emit a structured JSON error and exit. Never returns.
+
+    `err=True` routes the JSON to stderr instead of stdout — required for
+    NDJSON streams (e.g. `memory export`) so a mid-stream error doesn't
+    pollute the data channel.
+    """
+    payload = {
         "schema_version": PT_JSON_SCHEMA_VERSION,
         "ok": False,
         "command": command,
@@ -2368,7 +2375,8 @@ def _emit_json_error(error: PtJsonError, command: str) -> None:
             "class": error.error_class,
             "message": error.message,
         },
-    })
+    }
+    click.echo(_json_dumps(payload), err=err)
     raise SystemExit(error.exit_code)
 
 
@@ -2809,7 +2817,7 @@ def memory_export(export_format, since, until, source, project, limit, offset) -
             offset=offset,
         )
     except PtJsonError as exc:
-        _emit_json_error(exc, "memory.export")
+        _emit_json_error(exc, "memory.export", err=True)
     for row in rows:
         click.echo(json.dumps(row, sort_keys=True))
 
