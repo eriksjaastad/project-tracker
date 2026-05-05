@@ -172,3 +172,53 @@ def test_config_show_effective_json(tmp_path: Path) -> None:
     payload = json.loads(result.output)
     assert payload["schema_version"] == "pt.config.v1"
     assert payload["memory_db_path"] == str(db_path)
+
+
+def test_memory_export_emits_ndjson(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["memory", "export", "--format", "ndjson"])
+
+    assert result.exit_code == 0
+    lines = [line for line in result.output.splitlines() if line.strip()]
+    assert len(lines) == 2
+    parsed = [json.loads(line) for line in lines]
+    contents = {row["content"] for row in parsed}
+    assert contents == {
+        "LoopLens needs weekly PT memory analysis",
+        "Hermes should not touch PT databases directly",
+    }
+    for row in parsed:
+        assert "id" in row and "created_at" in row and "metadata" in row
+
+
+def test_memory_export_respects_project_filter(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["memory", "export", "--project", "ai-memory"])
+
+    assert result.exit_code == 0
+    lines = [line for line in result.output.splitlines() if line.strip()]
+    assert len(lines) == 1
+    row = json.loads(lines[0])
+    assert row["project"] == "ai-memory"
+    assert "Hermes" in row["content"]
+
+
+def test_memory_export_error_goes_to_stderr_not_stdout(tmp_path: Path) -> None:
+    """An NDJSON stream must not be polluted by error JSON on stdout."""
+    missing_db = tmp_path / "does-not-exist.db"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["memory", "export"],
+        env={
+            "PT_MEMORY_DB_PATH": str(missing_db),
+            "PT_SUPPRESS_MIGRATION_WARNING": "1",
+            "PT_NO_BANNER": "1",
+        },
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 3
+    assert result.stdout == ""
+    payload = json.loads(result.stderr)
+    assert payload["ok"] is False
+    assert payload["command"] == "memory.export"
+    assert payload["error"]["class"] == "backend_unavailable"
