@@ -4,8 +4,16 @@ Agents write a handoff record when they exit without opening a PR (Phase D
 of the locked-project hygiene workflow). The record captures enough context
 for the resuming agent to continue without re-reading the full session.
 
-Classification: LOCAL_ONLY — handoffs are machine-scoped session artifacts.
-They reference tasks (CRR) by card_id but are never synced across machines.
+Classification: LOCAL_ONLY (by design — see DECISIONS.md "Handoffs are
+LOCAL_ONLY by design")
+---------------------------------------------------------------------------
+A handoff exists *because* there is uncommitted local work in a dirty tree.
+That dirty tree is, by definition, machine-local — it has not been pushed.
+If the handoff replicated cross-machine, an agent on Machine B would read
+"your branch X has dirty work" but the dirty tree itself would still be on
+Machine A with no way to access it. The handoff would be a tease, not a
+resume point. Keeping handoffs LOCAL_ONLY makes the contract honest: a
+handoff record is only meaningful on the machine that produced it.
 """
 
 from __future__ import annotations
