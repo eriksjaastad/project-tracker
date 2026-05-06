@@ -21,7 +21,7 @@ PT_SKIP_DOPPLER=1 ./pt memory recent --since 7d --json  # Read-only cron/SSH mem
 - **Kanban** — Task management across all projects (`pt tasks`)
 - **Dashboard** — Project health, GitHub activity, memory graph visualization
 - **Memory** — Cross-agent semantic search via Open Brain (`pt memory`)
-- **Automation** — Read-only JSON memory commands for SSH/cron integrations (`pt memory recent --json`, `pt doctor --json`)
+- **Automation** — Read-only JSON memory commands for SSH/cron integrations (`pt memory recent --json`, `pt doctor --json`, `pt hygiene --json`)
 - **Info** — Centralized reference store for env vars, credentials, infrastructure (`pt info`)
 - **Graph** — D3.js visualization of file relationships across the ecosystem
 - **Sync Controls** — Replication pause/resume/status plus Mini-local readiness checks for Phase 2 (`pt sync`)
