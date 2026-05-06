@@ -331,6 +331,61 @@ def test_broken_repo_isolated_in_scan(tmp_path: Path, monkeypatch: pytest.Monkey
     assert result.exit_code == 6
 
 
+def test_error_entry_omits_findings_per_schema_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """pt.hygiene.v1 contract: error entries omit `findings` entirely;
+    successful entries include all six finding keys.
+
+    Naive consumers MUST branch on `error` before iterating `findings`.
+    An empty findings dict would read as "checked and found nothing" —
+    wrong semantics. Absence reads correctly as "couldn't check."
+    """
+    import pt as pt_mod
+
+    for name in ("clean-one", "broken-one"):
+        repo = tmp_path / name
+        repo.mkdir()
+        _init_git_repo(repo)
+
+    real_scan = pt_mod._hygiene_scan_repo
+
+    def fake_scan(repo_dir: Path, json_mode: bool):
+        if repo_dir.name == "broken-one":
+            raise PermissionError("simulated scan failure")
+        return real_scan(repo_dir, json_mode)
+
+    monkeypatch.setattr(pt_mod, "_hygiene_scan_repo", fake_scan)
+
+    result = _invoke(tmp_path, ["hygiene", "--json"])
+    payload = json.loads(result.output)
+    by_name = {r["project"]: r for r in payload["results"]}
+
+    # Error entry: error present, findings ABSENT
+    broken = by_name["broken-one"]
+    assert "error" in broken
+    assert broken["error"]["class"] == "PermissionError"
+    assert "findings" not in broken, (
+        "Schema contract: error entries must omit `findings` so naive "
+        "consumers iterating findings KeyError loudly rather than reading "
+        "an empty dict as 'checked and found nothing'."
+    )
+
+    # Clean entry: findings present with all six keys
+    clean = by_name["clean-one"]
+    assert "error" not in clean
+    assert "findings" in clean
+    expected_keys = {
+        "dirty_tree",
+        "local_only_branches",
+        "branches_ahead_of_remote",
+        "stashes",
+        "open_pr_drift",
+        "stale_progress_md",
+    }
+    assert expected_keys <= set(clean["findings"].keys())
+
+
 # ---------------------------------------------------------------------------
 # PROGRESS.md exclusion in stale check (HIGH #2)
 # ---------------------------------------------------------------------------

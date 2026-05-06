@@ -720,11 +720,14 @@ def hygiene(json_output: bool, project_name: Optional[str], quiet: bool) -> None
         try:
             repo_result = _hygiene_scan_repo(repo_dir, json_output)
         except Exception as exc:  # noqa: BLE001 — isolate per-repo failures
+            # Schema contract: error entries OMIT the "findings" key entirely.
+            # Consumers MUST check for "error" before accessing "findings".
+            # An empty findings dict would falsely read as "we checked and
+            # found nothing"; absence reads correctly as "we couldn't check."
             repo_result = {
                 "project": repo_dir.name,
                 "path": str(repo_dir),
                 "clean": False,
-                "findings": {},
                 "error": {
                     "class": exc.__class__.__name__,
                     "message": str(exc),
