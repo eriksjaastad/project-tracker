@@ -3,31 +3,52 @@
 Schema version: pt.handoff.v1
 
 Uses CliRunner (Click 8.3+, no mix_stderr kwarg).
-Each test sets PT_DB_PATH to a tmp_path-based DB and runs the migration
-(via _ensure_handoffs_table, which is called inside every command) so the
-schema is always up to date before assertions.
+Each test sets PT_DB_PATH to a tmp_path-based DB and applies the real
+migration (010_add_handoffs_table.py) via the migration runner — no
+parallel DDL string is maintained inside the test suite.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
 from click.testing import CliRunner
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
+sys.path.insert(0, str(SCRIPTS_DIR))
 
-from pt import cli
+from pt import cli  # noqa: E402 — path setup precedes import
+from db.migration_runner import (  # noqa: E402
+    apply_migration,
+    discover_migrations,
+)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+_MIGRATIONS_DIR = SCRIPTS_DIR / "db" / "migrations"
+
+
+def _apply_handoffs_migration(conn: sqlite3.Connection) -> None:
+    """Run migration 010 (handoffs table) using the real migration runner."""
+    migrations = discover_migrations(_MIGRATIONS_DIR)
+    target = next(m for m in migrations if m.version == 10)
+    # Ensure schema_migrations ledger exists (the runner expects it).
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations ("
+        "version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
+    )
+    apply_migration(conn, target)
+
+
 def _make_tracker_db(path: Path) -> None:
-    """Create a minimal tracker DB with a tasks row for card_id=6151."""
+    """Create a tracker DB with a tasks row for card 6151 + run migration 010."""
     conn = sqlite3.connect(path)
     try:
         conn.execute("""
@@ -48,6 +69,7 @@ def _make_tracker_db(path: Path) -> None:
              "2026-05-05T00:00:00Z", "2026-05-05T00:00:00Z"),
         )
         conn.commit()
+        _apply_handoffs_migration(conn)
     finally:
         conn.close()
 
@@ -417,3 +439,155 @@ def test_handoff_error_path_emits_ok_false(tmp_path: Path) -> None:
     assert payload["ok"] is False
     assert "class" in payload["error"]
     assert "message" in payload["error"]
+
+
+# ---------------------------------------------------------------------------
+# MEDIUM #1 — _auto_classify_files surfaces failures via stderr warnings
+# ---------------------------------------------------------------------------
+
+def test_auto_files_warns_on_git_missing(tmp_path: Path, monkeypatch) -> None:
+    """If git binary is unavailable, --auto-files emits stderr warning and
+    still creates a handoff with an empty file_list."""
+    db_path = tmp_path / "tracker.db"
+    _make_tracker_db(db_path)
+
+    import pt as pt_module
+
+    def _raise_fnf(*args, **kwargs):
+        raise FileNotFoundError("git not found")
+
+    monkeypatch.setattr(pt_module.subprocess, "run", _raise_fnf)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["handoff", "create", "6151", "--json", "--auto-files"] + _REQUIRED_CREATE_ARGS,
+        env={**_COMMON_ENV, "PT_DB_PATH": str(db_path)},
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "git not available" in result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["result"]["file_list"] == []
+
+
+def test_auto_files_warns_on_git_nonzero_exit(tmp_path: Path, monkeypatch) -> None:
+    """If git status returns non-zero exit code, --auto-files emits stderr
+    warning and still creates a handoff with an empty file_list."""
+    db_path = tmp_path / "tracker.db"
+    _make_tracker_db(db_path)
+
+    import pt as pt_module
+
+    def _fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0] if args else [],
+            returncode=128,
+            stdout="",
+            stderr="fatal: not a git repository (or any of the parent directories): .git",
+        )
+
+    monkeypatch.setattr(pt_module.subprocess, "run", _fake_run)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["handoff", "create", "6151", "--json", "--auto-files"] + _REQUIRED_CREATE_ARGS,
+        env={**_COMMON_ENV, "PT_DB_PATH": str(db_path)},
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "exit code 128" in result.stderr
+    assert "not a git repository" in result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["result"]["file_list"] == []
+
+
+# ---------------------------------------------------------------------------
+# LOW #3 — --files element-shape validation
+# ---------------------------------------------------------------------------
+
+def test_handoff_create_files_invalid_element_type(tmp_path: Path) -> None:
+    """--files element that isn't a dict raises validation error."""
+    files_json = json.dumps([1, 2, 3])
+    result = _invoke(
+        tmp_path,
+        ["handoff", "create", "6151", "--json", "--files", files_json] + _REQUIRED_CREATE_ARGS,
+    )
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["ok"] is False
+    assert payload["error"]["class"] == "validation"
+
+
+def test_handoff_create_files_missing_required_keys(tmp_path: Path) -> None:
+    """--files element missing 'classification' raises validation error."""
+    files_json = json.dumps([{"path": "scripts/pt.py"}])
+    result = _invoke(
+        tmp_path,
+        ["handoff", "create", "6151", "--json", "--files", files_json] + _REQUIRED_CREATE_ARGS,
+    )
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["ok"] is False
+    assert payload["error"]["class"] == "validation"
+    assert "missing required keys" in payload["error"]["message"]
+
+
+def test_handoff_create_files_unknown_classification(tmp_path: Path) -> None:
+    """--files element with classification outside the allowed set is rejected."""
+    files_json = json.dumps(
+        [{"path": "scripts/pt.py", "classification": "bogus"}]
+    )
+    result = _invoke(
+        tmp_path,
+        ["handoff", "create", "6151", "--json", "--files", files_json] + _REQUIRED_CREATE_ARGS,
+    )
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["ok"] is False
+    assert payload["error"]["class"] == "validation"
+    assert "classification" in payload["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# LOW #4 — double-resolve idempotency (refuse to overwrite)
+# ---------------------------------------------------------------------------
+
+def test_handoff_resolve_double_refuses(tmp_path: Path) -> None:
+    """Resolving an already-resolved handoff raises a validation error and
+    does NOT overwrite the original resolved_at."""
+    db_path = tmp_path / "tracker.db"
+    _make_tracker_db(db_path)
+    create_result = _invoke_on_db(
+        db_path,
+        ["handoff", "create", "6151", "--json"] + _REQUIRED_CREATE_ARGS,
+    )
+    handoff_id = json.loads(create_result.output)["result"]["id"]
+
+    first = _invoke_on_db(
+        db_path,
+        ["handoff", "resolve", str(handoff_id), "--note", "first", "--json"],
+    )
+    assert first.exit_code == 0, first.output
+    first_resolved_at = json.loads(first.output)["result"]["resolved_at"]
+    assert first_resolved_at is not None
+
+    second = _invoke_on_db(
+        db_path,
+        ["handoff", "resolve", str(handoff_id), "--note", "second", "--json"],
+    )
+    assert second.exit_code == 2, second.output
+    payload = json.loads(second.output)
+    assert payload["ok"] is False
+    assert payload["error"]["class"] == "validation"
+    assert "already resolved" in payload["error"]["message"]
+
+    # Verify the show output still reflects the FIRST resolution.
+    show_result = _invoke_on_db(db_path, ["handoff", "show", str(handoff_id), "--json"])
+    assert show_result.exit_code == 0, show_result.output
+    show_payload = json.loads(show_result.output)
+    assert show_payload["result"]["resolved_at"] == first_resolved_at
+    assert show_payload["result"]["resolved_note"] == "first"

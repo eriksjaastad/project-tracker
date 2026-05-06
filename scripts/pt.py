@@ -4268,39 +4268,40 @@ def _get_tracker_db() -> sqlite3.Connection:
         ) from exc
 
 
-def _ensure_handoffs_table(conn: sqlite3.Connection) -> None:
-    """Create the handoffs table if it doesn't exist yet.
+_HANDOFF_FILE_CLASSIFICATIONS = frozenset(
+    {"committed", "staged", "dirty", "untracked", "discarded"}
+)
 
-    This is a defensive guard for test environments that initialise the DB
-    without running `pt db migrate`. It mirrors the DDL in migration 010.
+
+def _validate_files_array(parsed_files: list) -> None:
+    """Validate that --files JSON contains well-formed elements.
+
+    Each element must be a dict with str `path` and str `classification`,
+    where classification is one of {committed, staged, dirty, untracked,
+    discarded}. Raises PtJsonError on first invalid element.
     """
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS handoffs (
-            id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-            card_id                  INTEGER NOT NULL,
-            project                  TEXT,
-            branch                   TEXT,
-            file_list                TEXT NOT NULL DEFAULT '[]',
-            intent                   TEXT NOT NULL,
-            current_status           TEXT NOT NULL,
-            next_command             TEXT NOT NULL,
-            discard_or_preserve_guidance TEXT NOT NULL,
-            record_type              TEXT NOT NULL DEFAULT 'unfinished'
-                                         CHECK(record_type IN ('unfinished', 'pr_exempt')),
-            pr_exempt_reason         TEXT,
-            pr_exempt_disposition    TEXT
-                                         CHECK(pr_exempt_disposition IN
-                                               ('reverted', 'discarded',
-                                                'left_as_artifact', 'merged_elsewhere',
-                                                NULL)),
-            pr_exempt_approver       TEXT,
-            created_at               TEXT NOT NULL,
-            created_by               TEXT,
-            resolved_at              TEXT,
-            resolved_note            TEXT
-        )
-    """)
-    conn.commit()
+    for i, element in enumerate(parsed_files):
+        if not isinstance(element, dict):
+            raise PtJsonError(
+                "validation",
+                f"--files element {i} must be an object with path/classification",
+                EXIT_VALIDATION,
+            )
+        path = element.get("path")
+        classification = element.get("classification")
+        if not isinstance(path, str) or not isinstance(classification, str):
+            raise PtJsonError(
+                "validation",
+                f"--files element {i} missing required keys path/classification",
+                EXIT_VALIDATION,
+            )
+        if classification not in _HANDOFF_FILE_CLASSIFICATIONS:
+            raise PtJsonError(
+                "validation",
+                f"--files element {i} classification must be one of "
+                f"{sorted(_HANDOFF_FILE_CLASSIFICATIONS)}, got {classification!r}",
+                EXIT_VALIDATION,
+            )
 
 
 def _handoff_row_to_dict(row: sqlite3.Row) -> dict:
@@ -4326,15 +4327,40 @@ def _handoff_row_to_dict(row: sqlite3.Row) -> dict:
 
 
 def _auto_classify_files() -> list[dict]:
-    """Run `git status --porcelain` in cwd and return classified file list."""
+    """Run `git status --porcelain` in cwd and return classified file list.
+
+    Surfaces failures via stderr warnings so callers using --auto-files can
+    tell "no dirty files" from "git unavailable / repo missing / timeout".
+    Returns [] on any failure.
+    """
+    timeout_seconds = 10
     try:
         result = subprocess.run(
             ["git", "status", "--porcelain"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=timeout_seconds,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError:
+        click.echo(
+            "warning: git not available, --auto-files returning empty list",
+            err=True,
+        )
+        return []
+    except subprocess.TimeoutExpired:
+        click.echo(
+            f"warning: git status timed out at {timeout_seconds}s, "
+            "--auto-files returning empty list",
+            err=True,
+        )
+        return []
+    if result.returncode != 0:
+        stderr_excerpt = (result.stderr or "").strip().replace("\n", " ")[:200]
+        click.echo(
+            f"warning: git status returned exit code {result.returncode}, "
+            f"stderr: {stderr_excerpt}, --auto-files returning empty list",
+            err=True,
+        )
         return []
     files: list[dict] = []
     for line in result.stdout.splitlines():
@@ -4449,6 +4475,10 @@ def handoff_create(
                 PtJsonError("validation", f"--files must be a valid JSON array: {exc}", EXIT_VALIDATION),
                 "handoff.create",
             )
+        try:
+            _validate_files_array(parsed_files)
+        except PtJsonError as exc:
+            _emit_json_error(exc, "handoff.create")
     elif auto_files:
         parsed_files = _auto_classify_files()
     else:
@@ -4468,8 +4498,6 @@ def handoff_create(
         _emit_json_error(exc, "handoff.create")
 
     try:
-        _ensure_handoffs_table(conn)
-
         # Validate card_id exists
         row = conn.execute("SELECT id FROM tasks WHERE id = ?", (card_id,)).fetchone()
         if row is None:
@@ -4562,8 +4590,6 @@ def handoff_list(
         _emit_json_error(exc, "handoff.list")
 
     try:
-        _ensure_handoffs_table(conn)
-
         clauses: list[str] = []
         params: list[object] = []
         if card_id is not None:
@@ -4623,7 +4649,6 @@ def handoff_show(handoff_id: int, json_output: bool) -> None:
         _emit_json_error(exc, "handoff.show")
 
     try:
-        _ensure_handoffs_table(conn)
         row = conn.execute(
             "SELECT * FROM handoffs WHERE id = ?", (handoff_id,)
         ).fetchone()
@@ -4686,14 +4711,22 @@ def handoff_resolve(handoff_id: int, note: Optional[str], json_output: bool) -> 
         _emit_json_error(exc, "handoff.resolve")
 
     try:
-        _ensure_handoffs_table(conn)
-
         existing = conn.execute(
-            "SELECT id FROM handoffs WHERE id = ?", (handoff_id,)
+            "SELECT id, resolved_at FROM handoffs WHERE id = ?", (handoff_id,)
         ).fetchone()
         if existing is None:
             _emit_json_error(
                 PtJsonError("validation", f"handoff {handoff_id} does not exist", EXIT_VALIDATION),
+                "handoff.resolve",
+            )
+        if existing["resolved_at"] is not None:
+            _emit_json_error(
+                PtJsonError(
+                    "validation",
+                    f"handoff {handoff_id} is already resolved at "
+                    f"{existing['resolved_at']}; refusing to overwrite",
+                    EXIT_VALIDATION,
+                ),
                 "handoff.resolve",
             )
 

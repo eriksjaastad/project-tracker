@@ -53,3 +53,19 @@ To revisit a decision, don't edit — add a new entry that supersedes it.
 | No backups (trust version control) | Database is not in git; binary files don't diff well |
 
 **Consequences:** Schema changes are slower (additive only). Disk usage increases from dual backups. But task data is protected — recovery from any single point of failure is guaranteed.
+
+---
+
+## Handoffs are LOCAL_ONLY by design
+**Accepted 2026-05-06**
+
+**Context:** Phase D of the locked-project hygiene workflow introduces a `handoffs` table that records structured "unfinished work" / non-PR exit records. Reviewer asked whether this table should replicate cross-machine via CRR.
+
+**Decision:** `handoffs` is classified `LOCAL_ONLY`. A handoff exists *because* there is uncommitted local work in a dirty tree. That dirty tree is, by definition, machine-local — it has not been pushed. If the handoff replicated cross-machine, an agent on Machine B would read "your branch X has dirty work" but the dirty tree itself would still be on Machine A with no way to access it. The handoff would be a tease, not a resume point. Keeping handoffs LOCAL_ONLY makes the contract honest: a handoff record is only meaningful on the machine that produced it.
+
+| Alternative | Why rejected |
+|-------------|-------------|
+| CRR (replicate cross-machine) | Replicates a pointer to dirty work that doesn't exist on the receiving machine — misleading |
+| CONTROL_PLANE | Not a sync coordination primitive; nothing depends on its replication |
+
+**Consequences:** Cross-machine resumption of unfinished work is not supported through `pt handoff`. To carry work across machines an agent must commit (even a WIP commit) and push the branch — at which point the work is no longer "unfinished local" and a Phase C PR-style record is appropriate instead.
