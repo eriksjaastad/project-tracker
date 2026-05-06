@@ -717,7 +717,19 @@ def hygiene(json_output: bool, project_name: Optional[str], quiet: bool) -> None
 
     results = []
     for repo_dir in repo_dirs:
-        repo_result = _hygiene_scan_repo(repo_dir, json_output)
+        try:
+            repo_result = _hygiene_scan_repo(repo_dir, json_output)
+        except Exception as exc:  # noqa: BLE001 — isolate per-repo failures
+            repo_result = {
+                "project": repo_dir.name,
+                "path": str(repo_dir),
+                "clean": False,
+                "findings": {},
+                "error": {
+                    "class": exc.__class__.__name__,
+                    "message": str(exc),
+                },
+            }
         results.append(repo_result)
 
     clean_count = sum(1 for r in results if r["clean"])
@@ -748,6 +760,10 @@ def hygiene(json_output: bool, project_name: Optional[str], quiet: bool) -> None
             status = "clean" if r["clean"] else "FINDINGS"
             console.print(f"[bold]{r['project']}[/bold] ({r['path']}) — {status}")
             if not r["clean"]:
+                if "error" in r:
+                    err = r["error"]
+                    console.print(f"  [red]scan error ({err['class']}):[/red] {err['message']}")
+                    continue
                 f = r["findings"]
                 if f["dirty_tree"]["present"]:
                     files = ", ".join(f["dirty_tree"]["files"][:5])
@@ -812,19 +828,24 @@ def _run_git(repo_dir: Path, args: list[str], timeout: int = 10) -> tuple[str, i
     return result.stdout, result.returncode
 
 
-def _hygiene_dirty_tree(repo_dir: Path) -> dict:
-    """Detect dirty working tree, excluding PROGRESS.md."""
+def _hygiene_non_progress_dirty_files(repo_dir: Path) -> list[str]:
+    """Return dirty file paths from `git status --porcelain`, excluding PROGRESS.md.
+
+    Shared by `_hygiene_dirty_tree` (for the finding) and
+    `_hygiene_stale_progress_md` (to decide whether the repo has uncommitted
+    work other than PROGRESS.md). Returns an empty list on git failures.
+    """
     try:
         stdout, rc = _run_git(repo_dir, ["status", "--porcelain"])
     except (subprocess.TimeoutExpired, OSError):
-        return {"present": False, "files": []}
+        return []
 
-    dirty_files = []
+    dirty_files: list[str] = []
     for line in stdout.splitlines():
         if not line.strip():
             continue
-        # porcelain format: XY filename (or "XY src -> dst" for renames)
-        # columns 0-1 are status codes, column 2 is space, rest is filename
+        # porcelain format: XY filename (or "XY src -> dst" for renames).
+        # columns 0-1 are status codes, column 2 is space, rest is filename.
         path_part = line[3:].strip()
         # For renames: "old -> new", take the new path
         if " -> " in path_part:
@@ -834,6 +855,12 @@ def _hygiene_dirty_tree(repo_dir: Path) -> dict:
             continue
         dirty_files.append(path_part)
 
+    return dirty_files
+
+
+def _hygiene_dirty_tree(repo_dir: Path) -> dict:
+    """Detect dirty working tree, excluding PROGRESS.md."""
+    dirty_files = _hygiene_non_progress_dirty_files(repo_dir)
     return {"present": bool(dirty_files), "files": dirty_files}
 
 
@@ -861,29 +888,43 @@ def _hygiene_local_only_branches(repo_dir: Path) -> dict:
 
 
 def _hygiene_branches_ahead(repo_dir: Path) -> dict:
-    """Detect local branches with commits not yet on origin."""
+    """Detect local branches with commits not yet on their upstream.
+
+    Strategy: list branches with upstreams via for-each-ref, then for each
+    one, count `git rev-list --count <upstream>..<branch>`. This works even
+    when `origin/HEAD` is missing (common in fresh clones / test fixtures)
+    and avoids relying on the for-each-ref %(ahead-behind:...) atom which
+    requires a concrete ref argument.
+    """
     try:
         stdout, rc = _run_git(
             repo_dir,
-            ["branch", "--format=%(refname:short) %(upstream:short) %(ahead-behind:origin/HEAD)"],
+            ["for-each-ref", "--format=%(refname:short)|%(upstream:short)", "refs/heads"],
         )
     except (subprocess.TimeoutExpired, OSError):
         return {"present": False, "branches": []}
 
     ahead_branches = []
     for line in stdout.splitlines():
-        parts = line.strip().split()
-        if len(parts) < 2:
+        if "|" not in line:
             continue
-        branch = parts[0]
-        # ahead-behind appears as "N M" where N is ahead, M is behind
-        # The format includes upstream:short (may be empty) then ahead-behind
-        # We need ahead count: find it via rev-list directly when present
-        # Actually the %(ahead-behind:origin/HEAD) gives "ahead behind" as last two tokens
-        # Try parsing the last two tokens as integers
+        branch, upstream = line.split("|", 1)
+        branch = branch.strip()
+        upstream = upstream.strip()
+        if not upstream:
+            # No upstream -> handled by local_only_branches finding instead
+            continue
         try:
-            ahead = int(parts[-2])
-        except (ValueError, IndexError):
+            count_out, count_rc = _run_git(
+                repo_dir, ["rev-list", "--count", f"{upstream}..{branch}"]
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+        if count_rc != 0:
+            continue
+        try:
+            ahead = int(count_out.strip())
+        except ValueError:
             continue
         if ahead > 0:
             ahead_branches.append({"name": branch, "ahead": ahead})
@@ -984,14 +1025,12 @@ def _hygiene_stale_progress_md(repo_dir: Path) -> dict:
     if age_days <= 7:
         return {"present": False, "age_days": round(age_days, 1)}
 
-    # Check if repo has uncommitted work (re-using dirty tree logic but ALL files including PROGRESS.md)
-    try:
-        stdout, rc = _run_git(repo_dir, ["status", "--porcelain"])
-    except (subprocess.TimeoutExpired, OSError):
-        return {"present": False, "age_days": round(age_days, 1)}
-
-    has_uncommitted = any(line.strip() for line in stdout.splitlines())
-    if not has_uncommitted:
+    # Check if repo has uncommitted work OTHER THAN PROGRESS.md itself.
+    # PROGRESS.md is the documented always-dirty file (see project-tracker
+    # CLAUDE.md), so a repo whose only dirty path is PROGRESS.md is not
+    # "claiming progress without backing" — it has no claim either way.
+    non_progress_dirty = _hygiene_non_progress_dirty_files(repo_dir)
+    if not non_progress_dirty:
         return {"present": False, "age_days": round(age_days, 1)}
 
     return {"present": True, "age_days": round(age_days, 1)}
