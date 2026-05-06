@@ -169,9 +169,14 @@ PT_SKIP_DOPPLER=1 ./pt memory stats --json
 PT_SKIP_DOPPLER=1 ./pt memory export --format ndjson --since 7d --limit 500
 PT_SKIP_DOPPLER=1 ./pt config show --effective --json
 PT_SKIP_DOPPLER=1 ./pt doctor --json
+PT_SKIP_DOPPLER=1 ./pt hygiene --json                         # portfolio-wide git hygiene scan
+PT_SKIP_DOPPLER=1 ./pt hygiene --json --project my-project   # single repo
+PT_SKIP_DOPPLER=1 ./pt hygiene --quiet                        # human output, findings only
 ```
 
 JSON responses include a `schema_version`, `ok`, `read_only`, backend metadata, filters, pagination, and result rows. JSON mode does not mix prose into the payload. Validation errors exit `2`; backend/readiness failures exit `3`; query failures exit `4`.
+
+`pt hygiene --json` emits schema `pt.hygiene.v1`. Exit `0` = all clean; exit `6` = at least one finding (useful for cron branching). Detections: dirty working tree (PROGRESS.md excluded), local-only branches, branches ahead of remote, stashes, open bot PRs older than 24h, stale PROGRESS.md (>7 days old AND repo has uncommitted work).
 
 ---
 
