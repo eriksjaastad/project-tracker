@@ -288,3 +288,275 @@ def test_json_schema_all_keys_present(tmp_path: Path) -> None:
     assert "present" in entry["findings"]["branches_ahead_of_remote"]
     assert "branches" in entry["findings"]["branches_ahead_of_remote"]
     assert "present" in entry["findings"]["stale_progress_md"]
+    assert "age_days" in entry["findings"]["stale_progress_md"]
+
+
+# ---------------------------------------------------------------------------
+# Per-repo isolation (HIGH #1)
+# ---------------------------------------------------------------------------
+
+
+def test_broken_repo_isolated_in_scan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failure in one repo's scan does not abort other repos."""
+    import pt as pt_mod
+
+    # Two healthy repos plus one "broken" one
+    for name in ("alpha", "broken", "gamma"):
+        repo = tmp_path / name
+        repo.mkdir()
+        _init_git_repo(repo)
+
+    real_scan = pt_mod._hygiene_scan_repo
+
+    def fake_scan(repo_dir: Path, json_mode: bool):
+        if repo_dir.name == "broken":
+            raise PermissionError("simulated permission error on broken repo")
+        return real_scan(repo_dir, json_mode)
+
+    monkeypatch.setattr(pt_mod, "_hygiene_scan_repo", fake_scan)
+
+    result = _invoke(tmp_path, ["hygiene", "--json"])
+
+    payload = json.loads(result.output)
+    assert payload["summary"]["total_repos"] == 3
+
+    by_name = {r["project"]: r for r in payload["results"]}
+    assert by_name["broken"]["clean"] is False
+    assert by_name["broken"]["error"]["class"] == "PermissionError"
+    assert "simulated permission error" in by_name["broken"]["error"]["message"]
+    # Other repos must still scan cleanly despite the broken neighbor
+    assert by_name["alpha"]["clean"] is True
+    assert by_name["gamma"]["clean"] is True
+    # Findings exit code fires because at least one repo is non-clean
+    assert result.exit_code == 6
+
+
+# ---------------------------------------------------------------------------
+# PROGRESS.md exclusion in stale check (HIGH #2)
+# ---------------------------------------------------------------------------
+
+
+def _age_progress_md(repo: Path, days: float) -> None:
+    """Set PROGRESS.md's mtime/atime to now - days."""
+    import os as _os
+    import time as _time
+    target = _time.time() - (days * 86400)
+    _os.utime(repo / "PROGRESS.md", (target, target))
+
+
+def test_stale_progress_md_only_progress_dirty_does_not_fire(tmp_path: Path) -> None:
+    """Old PROGRESS.md + ONLY PROGRESS.md is dirty -> stale finding does NOT fire."""
+    repo = tmp_path / "stale-progress-only"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    (repo / "PROGRESS.md").write_text("ancient progress notes\n")
+    _age_progress_md(repo, days=14)
+
+    result = _invoke(tmp_path, ["hygiene", "--json"])
+
+    payload = json.loads(result.output)
+    repo_result = payload["results"][0]
+    stale = repo_result["findings"]["stale_progress_md"]
+    assert stale["present"] is False, (
+        "PROGRESS.md being the ONLY dirty file should NOT trigger the stale "
+        "finding -- the convention is that PROGRESS.md is always dirty."
+    )
+
+
+def test_stale_progress_md_with_other_dirty_file_fires(tmp_path: Path) -> None:
+    """Old PROGRESS.md + non-PROGRESS dirty file -> stale finding fires."""
+    repo = tmp_path / "stale-progress-with-work"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    (repo / "PROGRESS.md").write_text("ancient progress notes\n")
+    _age_progress_md(repo, days=14)
+
+    # Real uncommitted work besides PROGRESS.md
+    (repo / "README.md").write_text("real changes\n")
+
+    result = _invoke(tmp_path, ["hygiene", "--json"])
+
+    payload = json.loads(result.output)
+    repo_result = payload["results"][0]
+    stale = repo_result["findings"]["stale_progress_md"]
+    assert stale["present"] is True
+    assert stale["age_days"] >= 7
+
+
+# ---------------------------------------------------------------------------
+# branches_ahead_of_remote (MEDIUM #3a)
+# ---------------------------------------------------------------------------
+
+
+def test_branch_ahead_of_remote_finding(tmp_path: Path) -> None:
+    """A local branch with commits ahead of its configured upstream is reported."""
+    # Build a bare "remote" and a working clone
+    remote = tmp_path / "remote.git"
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(remote)],
+        check=True, capture_output=True,
+    )
+
+    work = tmp_path / "ahead-repo"
+    subprocess.run(
+        ["git", "clone", str(remote), str(work)],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=str(work), check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=str(work), check=True, capture_output=True,
+    )
+
+    # Initial commit pushed
+    (work / "README.md").write_text("init\n")
+    subprocess.run(["git", "add", "."], cwd=str(work), check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=str(work), check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "push", "-u", "origin", "main"],
+        cwd=str(work), check=True, capture_output=True,
+    )
+
+    # Local commit not yet pushed -> ahead by 1
+    (work / "README.md").write_text("local change\n")
+    subprocess.run(["git", "add", "."], cwd=str(work), check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "local"],
+        cwd=str(work), check=True, capture_output=True,
+    )
+
+    result = _invoke(tmp_path, ["hygiene", "--json", "--project", "ahead-repo"])
+
+    payload = json.loads(result.output)
+    repo_result = payload["results"][0]
+    ahead = repo_result["findings"]["branches_ahead_of_remote"]
+    assert ahead["present"] is True
+    main_entry = next((b for b in ahead["branches"] if b["name"] == "main"), None)
+    assert main_entry is not None, ahead
+    assert main_entry["ahead"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# open_pr_drift (MEDIUM #3b)
+# ---------------------------------------------------------------------------
+
+
+def test_open_pr_drift_populated_via_mocked_gh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mock gh CLI so the bot-PR-older-than-24h path fires."""
+    import pt as pt_mod
+    from datetime import datetime, timezone, timedelta
+
+    repo = tmp_path / "pr-drift-repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    # Need a remote origin so the slug can be parsed
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/example/pr-drift-repo.git"],
+        cwd=str(repo), check=True, capture_output=True,
+    )
+
+    monkeypatch.setattr(pt_mod.shutil, "which", lambda name: "/usr/local/bin/gh")
+
+    old_iso = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    fake_prs = [
+        {"number": 42, "title": "bot pr (old)", "author": {"login": "renovate[bot]"}, "createdAt": old_iso},
+        {"number": 43, "title": "human pr", "author": {"login": "humanuser"}, "createdAt": old_iso},
+    ]
+
+    real_run = subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd and cmd[0].endswith("gh") and "pr" in cmd:
+            class R:
+                returncode = 0
+                stdout = json.dumps(fake_prs)
+                stderr = ""
+            return R()
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(pt_mod.subprocess, "run", fake_run)
+
+    result = _invoke(tmp_path, ["hygiene", "--json", "--project", "pr-drift-repo"])
+
+    payload = json.loads(result.output)
+    repo_result = payload["results"][0]
+    pr_drift = repo_result["findings"]["open_pr_drift"]
+    assert pr_drift["available"] is True
+    assert pr_drift["present"] is True
+    numbers = [pr["number"] for pr in pr_drift["prs"]]
+    assert 42 in numbers
+    # Human PR must NOT be reported
+    assert 43 not in numbers
+
+
+def test_open_pr_drift_graceful_when_gh_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When gh is not on PATH, open_pr_drift reports available=False without crashing."""
+    import pt as pt_mod
+
+    repo = tmp_path / "no-gh-repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    monkeypatch.setattr(pt_mod.shutil, "which", lambda name: None)
+
+    result = _invoke(tmp_path, ["hygiene", "--json", "--project", "no-gh-repo"])
+
+    payload = json.loads(result.output)
+    repo_result = payload["results"][0]
+    pr_drift = repo_result["findings"]["open_pr_drift"]
+    assert pr_drift["available"] is False
+    assert pr_drift["present"] is False
+    assert "reason" in pr_drift
+
+
+def test_open_pr_drift_graceful_when_gh_returns_nonzero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """gh exits non-zero (e.g. auth error) -> available=False, no crash."""
+    import pt as pt_mod
+
+    repo = tmp_path / "gh-fail-repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/example/gh-fail-repo.git"],
+        cwd=str(repo), check=True, capture_output=True,
+    )
+
+    monkeypatch.setattr(pt_mod.shutil, "which", lambda name: "/usr/local/bin/gh")
+
+    real_run = subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd and cmd[0].endswith("gh") and "pr" in cmd:
+            class R:
+                returncode = 4
+                stdout = ""
+                stderr = "auth error: not logged in"
+            return R()
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(pt_mod.subprocess, "run", fake_run)
+
+    result = _invoke(tmp_path, ["hygiene", "--json", "--project", "gh-fail-repo"])
+
+    payload = json.loads(result.output)
+    repo_result = payload["results"][0]
+    pr_drift = repo_result["findings"]["open_pr_drift"]
+    assert pr_drift["available"] is False
+    assert pr_drift["present"] is False
+    assert "auth error" in pr_drift.get("reason", "")
