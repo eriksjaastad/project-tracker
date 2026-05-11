@@ -1,3 +1,10 @@
+# Scan Configuration - Single source of truth for ecosystem scanning
+# Used by: graph_builder.py
+#
+# Philosophy: Track OUR code, skip imported/generated/vendored code.
+# Each project's .gitignore handles project-specific exclusions.
+
+# File extensions to scan
 scan_extensions:
   .md: markdown
   .py: python
@@ -10,11 +17,88 @@ scan_extensions:
   .json: config
   .yaml: config
   .yml: config
+  .sh: shell
+  .bash: shell
+  .zsh: shell
+  .sql: sql
+  .toml: config
+  Makefile: config
+  Dockerfile: config
 
-skip_dirs: []
-skip_files: []
-skip_patterns: []
-ignore_projects: []
-protected_projects: []
+# Directories to skip during scanning
+skip_dirs:
+  # Package managers / vendored dependencies (not our code)
+  - node_modules
+  - venv
+  - .venv
+  - __pycache__
+  - .git
+  - .pytest_cache
+  - .ruff_cache
+  - .mypy_cache
+
+  # Build output / generated artifacts
+  - dist
+  - build
+  - .next
+  - htmlcov
+  - coverage
+
+  # Trash and archives
+  - _trash
+  - trash
+  - _archive
+  - archives
+  - archive
+
+  # Generated/temporary
+  - logs
+  - temp
+  - tmp
+  - cursor_history
+
+  # Agent infrastructure (not project code)
+  - _inbox
+  - _handoff
+
+  # Project-specific junk
+  - comedy-vault
+  - ai_journal_audit_toolkit
+  - gsd
+
+# Files to skip (boilerplate that exists in every project)
+skip_files:
+  - package.json
+  - package-lock.json
+  - __init__.py
+  - CLAUDE.md
+  - mcp_config.json
+  - registry-entry.json
+  - agent_hooks.json
+  - skill.json
+
+# File patterns to skip
+skip_patterns:
+  - "tsconfig*"    # TypeScript configs
+  - "*.d.ts"       # TypeScript declarations
+
+# Projects to completely IGNORE (don't scan, don't modify, don't touch)
+# These are not part of the development ecosystem
+ignore_projects:
+  - writing           # Personal writing - not code
+  - fci-plugins       # Chrome extensions - not code we navigate
+  - openclaw          # External project - do not track
+  - nanoclaw          # External project - do not track
+  - github-repos      # Downloaded repos for study - not our code
+  - kaperion          # Domain placeholder - no active project
+  - dreamhost-backup  # Snapshot of DreamHost site - thousands of WP files, not our code
+
+# Projects that can be scanned/read but should NEVER be modified
+protected_projects:
+  - _tools               # Infrastructure tools - modify manually
+  - ai-journal           # Journal entries are precious
+  - __Knowledge          # Obsidian knowledge base
+
+# Projects exempt from orphan-project alerts (legitimately have no parent)
 orphan_exempt_projects:
   - root
