@@ -40,27 +40,6 @@ Standard restart: `pkill -f "uvicorn dashboard.app" && sleep 1 && doppler run --
 
 Verify it's up: `curl -s http://localhost:8000/api/health` or check `lsof -i :8000`.
 
-## Locked Hygiene Safety Valves
-
-The "locked project hygiene" workflow (umbrella card #6118) requires every edit to land on a feature branch with a PR. Two valves prevent that rule from blocking legitimate work:
-
-**1. `.scratch/` directory.** Every project gets a gitignored `.scratch/` at its repo root (added by the Phase E rollout). Phase B's branch-on-first-edit hook lets edits in any `.scratch/` subdir through unconditionally. Use it for "I just want to read code and poke at it" — local notes, throwaway test scripts, scratch files that should never reach a PR. Files there are invisible to git and exempt from hygiene checks. If something in `.scratch/` turns into real work, move it out before committing.
-
-**2. `pt migration` recording mode.** For bulk operations that touch many paths and need an audit trail (mass renames, doc reorgs, scripted refactors). Wraps the operation in a recorded session:
-
-```bash
-pt migration start <name>           # captures git HEAD + porcelain baseline
-# ... do bulk edits, run scripts, whatever ...
-pt migration finish <name>          # writes MIGRATIONS.md section
-pt migration finish <name> --commit # same, marks as committed
-pt migration finish <name> --revert # restores tracked via `git restore`,
-                                    # trashes untracked via send2trash
-```
-
-State lives in `~/.project-tracker/migrations/<name>.json` (outside the repo, survives `--revert`). The manifest is appended to `MIGRATIONS.md` at the repo root — never overwritten. `--revert` NEVER uses raw `rm`; tracked paths go through `git restore`, untracked paths go through `send2trash`.
-
-This addresses the SIL post-mortem failure mode where 14 untracked markdown files were left from a Documents/ migration with no record of intent or origin.
-
 ## Database Safety — CRITICAL
 
 On 2026-01-27, an agent dropped the tasks table without backup, destroying 94 tasks. The rule below exists because of that incident. Do not skip the gate.
@@ -77,3 +56,61 @@ Before running `DROP`, `DELETE`, `TRUNCATE`, `ALTER` (non-additive), `rm *.db`, 
 Additive migrations (`ALTER TABLE x ADD COLUMN y`) are the only schema changes that do not need the gate. Everything else does. Deletions of user data go through the application API (which auto-backs up) — not raw SQL.
 
 If a schema is broken and fixing it requires a destructive op, **refuse and print manual instructions**. Do not fix it yourself.
+
+<!-- BEGIN scaffold:hygiene -->
+## Locked Hygiene Contract
+
+This project participates in the portfolio-wide locked hygiene contract
+installed by `scaffold install-hygiene`. The contract is enforced by user-scope
+hooks in `~/.claude/` and by `pt` CLI commands in project-tracker. **Do not edit
+this block by hand** — `scaffold sync` rewrites it. Add project-specific notes
+outside the markers.
+
+### What the contract requires
+
+1. **No direct edits on `main`/`master`/`trunk`.** A Stop-event hook blocks
+   `Edit`/`Write`/`MultiEdit`/`NotebookEdit` on tracked files while HEAD is the
+   default branch. Work happens on feature branches; PRs are how changes land.
+2. **No dirty session exits.** A session-end gate refuses to close while any of
+   four conditions hold:
+   - dirty working tree (PROGRESS.md is ignored),
+   - commits ahead of upstream unpushed,
+   - branch with no PR opened,
+   - an authored PR still open against this repo.
+3. **Audit trail for bulk changes.** Multi-file refactors, renames, and doc
+   reorgs run inside `pt migration start <name>` … `pt migration finish <name>`
+   so they are reversible (`--revert` uses `git restore` for tracked paths and
+   `send2trash` for untracked — never raw `rm`).
+4. **Handoffs are first-class.** If a session must end dirty (mid-rebase, mid-
+   investigation), record it: `pt handoff create <card-pk> --branch <b> --intent
+   <s> --status <s> --next <s> --guidance preserve|discard`. The session-end
+   gate honors an open handoff covering the current branch.
+
+### Safety valves
+
+- **`.scratch/`** — every project has a gitignored `.scratch/` at its repo root.
+  The branch-on-first-edit hook lets edits under any `.scratch/` subdir through
+  unconditionally. Use it for throwaway notes, probe scripts, and reading-mode
+  poking. Files there never reach a PR. If `.scratch/` work turns into real work,
+  move it out before committing.
+- **`PT_ALLOW_MAIN_EDIT=1`** — one-shot env var to bypass the main-edit hook.
+  Use sparingly; intended for emergency fixes and tooling that must touch the
+  default branch.
+- **`PT_ALLOW_DIRTY_EXIT=1`** — one-shot env var to bypass the session-end gate.
+  Every use is logged to `~/.claude/state/locked_hygiene/bypasses.jsonl`.
+- **`pt handoff`** — durable alternative to the env-var bypass: the gate
+  recognizes an active handoff record for the current branch and lets the
+  session close.
+
+### Quick reference
+
+| Action                          | Command                                       |
+| ------------------------------- | --------------------------------------------- |
+| Start a recorded bulk migration | `pt migration start <name>`                   |
+| Finish + write `MIGRATIONS.md`  | `pt migration finish <name>`                  |
+| Revert a migration              | `pt migration finish <name> --revert`         |
+| Open a handoff                  | `pt handoff create <card-pk> --branch <b> …`  |
+| List open handoffs              | `pt handoff list`                             |
+| Resolve a handoff               | `pt handoff resolve <id>`                     |
+| Refresh this block portfolio-wide | `scaffold sync --apply` (from project-scaffolding) |
+<!-- END scaffold:hygiene -->
