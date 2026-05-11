@@ -68,11 +68,13 @@ PT_JSON_SCHEMA_VERSION = "pt.v1"
 PT_MEMORY_SCHEMA_VERSION = "pt.memory.v1"
 PT_CONFIG_SCHEMA_VERSION = "pt.config.v1"
 PT_DOCTOR_SCHEMA_VERSION = "pt.doctor.v1"
+PT_HYGIENE_SCHEMA_VERSION = "pt.hygiene.v1"
 
 EXIT_VALIDATION = 2
 EXIT_BACKEND_UNAVAILABLE = 3
 EXIT_QUERY_FAILURE = 4
 EXIT_AUTH = 5
+EXIT_HYGIENE_FINDING = 6
 
 
 def _sync_portfolio_project_info(db: DatabaseManager, cursor: sqlite3.Cursor, project: dict) -> None:
@@ -677,21 +679,364 @@ def sync_project(project_name, no_graph):
 
 
 @cli.command()
-def hygiene():
-    """Check all projects for hygiene issues."""
-    console.print("[bold blue]Checking project hygiene...[/bold blue]")
-    projects = discover_projects(PROJECTS_BASE_DIR)
-    issues_found = 0
-    for p in projects:
-        project_path = Path(p["path"])
-        direction_path = project_path / "DIRECTION.md"
-        if not direction_path.exists():
-            console.print(f"  [yellow]⚠ {p['name']}: missing DIRECTION.md[/yellow]")
-            issues_found += 1
-    if issues_found == 0:
-        console.print("\n[bold green]All projects are clean![/bold green]")
+@click.option("--json", "json_output", is_flag=True, help="Output stable machine-readable JSON (schema: pt.hygiene.v1)")
+@click.option("--project", "project_name", default=None, help="Inspect only one repo by name")
+@click.option("--quiet", is_flag=True, help="Only show repos with at least one finding")
+def hygiene(json_output: bool, project_name: Optional[str], quiet: bool) -> None:
+    """Check portfolio-wide git hygiene state.
+
+    Detects: dirty working tree, local-only branches, branches ahead of remote,
+    stashes, open bot PRs older than 24h, and stale PROGRESS.md files.
+
+    Exit 0 = all repos clean; exit 6 = at least one finding.
+    """
+    from datetime import timezone
+
+    # Read at runtime so test harnesses can override via env var
+    _projects_root_env = os.environ.get("PROJECTS_ROOT", "")
+    projects_root = Path(_projects_root_env).resolve() if _projects_root_env.strip() else Path(PROJECTS_BASE_DIR)
+
+    # Collect git repos to inspect
+    if project_name:
+        candidate = projects_root / project_name
+        if not candidate.is_dir() or not (candidate / ".git").exists():
+            err = PtJsonError(
+                "validation",
+                f"project '{project_name}' not found or not a git repo under {projects_root}",
+                EXIT_VALIDATION,
+            )
+            if json_output:
+                _emit_json_error(err, "hygiene")
+            else:
+                raise click.ClickException(err.message)
+        repo_dirs = [candidate]
     else:
-        console.print(f"\n[bold yellow]Found {issues_found} issues.[/bold yellow]")
+        repo_dirs = sorted(
+            d for d in projects_root.iterdir() if d.is_dir() and (d / ".git").exists()
+        )
+
+    results = []
+    for repo_dir in repo_dirs:
+        try:
+            repo_result = _hygiene_scan_repo(repo_dir, json_output)
+        except Exception as exc:  # noqa: BLE001 — isolate per-repo failures
+            # Schema contract: error entries OMIT the "findings" key entirely.
+            # Consumers MUST check for "error" before accessing "findings".
+            # An empty findings dict would falsely read as "we checked and
+            # found nothing"; absence reads correctly as "we couldn't check."
+            repo_result = {
+                "project": repo_dir.name,
+                "path": str(repo_dir),
+                "clean": False,
+                "error": {
+                    "class": exc.__class__.__name__,
+                    "message": str(exc),
+                },
+            }
+        results.append(repo_result)
+
+    clean_count = sum(1 for r in results if r["clean"])
+    findings_count = len(results) - clean_count
+    has_findings = findings_count > 0
+
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if json_output:
+        payload = {
+            "schema_version": PT_HYGIENE_SCHEMA_VERSION,
+            "ok": not has_findings,
+            "command": "hygiene",
+            "scanned_at": now_utc,
+            "projects_root": str(projects_root),
+            "summary": {
+                "total_repos": len(results),
+                "clean_repos": clean_count,
+                "repos_with_findings": findings_count,
+            },
+            "results": results,
+        }
+        _emit_json(payload)
+    else:
+        for r in results:
+            if quiet and r["clean"]:
+                continue
+            status = "clean" if r["clean"] else "FINDINGS"
+            console.print(f"[bold]{r['project']}[/bold] ({r['path']}) — {status}")
+            if not r["clean"]:
+                if "error" in r:
+                    err = r["error"]
+                    console.print(f"  [red]scan error ({err['class']}):[/red] {err['message']}")
+                    continue
+                f = r["findings"]
+                if f["dirty_tree"]["present"]:
+                    files = ", ".join(f["dirty_tree"]["files"][:5])
+                    console.print(f"  [yellow]dirty tree:[/yellow] {files}")
+                if f["local_only_branches"]["present"]:
+                    branches = ", ".join(f["local_only_branches"]["branches"])
+                    console.print(f"  [yellow]local-only branches:[/yellow] {branches}")
+                if f["branches_ahead_of_remote"]["present"]:
+                    ahead = ", ".join(
+                        f"{b['name']} (+{b['ahead']})"
+                        for b in f["branches_ahead_of_remote"]["branches"]
+                    )
+                    console.print(f"  [yellow]branches ahead:[/yellow] {ahead}")
+                if f["stashes"]["present"]:
+                    console.print(f"  [yellow]stashes:[/yellow] {f['stashes']['count']}")
+                if f["open_pr_drift"].get("present"):
+                    for pr in f["open_pr_drift"]["prs"]:
+                        console.print(
+                            f"  [yellow]open bot PR #{pr['number']}[/yellow]: {pr['title']} "
+                            f"({pr['age_hours']:.1f}h old)"
+                        )
+                if f["stale_progress_md"]["present"]:
+                    console.print(
+                        f"  [yellow]stale PROGRESS.md:[/yellow] {f['stale_progress_md']['age_days']} days old"
+                    )
+
+    if has_findings:
+        raise SystemExit(EXIT_HYGIENE_FINDING)
+
+
+def _hygiene_scan_repo(repo_dir: Path, json_mode: bool) -> dict:
+    """Run all hygiene detections for a single git repo directory."""
+    findings = {
+        "dirty_tree": _hygiene_dirty_tree(repo_dir),
+        "local_only_branches": _hygiene_local_only_branches(repo_dir),
+        "branches_ahead_of_remote": _hygiene_branches_ahead(repo_dir),
+        "stashes": _hygiene_stashes(repo_dir),
+        "open_pr_drift": _hygiene_open_pr_drift(repo_dir),
+        "stale_progress_md": _hygiene_stale_progress_md(repo_dir),
+    }
+    clean = not any(
+        (v.get("present", False) if isinstance(v, dict) else False)
+        for v in findings.values()
+    )
+    return {
+        "project": repo_dir.name,
+        "path": str(repo_dir),
+        "clean": clean,
+        "findings": findings,
+    }
+
+
+def _run_git(repo_dir: Path, args: list[str], timeout: int = 10) -> tuple[str, int]:
+    """Run a git command in repo_dir. Returns (stdout, returncode)."""
+    result = subprocess.run(
+        ["git"] + args,
+        cwd=str(repo_dir),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    return result.stdout, result.returncode
+
+
+def _hygiene_non_progress_dirty_files(repo_dir: Path) -> list[str]:
+    """Return dirty file paths from `git status --porcelain`, excluding PROGRESS.md.
+
+    Shared by `_hygiene_dirty_tree` (for the finding) and
+    `_hygiene_stale_progress_md` (to decide whether the repo has uncommitted
+    work other than PROGRESS.md). Returns an empty list on git failures.
+    """
+    try:
+        stdout, rc = _run_git(repo_dir, ["status", "--porcelain"])
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+
+    dirty_files: list[str] = []
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        # porcelain format: XY filename (or "XY src -> dst" for renames).
+        # columns 0-1 are status codes, column 2 is space, rest is filename.
+        path_part = line[3:].strip()
+        # For renames: "old -> new", take the new path
+        if " -> " in path_part:
+            path_part = path_part.split(" -> ", 1)[1]
+        # Exclude PROGRESS.md (documented always-dirty file)
+        if path_part == "PROGRESS.md" or path_part.endswith("/PROGRESS.md"):
+            continue
+        dirty_files.append(path_part)
+
+    return dirty_files
+
+
+def _hygiene_dirty_tree(repo_dir: Path) -> dict:
+    """Detect dirty working tree, excluding PROGRESS.md."""
+    dirty_files = _hygiene_non_progress_dirty_files(repo_dir)
+    return {"present": bool(dirty_files), "files": dirty_files}
+
+
+def _hygiene_local_only_branches(repo_dir: Path) -> dict:
+    """Detect local branches with no upstream tracking remote."""
+    try:
+        stdout, rc = _run_git(
+            repo_dir, ["branch", "--format=%(refname:short) %(upstream)"]
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return {"present": False, "branches": []}
+
+    local_only = []
+    for line in stdout.splitlines():
+        parts = line.strip().split(" ", 1)
+        branch = parts[0]
+        upstream = parts[1].strip() if len(parts) > 1 else ""
+        # Skip main/master/trunk — they may not have upstreams in some setups
+        if branch in ("main", "master", "trunk"):
+            continue
+        if not upstream:
+            local_only.append(branch)
+
+    return {"present": bool(local_only), "branches": local_only}
+
+
+def _hygiene_branches_ahead(repo_dir: Path) -> dict:
+    """Detect local branches with commits not yet on their upstream.
+
+    Strategy: list branches with upstreams via for-each-ref, then for each
+    one, count `git rev-list --count <upstream>..<branch>`. This works even
+    when `origin/HEAD` is missing (common in fresh clones / test fixtures)
+    and avoids relying on the for-each-ref %(ahead-behind:...) atom which
+    requires a concrete ref argument.
+    """
+    try:
+        stdout, rc = _run_git(
+            repo_dir,
+            ["for-each-ref", "--format=%(refname:short)|%(upstream:short)", "refs/heads"],
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return {"present": False, "branches": []}
+
+    ahead_branches = []
+    for line in stdout.splitlines():
+        if "|" not in line:
+            continue
+        branch, upstream = line.split("|", 1)
+        branch = branch.strip()
+        upstream = upstream.strip()
+        if not upstream:
+            # No upstream -> handled by local_only_branches finding instead
+            continue
+        try:
+            count_out, count_rc = _run_git(
+                repo_dir, ["rev-list", "--count", f"{upstream}..{branch}"]
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+        if count_rc != 0:
+            continue
+        try:
+            ahead = int(count_out.strip())
+        except ValueError:
+            continue
+        if ahead > 0:
+            ahead_branches.append({"name": branch, "ahead": ahead})
+
+    return {"present": bool(ahead_branches), "branches": ahead_branches}
+
+
+def _hygiene_stashes(repo_dir: Path) -> dict:
+    """Detect stashes (count > 0)."""
+    try:
+        stdout, rc = _run_git(repo_dir, ["stash", "list"])
+    except (subprocess.TimeoutExpired, OSError):
+        return {"present": False, "count": 0}
+
+    count = len([line for line in stdout.splitlines() if line.strip()])
+    return {"present": count > 0, "count": count}
+
+
+def _hygiene_open_pr_drift(repo_dir: Path) -> dict:
+    """Detect open PRs older than 24h authored by *[bot] identities.
+
+    Uses gh CLI. If gh is unavailable or auth fails, returns available=False.
+    """
+    gh_bin = shutil.which("gh")
+    if not gh_bin:
+        return {"available": False, "present": False, "prs": [], "reason": "gh not found"}
+
+    try:
+        # Try to get the remote URL to determine owner/repo
+        remote_stdout, rc = _run_git(repo_dir, ["remote", "get-url", "origin"])
+        if rc != 0 or not remote_stdout.strip():
+            return {"available": False, "present": False, "prs": [], "reason": "no git remote origin"}
+        remote_url = remote_stdout.strip()
+        # Parse owner/repo from remote URL (https or ssh)
+        import re
+        m = re.search(r"[:/]([^/]+/[^/.]+?)(?:\.git)?$", remote_url)
+        if not m:
+            return {"available": False, "present": False, "prs": [], "reason": f"cannot parse remote: {remote_url}"}
+        repo_slug = m.group(1)
+
+        result = subprocess.run(
+            [
+                gh_bin, "pr", "list",
+                "--repo", repo_slug,
+                "--state", "open",
+                "--json", "number,title,author,createdAt",
+                "--limit", "50",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            reason = result.stderr.strip() or "gh returned non-zero"
+            return {"available": False, "present": False, "prs": [], "reason": reason}
+
+        prs_raw = json.loads(result.stdout)
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        bot_old_prs = []
+        for pr in prs_raw:
+            author = pr.get("author", {}).get("login", "")
+            if not author.endswith("[bot]"):
+                continue
+            created_at_str = pr.get("createdAt", "")
+            try:
+                created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                age_hours = (now - created_at).total_seconds() / 3600
+            except (ValueError, TypeError):
+                age_hours = 0
+            if age_hours > 24:
+                bot_old_prs.append({
+                    "number": pr["number"],
+                    "title": pr["title"],
+                    "age_hours": round(age_hours, 1),
+                    "author": author,
+                })
+
+        return {"available": True, "present": bool(bot_old_prs), "prs": bot_old_prs}
+
+    except subprocess.TimeoutExpired:
+        return {"available": False, "present": False, "prs": [], "reason": "gh timed out"}
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"available": False, "present": False, "prs": [], "reason": str(exc)}
+
+
+def _hygiene_stale_progress_md(repo_dir: Path) -> dict:
+    """Detect a PROGRESS.md that is older than 7 days AND the repo has uncommitted work."""
+    from datetime import timezone
+    progress_path = repo_dir / "PROGRESS.md"
+    if not progress_path.exists():
+        return {"present": False, "age_days": None}
+
+    # Check age
+    mtime = progress_path.stat().st_mtime
+    now_ts = datetime.now(timezone.utc).timestamp()
+    age_days = (now_ts - mtime) / 86400
+    if age_days <= 7:
+        return {"present": False, "age_days": round(age_days, 1)}
+
+    # Check if repo has uncommitted work OTHER THAN PROGRESS.md itself.
+    # PROGRESS.md is the documented always-dirty file (see project-tracker
+    # CLAUDE.md), so a repo whose only dirty path is PROGRESS.md is not
+    # "claiming progress without backing" — it has no claim either way.
+    non_progress_dirty = _hygiene_non_progress_dirty_files(repo_dir)
+    if not non_progress_dirty:
+        return {"present": False, "age_days": round(age_days, 1)}
+
+    return {"present": True, "age_days": round(age_days, 1)}
 
 
 @cli.command()

@@ -169,9 +169,19 @@ PT_SKIP_DOPPLER=1 ./pt memory stats --json
 PT_SKIP_DOPPLER=1 ./pt memory export --format ndjson --since 7d --limit 500
 PT_SKIP_DOPPLER=1 ./pt config show --effective --json
 PT_SKIP_DOPPLER=1 ./pt doctor --json
+PT_SKIP_DOPPLER=1 ./pt hygiene --json                         # portfolio-wide git hygiene scan
+PT_SKIP_DOPPLER=1 ./pt hygiene --json --project my-project   # single repo
+PT_SKIP_DOPPLER=1 ./pt hygiene --quiet                        # human output, findings only
 ```
 
 JSON responses include a `schema_version`, `ok`, `read_only`, backend metadata, filters, pagination, and result rows. JSON mode does not mix prose into the payload. Validation errors exit `2`; backend/readiness failures exit `3`; query failures exit `4`.
+
+`pt hygiene --json` emits schema `pt.hygiene.v1`. Exit `0` = all clean; exit `6` = at least one finding (useful for cron branching). Detections: dirty working tree (PROGRESS.md excluded), local-only branches, branches ahead of remote, stashes, open bot PRs older than 24h, stale PROGRESS.md (>7 days old AND repo has uncommitted work).
+
+**Per-repo result contract (`pt.hygiene.v1`).** Each entry under `results` is one of two disjoint shapes:
+
+- **Successful scan:** `{"project", "path", "clean": bool, "findings": {dirty_tree, local_only_branches, branches_ahead_of_remote, stashes, open_pr_drift, stale_progress_md}}`. All six finding keys are always present; iterate them with `for name, finding in repo["findings"].items(): if finding.get("present"): ...`.
+- **Failed scan (broken repo isolated from siblings):** `{"project", "path", "clean": false, "error": {"class", "message"}}`. **The `findings` key is OMITTED.** Consumers MUST check for `"error"` before accessing `"findings"` — e.g. `if "error" in repo: handle_error(repo) else: iterate(repo["findings"])`. An empty `findings: {}` would read as "checked and found nothing"; absence reads correctly as "couldn't check."
 
 ---
 
