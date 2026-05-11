@@ -32,6 +32,9 @@ You can configure the behavior of Project Tracker using these environment variab
 | `PT_BACKUP_RCLONE_DEST` | Optional rclone destination for one off-machine full backup per day. | unset |
 | `PT_MEMORY_DB_PATH` | Optional override for read-only `pt memory` JSON commands. | `$PROJECTS_ROOT/ai-memory/brain.db` |
 | `PT_SKIP_DOPPLER` | Set to `1` for read-only SSH/cron commands that should not invoke Doppler. | `0` |
+| `PT_MIGRATION_DIR` | Override for `pt migration` state files (testing/isolation). | `~/.project-tracker/migrations/` |
+
+**Locked-hygiene safety valves:** edits in any `.scratch/` directory are exempt from the branch-on-first-edit hook. Use `pt migration start <name>` / `pt migration finish <name> [--commit | --revert]` to record bulk-operation sessions with an appended manifest at `MIGRATIONS.md` — see project `CLAUDE.md` for details.
 
 ---
 
