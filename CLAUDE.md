@@ -40,6 +40,27 @@ Standard restart: `pkill -f "uvicorn dashboard.app" && sleep 1 && doppler run --
 
 Verify it's up: `curl -s http://localhost:8000/api/health` or check `lsof -i :8000`.
 
+## Locked Hygiene Safety Valves
+
+The "locked project hygiene" workflow (umbrella card #6118) requires every edit to land on a feature branch with a PR. Two valves prevent that rule from blocking legitimate work:
+
+**1. `.scratch/` directory.** Every project gets a gitignored `.scratch/` at its repo root (added by the Phase E rollout). Phase B's branch-on-first-edit hook lets edits in any `.scratch/` subdir through unconditionally. Use it for "I just want to read code and poke at it" — local notes, throwaway test scripts, scratch files that should never reach a PR. Files there are invisible to git and exempt from hygiene checks. If something in `.scratch/` turns into real work, move it out before committing.
+
+**2. `pt migration` recording mode.** For bulk operations that touch many paths and need an audit trail (mass renames, doc reorgs, scripted refactors). Wraps the operation in a recorded session:
+
+```bash
+pt migration start <name>           # captures git HEAD + porcelain baseline
+# ... do bulk edits, run scripts, whatever ...
+pt migration finish <name>          # writes MIGRATIONS.md section
+pt migration finish <name> --commit # same, marks as committed
+pt migration finish <name> --revert # restores tracked via `git restore`,
+                                    # trashes untracked via send2trash
+```
+
+State lives in `~/.project-tracker/migrations/<name>.json` (outside the repo, survives `--revert`). The manifest is appended to `MIGRATIONS.md` at the repo root — never overwritten. `--revert` NEVER uses raw `rm`; tracked paths go through `git restore`, untracked paths go through `send2trash`.
+
+This addresses the SIL post-mortem failure mode where 14 untracked markdown files were left from a Documents/ migration with no record of intent or origin.
+
 ## Database Safety — CRITICAL
 
 On 2026-01-27, an agent dropped the tasks table without backup, destroying 94 tasks. The rule below exists because of that incident. Do not skip the gate.
