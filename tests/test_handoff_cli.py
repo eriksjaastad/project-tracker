@@ -472,6 +472,33 @@ def test_auto_files_warns_on_git_missing(tmp_path: Path, monkeypatch) -> None:
     assert payload["result"]["file_list"] == []
 
 
+def test_auto_files_warns_on_git_timeout(tmp_path: Path, monkeypatch) -> None:
+    """If git status times out, --auto-files emits stderr warning and
+    still creates a handoff with an empty file_list."""
+    db_path = tmp_path / "tracker.db"
+    _make_tracker_db(db_path)
+
+    import pt as pt_module
+
+    def _raise_timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["git", "status", "--porcelain"], timeout=10)
+
+    monkeypatch.setattr(pt_module.subprocess, "run", _raise_timeout)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["handoff", "create", "6151", "--json", "--auto-files"] + _REQUIRED_CREATE_ARGS,
+        env={**_COMMON_ENV, "PT_DB_PATH": str(db_path)},
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert "timed out" in result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["result"]["file_list"] == []
+
+
 def test_auto_files_warns_on_git_nonzero_exit(tmp_path: Path, monkeypatch) -> None:
     """If git status returns non-zero exit code, --auto-files emits stderr
     warning and still creates a handoff with an empty file_list."""
@@ -520,6 +547,7 @@ def test_handoff_create_files_invalid_element_type(tmp_path: Path) -> None:
     payload = json.loads(result.output)
     assert payload["ok"] is False
     assert payload["error"]["class"] == "validation"
+    assert "element 0" in payload["error"]["message"]
 
 
 def test_handoff_create_files_missing_required_keys(tmp_path: Path) -> None:
