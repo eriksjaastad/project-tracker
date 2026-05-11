@@ -24,7 +24,7 @@ import sys
 import webbrowser
 import time
 import json
-from datetime import datetime
+from datetime import datetime, timezone as _timezone
 from pathlib import Path
 from typing import NoReturn, Optional
 import subprocess
@@ -4240,6 +4240,529 @@ def _sync_resume_blocked_versions(conn: sqlite3.Connection) -> list[int]:
 
 
 # =============================================================================
+# Handoff group — structured unfinished-work / non-PR records (Phase D)
+# =============================================================================
+
+PT_HANDOFF_SCHEMA_VERSION = "pt.handoff.v1"
+
+
+def _get_tracker_db() -> sqlite3.Connection:
+    """Open the tracker DB read-write; raise PtJsonError if unavailable."""
+    db_path = get_db_path()
+    if not db_path.exists():
+        raise PtJsonError(
+            "backend_unavailable",
+            f"tracker database not found at {db_path}",
+            EXIT_BACKEND_UNAVAILABLE,
+        )
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+    except sqlite3.Error as exc:
+        raise PtJsonError(
+            "backend_unavailable",
+            f"could not open tracker database: {exc}",
+            EXIT_BACKEND_UNAVAILABLE,
+        ) from exc
+
+
+_HANDOFF_FILE_CLASSIFICATIONS = frozenset(
+    {"committed", "staged", "dirty", "untracked", "discarded"}
+)
+
+
+def _validate_files_array(parsed_files: list) -> None:
+    """Validate that --files JSON contains well-formed elements.
+
+    Each element must be a dict with str `path` and str `classification`,
+    where classification is one of {committed, staged, dirty, untracked,
+    discarded}. Raises PtJsonError on first invalid element.
+    """
+    for i, element in enumerate(parsed_files):
+        if not isinstance(element, dict):
+            raise PtJsonError(
+                "validation",
+                f"--files element {i} must be an object with path/classification",
+                EXIT_VALIDATION,
+            )
+        path = element.get("path")
+        classification = element.get("classification")
+        if not isinstance(path, str) or not isinstance(classification, str):
+            raise PtJsonError(
+                "validation",
+                f"--files element {i} missing required keys path/classification",
+                EXIT_VALIDATION,
+            )
+        if classification not in _HANDOFF_FILE_CLASSIFICATIONS:
+            raise PtJsonError(
+                "validation",
+                f"--files element {i} classification must be one of "
+                f"{sorted(_HANDOFF_FILE_CLASSIFICATIONS)}, got {classification!r}",
+                EXIT_VALIDATION,
+            )
+
+
+def _handoff_row_to_dict(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "card_id": row["card_id"],
+        "project": row["project"],
+        "branch": row["branch"],
+        "file_list": json.loads(row["file_list"] or "[]"),
+        "intent": row["intent"],
+        "current_status": row["current_status"],
+        "next_command": row["next_command"],
+        "discard_or_preserve_guidance": row["discard_or_preserve_guidance"],
+        "record_type": row["record_type"],
+        "pr_exempt_reason": row["pr_exempt_reason"],
+        "pr_exempt_disposition": row["pr_exempt_disposition"],
+        "pr_exempt_approver": row["pr_exempt_approver"],
+        "created_at": row["created_at"],
+        "created_by": row["created_by"],
+        "resolved_at": row["resolved_at"],
+        "resolved_note": row["resolved_note"],
+    }
+
+
+def _auto_classify_files() -> list[dict]:
+    """Run `git status --porcelain` in cwd and return classified file list.
+
+    Surfaces failures via stderr warnings so callers using --auto-files can
+    tell "no dirty files" from "git unavailable / repo missing / timeout".
+    Returns [] on any failure.
+    """
+    timeout_seconds = 10
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except FileNotFoundError:
+        click.echo(
+            "warning: git not available, --auto-files returning empty list",
+            err=True,
+        )
+        return []
+    except subprocess.TimeoutExpired:
+        click.echo(
+            f"warning: git status timed out at {timeout_seconds}s, "
+            "--auto-files returning empty list",
+            err=True,
+        )
+        return []
+    if result.returncode != 0:
+        stderr_excerpt = (result.stderr or "").strip().replace("\n", " ")[:200]
+        click.echo(
+            f"warning: git status returned exit code {result.returncode}, "
+            f"stderr: {stderr_excerpt}, --auto-files returning empty list",
+            err=True,
+        )
+        return []
+    files: list[dict] = []
+    for line in result.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        xy = line[:2]
+        path = line[3:].strip()
+        x, y = xy[0], xy[1]
+        if x == "?" and y == "?":
+            classification = "untracked"
+        elif x in ("A", "M", "R", "C", "D") and y == " ":
+            classification = "staged"
+        elif y in ("M", "D"):
+            classification = "dirty"
+        else:
+            classification = "dirty"
+        files.append({"path": path, "classification": classification})
+    return files
+
+
+def _detect_current_branch() -> str:
+    """Return current git branch name, or empty string if not in a repo."""
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+
+
+@click.group(name="handoff", invoke_without_command=True)
+@click.pass_context
+def handoff_group(ctx: click.Context) -> None:
+    """Record structured unfinished-work or non-PR handoff records."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@handoff_group.command(name="create")
+@click.argument("card_id", type=int)
+@click.option("--branch", default=None, help="Git branch (defaults to current branch)")
+@click.option("--intent", required=True, help="One paragraph: what this work intends to do")
+@click.option("--status", "current_status", required=True, help="One paragraph: where work stands now")
+@click.option("--next", "next_command", required=True, help="Literal next bash command for the resuming agent")
+@click.option("--guidance", "discard_or_preserve_guidance", required=True,
+              help="What the resuming agent should do with dirty/staged files")
+@click.option("--files", default=None,
+              help='JSON array of {path, classification} objects. classification ∈ '
+                   '{committed,staged,dirty,untracked,discarded}')
+@click.option("--auto-files", is_flag=True,
+              help="Auto-classify files from `git status --porcelain`")
+@click.option("--type", "record_type", default="unfinished",
+              type=click.Choice(["unfinished", "pr_exempt"]),
+              help="Record type (default: unfinished)")
+@click.option("--reason", default=None, help="Required when --type pr_exempt")
+@click.option("--disposition", default=None,
+              type=click.Choice(["reverted", "discarded", "left_as_artifact", "merged_elsewhere"]),
+              help="Required when --type pr_exempt")
+@click.option("--approver", default=None, help="Who approved the pr_exempt record")
+@click.option("--json", "json_output", is_flag=True,
+              help="Emit the created record as JSON (pt.handoff.v1)")
+def handoff_create(
+    card_id: int,
+    branch: Optional[str],
+    intent: str,
+    current_status: str,
+    next_command: str,
+    discard_or_preserve_guidance: str,
+    files: Optional[str],
+    auto_files: bool,
+    record_type: str,
+    reason: Optional[str],
+    disposition: Optional[str],
+    approver: Optional[str],
+    json_output: bool,
+) -> None:
+    """Record unfinished work or a non-PR exit for CARD_ID."""
+    # Validate pr_exempt requirements
+    if record_type == "pr_exempt":
+        if not reason:
+            _emit_json_error(
+                PtJsonError("validation", "--reason is required when --type pr_exempt", EXIT_VALIDATION),
+                "handoff.create",
+            )
+        if not disposition:
+            _emit_json_error(
+                PtJsonError(
+                    "validation",
+                    "--disposition is required when --type pr_exempt",
+                    EXIT_VALIDATION,
+                ),
+                "handoff.create",
+            )
+
+    # Resolve file list
+    if files and auto_files:
+        _emit_json_error(
+            PtJsonError("validation", "--files and --auto-files are mutually exclusive", EXIT_VALIDATION),
+            "handoff.create",
+        )
+    if files:
+        try:
+            parsed_files = json.loads(files)
+            if not isinstance(parsed_files, list):
+                raise ValueError("must be a JSON array")
+        except (json.JSONDecodeError, ValueError) as exc:
+            _emit_json_error(
+                PtJsonError("validation", f"--files must be a valid JSON array: {exc}", EXIT_VALIDATION),
+                "handoff.create",
+            )
+        try:
+            _validate_files_array(parsed_files)
+        except PtJsonError as exc:
+            _emit_json_error(exc, "handoff.create")
+    elif auto_files:
+        parsed_files = _auto_classify_files()
+    else:
+        parsed_files = []
+
+    # Resolve branch
+    resolved_branch = branch if branch is not None else _detect_current_branch()
+
+    # Resolve created_by
+    resolved_created_by = _resolve_created_by()
+
+    now = datetime.now(_timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    try:
+        conn = _get_tracker_db()
+    except PtJsonError as exc:
+        _emit_json_error(exc, "handoff.create")
+
+    try:
+        # Validate card_id exists
+        row = conn.execute("SELECT id FROM tasks WHERE id = ?", (card_id,)).fetchone()
+        if row is None:
+            _emit_json_error(
+                PtJsonError("validation", f"card {card_id} does not exist", EXIT_VALIDATION),
+                "handoff.create",
+            )
+
+        conn.execute(
+            """
+            INSERT INTO handoffs
+                (card_id, project, branch, file_list, intent, current_status,
+                 next_command, discard_or_preserve_guidance, record_type,
+                 pr_exempt_reason, pr_exempt_disposition, pr_exempt_approver,
+                 created_at, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                card_id,
+                None,  # project resolved below
+                resolved_branch,
+                json.dumps(parsed_files),
+                intent,
+                current_status,
+                next_command,
+                discard_or_preserve_guidance,
+                record_type,
+                reason,
+                disposition,
+                approver,
+                now,
+                resolved_created_by,
+            ),
+        )
+        handoff_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # Resolve project from task
+        task_row = conn.execute(
+            "SELECT project_id FROM tasks WHERE id = ?", (card_id,)
+        ).fetchone()
+        project = task_row["project_id"] if task_row else None
+        conn.execute(
+            "UPDATE handoffs SET project = ? WHERE id = ?", (project, handoff_id)
+        )
+        conn.commit()
+
+        record = conn.execute(
+            "SELECT * FROM handoffs WHERE id = ?", (handoff_id,)
+        ).fetchone()
+        record_dict = _handoff_row_to_dict(record)
+    except PtJsonError:
+        raise
+    except sqlite3.Error as exc:
+        _emit_json_error(
+            PtJsonError("query_failure", f"handoff create failed: {exc}", EXIT_QUERY_FAILURE),
+            "handoff.create",
+        )
+    finally:
+        conn.close()
+
+    if json_output:
+        _emit_json({
+            "schema_version": PT_HANDOFF_SCHEMA_VERSION,
+            "ok": True,
+            "command": "handoff.create",
+            "result": record_dict,
+        })
+    else:
+        click.echo(f"✓ Handoff #{handoff_id} created for card #{card_id} ({record_type})")
+        click.echo(f"  branch: {resolved_branch or '(none)'}")
+        click.echo(f"  intent: {intent[:80]}{'...' if len(intent) > 80 else ''}")
+        click.echo(f"  next:   {next_command[:80]}{'...' if len(next_command) > 80 else ''}")
+
+
+@handoff_group.command(name="list")
+@click.option("--card", "card_id", default=None, type=int, help="Filter by card ID")
+@click.option("--project", default=None, help="Filter by project name")
+@click.option("--unresolved-only", is_flag=True, help="Only show unresolved handoffs")
+@click.option("--json", "json_output", is_flag=True, help="Output machine-readable JSON (pt.handoff.v1)")
+def handoff_list(
+    card_id: Optional[int],
+    project: Optional[str],
+    unresolved_only: bool,
+    json_output: bool,
+) -> None:
+    """List handoff records with optional filters."""
+    try:
+        conn = _get_tracker_db()
+    except PtJsonError as exc:
+        _emit_json_error(exc, "handoff.list")
+
+    try:
+        clauses: list[str] = []
+        params: list[object] = []
+        if card_id is not None:
+            clauses.append("card_id = ?")
+            params.append(card_id)
+        if project:
+            clauses.append("project = ?")
+            params.append(project)
+        if unresolved_only:
+            clauses.append("resolved_at IS NULL")
+
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = conn.execute(
+            f"SELECT * FROM handoffs {where_sql} ORDER BY created_at DESC",
+            params,
+        ).fetchall()
+        records = [_handoff_row_to_dict(r) for r in rows]
+    except PtJsonError:
+        raise
+    except sqlite3.Error as exc:
+        _emit_json_error(
+            PtJsonError("query_failure", f"handoff list failed: {exc}", EXIT_QUERY_FAILURE),
+            "handoff.list",
+        )
+    finally:
+        conn.close()
+
+    if json_output:
+        _emit_json({
+            "schema_version": PT_HANDOFF_SCHEMA_VERSION,
+            "ok": True,
+            "command": "handoff.list",
+            "result": records,
+        })
+        return
+
+    if not records:
+        click.echo("No handoffs found.")
+        return
+
+    for r in records:
+        resolved = r["resolved_at"] or "open"
+        click.echo(
+            f"#{r['id']} card={r['card_id']} type={r['record_type']} "
+            f"resolved={resolved}  {r['intent'][:60]}"
+        )
+
+
+@handoff_group.command(name="show")
+@click.argument("handoff_id", type=int)
+@click.option("--json", "json_output", is_flag=True, help="Output machine-readable JSON (pt.handoff.v1)")
+def handoff_show(handoff_id: int, json_output: bool) -> None:
+    """Show a single handoff record by ID."""
+    try:
+        conn = _get_tracker_db()
+    except PtJsonError as exc:
+        _emit_json_error(exc, "handoff.show")
+
+    try:
+        row = conn.execute(
+            "SELECT * FROM handoffs WHERE id = ?", (handoff_id,)
+        ).fetchone()
+    except sqlite3.Error as exc:
+        _emit_json_error(
+            PtJsonError("query_failure", f"handoff show failed: {exc}", EXIT_QUERY_FAILURE),
+            "handoff.show",
+        )
+    finally:
+        conn.close()
+
+    if row is None:
+        _emit_json_error(
+            PtJsonError("validation", f"handoff {handoff_id} does not exist", EXIT_VALIDATION),
+            "handoff.show",
+        )
+
+    record = _handoff_row_to_dict(row)
+    if json_output:
+        _emit_json({
+            "schema_version": PT_HANDOFF_SCHEMA_VERSION,
+            "ok": True,
+            "command": "handoff.show",
+            "result": record,
+        })
+        return
+
+    click.echo(f"Handoff #{record['id']}")
+    click.echo(f"  card_id:   {record['card_id']}")
+    click.echo(f"  project:   {record['project']}")
+    click.echo(f"  branch:    {record['branch']}")
+    click.echo(f"  type:      {record['record_type']}")
+    click.echo(f"  created:   {record['created_at']}")
+    click.echo(f"  resolved:  {record['resolved_at'] or 'open'}")
+    click.echo(f"\nIntent:\n  {record['intent']}")
+    click.echo(f"\nCurrent status:\n  {record['current_status']}")
+    click.echo(f"\nNext command:\n  {record['next_command']}")
+    click.echo(f"\nGuidance:\n  {record['discard_or_preserve_guidance']}")
+    if record["record_type"] == "pr_exempt":
+        click.echo(f"\nPR-exempt reason: {record['pr_exempt_reason']}")
+        click.echo(f"Disposition:       {record['pr_exempt_disposition']}")
+        click.echo(f"Approver:          {record['pr_exempt_approver']}")
+    if record["file_list"]:
+        click.echo(f"\nFiles ({len(record['file_list'])}):")
+        for f in record["file_list"]:
+            click.echo(f"  [{f.get('classification', '?')}] {f.get('path', '?')}")
+
+
+@handoff_group.command(name="resolve")
+@click.argument("handoff_id", type=int)
+@click.option("--note", default=None, help="Resolution note")
+@click.option("--json", "json_output", is_flag=True, help="Output the updated record as JSON (pt.handoff.v1)")
+def handoff_resolve(handoff_id: int, note: Optional[str], json_output: bool) -> None:
+    """Mark a handoff as resolved."""
+    now = datetime.now(_timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    try:
+        conn = _get_tracker_db()
+    except PtJsonError as exc:
+        _emit_json_error(exc, "handoff.resolve")
+
+    try:
+        existing = conn.execute(
+            "SELECT id, resolved_at FROM handoffs WHERE id = ?", (handoff_id,)
+        ).fetchone()
+        if existing is None:
+            _emit_json_error(
+                PtJsonError("validation", f"handoff {handoff_id} does not exist", EXIT_VALIDATION),
+                "handoff.resolve",
+            )
+        if existing["resolved_at"] is not None:
+            _emit_json_error(
+                PtJsonError(
+                    "validation",
+                    f"handoff {handoff_id} is already resolved at "
+                    f"{existing['resolved_at']}; refusing to overwrite",
+                    EXIT_VALIDATION,
+                ),
+                "handoff.resolve",
+            )
+
+        conn.execute(
+            "UPDATE handoffs SET resolved_at = ?, resolved_note = ? WHERE id = ?",
+            (now, note, handoff_id),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM handoffs WHERE id = ?", (handoff_id,)
+        ).fetchone()
+        record = _handoff_row_to_dict(row)
+    except PtJsonError:
+        raise
+    except sqlite3.Error as exc:
+        _emit_json_error(
+            PtJsonError("query_failure", f"handoff resolve failed: {exc}", EXIT_QUERY_FAILURE),
+            "handoff.resolve",
+        )
+    finally:
+        conn.close()
+
+    if json_output:
+        _emit_json({
+            "schema_version": PT_HANDOFF_SCHEMA_VERSION,
+            "ok": True,
+            "command": "handoff.resolve",
+            "result": record,
+        })
+    else:
+        click.echo(f"✓ Handoff #{handoff_id} resolved at {now}")
+        if note:
+            click.echo(f"  note: {note}")
+
+
+# =============================================================================
 # Register subgroups and run
 # =============================================================================
 
@@ -4256,6 +4779,7 @@ cli.add_command(message_group)
 cli.add_command(skills_group)
 cli.add_command(db_group)
 cli.add_command(sync_group)
+cli.add_command(handoff_group)
 
 if __name__ == "__main__":
     cli()
