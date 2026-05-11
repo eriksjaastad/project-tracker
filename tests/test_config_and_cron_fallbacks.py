@@ -159,11 +159,11 @@ def test_launch_prefers_dot_venv_python(tmp_path):
     assert resolved == str(dot_venv_python)
 
 
-def test_launch_falls_back_to_sys_executable_when_no_venv_exists(tmp_path, monkeypatch):
+def test_launch_exits_when_no_venv_exists(tmp_path):
     project_root = tmp_path / "project-tracker"
     project_root.mkdir()
-    monkeypatch.setattr(pt.sys, "executable", "/tmp/current-python")
 
-    resolved = pt._resolve_dashboard_python(project_root)
+    with pytest.raises(SystemExit) as excinfo:
+        pt._resolve_dashboard_python(project_root)
 
-    assert resolved == "/tmp/current-python"
+    assert excinfo.value.code == 1
