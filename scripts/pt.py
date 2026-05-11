@@ -5108,6 +5108,553 @@ def handoff_resolve(handoff_id: int, note: Optional[str], json_output: bool) -> 
 
 
 # =============================================================================
+# pt migration — snapshot-based bulk-operation recording (Phase F)
+# =============================================================================
+#
+# `pt migration start <name>` captures a baseline (git HEAD + porcelain
+# status) into a state file at PT_MIGRATION_DIR/<name>.json (default
+# ~/.project-tracker/migrations/). `pt migration finish` diffs the current
+# working tree against the baseline and writes a manifest section into
+# MIGRATIONS.md at the repo root (appended, never overwritten).
+#
+# Optional flags:
+#   --commit  marks the session as committed (files left in place)
+#   --revert  restores tracked files via `git restore` and trashes
+#             untracked files via send2trash (NEVER raw rm)
+#
+# State file survives reverts because it lives outside the repo. The DB
+# row in `migrations` mirrors the lifecycle for cross-session visibility.
+# =============================================================================
+
+PT_MIGRATION_SCHEMA_VERSION = "pt.migration.v1"
+
+import re as _re_migration  # noqa: E402  (lazy alias, isolated)
+
+_MIGRATION_NAME_RE = _re_migration.compile(r"^[A-Za-z0-9_-]{1,60}$")
+
+
+def _migration_state_dir() -> Path:
+    """Resolve the directory holding migration state files.
+
+    Respects PT_MIGRATION_DIR for test isolation; otherwise defaults to
+    ~/.project-tracker/migrations/. Creates the directory if missing.
+    """
+    override = os.environ.get("PT_MIGRATION_DIR")
+    if override:
+        d = Path(override)
+    else:
+        d = Path.home() / ".project-tracker" / "migrations"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _migration_state_path(name: str) -> Path:
+    return _migration_state_dir() / f"{name}.json"
+
+
+def _validate_migration_name(name: str) -> None:
+    if not _MIGRATION_NAME_RE.match(name):
+        raise PtJsonError(
+            "validation",
+            f"migration name must match [A-Za-z0-9_-]{{1,60}}, got {name!r}",
+            EXIT_VALIDATION,
+        )
+
+
+def _git_head_sha(repo_dir: Path) -> Optional[str]:
+    """Return current HEAD SHA, or None if outside a repo / git missing."""
+    try:
+        stdout, rc = _run_git(repo_dir, ["rev-parse", "HEAD"])
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+    if rc != 0:
+        return None
+    sha = stdout.strip()
+    return sha or None
+
+
+def _git_porcelain_baseline(repo_dir: Path) -> list[str]:
+    """Return current `git status --porcelain` lines (verbatim) as baseline."""
+    try:
+        stdout, rc = _run_git(repo_dir, ["status", "--porcelain"])
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return []
+    if rc != 0:
+        return []
+    return [line for line in stdout.splitlines() if line.strip()]
+
+
+def _parse_porcelain_paths(lines: list[str]) -> dict[str, str]:
+    """Parse porcelain lines into {path: status} maps.
+
+    Returns a dict keyed by current path (the rename target for renames).
+    Value is a 2-char XY status; we tag untracked '??' specially.
+    """
+    out: dict[str, str] = {}
+    for line in lines:
+        if len(line) < 4:
+            continue
+        xy = line[:2]
+        rest = line[3:].strip()
+        if " -> " in rest:
+            rest = rest.split(" -> ", 1)[1]
+        out[rest] = xy
+    return out
+
+
+def _classify_status(xy: str) -> str:
+    """Classify a porcelain XY status into {staged, dirty, untracked}."""
+    if xy == "??":
+        return "untracked"
+    x, y = xy[0], xy[1]
+    if x in ("A", "M", "R", "C", "D") and y == " ":
+        return "staged"
+    return "dirty"
+
+
+def _diff_porcelain(
+    baseline: list[str], current: list[str]
+) -> tuple[list[dict], list[dict]]:
+    """Diff two porcelain snapshots. Returns (added, modified) classified entries.
+
+    `added` — paths present in current but not baseline.
+    `modified` — paths present in both but with a different XY status.
+    Both lists contain {path, classification, status} dicts.
+    """
+    base_map = _parse_porcelain_paths(baseline)
+    curr_map = _parse_porcelain_paths(current)
+    added: list[dict] = []
+    modified: list[dict] = []
+    for path, xy in curr_map.items():
+        if path not in base_map:
+            added.append(
+                {"path": path, "classification": _classify_status(xy), "status": xy}
+            )
+        elif base_map[path] != xy:
+            modified.append(
+                {"path": path, "classification": _classify_status(xy), "status": xy}
+            )
+    return added, modified
+
+
+@click.group(name="migration", invoke_without_command=True)
+@click.pass_context
+def migration_group(ctx: click.Context) -> None:
+    """Record bulk-operation sessions (start/finish with manifest)."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@migration_group.command(name="start")
+@click.argument("name")
+@click.option("--force", is_flag=True, help="Overwrite an existing unfinished state file")
+@click.option("--json", "json_output", is_flag=True, help="Emit JSON envelope")
+def migration_start(name: str, force: bool, json_output: bool) -> None:
+    """Open a migration recording session named NAME.
+
+    Captures git HEAD and `git status --porcelain` as the baseline. The
+    state file is written to PT_MIGRATION_DIR/<name>.json (default
+    ~/.project-tracker/migrations/) so it survives `--revert` and
+    `trash` operations on the repo.
+    """
+    try:
+        _validate_migration_name(name)
+    except PtJsonError as exc:
+        _emit_json_error(exc, "migration.start")
+
+    state_path = _migration_state_path(name)
+    if state_path.exists() and not force:
+        _emit_json_error(
+            PtJsonError(
+                "validation",
+                f"migration {name!r} already has an unfinished state file at "
+                f"{state_path}; pass --force to overwrite or run "
+                f"`pt migration finish {name}` first",
+                EXIT_VALIDATION,
+            ),
+            "migration.start",
+        )
+
+    repo_dir = Path.cwd()
+    head_sha = _git_head_sha(repo_dir)
+    baseline = _git_porcelain_baseline(repo_dir)
+    now = datetime.now(_timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    resolved_created_by = _resolve_created_by()
+
+    state = {
+        "schema_version": PT_MIGRATION_SCHEMA_VERSION,
+        "name": name,
+        "repo_dir": str(repo_dir),
+        "started_at": now,
+        "baseline_head": head_sha,
+        "baseline_porcelain": baseline,
+        "created_by": resolved_created_by,
+    }
+    state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+    # Best-effort DB row (skipped silently if tracker DB unavailable —
+    # the state file is the source of truth for revert).
+    db_id: Optional[int] = None
+    try:
+        conn = _get_tracker_db()
+    except PtJsonError:
+        conn = None
+    if conn is not None:
+        try:
+            conn.execute(
+                """
+                INSERT INTO migrations
+                    (name, project_id, started_at, status, baseline_head, created_by)
+                VALUES (?, ?, ?, 'recording', ?, ?)
+                """,
+                (name, None, now, head_sha, resolved_created_by),
+            )
+            db_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.commit()
+        except sqlite3.Error:
+            pass
+        finally:
+            conn.close()
+
+    if json_output:
+        _emit_json({
+            "schema_version": PT_MIGRATION_SCHEMA_VERSION,
+            "ok": True,
+            "command": "migration.start",
+            "result": {
+                "name": name,
+                "state_path": str(state_path),
+                "started_at": now,
+                "baseline_head": head_sha,
+                "baseline_files": len(baseline),
+                "db_id": db_id,
+            },
+        })
+    else:
+        click.echo(f"✓ Migration {name!r} started at {now}")
+        click.echo(f"  state: {state_path}")
+        click.echo(f"  HEAD:  {head_sha or '(no HEAD)'}")
+        click.echo(f"  baseline: {len(baseline)} dirty/untracked path(s)")
+
+
+def _append_manifest(
+    repo_dir: Path,
+    name: str,
+    state: dict,
+    finished_at: str,
+    added: list[dict],
+    modified: list[dict],
+    action: str,
+    head_drift_warning: Optional[str],
+) -> Path:
+    """Append a timestamped migration section to MIGRATIONS.md at repo root.
+
+    Returns the manifest path. Never overwrites existing content.
+    """
+    manifest_path = repo_dir / "MIGRATIONS.md"
+    lines: list[str] = []
+    if not manifest_path.exists():
+        lines.append("# Migration Manifests\n")
+        lines.append("")
+        lines.append(
+            "Append-only log of `pt migration` sessions. Each section "
+            "records the paths touched between `start` and `finish` for "
+            "a named bulk operation.\n"
+        )
+        lines.append("")
+    lines.append(f"## {name} — {finished_at}")
+    lines.append("")
+    lines.append(f"- started_at:  `{state.get('started_at')}`")
+    lines.append(f"- finished_at: `{finished_at}`")
+    lines.append(f"- baseline_head: `{state.get('baseline_head') or '(none)'}`")
+    lines.append(f"- action: `{action}`")
+    if head_drift_warning:
+        lines.append(f"- WARNING: {head_drift_warning}")
+    lines.append("")
+    lines.append("### New paths (introduced during session)")
+    if added:
+        for entry in added:
+            lines.append(f"- `[{entry['classification']}]` `{entry['path']}`")
+    else:
+        lines.append("- _(none)_")
+    lines.append("")
+    lines.append("### Modified paths (status changed during session)")
+    if modified:
+        for entry in modified:
+            lines.append(f"- `[{entry['classification']}]` `{entry['path']}`")
+    else:
+        lines.append("- _(none)_")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    with manifest_path.open("a", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return manifest_path
+
+
+def _revert_paths(
+    repo_dir: Path, entries: list[dict]
+) -> tuple[list[str], list[str], list[tuple[str, str]]]:
+    """Revert paths discovered between start and finish.
+
+    Tracked paths (classification staged/dirty) → `git restore --` per path.
+    Untracked paths → send2trash. Already-missing untracked files are
+    reported as "already missing" rather than erroring.
+
+    Returns (restored, trashed, errors) where errors is [(path, reason)].
+    """
+    restored: list[str] = []
+    trashed: list[str] = []
+    errors: list[tuple[str, str]] = []
+
+    tracked = [e for e in entries if e["classification"] in ("staged", "dirty")]
+    untracked = [e for e in entries if e["classification"] == "untracked"]
+
+    # Restore tracked files (one-shot — git restore takes a list).
+    if tracked:
+        paths = [e["path"] for e in tracked]
+        try:
+            stdout, rc = _run_git(repo_dir, ["restore", "--"] + paths)
+            if rc == 0:
+                restored.extend(paths)
+            else:
+                # Best-effort per-path fallback so one bad path doesn't
+                # block the others.
+                for p in paths:
+                    _, rc1 = _run_git(repo_dir, ["restore", "--", p])
+                    if rc1 == 0:
+                        restored.append(p)
+                    else:
+                        errors.append((p, f"git restore exit {rc1}"))
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+            errors.extend((p, f"git restore failed: {exc}") for p in paths)
+
+    # Trash untracked files via send2trash (NEVER raw rm).
+    if untracked:
+        try:
+            from send2trash import send2trash  # type: ignore
+        except ImportError as exc:
+            for e in untracked:
+                errors.append((e["path"], f"send2trash unavailable: {exc}"))
+            return restored, trashed, errors
+
+        for e in untracked:
+            target = repo_dir / e["path"]
+            if not target.exists():
+                errors.append((e["path"], "already missing"))
+                continue
+            try:
+                send2trash(str(target))
+                trashed.append(e["path"])
+            except Exception as exc:  # noqa: BLE001 — trash backend can raise OSError variants
+                errors.append((e["path"], f"send2trash failed: {exc}"))
+
+    return restored, trashed, errors
+
+
+@migration_group.command(name="finish")
+@click.argument("name")
+@click.option("--commit", "commit_flag", is_flag=True, help="Mark session as committed (leaves files in place)")
+@click.option("--revert", "revert_flag", is_flag=True, help="Restore tracked files; trash untracked files")
+@click.option("--json", "json_output", is_flag=True, help="Emit JSON envelope")
+def migration_finish(
+    name: str, commit_flag: bool, revert_flag: bool, json_output: bool
+) -> None:
+    """Close migration NAME and write a manifest section to MIGRATIONS.md.
+
+    Without --commit or --revert, only writes the manifest (files left
+    in place). --commit and --revert are mutually exclusive.
+    """
+    try:
+        _validate_migration_name(name)
+    except PtJsonError as exc:
+        _emit_json_error(exc, "migration.finish")
+
+    if commit_flag and revert_flag:
+        _emit_json_error(
+            PtJsonError(
+                "validation",
+                "--commit and --revert are mutually exclusive",
+                EXIT_VALIDATION,
+            ),
+            "migration.finish",
+        )
+
+    state_path = _migration_state_path(name)
+    if not state_path.exists():
+        _emit_json_error(
+            PtJsonError(
+                "validation",
+                f"no state file for migration {name!r} at {state_path}; "
+                f"run `pt migration start {name}` first",
+                EXIT_VALIDATION,
+            ),
+            "migration.finish",
+        )
+
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        _emit_json_error(
+            PtJsonError(
+                "validation",
+                f"state file at {state_path} is unreadable: {exc}",
+                EXIT_VALIDATION,
+            ),
+            "migration.finish",
+        )
+
+    repo_dir = Path(state.get("repo_dir") or Path.cwd())
+    baseline_head: Optional[str] = state.get("baseline_head")
+    current_head = _git_head_sha(repo_dir)
+    head_drift_warning: Optional[str] = None
+    if baseline_head and current_head and current_head != baseline_head:
+        head_drift_warning = (
+            f"HEAD drifted from baseline {baseline_head[:12]} "
+            f"to {current_head[:12]}; revert will restore against current HEAD"
+        )
+
+    baseline = state.get("baseline_porcelain", []) or []
+    current = _git_porcelain_baseline(repo_dir)
+    added, modified = _diff_porcelain(baseline, current)
+
+    finished_at = datetime.now(_timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Decide action label.
+    if revert_flag:
+        action = "reverted"
+    elif commit_flag:
+        action = "committed"
+    else:
+        action = "manifest-only"
+
+    revert_summary: dict = {"restored": [], "trashed": [], "errors": []}
+    if revert_flag:
+        # Revert both added (new in session) and modified (changed in session).
+        all_entries = added + modified
+        restored, trashed, errors = _revert_paths(repo_dir, all_entries)
+        revert_summary = {
+            "restored": restored,
+            "trashed": trashed,
+            "errors": [{"path": p, "reason": r} for p, r in errors],
+        }
+
+    manifest_path = _append_manifest(
+        repo_dir, name, state, finished_at, added, modified, action, head_drift_warning
+    )
+
+    # Update DB row if present.
+    try:
+        conn = _get_tracker_db()
+    except PtJsonError:
+        conn = None
+    if conn is not None:
+        try:
+            status_value = {
+                "manifest-only": "finished",
+                "committed": "committed",
+                "reverted": "reverted",
+            }[action]
+            conn.execute(
+                """
+                UPDATE migrations
+                SET finished_at = ?, status = ?, manifest_path = ?
+                WHERE name = ? AND status = 'recording'
+                """,
+                (finished_at, status_value, str(manifest_path), name),
+            )
+            conn.commit()
+        except sqlite3.Error:
+            pass
+        finally:
+            conn.close()
+
+    # Remove the state file so the name is reusable.
+    try:
+        state_path.unlink()
+    except OSError:
+        pass
+
+    if json_output:
+        _emit_json({
+            "schema_version": PT_MIGRATION_SCHEMA_VERSION,
+            "ok": True,
+            "command": "migration.finish",
+            "result": {
+                "name": name,
+                "finished_at": finished_at,
+                "action": action,
+                "manifest_path": str(manifest_path),
+                "added": added,
+                "modified": modified,
+                "head_drift_warning": head_drift_warning,
+                "revert_summary": revert_summary,
+            },
+        })
+        return
+
+    click.echo(f"✓ Migration {name!r} finished at {finished_at}")
+    click.echo(f"  action:   {action}")
+    click.echo(f"  manifest: {manifest_path}")
+    click.echo(f"  added:    {len(added)}  modified: {len(modified)}")
+    if head_drift_warning:
+        click.echo(f"  WARNING: {head_drift_warning}")
+    if revert_flag:
+        click.echo(f"  restored: {len(revert_summary['restored'])} tracked path(s)")
+        click.echo(f"  trashed:  {len(revert_summary['trashed'])} untracked path(s)")
+        if revert_summary["errors"]:
+            click.echo(f"  errors:   {len(revert_summary['errors'])}")
+            for e in revert_summary["errors"]:
+                click.echo(f"    - {e['path']}: {e['reason']}")
+
+
+@migration_group.command(name="list")
+@click.option("--json", "json_output", is_flag=True, help="Emit JSON envelope")
+def migration_list(json_output: bool) -> None:
+    """List migration sessions recorded in the tracker DB."""
+    try:
+        conn = _get_tracker_db()
+    except PtJsonError as exc:
+        _emit_json_error(exc, "migration.list")
+
+    try:
+        rows = conn.execute(
+            "SELECT id, name, project_id, started_at, finished_at, status, "
+            "baseline_head, manifest_path, created_by FROM migrations "
+            "ORDER BY started_at DESC"
+        ).fetchall()
+    except sqlite3.Error as exc:
+        _emit_json_error(
+            PtJsonError("query_failure", f"migration list failed: {exc}", EXIT_QUERY_FAILURE),
+            "migration.list",
+        )
+    finally:
+        conn.close()
+
+    records = [dict(r) for r in rows]
+
+    if json_output:
+        _emit_json({
+            "schema_version": PT_MIGRATION_SCHEMA_VERSION,
+            "ok": True,
+            "command": "migration.list",
+            "result": records,
+        })
+        return
+
+    if not records:
+        click.echo("No migrations recorded.")
+        return
+    for r in records:
+        finished = r["finished_at"] or "open"
+        click.echo(
+            f"#{r['id']:>3} {r['name']:<30} {r['status']:<10} "
+            f"started={r['started_at']} finished={finished}"
+        )
+
+
+# =============================================================================
 # Register subgroups and run
 # =============================================================================
 
@@ -5125,6 +5672,7 @@ cli.add_command(skills_group)
 cli.add_command(db_group)
 cli.add_command(sync_group)
 cli.add_command(handoff_group)
+cli.add_command(migration_group)
 
 if __name__ == "__main__":
     cli()

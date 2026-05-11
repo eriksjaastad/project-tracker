@@ -82,7 +82,9 @@ def test_pt_db_migrate_applies_pending_and_reports(
     assert "007_crr_fix_missing_defaults" in result.output
     assert "008_crr_fix_calendar_events_title_date" in result.output
     assert "009_task_display_ids" in result.output
-    assert "applied 8 migration" in result.output
+    assert "010_add_handoffs_table" in result.output
+    assert "011_add_migrations_table" in result.output
+    assert "applied 10 migration" in result.output
 
     conn = sqlite3.connect(fresh_db)
     tables = {
