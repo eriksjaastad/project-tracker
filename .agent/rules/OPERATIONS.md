@@ -75,13 +75,13 @@ pytest tests/test_parsers.py
 ## Troubleshooting
 
 ### Dashboard won't start
-1. Verify the virtual environment is active: `which python` should point to the `venv` directory. See [PROJECT_STRUCTURE_STANDARDS](../../project-scaffolding/Documents/PROJECT_STRUCTURE_STANDARDS.md).
+1. Verify the virtual environment is active: `which python` should point to the `venv` directory.
 2. Ensure required ports (default 8000) are not in use: `lsof -i :8000`.
 3. Check if all dependencies are installed: `pip install -r requirements.txt`.
 
 ### Scan not finding projects
 1. Verify the project root is correct in `config.py` (defaults to `~/projects`).
-2. Ensure projects follow the naming convention and have a `README.md` or `00_Index_*.md` file. See [PROJECT_STRUCTURE_STANDARDS](../../project-scaffolding/Documents/PROJECT_STRUCTURE_STANDARDS.md).
+2. Ensure projects follow the naming convention and have a `README.md` file.
 3. Check the logs for any discovery errors: `tail -f logs/project_tracker.log`.
 
 ---
@@ -106,5 +106,4 @@ pip freeze > requirements.txt
 
 ## Related Documentation
 
-- [PROJECT_KICKOFF_GUIDE](../../project-scaffolding/Documents/PROJECT_KICKOFF_GUIDE.md) - project setup
 - [README](README) - Project Tracker

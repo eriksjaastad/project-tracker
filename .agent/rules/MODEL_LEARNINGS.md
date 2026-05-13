@@ -2,7 +2,7 @@
 
 > **Purpose:** Institutional memory for working with local AI models in this project
 > **Created:** January 11, 2026
-> **Pattern:** From project-scaffolding/Documents/reference/LOCAL_MODEL_LEARNINGS.md
+> **Pattern:** Originally derived from a scaffolding doc (`Documents/reference/LOCAL_MODEL_LEARNINGS.md`) that has since been removed; this file is the live successor.
 
 ---
 

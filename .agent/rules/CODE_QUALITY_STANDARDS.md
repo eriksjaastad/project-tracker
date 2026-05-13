@@ -179,7 +179,7 @@ These standards align with production AI safety patterns used by Google DeepMind
 - Tool execution safety
 - Observability and tracing
 
-See: [trustworthy_ai_report.md](../../project-scaffolding/Documents/reports/trustworthy_ai_report.md)
+See: Trustworthy AI Report *(historical reference — was under scaffolding's `Documents/` folder, since removed)*
 
 **Key takeaway:** Our "scar tissue" approach (building protections after learning what breaks) is a lightweight version of industry red teaming and incident response patterns.
 
@@ -191,7 +191,7 @@ See: [trustworthy_ai_report.md](../../project-scaffolding/Documents/reports/trus
 
 ## Related Documentation
 
-- [CODE_QUALITY_STANDARDS](../../project-scaffolding/Documents/CODE_QUALITY_STANDARDS.md) - code standards
+- This file (`CODE_QUALITY_STANDARDS.md`) is the live source of truth; the older `../../project-scaffolding/Documents/CODE_QUALITY_STANDARDS.md` was removed when scaffolding became install-time-only.
 - [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
 - [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
 - [Trustworthy AI Report](Documents/reports/trustworthy_ai_report.md) - AI safety

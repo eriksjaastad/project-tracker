@@ -14,13 +14,13 @@ Based on `project-scaffolding/README.md` "Quick Start" section:
 
 | Step | README Instruction | Status | Notes |
 |------|-------------------|--------|-------|
-| 1 | Read [PROJECT_KICKOFF_GUIDE](../../project-scaffolding/Documents/PROJECT_KICKOFF_GUIDE.md) | ⚠️ Partial | Should review for any missed steps |
-| 2 | Follow [PROJECT_STRUCTURE_STANDARDS](../../project-scaffolding/Documents/PROJECT_STRUCTURE_STANDARDS.md) | ✅ Done | venv in root, scripts/, data/, Documents/ |
-| 3 | Follow [CODE_QUALITY_STANDARDS](../../project-scaffolding/Documents/CODE_QUALITY_STANDARDS.md) | ⚠️ AUDIT NEEDED | Need to verify 4 critical rules |
+| 1 | Read PROJECT_KICKOFF_GUIDE *(historical — scaffolding `Documents/` folder removed)* | ⚠️ Partial | Should review for any missed steps |
+| 2 | Follow PROJECT_STRUCTURE_STANDARDS *(historical — scaffolding `Documents/` folder removed)* | ✅ Done | venv in root, scripts/, data/, Documents/ |
+| 3 | Follow [CODE_QUALITY_STANDARDS](CODE_QUALITY_STANDARDS.md) | ⚠️ AUDIT NEEDED | Need to verify 4 critical rules |
 | 4 | Copy templates (.cursorrules, CLAUDE.md, etc.) | ✅ Done | Templates applied + safety injection |
 | 5 | Plan using [TIERED_AI_SPRINT_PLANNING](../../ai-usage-billing-tracker/docs/TIERED_AI_SPRINT_PLANNING.md) | ✅ Done | Phase 4 prompts use tiered approach |
 | 6 | Execute with appropriate models | 🔄 In Progress | Today's work uses local models |
-| 7 | Track external resources in [EXTERNAL_RESOURCES](../../project-scaffolding/EXTERNAL_RESOURCES.md) | ✅ Done | Listed: SQLite, FastAPI ($0/mo) |
+| 7 | Track external resources in [EXTERNAL_RESOURCES](../../project-scaffolding/EXTERNAL_RESOURCES.yaml) | ✅ Done | Listed: SQLite, FastAPI ($0/mo) |
 
 ### README Items Not Mentioned But Now Critical
 
@@ -161,7 +161,7 @@ Project-scaffolding has evolved into an ecosystem constitution with **13+ patter
 ---
 
 *This guide will be updated as we progress through the canary test.*
-*See also: [PROJECT_STRUCTURE_STANDARDS](../../project-scaffolding/Documents/PROJECT_STRUCTURE_STANDARDS.md) and [CODE_QUALITY_STANDARDS](../../project-scaffolding/Documents/CODE_QUALITY_STANDARDS.md).*
+*See also: [CODE_QUALITY_STANDARDS](CODE_QUALITY_STANDARDS.md).*
 
 ## Related Documentation
 
