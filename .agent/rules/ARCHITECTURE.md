@@ -78,7 +78,7 @@ Uses SQLite for persistent storage of project metadata, cron job information, AI
 
 ---
 
-*See also: [SCAFFOLDING_TRANSFER_GUIDE](SCAFFOLDING_TRANSFER_GUIDE.md), [PROJECT_STRUCTURE_STANDARDS](../../project-scaffolding/Documents/PROJECT_STRUCTURE_STANDARDS.md), and [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md).*
+*See also: [SCAFFOLDING_TRANSFER_GUIDE](SCAFFOLDING_TRANSFER_GUIDE.md) and [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md).*
 
 ## Related Documentation
 
