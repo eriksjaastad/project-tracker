@@ -4,7 +4,7 @@ This document details the code review findings for the Phase 4 telemetry impleme
 
 > **Review Date:** January 11, 2026
 > **Reviewer:** Claude (Super Manager)
-> **Standards Applied:** `project-scaffolding/Documents/CODE_QUALITY_STANDARDS.md`
+> **Standards Applied:** `.agent/rules/CODE_QUALITY_STANDARDS.md`
 > **Status:** ⚠️ REQUIRES FIXES
 
 ---
@@ -32,7 +32,7 @@ This code review covers the following areas related to the Phase 4 telemetry imp
 
 ## Code Quality Standards Checklist
 
-This checklist is based on the standards defined in `project-scaffolding/Documents/CODE_QUALITY_STANDARDS.md`.
+This checklist is based on the standards defined in `.agent/rules/CODE_QUALITY_STANDARDS.md`.
 
 ### 🚨 Critical Rule #0: Index File
 - [x] **PASS** - `00_Index_project-tracker.md` exists

@@ -40,7 +40,7 @@ PROJECT LIFECYCLE
 - Templates (Documents/, .cursorrules, CLAUDE.md)
 - Patterns (safety systems, tiered sprint planning, etc.)
 - Kickoff guides (how to start a new project)
-- External resources tracking (EXTERNAL_RESOURCES.md)
+- External resources tracking (EXTERNAL_RESOURCES.yaml)
 
 **Audience:** You, when starting new projects OR extracting patterns
 
@@ -106,10 +106,10 @@ PROJECT LIFECYCLE
 ```
 1. Project needs OpenAI
    ↓
-2. Update project-scaffolding/EXTERNAL_RESOURCES.md
+2. Update project-scaffolding/EXTERNAL_RESOURCES.yaml
    (per Cursor user rule)
    ↓
-3. Project-tracker reads EXTERNAL_RESOURCES.md
+3. Project-tracker reads EXTERNAL_RESOURCES.yaml
    ↓
 4. Tracker now shows:
    "image-workflow uses: OpenAI, rclone"
@@ -138,7 +138,7 @@ PROJECT LIFECYCLE
 
 ## Shared Data & Single Sources of Truth
 
-### EXTERNAL_RESOURCES.md
+### EXTERNAL_RESOURCES.yaml
 
 **Lives in:** project-scaffolding  
 **Read by:** project-tracker (for service dependencies)  
@@ -207,15 +207,15 @@ resources = parse_external_resources_md()
 
 ## Technical Integration Points
 
-### 1. Tracker Reads Scaffolding's EXTERNAL_RESOURCES.md
+### 1. Tracker Reads Scaffolding's EXTERNAL_RESOURCES.yaml
 
 ```python
 # project-tracker/src/integrations/scaffolding.py
 
 def get_service_dependencies(project_name: str) -> list[str]:
-    """Read EXTERNAL_RESOURCES.md from scaffolding."""
+    """Read EXTERNAL_RESOURCES.yaml from scaffolding."""
     projects_root = Path(os.getenv("PROJECTS_ROOT", Path.home() / "projects"))
-    path = projects_root / "project-scaffolding" / "EXTERNAL_RESOURCES.md"
+    path = projects_root / "project-scaffolding" / "EXTERNAL_RESOURCES.yaml"
     resources = parse_resources(path.read_text())
     return resources.get(project_name, [])
 ```
@@ -306,7 +306,7 @@ Documents/ Structure:
 2. See: "3d-pose-factory - Cloudflare R2 ($0/mo)"
 3. Done.
 
-**Which tool answers it?** Tracker (reading scaffolding's EXTERNAL_RESOURCES.md)
+**Which tool answers it?** Tracker (reading scaffolding's EXTERNAL_RESOURCES.yaml)
 
 ---
 
@@ -400,7 +400,7 @@ Together they make **scale possible**.
 ## Success Criteria for Integration
 
 **After 1 week:**
-- [ ] Tracker can read EXTERNAL_RESOURCES.md from scaffolding
+- [ ] Tracker can read EXTERNAL_RESOURCES.yaml from scaffolding
 - [ ] Tracker shows which projects use scaffolding templates
 - [ ] Kickoff guide mentions tracker registration
 
@@ -437,7 +437,7 @@ Together they make **scale possible**.
 ### Phase 0 (This Week) - Prove Value
 1. Build basic tracker (SQLite + CLI)
 2. Manually register 3-4 projects
-3. Read EXTERNAL_RESOURCES.md for service deps
+3. Read EXTERNAL_RESOURCES.yaml for service deps
 4. Show it works
 
 ### Phase 1 (Week 2) - Integration
@@ -489,7 +489,6 @@ And it's working.
 
 ## Related Documentation
 
-- [PROJECT_KICKOFF_GUIDE](../../project-scaffolding/Documents/PROJECT_KICKOFF_GUIDE.md) - project setup
 - [Automation Reliability](patterns/automation-reliability.md) - automation
 - [Discord Webhooks Per Project](patterns/discord-webhooks-per-project.md) - Discord
 - [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
