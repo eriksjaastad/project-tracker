@@ -25,7 +25,7 @@ import { PageShell } from './PageShell';
 import './AgenticDashboard.css';
 
 type TimeRange = 'week' | 'month';
-type ToolView = 'all' | 'by-project';
+type ToolView = 'all' | 'by-project' | 'by-model';
 
 const PROJECT_COLORS = [
   '#4f9dff', '#51cf66', '#ff6b6b', '#ffd43b', '#cc5de8',
@@ -134,6 +134,19 @@ export function AgenticDashboard() {
     return toolStats.by_date.map(({ date }) => ({
       date,
       ...Object.fromEntries(toolStats.projects.map(p => [p, dateMap[date]?.[p] ?? 0])),
+    }));
+  }, [toolStats]);
+
+  const modelChartData = useMemo(() => {
+    if (!toolStats) return [];
+    const dateMap: Record<string, Record<string, number>> = {};
+    for (const entry of toolStats.by_model) {
+      if (!dateMap[entry.date]) dateMap[entry.date] = {};
+      dateMap[entry.date][entry.model] = entry.count;
+    }
+    return toolStats.by_date.map(({ date }) => ({
+      date,
+      ...Object.fromEntries((toolStats.models || []).map(m => [m, dateMap[date]?.[m] ?? 0])),
     }));
   }, [toolStats]);
 
@@ -382,6 +395,13 @@ export function AgenticDashboard() {
               >
                 By Project
               </button>
+              <button
+                className={toolView === 'by-model' ? 'active' : ''}
+                onClick={() => setToolView('by-model')}
+                type="button"
+              >
+                By Model
+              </button>
             </div>
           </div>
           {toolStatsLoading ? (
@@ -406,7 +426,7 @@ export function AgenticDashboard() {
                 />
               </LineChart>
             </ResponsiveContainer>
-          ) : (
+          ) : toolView === 'by-project' ? (
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={projectChartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -423,6 +443,27 @@ export function AgenticDashboard() {
                     strokeWidth={2}
                     dot={{ r: 3 }}
                     name={project}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={modelChartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tickFormatter={formatDate} angle={-40} textAnchor="end" height={70} />
+                <YAxis allowDecimals={false} />
+                <Tooltip labelFormatter={(v) => `Date: ${formatDate(v as string)}`} />
+                <Legend />
+                {((toolStats.models) || []).map((model, i) => (
+                  <Line
+                    key={model}
+                    type="monotone"
+                    dataKey={model}
+                    stroke={PROJECT_COLORS[i % PROJECT_COLORS.length]}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    name={model}
                   />
                 ))}
               </LineChart>
