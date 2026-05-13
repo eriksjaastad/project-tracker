@@ -3112,6 +3112,178 @@ async def get_bash_stats(days: int = 30):
     }
 
 
+@app.get("/api/api-cost-stats")
+async def get_api_cost_stats(
+    days: int = 30,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    project: Optional[str] = None,
+    caller: Optional[str] = None,
+):
+    """Per-call API cost time-series from ai-memory's brain.db api_cost_logs
+    table (card #5995). Returns parallel series suitable for the local-cost
+    chart panel.
+
+    Series:
+      by_date    — total cost + call count per day
+      by_model   — total cost + call count per day per model
+      by_project — total cost + call count per day per project
+      by_caller  — total cost + call count per day per caller
+
+    Query params:
+      days:     lookback window 1..365 (default 30)
+      provider: optional filter (e.g. "anthropic")
+      model:    optional filter (exact match against api_cost_logs.model)
+      project:  optional filter
+      caller:   optional filter
+
+    Returns empty series if brain.db is absent, the table doesn't exist
+    yet, or no rows match. Read-only — never modifies brain.db.
+    """
+    projects_root = Path.home() / "projects"
+    brain_db = projects_root / "ai-memory" / "brain.db"
+
+    empty = {
+        "by_date": [],
+        "by_model": [],
+        "by_project": [],
+        "by_caller": [],
+        "models": [],
+        "projects": [],
+        "callers": [],
+        "summary": {
+            "total_calls": 0,
+            "total_cost_usd": 0.0,
+            "window_days": 0,
+        },
+    }
+    if not brain_db.is_file():
+        return empty
+
+    end_date = datetime.now().date()
+    days = min(max(days, 1), 365)
+    start_date = end_date - timedelta(days=days - 1)
+    start_iso = start_date.isoformat()
+
+    # Build WHERE — every user-supplied value parameter-bound.
+    where_parts = ["DATE(timestamp) >= ?"]
+    params: list = [start_iso]
+    if provider is not None:
+        where_parts.append("provider = ?")
+        params.append(provider)
+    if model is not None:
+        where_parts.append("model = ?")
+        params.append(model)
+    if project is not None:
+        where_parts.append("project = ?")
+        params.append(project)
+    if caller is not None:
+        where_parts.append("caller = ?")
+        params.append(caller)
+    where_sql = "WHERE " + " AND ".join(where_parts)
+
+    try:
+        uri = f"file:{brain_db}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=2.0)
+        conn.row_factory = sqlite3.Row
+        try:
+            if conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='api_cost_logs'"
+            ).fetchone() is None:
+                return empty
+
+            by_date_rows = conn.execute(
+                f"""
+                SELECT DATE(timestamp) AS date,
+                       COUNT(*) AS calls,
+                       COALESCE(SUM(cost_usd), 0) AS cost_usd
+                FROM api_cost_logs {where_sql}
+                GROUP BY DATE(timestamp)
+                ORDER BY date ASC
+                """,
+                params,
+            ).fetchall()
+
+            by_model_rows = conn.execute(
+                f"""
+                SELECT DATE(timestamp) AS date,
+                       COALESCE(model, 'unknown') AS model,
+                       COUNT(*) AS calls,
+                       COALESCE(SUM(cost_usd), 0) AS cost_usd
+                FROM api_cost_logs {where_sql}
+                GROUP BY DATE(timestamp), COALESCE(model, 'unknown')
+                ORDER BY date ASC
+                """,
+                params,
+            ).fetchall()
+
+            by_project_rows = conn.execute(
+                f"""
+                SELECT DATE(timestamp) AS date,
+                       COALESCE(project, 'unknown') AS project,
+                       COUNT(*) AS calls,
+                       COALESCE(SUM(cost_usd), 0) AS cost_usd
+                FROM api_cost_logs {where_sql}
+                GROUP BY DATE(timestamp), COALESCE(project, 'unknown')
+                ORDER BY date ASC
+                """,
+                params,
+            ).fetchall()
+
+            by_caller_rows = conn.execute(
+                f"""
+                SELECT DATE(timestamp) AS date,
+                       COALESCE(caller, 'unknown') AS caller,
+                       COUNT(*) AS calls,
+                       COALESCE(SUM(cost_usd), 0) AS cost_usd
+                FROM api_cost_logs {where_sql}
+                GROUP BY DATE(timestamp), COALESCE(caller, 'unknown')
+                ORDER BY date ASC
+                """,
+                params,
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("Failed to read api_cost_logs from brain.db: %s", exc)
+        return empty
+
+    # Zero-fill by_date so the chart x-axis is contiguous.
+    date_to_total = {r["date"]: (r["calls"], r["cost_usd"]) for r in by_date_rows}
+    by_date = []
+    current = start_date
+    total_calls = 0
+    total_cost = 0.0
+    while current <= end_date:
+        ds = current.isoformat()
+        calls, cost = date_to_total.get(ds, (0, 0.0))
+        by_date.append({"date": ds, "calls": calls, "cost_usd": cost})
+        total_calls += calls
+        total_cost += cost
+        current += timedelta(days=1)
+
+    def _rows(records, key: str):
+        return [
+            {"date": r["date"], key: r[key], "calls": r["calls"], "cost_usd": r["cost_usd"]}
+            for r in records
+        ]
+
+    return {
+        "by_date": by_date,
+        "by_model": _rows(by_model_rows, "model"),
+        "by_project": _rows(by_project_rows, "project"),
+        "by_caller": _rows(by_caller_rows, "caller"),
+        "models": sorted({r["model"] for r in by_model_rows}),
+        "projects": sorted({r["project"] for r in by_project_rows}),
+        "callers": sorted({r["caller"] for r in by_caller_rows}),
+        "summary": {
+            "total_calls": total_calls,
+            "total_cost_usd": round(total_cost, 6),
+            "window_days": days,
+        },
+    }
+
+
 # --- Ideas API Endpoints (Task #4583) ---
 
 class IdeaCreateRequest(BaseModel):
