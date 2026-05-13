@@ -181,10 +181,18 @@ export interface ToolStatsByProject {
   count: number;
 }
 
+export interface ToolStatsByModel {
+  date: string;
+  model: string;
+  count: number;
+}
+
 export interface ToolStatsResponse {
   by_date: ToolStatsByDate[];
   by_project: ToolStatsByProject[];
+  by_model: ToolStatsByModel[];
   projects: string[];
+  models: string[];
 }
 
 // Bash error rate (stuck score)
