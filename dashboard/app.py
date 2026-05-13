@@ -2705,19 +2705,37 @@ async def delete_marker(marker_id: str):
 
 
 @app.get("/api/tool-stats")
-async def get_tool_stats(tool: str = "WebSearch", days: int = 30):
+async def get_tool_stats(
+    tool: str = "WebSearch",
+    days: int = 30,
+    model: Optional[str] = None,
+):
     """Tool invocation counts from ai-memory's brain.db tool_invocations table.
 
-    Returns two parallel series for the /agentic chart:
-      by_date   — total calls per day (All Projects view)
+    Returns three parallel time-series for the /agentic chart:
+      by_date    — total calls per day (All Projects view)
       by_project — calls per day per project (By Project view)
+      by_model   — calls per day per model (By Model view; covers card #6048's
+                   April 18 zero-search anomaly visualization)
+
+    Query params:
+      tool:  filter to one tool_name (default WebSearch)
+      days:  lookback window 1..365 (default 30)
+      model: optional filter to one model name. When set, all three series
+             reflect only that model.
 
     Returns empty series if brain.db is absent or the table doesn't exist yet.
     """
     projects_root = Path.home() / "projects"
     brain_db = projects_root / "ai-memory" / "brain.db"
 
-    empty = {"by_date": [], "by_project": [], "projects": []}
+    empty = {
+        "by_date": [],
+        "by_project": [],
+        "by_model": [],
+        "projects": [],
+        "models": [],
+    }
     if not brain_db.is_file():
         return empty
 
@@ -2725,6 +2743,14 @@ async def get_tool_stats(tool: str = "WebSearch", days: int = 30):
     days = min(max(days, 1), 365)
     start_date = end_date - timedelta(days=days - 1)
     start_iso = start_date.isoformat()
+
+    # Shared WHERE-clause params. The model filter is parameter-bound; never
+    # string-interpolated.
+    base_where = "WHERE tool_name = ? AND DATE(invoked_at) >= ?"
+    base_params: list = [tool, start_iso]
+    if model is not None:
+        base_where += " AND model = ?"
+        base_params.append(model)
 
     try:
         uri = f"file:{brain_db}?mode=ro"
@@ -2737,27 +2763,37 @@ async def get_tool_stats(tool: str = "WebSearch", days: int = 30):
                 return empty
 
             by_date_rows = conn.execute(
-                """
+                f"""
                 SELECT DATE(invoked_at) AS date, COUNT(*) AS total
-                FROM tool_invocations
-                WHERE tool_name = ? AND DATE(invoked_at) >= ?
+                FROM tool_invocations {base_where}
                 GROUP BY DATE(invoked_at)
                 ORDER BY date ASC
                 """,
-                (tool, start_iso),
+                base_params,
             ).fetchall()
 
             by_project_rows = conn.execute(
-                """
+                f"""
                 SELECT DATE(invoked_at) AS date,
                        COALESCE(project, 'unknown') AS project,
                        COUNT(*) AS count
-                FROM tool_invocations
-                WHERE tool_name = ? AND DATE(invoked_at) >= ?
+                FROM tool_invocations {base_where}
                 GROUP BY DATE(invoked_at), COALESCE(project, 'unknown')
                 ORDER BY date ASC
                 """,
-                (tool, start_iso),
+                base_params,
+            ).fetchall()
+
+            by_model_rows = conn.execute(
+                f"""
+                SELECT DATE(invoked_at) AS date,
+                       COALESCE(model, 'unknown') AS model,
+                       COUNT(*) AS count
+                FROM tool_invocations {base_where}
+                GROUP BY DATE(invoked_at), COALESCE(model, 'unknown')
+                ORDER BY date ASC
+                """,
+                base_params,
             ).fetchall()
         finally:
             conn.close()
@@ -2779,7 +2815,19 @@ async def get_tool_stats(tool: str = "WebSearch", days: int = 30):
         for row in by_project_rows
     ]
 
-    return {"by_date": by_date, "by_project": by_project, "projects": projects}
+    models = sorted({row["model"] for row in by_model_rows})
+    by_model = [
+        {"date": row["date"], "model": row["model"], "count": row["count"]}
+        for row in by_model_rows
+    ]
+
+    return {
+        "by_date": by_date,
+        "by_project": by_project,
+        "by_model": by_model,
+        "projects": projects,
+        "models": models,
+    }
 
 
 @app.get("/api/bash-stats")
