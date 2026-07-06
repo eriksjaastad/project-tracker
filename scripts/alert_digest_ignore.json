@@ -1,0 +1,13 @@
+{
+  "_comment": "Per-machine ignore list for the portfolio alert digest. project_id values listed here are dropped before the email is rendered. These are infra/scratch/meta dirs, not products that can 'fail' — keep the email high-signal. Edit freely; the digest re-reads this file every run.",
+  "macbook": [
+    "_configs",
+    "_handoff",
+    "_worktrees",
+    "github-repos",
+    "__knowledge",
+    "idea-jar",
+    "writing"
+  ],
+  "mac-mini": []
+}
