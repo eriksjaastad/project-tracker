@@ -282,11 +282,63 @@ def _esc(s: str) -> str:
     )
 
 
-def render_cards_section(tasks: list | None) -> str:
-    """Cards in motion (In Progress + Review) listed; To Do + Backlog counted.
+def _days_since(iso: str | None) -> int | None:
+    """Whole days between the date in an ISO timestamp and today. None if unparseable."""
+    if not iso:
+        return None
+    try:
+        d = datetime.strptime(str(iso)[:10], "%Y-%m-%d").date()
+        return (datetime.now().date() - d).days
+    except (ValueError, TypeError):
+        return None
 
-    A daily list of 345 backlog cards is noise, so only actively-moving cards
-    are shown individually; the rest are summarized.
+
+def _age_human(days: int | None) -> str:
+    if days is None:
+        return "?"
+    if days < 1:
+        return "today"
+    if days < 30:
+        return f"{days}d"
+    return f"~{days // 30}mo"
+
+
+REVIEW_STALE_DAYS = 14  # a card sitting in Review longer than this gets flagged
+
+
+CARD_TITLE_MAX = 80  # keep the email scannable — many cards store a full prompt
+
+
+def _card_line(t: dict, *, show_age: bool = False, review: bool = False) -> str:
+    """One card row: #short title — project [· age]."""
+    did = t.get("display_id") or "?"
+    raw = (t.get("title") or t.get("text") or "(untitled)").strip()
+    # Collapse whitespace/newlines and truncate so one card = one scannable line.
+    raw = " ".join(raw.split())
+    if len(raw) > CARD_TITLE_MAX:
+        raw = raw[:CARD_TITLE_MAX].rstrip() + "…"
+    name = _esc(raw)
+    proj = _esc(t.get("project_id") or "?")
+    age_html = ""
+    if show_age:
+        days = _days_since(t.get("updated_at"))
+        if review and days is not None and days >= REVIEW_STALE_DAYS:
+            age_html = f' <strong style="color:#8a1f1f;">· sitting {_age_human(days)}</strong>'
+        elif days is not None:
+            age_html = f' <span style="color:#999;">· {_age_human(days)}</span>'
+    return (
+        f'<div style="padding:2px 0;">'
+        f'<span style="color:#888;font-variant-numeric:tabular-nums;">#{_esc(did)}</span> '
+        f'{name} <span style="color:#aaa;">— {proj}</span>{age_html}</div>'
+    )
+
+
+def render_cards_section(tasks: list | None) -> str:
+    """All open cards, grouped by status. Short numbers; review-age flagged.
+
+    In Progress / Review / To Do are listed in full; Backlog is grouped by
+    project with counts (listing 345 lines defeats a scannable daily email — but
+    the per-project map still shows where parked/forgotten work lives).
     """
     if tasks is None:
         return (
@@ -294,83 +346,99 @@ def render_cards_section(tasks: list | None) -> str:
             'border-radius:6px;padding:10px;">⚠️ Could not read the board this run.</div>'
         )
 
-    def _label(t):
-        did = t.get("display_id") or ""
-        name = t.get("title") or t.get("text") or "(untitled)"
-        return f"{did} {name}".strip()
-
-    in_motion = [t for t in tasks if t.get("status") in IN_MOTION_STATES]
-    queued = [t for t in tasks if t.get("status") == QUEUED_STATE]
+    in_prog = [t for t in tasks if t.get("status") == "In Progress"]
+    review = [t for t in tasks if t.get("status") == "Review"]
+    todo = [t for t in tasks if t.get("status") == QUEUED_STATE]
     backlog = [t for t in tasks if t.get("status") == BACKLOG_STATE]
 
-    html = ""
-    if in_motion:
-        rows = ""
-        for t in sorted(in_motion, key=lambda x: x.get("project_id") or ""):
-            badge = "🔧" if t["status"] == "In Progress" else "👀"
-            rows += (
-                f'<tr><td style="padding:4px 10px;vertical-align:top;">{badge}</td>'
-                f'<td style="padding:4px 10px;vertical-align:top;">'
-                f'<strong>{_esc(t.get("project_id") or "?")}</strong> '
-                f'<span style="color:#888;">· {_esc(t["status"])}</span><br>'
-                f'<span style="color:#333;">{_esc(_label(t))}</span></td></tr>'
-            )
-        html += (
-            '<div style="font-size:13px;color:#555;margin-bottom:4px;">In motion:</div>'
-            f'<table style="border-collapse:collapse;width:100%;">{rows}</table>'
-        )
-    else:
-        html += '<div style="color:#888;padding:4px 0;">Nothing in progress or in review.</div>'
+    def _subhead(txt):
+        return f'<div style="margin:12px 0 2px;font-weight:600;color:#333;">{txt}</div>'
 
-    # Queued counts per project (compact), then backlog total.
-    if queued:
+    html = ""
+
+    # In Progress — oldest first (a stale in-progress card is a forgotten one).
+    html += _subhead(f"🔧 In Progress ({len(in_prog)})")
+    if in_prog:
+        for t in sorted(in_prog, key=lambda x: _days_since(x.get("updated_at")) or 0, reverse=True):
+            html += _card_line(t, show_age=True)
+    else:
+        html += '<div style="color:#888;">—</div>'
+
+    # Review — oldest first, stale ones flagged in red ("sitting ~2mo").
+    html += _subhead(f"👀 Review ({len(review)})")
+    if review:
+        for t in sorted(review, key=lambda x: _days_since(x.get("updated_at")) or 0, reverse=True):
+            html += _card_line(t, show_age=True, review=True)
+    else:
+        html += '<div style="color:#888;">—</div>'
+
+    # To Do — full list, grouped by project.
+    html += _subhead(f"📋 To Do ({len(todo)})")
+    if todo:
         by_proj = {}
-        for t in queued:
+        for t in todo:
+            by_proj.setdefault(t.get("project_id") or "?", []).append(t)
+        for proj in sorted(by_proj, key=lambda p: (-len(by_proj[p]), p)):
+            for t in by_proj[proj]:
+                html += _card_line(t)
+    else:
+        html += '<div style="color:#888;">—</div>'
+
+    # Backlog — per-project counts only (parked/forgotten work map).
+    html += _subhead(f"🗄️ Backlog ({len(backlog)}) — by project")
+    if backlog:
+        by_proj = {}
+        for t in backlog:
             by_proj[t.get("project_id") or "?"] = by_proj.get(t.get("project_id") or "?", 0) + 1
-        top = ", ".join(f"{_esc(p)} ({n})" for p, n in sorted(by_proj.items(), key=lambda x: -x[1])[:6])
-        html += (
-            f'<div style="margin-top:10px;font-size:13px;color:#555;">'
-            f'To&nbsp;Do: <strong>{len(queued)}</strong> queued — {top}'
-            + (" …" if len(by_proj) > 6 else "")
-            + "</div>"
+        chips = ", ".join(
+            f"{_esc(p)} ({n})" for p, n in sorted(by_proj.items(), key=lambda x: (-x[1], x[0]))
         )
-    html += (
-        f'<div style="margin-top:4px;font-size:12px;color:#999;">'
-        f'Backlog: {len(backlog)} cards (not listed).</div>'
-    )
+        html += f'<div style="color:#666;font-size:13px;line-height:1.6;">{chips}</div>'
+    else:
+        html += '<div style="color:#888;">—</div>'
+
     return html
 
 
-def render_jobs_section(jobs: list | None) -> str:
-    """Scheduled (launchd) jobs with status; failures first."""
+def _render_job_group(jobs: list | None) -> str:
+    """Render one machine's launchd jobs; failures first. None → notice."""
     if jobs is None:
         return (
-            '<div style="color:#8a6d1f;background:#fffbe6;border:1px solid #e6d999;'
-            'border-radius:6px;padding:10px;">⚠️ Could not read scheduled jobs this run.</div>'
+            '<div style="color:#8a6d1f;">⚠️ no job data this run.</div>'
         )
     if not jobs:
-        return '<div style="color:#888;padding:4px 0;">No tracked jobs found.</div>'
+        return '<div style="color:#888;">No tracked jobs found.</div>'
 
     def classify(j):
-        if j["pid"] is not None:
+        if j.get("pid") is not None:
             return ("🟢", "running", 2)
-        if j["last_exit"] == 0:
+        if j.get("last_exit") == 0:
             return ("🟢", "ok", 2)
-        if j["last_exit"] is None:
+        if j.get("last_exit") is None:
             return ("⚪", "never run", 1)
-        return ("🔴", f"FAILED (exit {j['last_exit']})", 0)
+        return ("🔴", f"FAILED (exit {j.get('last_exit')})", 0)
 
     rows = ""
-    for j in sorted(jobs, key=lambda x: (classify(x)[2], x["label"])):
+    for j in sorted(jobs, key=lambda x: (classify(x)[2], x.get("label", ""))):
         dot, state, _ = classify(j)
-        short = j["label"].split(".")[-1]
+        short = j.get("label", "?").split(".")[-1]
         color = "#8a1f1f" if dot == "🔴" else "#333"
         rows += (
             f'<tr><td style="padding:3px 10px;">{dot}</td>'
             f'<td style="padding:3px 10px;">{_esc(short)}</td>'
-            f'<td style="padding:3px 10px;color:{color};">{state}</td></tr>'
+            f'<td style="padding:3px 10px;color:{color};">{_esc(state)}</td></tr>'
         )
     return f'<table style="border-collapse:collapse;width:100%;font-size:13px;">{rows}</table>'
+
+
+def render_jobs_section(macbook_jobs: list | None, mini_jobs: list | None) -> str:
+    """Scheduled jobs for both machines, each machine its own subgroup."""
+    return (
+        '<div style="margin:6px 0 2px;font-weight:600;color:#333;">💻 MacBook</div>'
+        + _render_job_group(macbook_jobs)
+        + '<div style="margin:12px 0 2px;font-weight:600;color:#333;">🖥️ Mac Mini</div>'
+        + _render_job_group(mini_jobs)
+    )
 
 
 def render_mini_section(mini_data: dict | None, ignore: set) -> str:
@@ -470,7 +538,7 @@ def render_html(
   {render_cards_section(tasks)}
 
   <h3 style="border-bottom:2px solid #333;padding-bottom:4px;margin-top:28px;">⏰ Scheduled Jobs</h3>
-  {render_jobs_section(jobs)}
+  {render_jobs_section(jobs, mini_data.get("jobs") if mini_data else None)}
 
   <h3 style="border-bottom:2px solid #333;padding-bottom:4px;margin-top:28px;">💻 MacBook</h3>
   {macbook_body}
