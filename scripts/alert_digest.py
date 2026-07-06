@@ -34,6 +34,7 @@ from pathlib import Path
 # --- Config -----------------------------------------------------------------
 
 ALERTS_URL = os.environ.get("PT_ALERTS_URL", "http://localhost:8000/api/alerts")
+TASKS_URL = os.environ.get("PT_TASKS_URL", "http://localhost:8000/api/tasks")
 RECIPIENT = os.environ.get("ALERT_DIGEST_TO", "spudlogic@gmail.com")
 FROM_ADDR = os.environ.get(
     "ALERT_DIGEST_FROM", "Project Alerts <alerts@send.synthinsightlabs.com>"
@@ -56,6 +57,16 @@ MINI_HOST = os.environ.get("PT_MINI_HOST", "eriks-mac-mini")
 MINI_ENABLED = os.environ.get("PT_MINI_ENABLED", "1") != "0"
 # Projects touched within this window count as "active"; older = stale warning.
 STALE_DAYS = 60
+
+# Kanban card states. "In motion" cards get listed individually in the email;
+# the rest are only counted so a 345-deep backlog doesn't drown the signal.
+IN_MOTION_STATES = ("In Progress", "Review")
+QUEUED_STATE = "To Do"
+BACKLOG_STATE = "Backlog"
+
+# Scheduled jobs we care about (launchd label prefixes). Our portfolio
+# automation runs under these; other system jobs are noise.
+JOB_LABEL_PREFIXES = ("com.eriksjaastad.", "com.pt.")
 
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 3
@@ -161,6 +172,64 @@ def fetch_mini_data() -> dict | None:
     return None
 
 
+def fetch_tasks() -> list | None:
+    """Fetch all Kanban tasks from the dashboard. None on failure (graceful)."""
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            req = urllib.request.Request(TASKS_URL, headers={"User-Agent": BROWSER_UA})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            tasks = payload.get("tasks", []) if isinstance(payload, dict) else payload
+            if not isinstance(tasks, list):
+                raise RuntimeError(f"unexpected /api/tasks shape: {type(tasks).__name__}")
+            log(f"fetched {len(tasks)} tasks (attempt {attempt})")
+            return tasks
+        except Exception as exc:  # noqa: BLE001
+            log(f"WARN tasks fetch attempt {attempt}/{MAX_RETRIES} failed: {exc}")
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_BACKOFF_SECONDS)
+    log("ERROR tasks unreachable after retries")
+    return None
+
+
+def fetch_scheduled_jobs() -> list | None:
+    """Return our launchd jobs with status via `launchctl list`.
+
+    Each item: {"label", "pid" (str or None), "last_exit" (int or None)}.
+    None if launchctl can't be run (graceful degrade). launchctl list columns
+    are: PID, last-exit-status, Label; a numeric PID means currently running and
+    the status is that of the previous run.
+    """
+    try:
+        proc = subprocess.run(
+            ["launchctl", "list"], capture_output=True, text=True, timeout=15
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"launchctl exit {proc.returncode}: {proc.stderr[:200]}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"WARN scheduled-jobs fetch failed: {exc}")
+        return None
+
+    jobs = []
+    for line in proc.stdout.splitlines()[1:]:  # skip header
+        parts = line.split(None, 2)
+        if len(parts) != 3:
+            continue
+        pid_s, status_s, label = parts
+        if not label.startswith(JOB_LABEL_PREFIXES):
+            continue
+        try:
+            last_exit = None if status_s == "-" else int(status_s)
+        except ValueError:
+            # Malformed status column — don't let one bad line crash the digest.
+            last_exit = None
+        jobs.append(
+            {"label": label, "pid": None if pid_s == "-" else pid_s, "last_exit": last_exit}
+        )
+    log(f"scheduled jobs: {len(jobs)} of ours")
+    return jobs
+
+
 # --- Rendering --------------------------------------------------------------
 
 def _summary_counts(alerts: list) -> dict:
@@ -204,6 +273,104 @@ def _render_alert_rows(alerts: list) -> str:
             f'</tr>'
         )
     return "\n".join(rows)
+
+
+def _esc(s: str) -> str:
+    """Minimal HTML escape for user-supplied card text."""
+    return (
+        str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    )
+
+
+def render_cards_section(tasks: list | None) -> str:
+    """Cards in motion (In Progress + Review) listed; To Do + Backlog counted.
+
+    A daily list of 345 backlog cards is noise, so only actively-moving cards
+    are shown individually; the rest are summarized.
+    """
+    if tasks is None:
+        return (
+            '<div style="color:#8a6d1f;background:#fffbe6;border:1px solid #e6d999;'
+            'border-radius:6px;padding:10px;">⚠️ Could not read the board this run.</div>'
+        )
+
+    def _label(t):
+        did = t.get("display_id") or ""
+        name = t.get("title") or t.get("text") or "(untitled)"
+        return f"{did} {name}".strip()
+
+    in_motion = [t for t in tasks if t.get("status") in IN_MOTION_STATES]
+    queued = [t for t in tasks if t.get("status") == QUEUED_STATE]
+    backlog = [t for t in tasks if t.get("status") == BACKLOG_STATE]
+
+    html = ""
+    if in_motion:
+        rows = ""
+        for t in sorted(in_motion, key=lambda x: x.get("project_id") or ""):
+            badge = "🔧" if t["status"] == "In Progress" else "👀"
+            rows += (
+                f'<tr><td style="padding:4px 10px;vertical-align:top;">{badge}</td>'
+                f'<td style="padding:4px 10px;vertical-align:top;">'
+                f'<strong>{_esc(t.get("project_id") or "?")}</strong> '
+                f'<span style="color:#888;">· {_esc(t["status"])}</span><br>'
+                f'<span style="color:#333;">{_esc(_label(t))}</span></td></tr>'
+            )
+        html += (
+            '<div style="font-size:13px;color:#555;margin-bottom:4px;">In motion:</div>'
+            f'<table style="border-collapse:collapse;width:100%;">{rows}</table>'
+        )
+    else:
+        html += '<div style="color:#888;padding:4px 0;">Nothing in progress or in review.</div>'
+
+    # Queued counts per project (compact), then backlog total.
+    if queued:
+        by_proj = {}
+        for t in queued:
+            by_proj[t.get("project_id") or "?"] = by_proj.get(t.get("project_id") or "?", 0) + 1
+        top = ", ".join(f"{_esc(p)} ({n})" for p, n in sorted(by_proj.items(), key=lambda x: -x[1])[:6])
+        html += (
+            f'<div style="margin-top:10px;font-size:13px;color:#555;">'
+            f'To&nbsp;Do: <strong>{len(queued)}</strong> queued — {top}'
+            + (" …" if len(by_proj) > 6 else "")
+            + "</div>"
+        )
+    html += (
+        f'<div style="margin-top:4px;font-size:12px;color:#999;">'
+        f'Backlog: {len(backlog)} cards (not listed).</div>'
+    )
+    return html
+
+
+def render_jobs_section(jobs: list | None) -> str:
+    """Scheduled (launchd) jobs with status; failures first."""
+    if jobs is None:
+        return (
+            '<div style="color:#8a6d1f;background:#fffbe6;border:1px solid #e6d999;'
+            'border-radius:6px;padding:10px;">⚠️ Could not read scheduled jobs this run.</div>'
+        )
+    if not jobs:
+        return '<div style="color:#888;padding:4px 0;">No tracked jobs found.</div>'
+
+    def classify(j):
+        if j["pid"] is not None:
+            return ("🟢", "running", 2)
+        if j["last_exit"] == 0:
+            return ("🟢", "ok", 2)
+        if j["last_exit"] is None:
+            return ("⚪", "never run", 1)
+        return ("🔴", f"FAILED (exit {j['last_exit']})", 0)
+
+    rows = ""
+    for j in sorted(jobs, key=lambda x: (classify(x)[2], x["label"])):
+        dot, state, _ = classify(j)
+        short = j["label"].split(".")[-1]
+        color = "#8a1f1f" if dot == "🔴" else "#333"
+        rows += (
+            f'<tr><td style="padding:3px 10px;">{dot}</td>'
+            f'<td style="padding:3px 10px;">{_esc(short)}</td>'
+            f'<td style="padding:3px 10px;color:{color};">{state}</td></tr>'
+        )
+    return f'<table style="border-collapse:collapse;width:100%;font-size:13px;">{rows}</table>'
 
 
 def render_mini_section(mini_data: dict | None, ignore: set) -> str:
@@ -266,9 +433,10 @@ def render_mini_section(mini_data: dict | None, ignore: set) -> str:
 
 def render_html(
     macbook_alerts: list, mini_data: dict | None, mini_ignore: set,
+    tasks: list | None, jobs: list | None,
     degraded_reason: str | None, sent_at: str,
 ) -> str:
-    """Render the full email. One email, sectioned by machine."""
+    """Render the full email: cards + jobs, then machine-sectioned alerts."""
     if degraded_reason:
         macbook_body = (
             f'<div style="background:#fff3f3;border:1px solid #e0b4b4;border-radius:6px;'
@@ -295,10 +463,16 @@ def render_html(
 <html>
 <body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
              color:#222;max-width:640px;margin:0 auto;padding:16px;">
-  <h2 style="margin:0 0 4px;">Portfolio Alert Digest</h2>
+  <h2 style="margin:0 0 4px;">Portfolio Morning Digest</h2>
   <div style="color:#888;font-size:13px;margin-bottom:20px;">{sent_at}</div>
 
-  <h3 style="border-bottom:2px solid #333;padding-bottom:4px;">💻 MacBook</h3>
+  <h3 style="border-bottom:2px solid #333;padding-bottom:4px;">🎫 Cards</h3>
+  {render_cards_section(tasks)}
+
+  <h3 style="border-bottom:2px solid #333;padding-bottom:4px;margin-top:28px;">⏰ Scheduled Jobs</h3>
+  {render_jobs_section(jobs)}
+
+  <h3 style="border-bottom:2px solid #333;padding-bottom:4px;margin-top:28px;">💻 MacBook</h3>
   {macbook_body}
 
   <h3 style="border-bottom:2px solid #333;padding-bottom:4px;margin-top:28px;">
@@ -390,9 +564,13 @@ def main() -> int:
         log(f"ERROR entering degraded mode: {exc}")
 
     mini_data = fetch_mini_data()
+    tasks = fetch_tasks()
+    jobs = fetch_scheduled_jobs()
 
     subject = "[Project Alerts] ⚠️ Digest degraded" if degraded_reason else build_subject(alerts)
-    html = render_html(alerts, mini_data, mini_ignore, degraded_reason, sent_at)
+    html = render_html(
+        alerts, mini_data, mini_ignore, tasks, jobs, degraded_reason, sent_at
+    )
 
     if args.dry_run:
         print(f"Subject: {subject}\nTo: {RECIPIENT}\nFrom: {FROM_ADDR}\n")
