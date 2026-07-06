@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-machine ignore list for the portfolio alert digest. project_id values listed here are dropped before the email is rendered. These are infra/scratch/meta dirs, not products that can 'fail' — keep the email high-signal. Edit freely; the digest re-reads this file every run.",
+  "_comment": "Per-machine ignore list for the portfolio alert digest. Names listed here are dropped before the email is rendered. Keep the email high-signal. Edit freely; the digest re-reads this file every run. 'macbook' filters the dashboard /api/alerts project_ids; 'mac-mini' filters mini_scan.py project names.",
   "macbook": [
     "_configs",
     "_handoff",
@@ -7,7 +7,15 @@
     "github-repos",
     "__knowledge",
     "idea-jar",
-    "writing"
+    "writing",
+    "auxesis"
   ],
-  "mac-mini": []
+  "mac-mini": [
+    "ai-journal",
+    "_archive",
+    "artifacts",
+    "auxesis-retired",
+    "claude-user-config",
+    "project-tracker"
+  ]
 }
