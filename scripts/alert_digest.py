@@ -23,7 +23,7 @@ Run:  doppler run --project synth-insight-labs --config prd -- \
 import argparse
 import json
 import os
-import socket
+import subprocess
 import sys
 import time
 import urllib.error
@@ -46,7 +46,16 @@ BROWSER_UA = "Mozilla/5.0 (portfolio-alert-digest)"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 IGNORE_FILE = REPO_ROOT / "scripts" / "alert_digest_ignore.json"
+MINI_SCAN_SCRIPT = REPO_ROOT / "scripts" / "mini_scan.py"
 LOG_FILE = REPO_ROOT / "logs" / "alert_digest.log"
+
+# Mac Mini reachability. The scanner (mini_scan.py) is piped over SSH and run
+# with the Mini's own python3 — stateless, no deployment. If the Mini is off or
+# unreachable, the section degrades to a notice instead of taking down the email.
+MINI_HOST = os.environ.get("PT_MINI_HOST", "eriks-mac-mini")
+MINI_ENABLED = os.environ.get("PT_MINI_ENABLED", "1") != "0"
+# Projects touched within this window count as "active"; older = stale warning.
+STALE_DAYS = 60
 
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 3
@@ -68,12 +77,6 @@ def log(msg: str) -> None:
             fh.write(line + "\n")
     except OSError:
         pass  # file logging is best-effort; stderr above always fired
-
-
-def current_machine() -> str:
-    """Return 'mac-mini' or 'macbook' from the hostname."""
-    host = socket.gethostname().lower()
-    return "mac-mini" if "mini" in host else "macbook"
 
 
 def load_ignore_list(machine: str) -> set:
@@ -114,6 +117,48 @@ def fetch_alerts() -> list:
             if attempt < MAX_RETRIES:
                 time.sleep(RETRY_BACKOFF_SECONDS)
     raise RuntimeError(f"dashboard unreachable after {MAX_RETRIES} attempts: {last_err}")
+
+
+def fetch_mini_data() -> dict | None:
+    """Run mini_scan.py on the Mac Mini via SSH-pipe. Returns parsed dict.
+
+    Stateless: the scanner is streamed to the Mini's stdin and run with its own
+    python3 — nothing is installed there. Returns None if the Mini is
+    unreachable after retries (caller renders an "unreachable" notice, never
+    crashes) or if the scanner is missing locally.
+    """
+    if not MINI_ENABLED:
+        log("mini fetch disabled (PT_MINI_ENABLED=0)")
+        return None
+    if not MINI_SCAN_SCRIPT.exists():
+        log(f"WARN mini scanner missing at {MINI_SCAN_SCRIPT}; skipping Mini section")
+        return None
+
+    script = MINI_SCAN_SCRIPT.read_text()
+    cmd = [
+        "ssh", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes",
+        MINI_HOST, "python3", "-",
+    ]
+    last_err = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            proc = subprocess.run(
+                cmd, input=script, capture_output=True, text=True, timeout=45
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"ssh exit {proc.returncode}: {proc.stderr.strip()[:200]}"
+                )
+            data = json.loads(proc.stdout)
+            log(f"mini fetch ok (attempt {attempt}): {len(data.get('projects', []))} projects")
+            return data
+        except Exception as exc:  # noqa: BLE001 — resilience is the point
+            last_err = exc
+            log(f"WARN mini fetch attempt {attempt}/{MAX_RETRIES} failed: {exc}")
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_BACKOFF_SECONDS)
+    log(f"ERROR mini unreachable after {MAX_RETRIES} attempts: {last_err}")
+    return None
 
 
 # --- Rendering --------------------------------------------------------------
@@ -161,7 +206,68 @@ def _render_alert_rows(alerts: list) -> str:
     return "\n".join(rows)
 
 
-def render_html(macbook_alerts: list, degraded_reason: str | None, sent_at: str) -> str:
+def render_mini_section(mini_data: dict | None, ignore: set) -> str:
+    """Render the Mac Mini section body from mini_scan.py output.
+
+    Unreachable → a notice (not silence). Reachable → a heartbeat line proving
+    the scan ran, the active projects, and any stale (>= STALE_DAYS) as warnings.
+    """
+    if mini_data is None:
+        return (
+            '<div style="color:#8a6d1f;background:#fffbe6;border:1px solid #e6d999;'
+            'border-radius:6px;padding:10px;">⚠️ Mac Mini unreachable this run — no '
+            'data. (Retried 3×; the digest still sent rather than waiting.)</div>'
+        )
+    if mini_data.get("error"):
+        return (
+            f'<div style="color:#8a1f1f;">⚠️ Mini scan error: {mini_data["error"]}</div>'
+        )
+
+    projects = [p for p in mini_data.get("projects", []) if p["name"] not in ignore]
+    active = [p for p in projects if p["days_since"] < STALE_DAYS]
+    stale = [p for p in projects if p["days_since"] >= STALE_DAYS]
+
+    def _age(p):
+        d = p["days_since"]
+        return "today" if d == 0 else ("1 day ago" if d == 1 else f"{d} days ago")
+
+    heartbeat = (
+        f'<div style="color:#888;font-size:12px;margin-bottom:8px;">'
+        f'Scanned {len(projects)} projects · {mini_data.get("scanned_at", "")}</div>'
+    )
+
+    active_html = ""
+    if active:
+        rows = "".join(
+            f'<tr><td style="padding:4px 10px;">🟢</td>'
+            f'<td style="padding:4px 10px;"><strong>{p["name"]}</strong> '
+            f'<span style="color:#888;">— active {_age(p)}</span></td></tr>'
+            for p in active
+        )
+        active_html = f'<table style="border-collapse:collapse;width:100%;">{rows}</table>'
+
+    stale_html = ""
+    if stale:
+        rows = "".join(
+            f'<tr><td style="padding:4px 10px;">🟡</td>'
+            f'<td style="padding:4px 10px;"><strong>{p["name"]}</strong> '
+            f'<span style="color:#333;">no activity in {p["days_since"]} days</span></td></tr>'
+            for p in stale
+        )
+        stale_html = (
+            '<div style="margin-top:10px;color:#8a6d1f;font-size:13px;">Stale (60+ days):</div>'
+            f'<table style="border-collapse:collapse;width:100%;">{rows}</table>'
+        )
+
+    if not active and not stale:
+        return heartbeat + '<div style="color:#2e7d32;">✅ Nothing to report.</div>'
+    return heartbeat + active_html + stale_html
+
+
+def render_html(
+    macbook_alerts: list, mini_data: dict | None, mini_ignore: set,
+    degraded_reason: str | None, sent_at: str,
+) -> str:
     """Render the full email. One email, sectioned by machine."""
     if degraded_reason:
         macbook_body = (
@@ -195,12 +301,10 @@ def render_html(macbook_alerts: list, degraded_reason: str | None, sent_at: str)
   <h3 style="border-bottom:2px solid #333;padding-bottom:4px;">💻 MacBook</h3>
   {macbook_body}
 
-  <h3 style="border-bottom:2px solid #ccc;padding-bottom:4px;color:#999;margin-top:28px;">
+  <h3 style="border-bottom:2px solid #333;padding-bottom:4px;margin-top:28px;">
     🖥️ Mac Mini
   </h3>
-  <div style="color:#999;padding:8px 0;">
-    Pending — cross-machine reporting arrives in Phase 3.
-  </div>
+  {render_mini_section(mini_data, mini_ignore)}
 
   <div style="color:#bbb;font-size:11px;margin-top:32px;border-top:1px solid #eee;padding-top:8px;">
     Sent by the portfolio alert digest · edit noise filters in
@@ -268,23 +372,27 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    machine = current_machine()
-    ignore = load_ignore_list(machine)
+    # This digest runs on the MacBook and renders BOTH machine sections, so it
+    # loads both ignore lists explicitly rather than by current machine.
+    macbook_ignore = load_ignore_list("macbook")
+    mini_ignore = load_ignore_list("mac-mini")
     sent_at = datetime.now().strftime("%A, %B %d %Y · %-I:%M %p")
 
     degraded_reason = None
     alerts = []
     try:
         raw = fetch_alerts()
-        alerts = [a for a in raw if a.get("project_id") not in ignore]
+        alerts = [a for a in raw if a.get("project_id") not in macbook_ignore]
         dropped = len(raw) - len(alerts)
-        log(f"{len(alerts)} alerts after ignore filter ({dropped} dropped)")
+        log(f"{len(alerts)} MacBook alerts after ignore filter ({dropped} dropped)")
     except Exception as exc:  # noqa: BLE001
         degraded_reason = str(exc)
         log(f"ERROR entering degraded mode: {exc}")
 
+    mini_data = fetch_mini_data()
+
     subject = "[Project Alerts] ⚠️ Digest degraded" if degraded_reason else build_subject(alerts)
-    html = render_html(alerts, degraded_reason, sent_at)
+    html = render_html(alerts, mini_data, mini_ignore, degraded_reason, sent_at)
 
     if args.dry_run:
         print(f"Subject: {subject}\nTo: {RECIPIENT}\nFrom: {FROM_ADDR}\n")
