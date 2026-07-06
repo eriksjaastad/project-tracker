@@ -23,10 +23,14 @@ projects is sorted most-recent-first.
 import json
 import os
 import socket
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+# launchd labels for our portfolio automation (same prefixes both machines).
+JOB_LABEL_PREFIXES = ("com.eriksjaastad.", "com.pt.")
 
 PROJECTS_DIR = Path(os.environ.get("PT_PROJECTS_DIR", str(Path.home() / "projects")))
 
@@ -58,6 +62,37 @@ def newest_mtime(root: Path) -> float:
     return newest
 
 
+def collect_jobs():
+    """Our launchd jobs on this machine via `launchctl list`.
+
+    Returns a list (possibly empty = genuinely no matching jobs), or None if
+    launchctl could not be run — so the reader can distinguish "no jobs" from
+    "couldn't read jobs" instead of being misled by an empty list.
+    """
+    try:
+        proc = subprocess.run(
+            ["launchctl", "list"], capture_output=True, text=True, timeout=15
+        )
+        if proc.returncode != 0:
+            return None
+    except Exception:
+        return None
+    jobs = []
+    for line in proc.stdout.splitlines()[1:]:
+        parts = line.split(None, 2)
+        if len(parts) != 3:
+            continue
+        pid_s, status_s, label = parts
+        if not label.startswith(JOB_LABEL_PREFIXES):
+            continue
+        try:
+            last_exit = None if status_s == "-" else int(status_s)
+        except ValueError:
+            last_exit = None
+        jobs.append({"label": label, "pid": None if pid_s == "-" else pid_s, "last_exit": last_exit})
+    return jobs
+
+
 def scan() -> dict:
     now = time.time()
     projects = []
@@ -81,6 +116,7 @@ def scan() -> dict:
         "machine": socket.gethostname(),
         "scanned_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "projects": projects,
+        "jobs": collect_jobs(),
         "error": None,
     }
 
