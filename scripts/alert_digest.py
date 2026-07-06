@@ -66,8 +66,8 @@ def log(msg: str) -> None:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with LOG_FILE.open("a") as fh:
             fh.write(line + "\n")
-    except Exception:
-        pass  # logging must never take down the digest
+    except OSError:
+        pass  # file logging is best-effort; stderr above always fired
 
 
 def current_machine() -> str:
