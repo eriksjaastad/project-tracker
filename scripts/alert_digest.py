@@ -356,44 +356,51 @@ def render_cards_section(tasks: list | None) -> str:
 
     html = ""
 
-    # In Progress — oldest first (a stale in-progress card is a forgotten one).
+    # All groups default to alphabetical by project. The red "sitting ~Nmo" flag
+    # (not sort order) is what surfaces a stale card.
+    def _by_project(t):
+        return (t.get("project_id") or "~").lower()
+
+    # In Progress
     html += _subhead(f"🔧 In Progress ({len(in_prog)})")
     if in_prog:
-        for t in sorted(in_prog, key=lambda x: _days_since(x.get("updated_at")) or 0, reverse=True):
+        for t in sorted(in_prog, key=_by_project):
             html += _card_line(t, show_age=True)
     else:
         html += '<div style="color:#888;">—</div>'
 
-    # Review — oldest first, stale ones flagged in red ("sitting ~2mo").
+    # Review — stale ones flagged in red ("sitting ~2mo").
     html += _subhead(f"👀 Review ({len(review)})")
     if review:
-        for t in sorted(review, key=lambda x: _days_since(x.get("updated_at")) or 0, reverse=True):
+        for t in sorted(review, key=_by_project):
             html += _card_line(t, show_age=True, review=True)
     else:
         html += '<div style="color:#888;">—</div>'
 
-    # To Do — full list, grouped by project.
+    # To Do — full list, grouped by project, alphabetical.
     html += _subhead(f"📋 To Do ({len(todo)})")
     if todo:
         by_proj = {}
         for t in todo:
             by_proj.setdefault(t.get("project_id") or "?", []).append(t)
-        for proj in sorted(by_proj, key=lambda p: (-len(by_proj[p]), p)):
+        for proj in sorted(by_proj, key=str.lower):
             for t in by_proj[proj]:
                 html += _card_line(t)
     else:
         html += '<div style="color:#888;">—</div>'
 
-    # Backlog — per-project counts only (parked/forgotten work map).
+    # Backlog — one line per project (alphabetical), count each. A list, not a
+    # comma block — this is the "where's my parked/forgotten work" map.
     html += _subhead(f"🗄️ Backlog ({len(backlog)}) — by project")
     if backlog:
         by_proj = {}
         for t in backlog:
             by_proj[t.get("project_id") or "?"] = by_proj.get(t.get("project_id") or "?", 0) + 1
-        chips = ", ".join(
-            f"{_esc(p)} ({n})" for p, n in sorted(by_proj.items(), key=lambda x: (-x[1], x[0]))
-        )
-        html += f'<div style="color:#666;font-size:13px;line-height:1.6;">{chips}</div>'
+        for proj in sorted(by_proj, key=str.lower):
+            html += (
+                f'<div style="padding:2px 0;color:#666;">'
+                f'{_esc(proj)} <span style="color:#aaa;">— {by_proj[proj]}</span></div>'
+            )
     else:
         html += '<div style="color:#888;">—</div>'
 
