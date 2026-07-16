@@ -1,0 +1,70 @@
+schema_version: seats.v1
+project:
+  id: project-tracker
+  name: Project Tracker
+  owner: project-tracker
+  seats_file: seats.yaml
+  notes: >-
+    This file declares the one active, repository-owned, benchmarkable model
+    job. Experiment-only, dormant, externally configured, and metadata-only
+    model references are documented in benchmarks/seats/README.md.
+
+seats:
+  - id: calendar_agent_prompt
+    job: Respond with an action plan or relevant analysis when a prompted project calendar event fires.
+    output_contract:
+      type: free_text
+      validation: >-
+        Require non-empty text no longer than the 2000 characters retained by
+        the poller, score the fixture's required facts and cautions, and reject
+        any response that falsely claims to have executed external actions
+        because the Ollama subprocess receives no tools.
+      notes: Mirrors _run_agent_prompt in scripts/hooks/calendar_poller.py.
+    input_character: messy
+    supervision: unattended
+    required_capabilities:
+      - long_context
+    failure_cost:
+      level: medium
+      description: >-
+        Misleading unattended analysis is appended to the calendar notification
+        log and can cause a later operator or agent to act on an invented status,
+        although the model itself cannot mutate project state.
+    volume:
+      expected: 1
+      unit: calls_per_prompted_event
+      notes: The poller calls the model only when a firing event has a non-empty prompt.
+    cost_sensitivity: high
+    latency_tolerance: standard
+    current_pin:
+      provider: ollama
+      model: qwen2.5-coder:7b
+      status: LIVE
+      reason: >-
+        Current PT_AGENT_MODEL default passed to `ollama run` by
+        scripts/hooks/calendar_poller.py; eligible for local seat-fit comparison
+        without changing the runtime default.
+      notes: PT_AGENT_MODEL can override the repository default at runtime.
+    eval_fixtures:
+      path: benchmarks/seats/calendar_agent_prompt.jsonl
+      format: jsonl
+      id_field: fixture_id
+      input_field: input
+      expected_output_field: expected_output
+      context_providers:
+        - id: production_prompt_template
+          source: project_file
+          source_ref: scripts/hooks/calendar_poller.py
+          required: true
+          notes: The runner must reproduce _run_agent_prompt's full_prompt assembly.
+      sealed_labels:
+        policy: co_located
+        notes: Labels remain reviewable in git; sealed runs still require the explicit environment gate.
+      split:
+        method: deterministic_hash_modulo
+        hash_field: fixture_id
+        modulo: 5
+        dev_remainders: [1, 2, 3, 4]
+        sealed_remainders: [0]
+        sealed_unseal_env: MODEL_BENCH_UNSEAL
+      notes: Prompt text and task pressure come from tracked repository sources.
