@@ -193,7 +193,15 @@ def read_identity(session_id: str | None = None) -> str | None:
             pass
 
     fallback = os.environ.get("AGENT_CHAT_SENDER", "").strip()
-    return fallback or None
+    if not fallback:
+        return None
+    # The reservation has to hold here too. Enforcing it only in
+    # project_name_for() left AGENT_CHAT_SENDER=erik as an unguarded way for an
+    # agent to speak as the human — and the env fallback is the path every
+    # session uses before hooks are installed.
+    if fallback.split("@", 1)[0] == HUMAN_ADDRESS:
+        return None
+    return fallback
 
 
 def resolve_for_session(session_id: str, cwd: str | Path) -> str | None:

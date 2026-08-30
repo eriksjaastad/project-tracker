@@ -157,7 +157,8 @@ def insert_message(conn, *, sender: str, body: str, recipient: Optional[str] = N
 
 def query_messages(conn, *, since: Optional[str] = None,
                    sender: Optional[str] = None, for_recipient: Optional[str] = None,
-                   limit: int = 50, newest_first: bool = False) -> list[dict]:
+                   limit: int = 50, newest_first: bool = False,
+                   for_machine: Optional[str] = None) -> list[dict]:
     """Query messages.
 
     `newest_first` controls WHICH rows the LIMIT selects, not just their order:
@@ -176,9 +177,19 @@ def query_messages(conn, *, since: Optional[str] = None,
         clauses.append(f"sender = {p}")
         params.append(sender)
     if for_recipient:
-        # Show broadcasts (recipient IS NULL) + messages addressed to this recipient
-        clauses.append(f"(recipient IS NULL OR recipient = {p})")
-        params.append(for_recipient)
+        # Broadcasts (recipient IS NULL) + mail addressed to this agent.
+        # An agent answers to its bare project address AND, when it declares a
+        # machine, to `project@machine` — Erik's ruling 2026-08-30: project
+        # address by default, optional qualifier when two machines share a
+        # project. Without this branch a DM to `ai-memory@mini` is stored but
+        # matches nobody, which is the silent-non-delivery bug all over again.
+        if for_machine:
+            clauses.append(f"(recipient IS NULL OR recipient = {p} OR recipient = {p})")
+            params.append(for_recipient)
+            params.append(f"{for_recipient}@{for_machine}")
+        else:
+            clauses.append(f"(recipient IS NULL OR recipient = {p})")
+            params.append(for_recipient)
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     direction = "DESC" if newest_first else "ASC"
