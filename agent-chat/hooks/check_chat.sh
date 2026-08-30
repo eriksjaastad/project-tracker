@@ -9,7 +9,14 @@
 # Environment:
 #   AGENT_CHAT_URL     — API base URL (default: https://chat.synthinsightlabs.com)
 #   AGENT_CHAT_API_KEY — API key for authentication
-#   AGENT_CHAT_SENDER  — This agent's sender name (for filtering out own messages)
+#   AGENT_CHAT_SENDER  — Fallback sender name. The real address comes from this
+#                        session's frozen identity (see agent-chat/identity.py);
+#                        this env var is machine-global and cannot distinguish
+#                        concurrent floor managers, so it is a fallback only.
+#
+# Failures are appended to ~/.claude/open-brain/agent_chat_drops.log. This hook
+# must never block Claude, but it must not fail silently either: DMs were
+# dropped here for five weeks and nothing reported it.
 
 set -euo pipefail
 
@@ -18,8 +25,28 @@ set -euo pipefail
 
 CHAT_URL="${AGENT_CHAT_URL:-https://agent-chat-90116449356.us-central1.run.app}"
 API_KEY="${AGENT_CHAT_API_KEY:-}"
-SENDER="${AGENT_CHAT_SENDER:-}"
 CURSOR_FILE="$HOME/.claude/chat_cursor"
+DROP_LOG="$HOME/.claude/open-brain/agent_chat_drops.log"
+
+# Record why a poll produced nothing. Best-effort; never fails the hook.
+drop() {
+    mkdir -p "$(dirname "$DROP_LOG")" 2>/dev/null || return 0
+    printf '%s\tcheck_chat\t%s\t%s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "${2:-}" >> "$DROP_LOG" 2>/dev/null || true
+}
+
+# Address resolution order:
+#   1. This session's frozen identity, written once at SessionStart.
+#   2. AGENT_CHAT_SENDER, for sessions that predate identity binding.
+# Never re-derived from the current directory — that is the cwd bug.
+SENDER=""
+SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}"
+IDENTITY_DIR="${AGENT_CHAT_STATE_DIR:-$HOME/.claude/state/agent_chat/identity}"
+if [[ -n "$SESSION_ID" && -f "$IDENTITY_DIR/${SESSION_ID}.txt" ]]; then
+    SENDER="$(<"$IDENTITY_DIR/${SESSION_ID}.txt")"
+    SENDER="${SENDER//[$'\t\r\n ']/}"
+fi
+[[ -n "$SENDER" ]] || SENDER="${AGENT_CHAT_SENDER:-}"
 
 # No API key = skip
 [[ -n "$API_KEY" ]] || exit 0
@@ -51,21 +78,37 @@ if [[ -n "$since" ]]; then
 fi
 
 # Fetch messages
-response="$(curl -s -f -H "X-API-Key: $API_KEY" "$url" 2>/dev/null)" || exit 0
+if ! response="$(curl -s -f -H "X-API-Key: $API_KEY" "$url" 2>/dev/null)"; then
+    drop "curl_failed" "$CHAT_URL"
+    exit 0
+fi
 
 # Parse with jq if available
 if ! command -v jq &>/dev/null; then
+    drop "jq_missing"
     exit 0
 fi
 
 count="$(echo "$response" | jq '.messages | length')"
 [[ "$count" -gt 0 ]] || exit 0
 
-# Filter out own messages and directed messages (handled by router daemon)
+# Drop only our OWN messages. The recipient clause that used to live here
+# discarded every direct message, deferring them to a "router daemon" that was
+# never written — so DMs were silently dropped from 2026-07-23 onward. The
+# server already scopes the response via ?for=$SENDER, so what arrives is
+# broadcasts plus DMs addressed to us; the only thing left to filter is the
+# echo of our own traffic.
+#
+# The self-filter is only correct because identity is now per-session. While
+# every agent shared AGENT_CHAT_SENDER=claude-architect it also ate genuine
+# peer messages, since under that config they really were "our own".
 if [[ -n "$SENDER" ]]; then
-    messages="$(echo "$response" | jq --arg s "$SENDER" '[.messages[] | select(.sender != $s and (.recipient == null or .recipient == ""))]')"
+    messages="$(echo "$response" | jq --arg s "$SENDER" '[.messages[] | select(.sender != $s)]')"
 else
-    messages="$(echo "$response" | jq '[.messages[] | select(.recipient == null or .recipient == "")]')"
+    # No address: we cannot tell our own messages apart, so show everything
+    # rather than silently showing nothing.
+    drop "no_identity" "showing unfiltered"
+    messages="$(echo "$response" | jq '.messages')"
 fi
 count="$(echo "$messages" | jq 'length')"
 [[ "$count" -gt 0 ]] || exit 0

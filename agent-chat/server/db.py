@@ -157,7 +157,14 @@ def insert_message(conn, *, sender: str, body: str, recipient: Optional[str] = N
 
 def query_messages(conn, *, since: Optional[str] = None,
                    sender: Optional[str] = None, for_recipient: Optional[str] = None,
-                   limit: int = 50) -> list[dict]:
+                   limit: int = 50, newest_first: bool = False) -> list[dict]:
+    """Query messages.
+
+    `newest_first` controls WHICH rows the LIMIT selects, not just their order:
+    ascending returns the OLDEST `limit` rows, which is why the default client
+    view was frozen on the first messages ever sent while newer ones existed.
+    Callers wanting "the latest N" must pass newest_first=True.
+    """
     p = _p(conn)
     clauses = []
     params = []
@@ -174,7 +181,8 @@ def query_messages(conn, *, since: Optional[str] = None,
         params.append(for_recipient)
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    sql = f"SELECT * FROM messages {where} ORDER BY ts ASC LIMIT {p}"
+    direction = "DESC" if newest_first else "ASC"
+    sql = f"SELECT * FROM messages {where} ORDER BY ts {direction} LIMIT {p}"
     params.append(limit)
 
     if _is_sqlite(conn):
