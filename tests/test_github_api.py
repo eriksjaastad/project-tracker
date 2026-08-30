@@ -26,7 +26,7 @@ def as_gh_call(fn):
 
     _fetch_github_data calls _gh_call, which reports WHY a call failed so a
     missing repo can be told apart from a broken fetch. Mocks stay written in
-    terms of返 data; returning None means GH_ERROR, and a mock can return an
+    terms of returned data; returning None means GH_ERROR, and a mock can return an
     explicit (data, kind) tuple when it needs to simulate GH_NOT_FOUND.
     """
     from dashboard.app import GH_OK, GH_ERROR
