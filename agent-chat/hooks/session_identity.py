@@ -59,6 +59,13 @@ def main() -> None:
         return
 
     try:
+        # Cache the machine qualifier so check_chat.sh can request
+        # `for_machine=` without paying a Python start-up per Bash call.
+        identity.write_machine()
+    except Exception as exc:  # noqa: BLE001
+        _drop(f"machine_cache_error:{type(exc).__name__}", str(exc))
+
+    try:
         address = identity.resolve_for_session(session_id, cwd)
     except Exception as exc:  # noqa: BLE001 - a hook must never take down a session
         _drop(f"resolve_error:{type(exc).__name__}", str(exc))

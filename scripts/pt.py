@@ -3958,6 +3958,20 @@ def _known_chat_addresses() -> set:
     return known
 
 
+def _qualify_chat_address(address: str, machine: str) -> str:
+    """`ai-memory` + `mini` -> `ai-memory@mini`, ignoring an existing qualifier."""
+    import sys as _sys
+    agent_chat_root = Path(__file__).resolve().parent.parent / "agent-chat"
+    if str(agent_chat_root) not in _sys.path:
+        _sys.path.insert(0, str(agent_chat_root))
+    project, _ = _split_chat_address(address)
+    try:
+        import identity as _identity
+        return _identity.qualify(project, machine)
+    except ImportError:
+        return f"{project}@{machine}" if machine else project
+
+
 def _split_chat_address(address: str):
     """Split `ai-memory@mini` into ("ai-memory", "mini"); bare name -> (name, None).
 
@@ -4038,10 +4052,12 @@ def message_group(ctx):
               default="normal", help="Message priority")
 @click.option("--reply-to", "reply_to", type=int, default=None,
               help="Message ID to reply to")
+@click.option("--machine", default=None,
+              help="Target one machine specifically, e.g. --to ai-memory --machine mini")
 @click.option("--force", is_flag=True,
               help="Send even if the address is not a known project")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def message_send(text, recipient, priority, reply_to, force, json_output):
+def message_send(text, recipient, priority, reply_to, machine, force, json_output):
     """Send a message to Agent Chat.
 
     \b
@@ -4063,6 +4079,11 @@ def message_send(text, recipient, priority, reply_to, force, json_output):
     # Sending to yourself is almost always a mis-addressed message, and it used
     # to succeed silently: every agent shared one machine-global identity, so
     # `--to claude-architect` returned "Sent #92 as claude-architect".
+    if machine:
+        if not recipient:
+            raise click.ClickException("--machine needs --to; it qualifies an address.")
+        recipient = _qualify_chat_address(recipient, machine)
+
     if recipient:
         target_project, _ = _split_chat_address(recipient)
         self_project, _ = _split_chat_address(sender)

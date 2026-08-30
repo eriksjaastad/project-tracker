@@ -76,8 +76,16 @@ if [[ -n "$SENDER" ]]; then
     url+="&for=$(printf '%s' "$SENDER" | sed 's/ /%20/g')"
     # `for_machine` additionally matches `<project>@<machine>`. Servers that
     # predate it ignore the param, so bare addressing keeps working either way.
-    if [[ -n "${AGENT_CHAT_MACHINE:-}" ]]; then
-        url+="&for_machine=$(printf '%s' "$AGENT_CHAT_MACHINE" | sed 's/ /%20/g')"
+    # The qualifier is cached at SessionStart; nothing exports
+    # AGENT_CHAT_MACHINE by default, so reading only the env var meant
+    # qualified DMs were never requested and never arrived.
+    MACHINE="${AGENT_CHAT_MACHINE:-}"
+    if [[ -z "$MACHINE" && -f "$IDENTITY_DIR/machine.txt" ]]; then
+        MACHINE="$(<"$IDENTITY_DIR/machine.txt")"
+        MACHINE="${MACHINE//[$'\t\r\n ']/}"
+    fi
+    if [[ -n "$MACHINE" ]]; then
+        url+="&for_machine=$(printf '%s' "$MACHINE" | sed 's/ /%20/g')"
     fi
 fi
 if [[ -n "$since" ]]; then
