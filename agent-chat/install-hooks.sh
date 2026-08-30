@@ -60,20 +60,31 @@ print(f"PreToolUse check_chat hook: {'wired' if have_check else 'MISSING'}")
 if check_only:
     sys.exit(0 if (have_session and have_check) else 1)
 
-if have_session:
+if have_session and have_check:
     print("Nothing to do.")
     sys.exit(0)
 
 backup = settings_path + ".bak-agent-chat"
 shutil.copy(settings_path, backup)
 
-hooks.setdefault("SessionStart", []).append(
-    {"hooks": [{"type": "command", "command": session_hook}]}
-)
+added = []
+if not have_session:
+    hooks.setdefault("SessionStart", []).append(
+        {"hooks": [{"type": "command", "command": session_hook}]}
+    )
+    added.append("SessionStart identity")
+
+# Reporting this as MISSING without wiring it would leave a fresh machine
+# looking installed while it never polls for messages at all.
+if not have_check:
+    hooks.setdefault("PreToolUse", []).append(
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": check_hook}]}
+    )
+    added.append("PreToolUse check_chat")
 
 with open(settings_path, "w") as fh:
     json.dump(settings, fh, indent=2)
 
-print(f"Wired SessionStart identity hook. Backup: {backup}")
+print(f"Wired: {', '.join(added)}. Backup: {backup}")
 print("Identity resolves on the NEXT session start, not this one.")
 PY

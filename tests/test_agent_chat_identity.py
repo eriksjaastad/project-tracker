@@ -181,3 +181,24 @@ class TestLegacyCorpusMapping:
     def test_mini_claude_becomes_machine_qualified(self):
         project, machine = identity.split_address("auxesis@mini")
         assert (project, machine) == ("auxesis", "mini")
+
+
+class TestReservedHumanAddressEnforcement:
+    """`erik` must be unreachable by an agent on EVERY path, not just one.
+
+    Enforcing it only in project_name_for() left AGENT_CHAT_SENDER=erik as an
+    unguarded route — and that env fallback is what every session uses before
+    the hooks are installed.
+    """
+
+    def test_env_fallback_cannot_claim_the_human_address(self, projects, monkeypatch):
+        monkeypatch.setenv("AGENT_CHAT_SENDER", "erik")
+        assert identity.read_identity("no-such-session") is None
+
+    def test_qualified_human_address_is_also_refused(self, projects, monkeypatch):
+        monkeypatch.setenv("AGENT_CHAT_SENDER", "erik@mini")
+        assert identity.read_identity("no-such-session") is None
+
+    def test_other_env_addresses_still_work(self, projects, monkeypatch):
+        monkeypatch.setenv("AGENT_CHAT_SENDER", "claude-architect")
+        assert identity.read_identity("no-such-session") == "claude-architect"

@@ -104,6 +104,7 @@ def get_messages():
             for_recipient=request.args.get("for"),
             limit=request.args.get("limit", 50, type=int),
             newest_first=request.args.get("order", "").lower() == "desc",
+            for_machine=request.args.get("for_machine"),
         )
 
     for row in rows:

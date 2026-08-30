@@ -3959,11 +3959,23 @@ def _known_chat_addresses() -> set:
 
 
 def _split_chat_address(address: str):
-    """Split `ai-memory@mini` into ("ai-memory", "mini"); bare name -> (name, None)."""
-    if "@" in address:
-        project, _, machine = address.partition("@")
-        return project, (machine or None)
-    return address, None
+    """Split `ai-memory@mini` into ("ai-memory", "mini"); bare name -> (name, None).
+
+    Delegates to agent-chat/identity.py so the two cannot drift apart; the
+    inline fallback only covers identity.py being unavailable.
+    """
+    import sys as _sys
+    agent_chat_root = Path(__file__).resolve().parent.parent / "agent-chat"
+    if str(agent_chat_root) not in _sys.path:
+        _sys.path.insert(0, str(agent_chat_root))
+    try:
+        import identity as _identity
+        return _identity.split_address(address)
+    except ImportError:
+        if "@" in address:
+            project, _, machine = address.partition("@")
+            return project, (machine or None)
+        return address, None
 
 
 def _resolve_self_address(config: dict | None = None) -> str:

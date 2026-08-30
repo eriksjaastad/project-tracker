@@ -71,7 +71,14 @@ fi
 # Build URL — filter for messages visible to this agent
 url="$CHAT_URL/messages?limit=20"
 if [[ -n "$SENDER" ]]; then
+    # Always request the BARE project address: older server deployments match
+    # `recipient` by exact string, and the bare form is the common case.
     url+="&for=$(printf '%s' "$SENDER" | sed 's/ /%20/g')"
+    # `for_machine` additionally matches `<project>@<machine>`. Servers that
+    # predate it ignore the param, so bare addressing keeps working either way.
+    if [[ -n "${AGENT_CHAT_MACHINE:-}" ]]; then
+        url+="&for_machine=$(printf '%s' "$AGENT_CHAT_MACHINE" | sed 's/ /%20/g')"
+    fi
 fi
 if [[ -n "$since" ]]; then
     url+="&since=$(printf '%s' "$since" | sed 's/ /%20/g; s/:/%3A/g; s/+/%2B/g')"
@@ -105,10 +112,12 @@ count="$(echo "$response" | jq '.messages | length')"
 if [[ -n "$SENDER" ]]; then
     messages="$(echo "$response" | jq --arg s "$SENDER" '[.messages[] | select(.sender != $s)]')"
 else
-    # No address: we cannot tell our own messages apart, so show everything
-    # rather than silently showing nothing.
-    drop "no_identity" "showing unfiltered"
-    messages="$(echo "$response" | jq '.messages')"
+    # No address. The request carried no ?for= filter, so `response` holds
+    # every agent's mail — narrow to broadcasts here. Showing it unfiltered
+    # would inject other agents' private messages into this session, which is
+    # a wider leak than the silence this card set out to fix.
+    drop "no_identity" "broadcasts only; run agent-chat/install-hooks.sh"
+    messages="$(echo "$response" | jq '[.messages[] | select(.recipient == null or .recipient == "")]')"
 fi
 count="$(echo "$messages" | jq 'length')"
 [[ "$count" -gt 0 ]] || exit 0
