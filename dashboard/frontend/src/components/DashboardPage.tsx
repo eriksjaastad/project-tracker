@@ -66,6 +66,7 @@ interface GitHubData {
     repos_with_ci: number;
     failing_ci: number;
     fetch_errors: number;
+    repos_not_on_github: number;
   };
   fetched_at?: string;
   cached?: boolean;
@@ -238,6 +239,16 @@ export function DashboardPage() {
             <div className="summary-card highlight-bad">
               <span className="summary-number">{fetchErrors.length}</span>
               <span className="summary-label">Failed fetches</span>
+            </div>
+          )}
+          {/* GitHub reports "absent" and "not visible to this token" the same
+              way, so a lost `repo` scope would land here rather than in failed
+              fetches. Showing the count means that arrives as a visible jump
+              instead of silence. */}
+          {!!summary?.repos_not_on_github && (
+            <div className="summary-card">
+              <span className="summary-number">{summary.repos_not_on_github}</span>
+              <span className="summary-label">Not on GitHub</span>
             </div>
           )}
         </div>

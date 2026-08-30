@@ -24,6 +24,7 @@ const BASE = {
     repos_with_ci: 0,
     failing_ci: 0,
     fetch_errors: 0,
+    repos_not_on_github: 0,
   },
   fetched_at: '2026-08-30T00:00:00Z',
   cached: false,
@@ -38,6 +39,29 @@ function mockApi(payload: unknown) {
 function renderPage() {
   return render(<MemoryRouter><DashboardPage /></MemoryRouter>);
 }
+
+describe('DashboardPage — repos not visible on GitHub', () => {
+  beforeEach(() => vi.resetAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('shows the not-on-GitHub count so lost access cannot be silent', async () => {
+    // GitHub returns the same answer for "absent" and "you cannot see this",
+    // so a lost `repo` scope surfaces here rather than as a failed fetch.
+    mockApi({ ...BASE, summary: { ...BASE.summary, repos_not_on_github: 35 } });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('Not on GitHub')).toBeInTheDocument());
+    expect(screen.getByText('35')).toBeInTheDocument();
+  });
+
+  it('hides the card when every tracked repo was found', async () => {
+    mockApi({ ...BASE, summary: { ...BASE.summary, repos_not_on_github: 0 } });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('Repos')).toBeInTheDocument());
+    expect(screen.queryByText('Not on GitHub')).not.toBeInTheDocument();
+  });
+});
 
 describe('DashboardPage — incomplete data reporting', () => {
   beforeEach(() => vi.resetAllMocks());

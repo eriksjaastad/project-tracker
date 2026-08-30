@@ -3620,8 +3620,17 @@ def _fetch_github_data() -> Dict:
         if repo_info:
             repos.append(repo_info)
         elif failure == GH_NOT_FOUND:
+            # CAVEAT: GitHub answers "no such repo" and "you cannot see this
+            # repo" identically, by design, so it never leaks a private repo's
+            # existence. A token that loses `repo` scope therefore makes every
+            # private repo look absent rather than unreachable, and gh gives us
+            # nothing to tell the two apart.
+            #
+            # We cannot resolve that here — but we refuse to let it be silent:
+            # this count is surfaced in the dashboard summary, so losing access
+            # shows up as a jump in "Not on GitHub" rather than as nothing.
             repos_missing += 1
-            logger.info(f"Tracked project '{name}' is not on GitHub")
+            logger.info(f"Tracked project '{name}' is not on GitHub (or not visible to this token)")
         else:
             # A failed fetch drops this repo from `repos` entirely, taking its
             # PRs, CI and branches with it. Counting that as "not on GitHub"
