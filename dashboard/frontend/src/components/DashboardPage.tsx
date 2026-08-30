@@ -56,6 +56,7 @@ interface GitHubData {
     name: string;
     protected: boolean;
   }>;
+  fetch_errors?: string[];
   summary?: {
     total_repos: number;
     archived_repos: number;
@@ -64,6 +65,8 @@ interface GitHubData {
     recent_commit_count: number;
     repos_with_ci: number;
     failing_ci: number;
+    fetch_errors: number;
+    repos_not_on_github: number;
   };
   fetched_at?: string;
   cached?: boolean;
@@ -154,7 +157,8 @@ export function DashboardPage() {
 
   if (!data) return null;
 
-  const { summary, repos, open_pull_requests, recent_commits, workflow_runs, branches } = data;
+  const { summary, repos, open_pull_requests, recent_commits, workflow_runs, branches, fetch_errors } = data;
+  const fetchErrors = fetch_errors || [];
 
   // Group commits by repo
   const commitsByRepo: Record<string, typeof recent_commits> = {};
@@ -196,7 +200,7 @@ export function DashboardPage() {
   return (
     <PageShell
       title="Dashboard"
-      subtitle={`${summary?.total_repos} repos · ${summary?.recent_commit_count} commits this week · ${data.cached ? 'cached' : 'fresh'}`}
+      subtitle={`${summary?.total_repos} repos · ${summary?.recent_commit_count} commits this week · ${data.cached ? 'cached' : 'fresh'}${fetchErrors.length ? ` · ${fetchErrors.length} incomplete` : ''}`}
     >
       <div className="dashboard-grid">
         {/* API Cost Overview */}
@@ -231,7 +235,42 @@ export function DashboardPage() {
             <span className="summary-number">{Object.keys(branchesByRepo).length}</span>
             <span className="summary-label">Repos w/ stale branches</span>
           </div>
+          {fetchErrors.length > 0 && (
+            <div className="summary-card highlight-bad">
+              <span className="summary-number">{fetchErrors.length}</span>
+              <span className="summary-label">Failed fetches</span>
+            </div>
+          )}
+          {/* GitHub reports "absent" and "not visible to this token" the same
+              way, so a lost `repo` scope would land here rather than in failed
+              fetches. Showing the count means that arrives as a visible jump
+              instead of silence. */}
+          {!!summary?.repos_not_on_github && (
+            <div className="summary-card">
+              <span className="summary-number">{summary.repos_not_on_github}</span>
+              <span className="summary-label">Not on GitHub</span>
+            </div>
+          )}
         </div>
+
+        {/* Incomplete data — every number above is a floor, not a total, while
+            this is non-empty. Without it the dashboard reports partial results
+            as if they were complete, which is the same silent degradation as
+            the bug that made this list necessary (#6749). */}
+        {fetchErrors.length > 0 && (
+          <div className="dashboard-section" role="alert">
+            <h2>Incomplete data</h2>
+            <p className="fetch-errors-note">
+              GitHub data could not be retrieved for the following. Counts above exclude them,
+              so treat every figure as a minimum.
+            </p>
+            <ul className="fetch-errors-list">
+              {fetchErrors.map((err, i) => (
+                <li key={i}>{err}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Open PRs */}
         {open_pull_requests && open_pull_requests.length > 0 && (
