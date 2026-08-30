@@ -3934,6 +3934,60 @@ def _chat_api_request(method: str, path: str, config: dict,
         raise click.ClickException(f"Agent Chat API unreachable: {e}")
 
 
+def _known_chat_addresses() -> set:
+    """Addresses a message can actually reach.
+
+    An address is a project name (Erik's ruling 2026-08-30), so the set of
+    deliverable addresses is the set of tracked projects, plus the Architect
+    and the human. Returns an empty set if the project list is unavailable —
+    callers must treat that as "cannot verify", never as "invalid".
+    """
+    # Legacy addresses that predate the project-name scheme and still carry
+    # real traffic. Erik 2026-08-30: mini-claude is NOT obsolete — the Mini is
+    # on standby. Keep accepting these until they are migrated to
+    # <project>@mini, so this fix does not break addresses that work today.
+    known = {"claude-architect", "erik", "mini-claude", "auxesis-ops", "auxesis-ceo"}
+    try:
+        db = DatabaseManager()
+        for project in db.get_all_projects():
+            pid = (project.get("id") or "").strip()
+            if pid:
+                known.add(pid)
+    except Exception:  # noqa: BLE001 - never block a send on a DB hiccup
+        return set()
+    return known
+
+
+def _split_chat_address(address: str):
+    """Split `ai-memory@mini` into ("ai-memory", "mini"); bare name -> (name, None)."""
+    if "@" in address:
+        project, _, machine = address.partition("@")
+        return project, (machine or None)
+    return address, None
+
+
+def _resolve_self_address(config: dict | None = None) -> str:
+    """This session's Agent Chat address.
+
+    Reads the identity frozen at session start (agent-chat/identity.py) and
+    falls back to the configured sender. Deliberately does NOT derive from the
+    current directory: a project-tracker session that cd's into ~/projects/
+    ai-memory must not start speaking as ai-memory.
+    """
+    import sys as _sys
+    agent_chat_root = Path(__file__).resolve().parent.parent / "agent-chat"
+    if str(agent_chat_root) not in _sys.path:
+        _sys.path.insert(0, str(agent_chat_root))
+    try:
+        import identity as _identity
+        resolved = _identity.read_identity()
+        if resolved:
+            return resolved
+    except (ImportError, OSError):
+        pass
+    return (config or {}).get("sender", "") or os.environ.get("AGENT_CHAT_SENDER", "")
+
+
 def _format_message_line(m: dict) -> str:
     """Format a single message as a pipe-delimited line."""
     sender = m.get("sender", "?")
@@ -3972,8 +4026,10 @@ def message_group(ctx):
               default="normal", help="Message priority")
 @click.option("--reply-to", "reply_to", type=int, default=None,
               help="Message ID to reply to")
+@click.option("--force", is_flag=True,
+              help="Send even if the address is not a known project")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def message_send(text, recipient, priority, reply_to, json_output):
+def message_send(text, recipient, priority, reply_to, force, json_output):
     """Send a message to Agent Chat.
 
     \b
@@ -3984,8 +4040,42 @@ def message_send(text, recipient, priority, reply_to, json_output):
     """
     import json as json_mod
     config = _load_chat_config()
+    sender = _resolve_self_address(config)
+    if not sender:
+        raise click.ClickException(
+            "No Agent Chat address for this session. Identity is resolved at "
+            "session start from the project directory; if you are outside a "
+            "project, set AGENT_CHAT_SENDER explicitly."
+        )
+
+    # Sending to yourself is almost always a mis-addressed message, and it used
+    # to succeed silently: every agent shared one machine-global identity, so
+    # `--to claude-architect` returned "Sent #92 as claude-architect".
+    if recipient:
+        target_project, _ = _split_chat_address(recipient)
+        self_project, _ = _split_chat_address(sender)
+        if target_project == self_project and recipient == sender:
+            raise click.ClickException(
+                f"'{recipient}' is this session's own address — that message would "
+                f"go nowhere. Use --to <other-project>, or omit --to to broadcast."
+            )
+
+        # An unknown address is accepted by the server and delivered to nobody.
+        # That is how message #91 was lost: addressed to a name no session
+        # listens on, reported as sent. Verify before claiming success.
+        known = set() if force else _known_chat_addresses()
+        if known and target_project not in known:
+            import difflib
+            close = difflib.get_close_matches(target_project, sorted(known), n=3, cutoff=0.6)
+            hint = f" Did you mean: {', '.join(close)}?" if close else ""
+            raise click.ClickException(
+                f"'{recipient}' is not a known address, so this message would be "
+                f"accepted and delivered to nobody.{hint}\n"
+                f"Addresses are project names. Use --force to send anyway."
+            )
+
     payload = {
-        "sender": config["sender"],
+        "sender": sender,
         "body": text,
         "priority": priority,
     }
@@ -3999,7 +4089,8 @@ def message_send(text, recipient, priority, reply_to, json_output):
     if json_output:
         print(json_mod.dumps(result, indent=2))
     else:
-        click.echo(f"Sent #{result.get('id', '?')} as {config['sender']}")
+        target = f" to {recipient}" if recipient else " (broadcast)"
+        click.echo(f"Sent #{result.get('id', '?')} as {sender}{target}")
 
 
 @message_group.command(name="list")
@@ -4007,37 +4098,76 @@ def message_send(text, recipient, priority, reply_to, json_output):
 @click.option("--since", default=None, help="Show messages after this ISO timestamp")
 @click.option("--sender", default=None, help="Filter by sender")
 @click.option("--for", "for_recipient", default=None,
-              help="Show messages visible to this agent (broadcasts + DMs)")
+              help="Show messages visible to this agent (broadcasts + DMs). "
+                   "Defaults to your own address; use --all for the full board.")
+@click.option("--all", "show_all", is_flag=True,
+              help="Show all traffic, not just your inbox")
+@click.option("--oldest-first", is_flag=True,
+              help="Oldest first (default is newest first)")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def message_list(limit, since, sender, for_recipient, json_output):
+def message_list(limit, since, sender, for_recipient, show_all, oldest_first, json_output):
     """List messages from Agent Chat.
+
+    Defaults to INBOX semantics: your own broadcasts + DMs, newest first.
 
     \b
     Examples:
-      pt message list                        # Recent 20 messages
-      pt message list --limit 5              # Last 5
+      pt message list                        # Your inbox, newest 20
+      pt message list --all                  # Everyone's traffic
+      pt message list --limit 5              # Newest 5 in your inbox
       pt message list --sender mini-claude   # From mini-claude
-      pt message list --for claude-architect # Visible to architect
+      pt message list --for ai-memory        # Someone else's inbox
       pt message list --since 2026-04-03T00:00:00Z
     """
     import json as json_mod
     config = _load_chat_config()
-    params = {"limit": str(limit)}
-    if since:
-        params["since"] = since
-    if sender:
-        params["sender"] = sender
-    if for_recipient:
-        params["for"] = for_recipient
 
-    result = _chat_api_request("GET", "/messages", config, params=params)
+    # Inbox by default. Without this the default view is the whole board, and
+    # a DM addressed to you is indistinguishable from noise.
+    if for_recipient is None and not show_all:
+        for_recipient = _resolve_self_address(config)
+
+    def _fetch(fetch_limit, order=None):
+        params = {"limit": str(fetch_limit)}
+        if order:
+            params["order"] = order
+        if since:
+            params["since"] = since
+        if sender:
+            params["sender"] = sender
+        if for_recipient:
+            params["for"] = for_recipient
+        return _chat_api_request("GET", "/messages", config, params=params)
+
+    # `order=desc` makes the server select the NEWEST rows. Ordering is not
+    # cosmetic here: with ASC, `--limit 20` returns the twenty OLDEST messages,
+    # which is why the default view sat on 2026-04-02 while #91 arrived in
+    # August. Reversing the page client-side does not fix that — it reorders
+    # the wrong rows.
+    result = _fetch(limit, order="desc")
     messages = result.get("messages", [])
+
+    # Older deployments ignore `order` and still return the oldest page. Detect
+    # that (a full page whose newest row is not the board's newest) and recover
+    # by pulling a wider window and taking the tail. One extra call, and only
+    # against a server that has not been redeployed yet.
+    if result.get("order") != "desc" and len(messages) >= limit:
+        wide = _fetch(max(limit * 10, 500))
+        wide_messages = wide.get("messages", [])
+        if len(wide_messages) > len(messages):
+            messages = wide_messages[-limit:]
+            result = dict(wide, messages=messages)
+
+    if not oldest_first:
+        messages = list(reversed(messages))
+    result = dict(result, messages=messages)
 
     if json_output:
         print(json_mod.dumps(result, indent=2))
         return
     if not messages:
-        click.echo("No messages found.")
+        scope = "your inbox" if for_recipient and not show_all else "the board"
+        click.echo(f"No messages found in {scope}.")
         return
     for m in messages:
         click.echo(_format_message_line(m))
