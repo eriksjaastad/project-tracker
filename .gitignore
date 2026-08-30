@@ -78,3 +78,8 @@ project-graph-screenshots-movies/
 # Per-session floor manager notes — updated every session, machine-local
 PROGRESS.md
 .scratch/
+
+# Doppler encrypted-fallback blob written to the repo root by a malformed
+# flag (e.g. `doppler ... -h` capturing as a redirect). Encrypted, but not
+# something that should ever reach a commit.
+/-h

@@ -946,6 +946,13 @@ def _hygiene_stashes(repo_dir: Path) -> dict:
     return {"present": count > 0, "count": count}
 
 
+# Fields requested from `gh pr list --json` for hygiene checks. gh rejects the
+# entire call on a single unknown field and this wrapper reports that as
+# {"available": False}, so a typo here degrades silently — the same failure mode
+# as #6749. Validated against gh's real field set in tests/test_github_api.py.
+HYGIENE_PR_FIELDS = ("number", "title", "author", "createdAt")
+
+
 def _hygiene_open_pr_drift(repo_dir: Path) -> dict:
     """Detect open PRs older than 24h authored by *[bot] identities.
 
@@ -973,7 +980,7 @@ def _hygiene_open_pr_drift(repo_dir: Path) -> dict:
                 gh_bin, "pr", "list",
                 "--repo", repo_slug,
                 "--state", "open",
-                "--json", "number,title,author,createdAt",
+                "--json", ",".join(HYGIENE_PR_FIELDS),
                 "--limit", "50",
             ],
             capture_output=True,

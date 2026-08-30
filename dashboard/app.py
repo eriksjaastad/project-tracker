@@ -3464,8 +3464,68 @@ GH_PR_LIST_VALID_FIELDS = frozenset({
 })
 
 
-def _gh_json(args: List[str], timeout: int = 30) -> any:
-    """Run a gh CLI command and return parsed JSON, or None on failure."""
+# gh signals "this repo does not exist" differently per transport: the GraphQL
+# path (`gh repo view`) and the REST path (`gh api`). Anything else is a real
+# failure — auth lapse, rate limit, network — and must not be reported as
+# "not on GitHub".
+_GH_NOT_FOUND_MARKERS = (
+    "could not resolve to a repository",
+    "http 404",
+)
+
+# _gh_call failure kinds.
+GH_OK = None
+GH_NOT_FOUND = "not_found"
+GH_ERROR = "error"
+
+
+# Fields requested from `gh repo view --json`. Same all-or-nothing contract as
+# PR_LIST_FIELDS — and a different valid set, since field sets are per-subcommand.
+REPO_VIEW_FIELDS = (
+    "name",
+    "url",
+    "pushedAt",
+    "defaultBranchRef",
+    "isPrivate",
+    "description",
+    "stargazerCount",
+    "forkCount",
+    "isArchived",
+)
+
+# Valid `gh repo view --json` field names, as reported by gh 2.96.0.
+GH_REPO_VIEW_VALID_FIELDS = frozenset({
+    "archivedAt", "assignableUsers", "codeOfConduct", "contactLinks", "createdAt",
+    "defaultBranchRef", "deleteBranchOnMerge", "description", "diskUsage",
+    "forkCount", "fundingLinks", "hasDiscussionsEnabled", "hasIssuesEnabled",
+    "hasProjectsEnabled", "hasWikiEnabled", "homepageUrl", "id", "isArchived",
+    "isBlankIssuesEnabled", "isEmpty", "isFork", "isInOrganization", "isMirror",
+    "isPrivate", "isSecurityPolicyEnabled", "isTemplate",
+    "isUserConfigurationRepository", "issueTemplates", "issues", "labels",
+    "languages", "latestRelease", "licenseInfo", "mentionableUsers",
+    "mergeCommitAllowed", "milestones", "mirrorUrl", "name", "nameWithOwner",
+    "openGraphImageUrl", "owner", "parent", "primaryLanguage", "projects",
+    "projectsV2", "pullRequestTemplates", "pullRequests", "pushedAt",
+    "rebaseMergeAllowed", "repositoryTopics", "securityPolicyUrl",
+    "squashMergeAllowed", "sshUrl", "stargazerCount", "templateRepository",
+    "updatedAt", "url", "usesCustomOpenGraphImage", "viewerCanAdminister",
+    "viewerDefaultCommitEmail", "viewerDefaultMergeMethod", "viewerHasStarred",
+    "viewerPermission", "viewerPossibleCommitEmails", "viewerSubscription",
+    "visibility", "watchers",
+})
+
+
+def _gh_call(args: List[str], timeout: int = 30) -> tuple:
+    """Run a gh CLI command, returning (parsed_json, failure_kind).
+
+    failure_kind is GH_OK on success, GH_NOT_FOUND when the target genuinely
+    does not exist, or GH_ERROR for any other failure. Callers need the
+    distinction: a missing repo is a fact about the world, while an auth or
+    rate-limit failure means our data is incomplete and we must say so.
+
+    stderr is logged but never returned — it can contain tokens and auth URLs,
+    and callers surface these values to the browser.
+    """
     try:
         result = subprocess.run(
             [_GH_BIN] + args,
@@ -3474,18 +3534,33 @@ def _gh_json(args: List[str], timeout: int = 30) -> any:
             timeout=timeout,
         )
         if result.returncode != 0:
-            logger.warning(f"gh command failed: gh {' '.join(args)} — {result.stderr.strip()}")
-            return None
-        return json.loads(result.stdout) if result.stdout.strip() else None
+            stderr = result.stderr.strip()
+            logger.warning(f"gh command failed: gh {' '.join(args)} — {stderr}")
+            blob = (stderr + " " + result.stdout).lower()
+            if any(marker in blob for marker in _GH_NOT_FOUND_MARKERS):
+                return None, GH_NOT_FOUND
+            return None, GH_ERROR
+        if not result.stdout.strip():
+            return None, GH_OK
+        return json.loads(result.stdout), GH_OK
     except FileNotFoundError:
         logger.error("gh CLI not found on PATH")
-        return None
+        return None, GH_ERROR
     except subprocess.TimeoutExpired:
         logger.warning(f"gh command timed out: gh {' '.join(args)}")
-        return None
+        return None, GH_ERROR
     except json.JSONDecodeError as e:
         logger.warning(f"gh returned non-JSON: {e}")
-        return None
+        return None, GH_ERROR
+
+
+def _gh_json(args: List[str], timeout: int = 30) -> any:
+    """Run a gh CLI command and return parsed JSON, or None on failure.
+
+    Thin wrapper over _gh_call for callers that do not need to distinguish a
+    missing target from a failed fetch.
+    """
+    return _gh_call(args, timeout)[0]
 
 
 def _get_tracked_repo_names() -> List[str]:
@@ -3536,15 +3611,22 @@ def _fetch_github_data() -> Dict:
     fetch_errors: List[str] = []
 
     repos: List[Dict] = []
+    repos_missing = 0
     for name in tracked_names:
-        repo_info = _gh_json([
+        repo_info, failure = _gh_call([
             "repo", "view", f"{owner}/{name}",
-            "--json", "name,url,pushedAt,defaultBranchRef,isPrivate,description,stargazerCount,forkCount,isArchived",
+            "--json", ",".join(REPO_VIEW_FIELDS),
         ], timeout=10)
         if repo_info:
             repos.append(repo_info)
+        elif failure == GH_NOT_FOUND:
+            repos_missing += 1
+            logger.info(f"Tracked project '{name}' is not on GitHub")
         else:
-            logger.info(f"Skipped tracked project '{name}' — not found on GitHub or fetch failed")
+            # A failed fetch drops this repo from `repos` entirely, taking its
+            # PRs, CI and branches with it. Counting that as "not on GitHub"
+            # would assert a healthy fetch that never happened.
+            fetch_errors.append(f"repo metadata for {owner}/{name}")
 
     # 3. Open PRs across tracked repos
     all_prs: List[Dict] = []
@@ -3552,14 +3634,14 @@ def _fetch_github_data() -> Dict:
         repo_name = repo.get("name", "")
         if repo.get("isArchived"):
             continue
-        prs = _gh_json([
+        prs, failure = _gh_call([
             "pr", "list",
             "--repo", f"{owner}/{repo_name}",
             "--json", ",".join(PR_LIST_FIELDS),
             "--state", "open",
             "--limit", "50",
         ], timeout=15)
-        if prs is None:
+        if failure is not GH_OK:
             # Distinguish a failed fetch from a repo with no open PRs. Without
             # this the UI renders an empty PR panel either way, which is how a
             # bad --json field went unnoticed (see #6749).
@@ -3579,7 +3661,7 @@ def _fetch_github_data() -> Dict:
         if pushed and pushed >= seven_days_ago and not repo.get("isArchived"):
             repo_name = repo.get("name", "")
             default_branch = (repo.get("defaultBranchRef") or {}).get("name", "main")
-            commits = _gh_json([
+            commits, failure = _gh_call([
                 "api", f"/repos/{owner}/{repo_name}/commits",
                 "-q", ".",
                 "--method", "GET",
@@ -3587,6 +3669,8 @@ def _fetch_github_data() -> Dict:
                 "-f", f"sha={default_branch}",
                 "-f", "per_page=20",
             ], timeout=15)
+            if failure is not GH_OK:
+                fetch_errors.append(f"recent commits for {owner}/{repo_name}")
             if commits and isinstance(commits, list):
                 for c in commits[:20]:
                     recent_commits.append({
@@ -3604,12 +3688,16 @@ def _fetch_github_data() -> Dict:
         if repo.get("isArchived"):
             continue
         repo_name = repo.get("name", "")
-        runs = _gh_json([
+        runs, failure = _gh_call([
             "api", f"/repos/{owner}/{repo_name}/actions/runs",
             "-q", ".",
             "--method", "GET",
             "-f", "per_page=5",
         ], timeout=10)
+        if failure is not GH_OK:
+            # Without this a rate-limited runs endpoint empties workflow_runs,
+            # silently blanking the Failing CI panel and undercounting failing_ci.
+            fetch_errors.append(f"CI runs for {owner}/{repo_name}")
         if runs and isinstance(runs, dict):
             for run in (runs.get("workflow_runs") or [])[:5]:
                 workflow_runs.append({
@@ -3628,12 +3716,14 @@ def _fetch_github_data() -> Dict:
         if repo.get("isArchived"):
             continue
         repo_name = repo.get("name", "")
-        branches = _gh_json([
+        branches, failure = _gh_call([
             "api", f"/repos/{owner}/{repo_name}/branches",
             "-q", ".",
             "--method", "GET",
             "-f", "per_page=100",
         ], timeout=10)
+        if failure is not GH_OK:
+            fetch_errors.append(f"branches for {owner}/{repo_name}")
         if branches and isinstance(branches, list):
             for b in branches:
                 branch_info.append({
@@ -3663,7 +3753,7 @@ def _fetch_github_data() -> Dict:
             "total_repos": len(repos),
             "tracked_projects": len(tracked_names),
             "repos_found_on_github": len(repos),
-            "repos_not_on_github": len(tracked_names) - len(repos),
+            "repos_not_on_github": repos_missing,
             "archived_repos": sum(1 for r in repos if r.get("isArchived")),
             "open_prs": len(all_prs),
             "draft_prs": sum(1 for p in all_prs if p.get("isDraft")),
