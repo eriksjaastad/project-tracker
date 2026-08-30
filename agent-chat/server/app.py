@@ -103,6 +103,8 @@ def get_messages():
             sender=request.args.get("sender"),
             for_recipient=request.args.get("for"),
             limit=request.args.get("limit", 50, type=int),
+            newest_first=request.args.get("order", "").lower() == "desc",
+            for_machine=request.args.get("for_machine"),
         )
 
     for row in rows:
@@ -110,7 +112,12 @@ def get_messages():
             if hasattr(v, "isoformat"):
                 row[k] = v.isoformat()
 
-    return jsonify({"messages": rows})
+    # Always hand back chronological order; `order=desc` selects WHICH rows the
+    # limit takes (the newest), not how they are presented.
+    if request.args.get("order", "").lower() == "desc":
+        rows = list(reversed(rows))
+
+    return jsonify({"messages": rows, "order": request.args.get("order", "asc")})
 
 
 @app.route("/", methods=["GET"])
