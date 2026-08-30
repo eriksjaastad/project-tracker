@@ -704,3 +704,45 @@ class TestGhFieldListDrift:
             f"  gh removed: {sorted(set(GH_PR_LIST_VALID_FIELDS) - live)}\n"
             "Update the constant in dashboard/app.py."
         )
+
+
+class TestPrPartialFailure:
+    """A failure in one repo must not lose PRs from repos that succeeded."""
+
+    def test_partial_failure_keeps_good_repos(self):
+        """One repo failing must not discard PRs from repos that succeeded."""
+        from dashboard.app import _fetch_github_data
+
+        def mock_gh_json(args, timeout=30):
+            if args == ["api", "/user"]:
+                return {"login": "testuser"}
+            if args[0] == "repo" and args[1] == "view":
+                return {
+                    "name": args[2].split("/")[1],
+                    "isArchived": False,
+                    "pushedAt": "2020-01-01T00:00:00Z",
+                    "defaultBranchRef": {"name": "main"},
+                }
+            if args[0] == "pr":
+                repo = args[args.index("--repo") + 1].split("/")[1]
+                if repo == "broken-repo":
+                    return None          # fetch failed
+                if repo == "quiet-repo":
+                    return []            # genuinely no open PRs
+                return [{"number": 7, "title": "Good", "headRefName": "feat/g"}]
+            return []
+
+        with patch("dashboard.app._gh_json", side_effect=mock_gh_json):
+            with patch("dashboard.app._get_tracked_repo_names",
+                       return_value=["good-repo", "broken-repo", "quiet-repo"]):
+                result = _fetch_github_data()
+
+        # The working repo's PR survives its neighbour's failure.
+        assert len(result["open_pull_requests"]) == 1
+        assert result["open_pull_requests"][0]["repository"] == {"name": "good-repo"}
+        assert result["summary"]["open_prs"] == 1
+
+        # Only the genuine failure is reported — the empty repo is not an error.
+        assert result["summary"]["fetch_errors"] == 1
+        assert any("broken-repo" in e for e in result["fetch_errors"])
+        assert not any("quiet-repo" in e for e in result["fetch_errors"])
