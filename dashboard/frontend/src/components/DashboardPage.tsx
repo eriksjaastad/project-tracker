@@ -56,6 +56,7 @@ interface GitHubData {
     name: string;
     protected: boolean;
   }>;
+  fetch_errors?: string[];
   summary?: {
     total_repos: number;
     archived_repos: number;
@@ -64,6 +65,7 @@ interface GitHubData {
     recent_commit_count: number;
     repos_with_ci: number;
     failing_ci: number;
+    fetch_errors: number;
   };
   fetched_at?: string;
   cached?: boolean;

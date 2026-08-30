@@ -480,3 +480,227 @@ class TestApiGithubEndpoint:
             assert result["cached"] is False
         finally:
             _github_cache.update(original)
+
+
+class TestPrListFields:
+    """Regression guard for #6749 — a bad --json field empties the PR panel.
+
+    `gh pr list` rejects the entire call if any requested field is unknown, so
+    a single typo turns every PR fetch into a silent no-op. These tests fail
+    loudly instead.
+    """
+
+    def test_requested_fields_are_all_valid(self):
+        """Every field in PR_LIST_FIELDS is accepted by `gh pr list --json`."""
+        from dashboard.app import PR_LIST_FIELDS, GH_PR_LIST_VALID_FIELDS
+
+        invalid = set(PR_LIST_FIELDS) - GH_PR_LIST_VALID_FIELDS
+        assert not invalid, (
+            f"Invalid `gh pr list --json` field(s): {sorted(invalid)}. "
+            "gh rejects the whole call, so every PR fetch would return nothing."
+        )
+
+    def test_repository_is_not_requested(self):
+        """`repository` is a `gh search prs` field, not a `gh pr list` field."""
+        from dashboard.app import PR_LIST_FIELDS, GH_PR_LIST_VALID_FIELDS
+
+        assert "repository" not in GH_PR_LIST_VALID_FIELDS
+        assert "repository" not in PR_LIST_FIELDS
+
+    def test_fields_cover_what_the_frontend_reads(self):
+        """Fields the dashboard UI renders are actually requested."""
+        from dashboard.app import PR_LIST_FIELDS
+
+        for field in ("title", "number", "url", "author", "createdAt",
+                      "headRefName", "isDraft", "statusCheckRollup"):
+            assert field in PR_LIST_FIELDS
+
+    def test_gh_invoked_with_valid_fields(self):
+        """The actual `gh pr list` call sends only valid fields."""
+        from dashboard.app import _fetch_github_data, GH_PR_LIST_VALID_FIELDS
+
+        seen = []
+
+        def mock_gh_json(args, timeout=30):
+            if args == ["api", "/user"]:
+                return {"login": "testuser"}
+            if args[0] == "repo" and args[1] == "view":
+                return {
+                    "name": args[2].split("/")[1],
+                    "isArchived": False,
+                    "pushedAt": "2020-01-01T00:00:00Z",
+                    "defaultBranchRef": {"name": "main"},
+                }
+            if args[0] == "pr":
+                seen.append(args[args.index("--json") + 1])
+                return []
+            return []
+
+        with patch("dashboard.app._gh_json", side_effect=mock_gh_json):
+            with patch("dashboard.app._get_tracked_repo_names", return_value=["my-repo"]):
+                _fetch_github_data()
+
+        assert seen, "no `gh pr list` call was made"
+        for spec in seen:
+            for field in spec.split(","):
+                assert field in GH_PR_LIST_VALID_FIELDS, f"invalid field: {field}"
+
+
+class TestPrRepositoryAttribution:
+    """PRs must carry a repository name — `gh pr list` does not supply one."""
+
+    @staticmethod
+    def _fetch(tracked, prs_by_repo):
+        from dashboard.app import _fetch_github_data
+
+        def mock_gh_json(args, timeout=30):
+            if args == ["api", "/user"]:
+                return {"login": "testuser"}
+            if args[0] == "repo" and args[1] == "view":
+                return {
+                    "name": args[2].split("/")[1],
+                    "isArchived": False,
+                    "pushedAt": "2020-01-01T00:00:00Z",
+                    "defaultBranchRef": {"name": "main"},
+                }
+            if args[0] == "pr":
+                repo = args[args.index("--repo") + 1].split("/")[1]
+                return prs_by_repo.get(repo, [])
+            return []
+
+        with patch("dashboard.app._gh_json", side_effect=mock_gh_json):
+            with patch("dashboard.app._get_tracked_repo_names", return_value=tracked):
+                return _fetch_github_data()
+
+    def test_repository_name_attached_to_each_pr(self):
+        """Each PR gets repository.name set from the repo it was fetched for."""
+        result = self._fetch(
+            ["repo-a", "repo-b"],
+            {
+                "repo-a": [{"number": 1, "title": "A", "headRefName": "feat/a"}],
+                "repo-b": [{"number": 2, "title": "B", "headRefName": "feat/b"}],
+            },
+        )
+
+        by_number = {pr["number"]: pr for pr in result["open_pull_requests"]}
+        assert by_number[1]["repository"] == {"name": "repo-a"}
+        assert by_number[2]["repository"] == {"name": "repo-b"}
+        assert result["summary"]["open_prs"] == 2
+
+    def test_failing_ci_correlates_pr_to_repo(self):
+        """summary.failing_ci matches a failed run to a PR in the same repo."""
+        from dashboard.app import _fetch_github_data
+
+        def mock_gh_json(args, timeout=30):
+            if args == ["api", "/user"]:
+                return {"login": "testuser"}
+            if args[0] == "repo" and args[1] == "view":
+                return {
+                    "name": args[2].split("/")[1],
+                    "isArchived": False,
+                    "pushedAt": "2020-01-01T00:00:00Z",
+                    "defaultBranchRef": {"name": "main"},
+                }
+            if args[0] == "pr":
+                return [{"number": 1, "title": "A", "headRefName": "feat/a"}]
+            if "actions/runs" in str(args):
+                return {"workflow_runs": [{
+                    "name": "CI",
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "head_branch": "feat/a",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "html_url": "https://example.com/run/1",
+                }]}
+            return []
+
+        with patch("dashboard.app._gh_json", side_effect=mock_gh_json):
+            with patch("dashboard.app._get_tracked_repo_names", return_value=["repo-a"]):
+                result = _fetch_github_data()
+
+        assert result["summary"]["failing_ci"] == 1
+
+
+class TestPrFetchErrorReporting:
+    """A failed PR fetch must be distinguishable from 'no open PRs'."""
+
+    @staticmethod
+    def _fetch(pr_return):
+        from dashboard.app import _fetch_github_data
+
+        def mock_gh_json(args, timeout=30):
+            if args == ["api", "/user"]:
+                return {"login": "testuser"}
+            if args[0] == "repo" and args[1] == "view":
+                return {
+                    "name": args[2].split("/")[1],
+                    "isArchived": False,
+                    "pushedAt": "2020-01-01T00:00:00Z",
+                    "defaultBranchRef": {"name": "main"},
+                }
+            if args[0] == "pr":
+                return pr_return
+            return []
+
+        with patch("dashboard.app._gh_json", side_effect=mock_gh_json):
+            with patch("dashboard.app._get_tracked_repo_names", return_value=["repo-a"]):
+                return _fetch_github_data()
+
+    def test_failed_fetch_is_reported(self):
+        """A None return from gh surfaces in fetch_errors, not as silence."""
+        result = self._fetch(None)
+
+        assert result["open_pull_requests"] == []
+        assert result["summary"]["fetch_errors"] == 1
+        assert any("repo-a" in e for e in result["fetch_errors"])
+
+    def test_no_open_prs_is_not_an_error(self):
+        """An empty list means the repo genuinely has no open PRs."""
+        result = self._fetch([])
+
+        assert result["open_pull_requests"] == []
+        assert result["fetch_errors"] == []
+        assert result["summary"]["fetch_errors"] == 0
+
+
+class TestGhFieldListDrift:
+    """GH_PR_LIST_VALID_FIELDS is a snapshot of gh's field list — catch drift.
+
+    Skipped when gh is unavailable so CI without gh stays green. When gh IS
+    present this asserts our snapshot still matches reality, in both
+    directions: a field gh dropped (our request would break) and a field gh
+    added (our snapshot would wrongly reject a valid new field).
+    """
+
+    @staticmethod
+    def _live_fields():
+        import shutil
+        gh = shutil.which("gh")
+        if not gh:
+            return None
+        # gh lists the valid fields in its error message for a bogus field.
+        proc = subprocess.run(
+            [gh, "pr", "list", "--repo", "cli/cli", "--json", "__bogus__", "--limit", "1"],
+            capture_output=True, text=True, timeout=30,
+        )
+        text = proc.stdout + proc.stderr
+        if "Available fields:" not in text:
+            return None
+        tail = text.split("Available fields:", 1)[1]
+        return {line.strip() for line in tail.splitlines() if line.strip()}
+
+    def test_snapshot_matches_live_gh(self):
+        """Our hardcoded field set matches what gh actually accepts."""
+        import pytest
+        from dashboard.app import GH_PR_LIST_VALID_FIELDS
+
+        live = self._live_fields()
+        if live is None:
+            pytest.skip("gh CLI unavailable or output format changed")
+
+        assert live == set(GH_PR_LIST_VALID_FIELDS), (
+            "gh's `pr list --json` field list drifted from GH_PR_LIST_VALID_FIELDS.\n"
+            f"  gh added:   {sorted(live - set(GH_PR_LIST_VALID_FIELDS))}\n"
+            f"  gh removed: {sorted(set(GH_PR_LIST_VALID_FIELDS) - live)}\n"
+            "Update the constant in dashboard/app.py."
+        )
