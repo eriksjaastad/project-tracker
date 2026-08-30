@@ -190,3 +190,19 @@
   overflow-y: auto;
   color: var(--text-secondary, #aaa);
 }
+
+/* Incomplete-data notice — shown only when a GitHub fetch actually failed.
+   Deliberately not dismissible: hiding it would restore the silent
+   degradation this panel exists to prevent. */
+.fetch-errors-note {
+  margin: 0 0 0.5rem;
+  color: var(--warning);
+  font-size: 0.85rem;
+}
+
+.fetch-errors-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
