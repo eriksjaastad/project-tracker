@@ -3431,6 +3431,38 @@ def _find_gh() -> str:
 
 _GH_BIN = _find_gh()
 
+# Fields requested from `gh pr list --json`. Every name here must appear in
+# GH_PR_LIST_VALID_FIELDS — `gh` rejects the whole call on one bad field, which
+# silently emptied the dashboard's PR panel until #6749.
+PR_LIST_FIELDS = (
+    "title",
+    "number",
+    "url",
+    "author",
+    "createdAt",
+    "statusCheckRollup",
+    "reviewDecision",
+    "headRefName",
+    "baseRefName",
+    "isDraft",
+)
+
+# Valid `gh pr list --json` field names, as reported by gh 2.96.0. Note this is
+# NOT the `gh search prs` field set — that one has `repository`, this one does
+# not, because `pr list` is already scoped to a single repo.
+GH_PR_LIST_VALID_FIELDS = frozenset({
+    "additions", "assignees", "author", "autoMergeRequest", "baseRefName",
+    "baseRefOid", "body", "changedFiles", "closed", "closedAt",
+    "closingIssuesReferences", "comments", "commits", "createdAt", "deletions",
+    "files", "fullDatabaseId", "headRefName", "headRefOid", "headRepository",
+    "headRepositoryOwner", "id", "isCrossRepository", "isDraft", "labels",
+    "latestReviews", "maintainerCanModify", "mergeCommit", "mergeStateStatus",
+    "mergeable", "mergedAt", "mergedBy", "milestone", "number",
+    "potentialMergeCommit", "projectCards", "projectItems", "reactionGroups",
+    "reviewDecision", "reviewRequests", "reviews", "state", "statusCheckRollup",
+    "title", "updatedAt", "url",
+})
+
 
 def _gh_json(args: List[str], timeout: int = 30) -> any:
     """Run a gh CLI command and return parsed JSON, or None on failure."""
@@ -3501,6 +3533,8 @@ def _fetch_github_data() -> Dict:
     if not tracked_names:
         return {"error": "No tracked projects found in kanban board", "cached": False}
 
+    fetch_errors: List[str] = []
+
     repos: List[Dict] = []
     for name in tracked_names:
         repo_info = _gh_json([
@@ -3514,7 +3548,6 @@ def _fetch_github_data() -> Dict:
 
     # 3. Open PRs across tracked repos
     all_prs: List[Dict] = []
-    pr_fields = "title,number,url,author,createdAt,statusCheckRollup,reviewDecision,headRefName,baseRefName,isDraft,repository"
     for repo in repos:
         repo_name = repo.get("name", "")
         if repo.get("isArchived"):
@@ -3522,12 +3555,21 @@ def _fetch_github_data() -> Dict:
         prs = _gh_json([
             "pr", "list",
             "--repo", f"{owner}/{repo_name}",
-            "--json", pr_fields,
+            "--json", ",".join(PR_LIST_FIELDS),
             "--state", "open",
             "--limit", "50",
         ], timeout=15)
-        if prs:
-            all_prs.extend(prs)
+        if prs is None:
+            # Distinguish a failed fetch from a repo with no open PRs. Without
+            # this the UI renders an empty PR panel either way, which is how a
+            # bad --json field went unnoticed (see #6749).
+            fetch_errors.append(f"open PRs for {owner}/{repo_name}")
+            continue
+        # `gh pr list` is already scoped to one repo, so it has no `repository`
+        # field to return. Attach it here — consumers key PRs by repo name.
+        for pr in prs:
+            pr["repository"] = {"name": repo_name}
+        all_prs.extend(prs)
 
     # 4. Recent commits (last 7 days) — only from tracked repos
     seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat() + "Z"
@@ -3616,6 +3658,7 @@ def _fetch_github_data() -> Dict:
         "recent_commits": recent_commits,
         "workflow_runs": workflow_runs,
         "branches": branch_info,
+        "fetch_errors": fetch_errors,
         "summary": {
             "total_repos": len(repos),
             "tracked_projects": len(tracked_names),
@@ -3626,6 +3669,7 @@ def _fetch_github_data() -> Dict:
             "draft_prs": sum(1 for p in all_prs if p.get("isDraft")),
             "recent_commit_count": len(recent_commits),
             "repos_with_ci": len(set(r["repo"] for r in workflow_runs)),
+            "fetch_errors": len(fetch_errors),
             "failing_ci": sum(
                 1 for r in workflow_runs
                 if r.get("conclusion") == "failure"
