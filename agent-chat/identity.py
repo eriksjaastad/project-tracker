@@ -158,6 +158,27 @@ def split_address(address: str) -> tuple[str, str | None]:
     return address, None
 
 
+def machine_path() -> Path:
+    """Where this machine's qualifier is cached.
+
+    Machine-global, not per-session. check_chat.sh reads this at poll time so
+    it can request `for_machine=` without spawning Python on the hot path —
+    the hook runs before every Bash call and has a hard latency budget.
+    """
+    return state_dir() / "machine.txt"
+
+
+def write_machine(machine: str | None = None) -> Path:
+    """Cache this machine's qualifier for the shell hook to read."""
+    value = machine or machine_name()
+    path = machine_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(value + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return path
+
+
 def identity_path(session_id: str) -> Path:
     """Path of the stored identity for one session."""
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", session_id or "")

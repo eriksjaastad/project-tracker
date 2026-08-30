@@ -417,3 +417,56 @@ class TestUnknownAddressGuard:
 
         assert result.exit_code == 0
         req.assert_called_once()
+
+
+class TestMachineQualifiedSend:
+    """`--machine` builds a qualified address; qualify() is no longer dead code."""
+
+    def _identity(self, tmp_path, monkeypatch, address):
+        state = tmp_path / "identity"
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "sess.txt").write_text(address)
+        monkeypatch.setenv("AGENT_CHAT_STATE_DIR", str(state))
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess")
+
+    def test_machine_qualifies_the_recipient(self, runner, tmp_path, monkeypatch):
+        self._identity(tmp_path, monkeypatch, "project-tracker")
+        with patch("pt._load_chat_config", return_value={"url": "u", "key": "k", "sender": "cfg"}), \
+             patch("pt._known_chat_addresses", return_value={"project-tracker", "ai-memory"}), \
+             patch("pt._chat_api_request", return_value={"id": 1}) as req:
+            result = runner.invoke(
+                cli, ["message", "send", "hi", "--to", "ai-memory", "--machine", "mini"])
+
+        assert result.exit_code == 0
+        assert req.call_args[1]["data"]["to"] == "ai-memory@mini"
+
+    def test_machine_validates_on_the_project_part(self, runner, tmp_path, monkeypatch):
+        """An unknown project stays refused even when qualified."""
+        self._identity(tmp_path, monkeypatch, "project-tracker")
+        with patch("pt._load_chat_config", return_value={"url": "u", "key": "k", "sender": "cfg"}), \
+             patch("pt._known_chat_addresses", return_value={"project-tracker"}), \
+             patch("pt._chat_api_request", return_value={"id": 1}) as req:
+            result = runner.invoke(
+                cli, ["message", "send", "hi", "--to", "nope", "--machine", "mini"])
+
+        assert result.exit_code != 0
+        req.assert_not_called()
+
+    def test_machine_without_to_is_an_error(self, runner, tmp_path, monkeypatch):
+        self._identity(tmp_path, monkeypatch, "project-tracker")
+        with patch("pt._load_chat_config", return_value={"url": "u", "key": "k", "sender": "cfg"}), \
+             patch("pt._chat_api_request", return_value={"id": 1}) as req:
+            result = runner.invoke(cli, ["message", "send", "hi", "--machine", "mini"])
+
+        assert result.exit_code != 0
+        req.assert_not_called()
+
+    def test_existing_qualifier_is_not_doubled(self, runner, tmp_path, monkeypatch):
+        self._identity(tmp_path, monkeypatch, "project-tracker")
+        with patch("pt._load_chat_config", return_value={"url": "u", "key": "k", "sender": "cfg"}), \
+             patch("pt._known_chat_addresses", return_value={"project-tracker", "ai-memory"}), \
+             patch("pt._chat_api_request", return_value={"id": 1}) as req:
+            runner.invoke(
+                cli, ["message", "send", "hi", "--to", "ai-memory@laptop", "--machine", "mini"])
+
+        assert req.call_args[1]["data"]["to"] == "ai-memory@mini"

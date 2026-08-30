@@ -16,14 +16,29 @@ from pathlib import Path
 
 import pytest
 
+from dataclasses import dataclass
+
 HOOK = Path(__file__).resolve().parent.parent / "agent-chat" / "hooks" / "check_chat.sh"
+
+
+@dataclass
+class HookRun:
+    """What the hook injected, and the URL it actually asked the server for."""
+    context: str
+    url: str
+
+    def __contains__(self, needle):   # `"x" in run` reads as "was x delivered"
+        return needle in self.context
+
+    def __eq__(self, other):
+        return self.context == other if isinstance(other, str) else NotImplemented
 
 pytestmark = pytest.mark.skipif(
     shutil.which("jq") is None, reason="check_chat.sh requires jq"
 )
 
 
-def run_hook(tmp_path, messages, *, identity=None, machine=None):
+def run_hook(tmp_path, messages, *, identity=None, machine=None, machine_file=None):
     """Execute check_chat.sh against a stubbed API response.
 
     Returns the additionalContext string the hook would inject, or "" when it
@@ -38,8 +53,13 @@ def run_hook(tmp_path, messages, *, identity=None, machine=None):
     # Stub curl so no network is touched and the response is deterministic.
     bindir = tmp_path / "bin"
     bindir.mkdir()
+    url_log = tmp_path / "curl_url.txt"
     curl = bindir / "curl"
-    curl.write_text(f'#!/usr/bin/env bash\ncat {payload}\n')
+    curl.write_text(
+        f'#!/usr/bin/env bash\n'
+        f'for a in "$@"; do echo "$a" >> {url_log}; done\n'
+        f'cat {payload}\n'
+    )
     curl.chmod(0o755)
 
     env = dict(os.environ)
@@ -60,17 +80,27 @@ def run_hook(tmp_path, messages, *, identity=None, machine=None):
     if machine is not None:
         env["AGENT_CHAT_MACHINE"] = machine
 
+    if machine_file is not None:
+        state = Path(env.get("AGENT_CHAT_STATE_DIR", tmp_path / "identity"))
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "machine.txt").write_text(machine_file)
+        env["AGENT_CHAT_STATE_DIR"] = str(state)
+
     result = subprocess.run(
         ["bash", str(HOOK)], capture_output=True, text=True, env=env, timeout=30
     )
     assert result.returncode == 0, f"hook must never fail: {result.stderr}"
-    if not result.stdout.strip():
-        return ""
-    try:
-        out = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return ""
-    return out.get("hookSpecificOutput", {}).get("additionalContext", "")
+
+    requested_url = url_log.read_text() if url_log.exists() else ""
+    context = ""
+    if result.stdout.strip():
+        try:
+            context = json.loads(result.stdout).get(
+                "hookSpecificOutput", {}
+            ).get("additionalContext", "")
+        except json.JSONDecodeError:
+            context = ""
+    return HookRun(context=context, url=requested_url)
 
 
 def msg(mid, sender, recipient=None, body="body"):
@@ -152,19 +182,74 @@ class TestNoIdentityIsConservative:
 
 
 class TestMachineQualifier:
-    """`ai-memory@mini` must be requested, or a qualified DM reaches nobody."""
+    """`ai-memory@mini` must be REQUESTED, or a qualified DM reaches nobody.
 
-    def test_machine_qualifier_is_sent_to_the_server(self, tmp_path):
-        # The stub curl ignores the URL, so assert on the script's own request
-        # construction by checking it runs clean with a machine set and still
-        # delivers. Delivery matching itself is covered server-side.
-        out = run_hook(
+    The server can only return qualified mail if the hook asks for it. The
+    previous version of this class asserted only that an unrelated bare message
+    was delivered, so it passed with the `for_machine` code deleted entirely —
+    a test named after a feature it did not exercise.
+    """
+
+    def test_for_machine_is_in_the_request_url(self, tmp_path):
+        run = run_hook(
             tmp_path,
-            [msg(10, "ai-memory", "project-tracker", "qualified")],
+            [msg(10, "ai-memory", "project-tracker", "x")],
             identity="project-tracker",
             machine="mini",
         )
-        assert "qualified" in out
+        assert "for_machine=mini" in run.url
+
+    def test_machine_is_read_from_the_session_cache(self, tmp_path):
+        """Nothing exports AGENT_CHAT_MACHINE, so the cache is the real path.
+
+        SessionStart writes machine.txt; reading only the env var meant
+        qualified DMs were never requested under the default configuration.
+        """
+        run = run_hook(
+            tmp_path,
+            [msg(11, "ai-memory", "project-tracker", "x")],
+            identity="project-tracker",
+            machine_file="mini",
+        )
+        assert "for_machine=mini" in run.url
+
+    def test_env_var_overrides_the_cache(self, tmp_path):
+        run = run_hook(
+            tmp_path,
+            [msg(12, "ai-memory", "project-tracker", "x")],
+            identity="project-tracker",
+            machine="laptop",
+            machine_file="mini",
+        )
+        assert "for_machine=laptop" in run.url
+
+    def test_no_machine_means_no_param(self, tmp_path):
+        """Absent a qualifier the request must stay bare, not send an empty one."""
+        run = run_hook(
+            tmp_path,
+            [msg(13, "ai-memory", "project-tracker", "x")],
+            identity="project-tracker",
+        )
+        assert "for_machine" not in run.url
+
+    def test_bare_address_is_always_requested(self, tmp_path):
+        """Bare `for=` must survive, or bare DMs break on the deployed server."""
+        run = run_hook(
+            tmp_path,
+            [msg(14, "ai-memory", "project-tracker", "x")],
+            identity="project-tracker",
+            machine_file="mini",
+        )
+        assert "for=project-tracker" in run.url
+
+    def test_qualified_dm_is_delivered_when_the_server_returns_it(self, tmp_path):
+        run = run_hook(
+            tmp_path,
+            [msg(15, "ai-memory", "project-tracker@mini", "qualified-body")],
+            identity="project-tracker",
+            machine_file="mini",
+        )
+        assert "qualified-body" in run
 
 
 class TestNeverBlocksClaude:
