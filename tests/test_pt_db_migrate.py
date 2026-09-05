@@ -84,7 +84,8 @@ def test_pt_db_migrate_applies_pending_and_reports(
     assert "009_task_display_ids" in result.output
     assert "010_add_handoffs_table" in result.output
     assert "011_add_migrations_table" in result.output
-    assert "applied 10 migration" in result.output
+    assert "012_add_tasks_archived_at" in result.output
+    assert "applied 11 migration" in result.output
 
     conn = sqlite3.connect(fresh_db)
     tables = {

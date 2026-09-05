@@ -2103,7 +2103,8 @@ async def list_tasks(
     status_filter: Optional[str] = Query(None, alias="status"),
     task_status: Optional[str] = None,
     include_subtasks: bool = True,
-    parent_id: Optional[int] = None
+    parent_id: Optional[int] = None,
+    include_archived: bool = False
 ):
     """List tasks with optional filtering.
 
@@ -2113,6 +2114,8 @@ async def list_tasks(
         task_status: Legacy filter alias preserved for compatibility
         include_subtasks: Include subtasks in results (default: True)
         parent_id: Filter to subtasks of specific parent (optional)
+        include_archived: Include Done cards past the per-project display
+            cap (default: False, matching the board)
 
     Returns:
         Dictionary with enriched tasks list and total count
@@ -2121,7 +2124,11 @@ async def list_tasks(
         import json
         db = DatabaseManager()
         effective_status = status_filter if status_filter is not None else task_status
-        tasks = db.get_tasks(project_id=project_id, status=effective_status)
+        tasks = db.get_tasks(
+            project_id=project_id,
+            status=effective_status,
+            include_archived=include_archived,
+        )
 
         subtasks_by_parent: Dict[int, List[Dict[str, object]]] = {}
         task_lookup = {task["id"]: dict(task) for task in tasks}
