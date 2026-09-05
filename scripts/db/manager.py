@@ -1532,7 +1532,14 @@ class DatabaseManager:
                         # Clear completed_at if moving away from Done
                         fields.append("completed_at = ?")
                         values.append(None)
-                    
+                        # Un-archive too. archived_at is only meaningful for
+                        # Done cards — it's a display cap on finished work.
+                        # A reopened card that kept the flag would sit in an
+                        # active status and still be filtered out of every
+                        # default board query, i.e. vanish entirely (#6870).
+                        fields.append("archived_at = ?")
+                        values.append(None)
+
                     values.append(task_id)
                     
                     query = f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?"
