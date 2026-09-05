@@ -225,17 +225,42 @@ def _crsql_loaded(conn: sqlite3.Connection) -> bool:
         return False
 
 
+def _crr_ified_tables(
+    conn: sqlite3.Connection, tables: Iterable[str]
+) -> list[str]:
+    """Return the subset of ``tables`` that cr-sqlite has already claimed.
+
+    ``crsql_as_crr(<t>)`` creates ``<t>__crsql_clock`` and rewrites
+    ``<t>__crsql_{i,u,d}trig`` with the base table's column list spelled
+    out literally. Once that has happened, a bare ``ALTER TABLE <t> ADD
+    COLUMN`` leaves the triggers enumerating a stale column set: the new
+    column never reaches the clock table and never replicates.
+
+    Presence of the clock table is the on-disk proof that the table is
+    live CRR, independent of whether the extension happens to be loaded
+    on this connection.
+    """
+    claimed = []
+    for table in tables:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
+            (f"{table}__crsql_clock",),
+        ).fetchone()
+        if row is not None:
+            claimed.append(table)
+    return sorted(claimed)
+
+
 def apply_migration(conn: sqlite3.Connection, migration: Migration) -> None:
     """Apply one migration inside a transaction with the §2.2 CRR wrapper.
 
     The sequence is:
 
     1. ``BEGIN``
-    2. For each ``t`` in ``migration.crr_tables`` (only if cr-sqlite is
-       loaded): ``SELECT crsql_begin_alter(?)``.
+    2. For each ``t`` in ``migration.crr_tables`` that cr-sqlite has
+       actually claimed in this database: ``SELECT crsql_begin_alter(?)``.
     3. ``migration.up(conn)`` — the migration's DDL.
-    4. For each ``t`` in ``migration.crr_tables`` (only if cr-sqlite is
-       loaded): ``SELECT crsql_commit_alter(?)``.
+    4. For each of those same ``t``: ``SELECT crsql_commit_alter(?)``.
     5. Insert the row into ``schema_migrations`` (inside the same
        transaction so "applied" and "recorded" commit atomically).
     6. ``COMMIT``.
@@ -248,19 +273,44 @@ def apply_migration(conn: sqlite3.Connection, migration: Migration) -> None:
     standard SQL-only transaction rollback.
     """
     crsql_on = _crsql_loaded(conn)
+
+    # Bracket only the declared tables cr-sqlite has actually claimed in
+    # THIS database. crsql_begin_alter on a table that was never through
+    # crsql_as_crr() fails at commit ("failed compacting tables post
+    # alteration"), which is exactly the fresh-database case `pt db
+    # migrate` hits before schema.py has created the table at all.
+    to_bracket = (
+        _crr_ified_tables(conn, migration.crr_tables)
+        if migration.crr_tables
+        else []
+    )
+
+    # Refuse an unbracketed alter against a table cr-sqlite has already
+    # claimed. Skipping the bracket is fine before a table is CRR-ified
+    # (the pre-Phase-2.2 path this runner shipped with); doing it after
+    # silently desyncs the column. Fail loudly instead — the fix is to
+    # load the extension on this connection, not to run the DDL anyway.
+    if to_bracket and not crsql_on:
+        raise MigrationError(
+            f"migration {migration.version:03d}_{migration.name} alters "
+            f"CRR table(s) {to_bracket}, which cr-sqlite has already claimed "
+            "in this database, but cr-sqlite is not loaded on this "
+            "connection. Running the DDL now would leave the "
+            "__crsql_*trig triggers on a stale column list. Load "
+            "crsqlite.dylib on the connection before applying."
+        )
+
     applied_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     conn.execute("BEGIN")
     try:
-        if crsql_on:
-            for t in migration.crr_tables:
-                conn.execute("SELECT crsql_begin_alter(?)", (t,))
+        for t in to_bracket:
+            conn.execute("SELECT crsql_begin_alter(?)", (t,))
 
         migration.up(conn)
 
-        if crsql_on:
-            for t in migration.crr_tables:
-                conn.execute("SELECT crsql_commit_alter(?)", (t,))
+        for t in to_bracket:
+            conn.execute("SELECT crsql_commit_alter(?)", (t,))
 
         conn.execute(
             "INSERT INTO schema_migrations (version, name, applied_at) "
@@ -269,7 +319,13 @@ def apply_migration(conn: sqlite3.Connection, migration: Migration) -> None:
         )
         conn.execute("COMMIT")
     except Exception:
-        conn.execute("ROLLBACK")
+        # cr-sqlite's alter helpers commit internally on some paths, so the
+        # transaction may already be gone. Don't let a failed ROLLBACK mask
+        # the error that actually caused it.
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.OperationalError:
+            pass
         raise
 
 

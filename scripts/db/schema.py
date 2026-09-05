@@ -507,7 +507,8 @@ def ensure_schema(cursor: Any) -> None:
             completed_at TEXT,
             prompt TEXT,
             task_type TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent', 'proposal')),
-            review_comment TEXT
+            review_comment TEXT,
+            archived_at TEXT
         )
     """)
     
@@ -533,6 +534,16 @@ def ensure_schema(cursor: Any) -> None:
         "ALTER TABLE tasks ADD COLUMN definition_of_done TEXT",
         "ALTER TABLE tasks ADD COLUMN machine TEXT",
         "ALTER TABLE tasks ADD COLUMN created_by TEXT",
+        # #6870 — Done-column retention. Set on Done cards past the per-project
+        # display cap so the board stays short WITHOUT deleting history.
+        # NOTE: this list only runs on databases below CURRENT_SCHEMA_VERSION,
+        # i.e. pre-CRR ones. Databases that have already been through
+        # crsql_as_crr('tasks') get the column from migration 012, which
+        # brackets the ALTER with crsql_begin_alter/crsql_commit_alter. A bare
+        # ALTER on a live CRR table leaves the crsql triggers enumerating a
+        # stale column list, so never bump CURRENT_SCHEMA_VERSION just to push
+        # a tasks column through here.
+        "ALTER TABLE tasks ADD COLUMN archived_at TEXT",
     ]:
         _migrate_add_column(cursor, sql)
 
