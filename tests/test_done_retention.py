@@ -240,6 +240,73 @@ def test_archiving_preserves_status_and_completed_at(tmp_path: Path) -> None:
             )
 
 
+def test_reopening_an_archived_card_unarchives_it(tmp_path: Path) -> None:
+    """Done -> archived -> reopened must not make the card vanish.
+
+    `archived_at` is a display cap on *finished* work. The state machine
+    allows Done -> Review / In Progress / To Do, so a reopened card that kept
+    the flag would sit in an active status and still be filtered out of every
+    default board query — gone from Done and gone from Review both. Worse
+    than the bug this card fixes, because it hits live work.
+    """
+    db_path, db = _setup_db(tmp_path)
+    ids = _add_done(db, db_path, "alpha", 30)
+
+    db.archive_done_tasks(keep_per_project=25)
+    archived = [
+        t
+        for t in db.get_tasks(project_id="alpha", include_archived=True)
+        if t["archived_at"] is not None
+    ]
+    assert len(archived) == 5
+    reopened_id = archived[0]["id"]
+    assert reopened_id not in {t["id"] for t in db.get_tasks(project_id="alpha")}
+
+    updated = db.update_task(reopened_id, status="Review")
+
+    assert updated["status"] == "Review"
+    assert updated["archived_at"] is None
+    assert updated["completed_at"] is None
+
+    visible = db.get_tasks(project_id="alpha")
+    assert reopened_id in {t["id"] for t in visible}
+    assert len([t for t in visible if t["status"] == "Review"]) == 1
+
+    # The other four stay archived — reopening one card is not a bulk unarchive.
+    still_archived = [
+        t
+        for t in db.get_tasks(project_id="alpha", include_archived=True)
+        if t["archived_at"] is not None
+    ]
+    assert len(still_archived) == 4
+    assert reopened_id not in {t["id"] for t in still_archived}
+    assert set(ids) >= {t["id"] for t in still_archived}
+
+
+def test_archived_at_is_only_ever_set_on_done_cards(tmp_path: Path) -> None:
+    """The invariant `archived_at IS NOT NULL` implies `status = 'Done'`,
+    enforced in update_task so it holds for every reader, not just get_tasks."""
+    db_path, db = _setup_db(tmp_path)
+    _add_done(db, db_path, "alpha", 30)
+    db.archive_done_tasks(keep_per_project=25)
+
+    for next_status in ("Review", "In Progress", "To Do"):
+        archived = [
+            t
+            for t in db.get_tasks(project_id="alpha", include_archived=True)
+            if t["archived_at"] is not None
+        ]
+        assert archived, "ran out of archived cards to reopen"
+        db.update_task(archived[0]["id"], status=next_status)
+
+    with sqlite3.connect(db_path) as conn:
+        offenders = conn.execute(
+            "SELECT COUNT(*) FROM tasks "
+            "WHERE archived_at IS NOT NULL AND status != 'Done'"
+        ).fetchone()[0]
+    assert offenders == 0
+
+
 def test_archive_rejects_negative_cap(tmp_path: Path) -> None:
     _, db = _setup_db(tmp_path)
     with pytest.raises(ValueError):
@@ -270,3 +337,53 @@ def test_clear_done_counts_archived_cards(
     assert result.exit_code == 0, result.output
     # 30, not 25 — clear-done deletes archived rows too.
     assert "Delete 30 Done task(s)?" in result.output
+
+
+def test_reopening_an_archived_card_makes_it_visible_again(tmp_path: Path) -> None:
+    """Archived + reopened must not mean invisible.
+
+    `include_archived=False` filters on `archived_at IS NULL` without scoping
+    to Done, so a reopened card that kept the flag would sit in an active
+    status and still be missing from every default board query — it would
+    vanish rather than reappear in Review. `update_task` therefore clears
+    `archived_at` on any move away from Done, in the same branch that clears
+    `completed_at`.
+    """
+    _, db = _setup_db(tmp_path)
+    ids = _add_done(db, db_path=tmp_path / "tracker.db", project_id="alpha", n=30)
+
+    db.archive_done_tasks(keep_per_project=25)
+
+    archived = [
+        t
+        for t in db.get_tasks(project_id="alpha", include_archived=True)
+        if t["archived_at"] is not None
+    ]
+    assert len(archived) == 5
+    reopened_id = archived[0]["id"]
+
+    visible_before = {t["id"] for t in db.get_tasks(project_id="alpha")}
+    assert reopened_id not in visible_before
+
+    # Done -> Review is an allowed transition (VALID_STATUS_TRANSITIONS).
+    db.update_task(reopened_id, status="Review")
+
+    task = db.get_task(reopened_id)
+    assert task["status"] == "Review"
+    assert task["archived_at"] is None
+    assert task["completed_at"] is None
+
+    visible_after = {t["id"] for t in db.get_tasks(project_id="alpha")}
+    assert reopened_id in visible_after
+
+    # The other four stay archived — reopening one card archives nothing else.
+    still_archived = [
+        t
+        for t in db.get_tasks(project_id="alpha", include_archived=True)
+        if t["archived_at"] is not None
+    ]
+    assert len(still_archived) == 4
+    assert reopened_id not in {t["id"] for t in still_archived}
+    assert set(ids) == {
+        t["id"] for t in db.get_tasks(project_id="alpha", include_archived=True)
+    }
