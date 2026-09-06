@@ -358,6 +358,56 @@ def _schema_is_current(db_path: Path) -> bool:
         return False
 
 
+_STATUS_CHECK = (
+    "TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', "
+    "'Done', 'Cancelled', 'TRIAGED', 'READY_FOR_PATCH', 'PR_READY'))"
+)
+_TASK_TYPE_CHECK = (
+    "TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent', 'proposal'))"
+)
+_PRIORITY_CHECK = "TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL))"
+
+
+def _rebuild_tasks_columns(cursor: Any, overrides: dict) -> tuple:
+    """(column definitions, column name list) for a tasks-table rebuild.
+
+    SQLite cannot ALTER a CHECK constraint, so widening one means recreating
+    the table and dropping the original. Both migrations that do this used to
+    build the new table from a list written by hand, which fails two ways as
+    the table grows:
+
+      * a column absent from the list is silently discarded. The 'Cancelled'
+        migration named 17 columns; the table now has 27, so it would have
+        dropped task_type, archived_at, created_by, machine and the whole
+        card-factory evidence set while reporting success.
+      * a column present but typed by hand loses its declared type. The
+        'proposal' migration defaulted everything it did not name to TEXT,
+        which turned sequence_order from INTEGER into TEXT -- and TEXT
+        affinity means ORDER BY sorts it lexicographically, putting card 10
+        before card 9.
+
+    Reading the live schema removes both. `overrides` supplies the definition
+    for the columns whose constraint is actually being changed; every other
+    column is reproduced with its real type, NOT NULL, DEFAULT and PRIMARY KEY.
+    """
+    cursor.execute("PRAGMA table_info(tasks)")
+    columns = cursor.fetchall()  # (cid, name, type, notnull, dflt_value, pk)
+    col_defs = []
+    for _cid, name, decl_type, notnull, dflt, pk in columns:
+        if name in overrides:
+            col_defs.append(f"{name} {overrides[name]}")
+            continue
+        parts = [name, decl_type or "TEXT"]
+        if pk:
+            parts.append("PRIMARY KEY")
+        if notnull:
+            parts.append("NOT NULL")
+        if dflt is not None:
+            parts.append(f"DEFAULT {dflt}")
+        col_defs.append(" ".join(parts))
+    return col_defs, [name for _cid, name, *_rest in columns]
+
+
 def ensure_schema(cursor: Any) -> None:
     """Run all DDL migrations against the given cursor.
 
@@ -566,34 +616,34 @@ def ensure_schema(cursor: Any) -> None:
             task_count = cursor.fetchone()[0]
             print(f"ℹ️  Migrating tasks table CHECK constraint to add 'Cancelled' status ({task_count} tasks)")
             
-            cursor.execute("""
-                CREATE TABLE tasks_new (
-                    id INTEGER PRIMARY KEY NOT NULL,
-                    text TEXT NOT NULL,
-                    status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done', 'Cancelled')),
-                    project_id TEXT NOT NULL,
-                    priority TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL)),
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    completed_at TEXT,
-                    prompt TEXT,
-                    review_comment TEXT,
-                    title TEXT,
-                    notes TEXT,
-                    commit_sha TEXT,
-                    category TEXT,
-                    parent_id INTEGER,
-                    blocked_by TEXT,
-                    sequence_order INTEGER
+            # Back up BEFORE anything destructive. On 2026-01-27 an agent
+            # dropped this table without a backup and destroyed 94 tasks; the
+            # gate in CLAUDE.md exists because of it, and this migration
+            # predates the gate.
+            cursor.execute("DROP TABLE IF EXISTS tasks_backup_cancelled_migration")
+            cursor.execute("CREATE TABLE tasks_backup_cancelled_migration AS SELECT * FROM tasks")
+            print(f"  ✓ Backup created: tasks_backup_cancelled_migration ({task_count} rows)")
+
+            # Rebuild from the LIVE table, not a hardcoded list. The list here
+            # named 17 columns; the table now has 27. See _rebuild_tasks_columns.
+            col_defs, all_columns = _rebuild_tasks_columns(
+                cursor, {"status": _STATUS_CHECK}
+            )
+            col_list = ", ".join(all_columns)
+            cursor.execute(f"CREATE TABLE tasks_new ({', '.join(col_defs)})")
+            cursor.execute(f"INSERT INTO tasks_new ({col_list}) SELECT {col_list} FROM tasks")
+
+            # Verify before dropping the original, so a short copy cannot
+            # destroy the only remaining copy.
+            cursor.execute("SELECT COUNT(*) FROM tasks_new")
+            new_count = cursor.fetchone()[0]
+            if new_count != task_count:
+                raise RuntimeError(
+                    f"Data integrity check failed: expected {task_count} rows, "
+                    f"got {new_count}. Original tasks table left untouched and a "
+                    f"copy is preserved in tasks_backup_cancelled_migration."
                 )
-            """)
-            cursor.execute("""
-                INSERT INTO tasks_new
-                SELECT id, text, status, project_id, priority, created_at, updated_at,
-                       completed_at, prompt, review_comment, title, notes, commit_sha,
-                       category, parent_id, blocked_by, sequence_order
-                FROM tasks
-            """)
+
             cursor.execute("DROP TABLE tasks")
             cursor.execute("ALTER TABLE tasks_new RENAME TO tasks")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
@@ -663,35 +713,23 @@ def ensure_schema(cursor: Any) -> None:
             cursor.execute("CREATE TABLE tasks_backup_proposal_migration AS SELECT * FROM tasks")
             print(f"  ✓ Backup created: tasks_backup_proposal_migration ({task_count} rows)")
 
-            # Get current column names dynamically
-            cursor.execute("PRAGMA table_info(tasks)")
-            all_columns = [col[1] for col in cursor.fetchall()]
-
-            # Build the new table with updated CHECK constraint
-            # We include all columns that exist in the current table
-            col_defs = []
-            for col in all_columns:
-                if col == "id":
-                    col_defs.append("id INTEGER PRIMARY KEY NOT NULL")
-                elif col == "text":
-                    col_defs.append("text TEXT NOT NULL")
-                elif col == "status":
-                    col_defs.append("status TEXT NOT NULL CHECK(status IN ('Backlog', 'To Do', 'In Progress', 'Review', 'Done', 'Cancelled', 'TRIAGED', 'READY_FOR_PATCH', 'PR_READY'))")
-                elif col == "project_id":
-                    col_defs.append("project_id TEXT NOT NULL")
-                elif col == "priority":
-                    col_defs.append("priority TEXT CHECK(priority IN ('Critical', 'High', 'Medium', 'Low', NULL))")
-                elif col == "task_type":
-                    col_defs.append("task_type TEXT NOT NULL DEFAULT 'manual' CHECK(task_type IN ('manual', 'agent', 'proposal'))")
-                elif col == "parent_id":
-                    col_defs.append("parent_id INTEGER")
-                else:
-                    col_defs.append(f"{col} TEXT")
-
+            # Rebuild from the live table. This migration already read the
+            # column NAMES dynamically, but typed everything it did not name
+            # explicitly as TEXT -- which turned sequence_order from INTEGER
+            # into TEXT, and TEXT affinity sorts "10" before "9", so card
+            # ordering silently went lexicographic. _rebuild_tasks_columns
+            # carries the real declared types across.
+            col_defs, all_columns = _rebuild_tasks_columns(
+                cursor,
+                {
+                    "status": _STATUS_CHECK,
+                    "priority": _PRIORITY_CHECK,
+                    "task_type": _TASK_TYPE_CHECK,
+                },
+            )
             col_list = ", ".join(all_columns)
-            create_sql = f"CREATE TABLE tasks_new ({', '.join(col_defs)})"
-            cursor.execute(create_sql)
-            cursor.execute(f"INSERT INTO tasks_new SELECT {col_list} FROM tasks")
+            cursor.execute(f"CREATE TABLE tasks_new ({', '.join(col_defs)})")
+            cursor.execute(f"INSERT INTO tasks_new ({col_list}) SELECT {col_list} FROM tasks")
 
             # Verify data integrity before dropping original
             cursor.execute("SELECT COUNT(*) FROM tasks_new")
