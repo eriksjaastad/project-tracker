@@ -614,12 +614,13 @@ def send_email(subject: str, html: str) -> None:
 
 # --- Main -------------------------------------------------------------------
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    """Entry point. ``argv`` defaults to ``sys.argv[1:]``; tests pass it in."""
     parser = argparse.ArgumentParser(description="Portfolio alert digest (Phase 1).")
     parser.add_argument(
         "--dry-run", action="store_true", help="Print the email instead of sending."
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # This digest runs on the MacBook and renders BOTH machine sections, so it
     # loads both ignore lists explicitly rather than by current machine.
