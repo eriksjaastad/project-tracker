@@ -184,3 +184,75 @@ def test_handoff_files_still_accepts_normal_paths() -> None:
             {"path": "scripts/thing.py", "classification": "dirty"},
         ]
     )
+
+
+# --- NUL bytes must refuse cleanly, not abort the run ----------------------
+
+
+def test_nul_byte_path_is_refused_cleanly(repo_and_sibling) -> None:
+    """`.resolve()` raises a bare ValueError on a NUL byte.
+
+    Uncaught, that would propagate out of the untracked loop and abort the
+    whole revert instead of skipping the one bad entry — breaking the
+    "one bad path doesn't block the others" guarantee.
+    """
+    repo, _ = repo_and_sibling
+    with pytest.raises(PathEscapesRepoError):
+        _contained_path(repo, "foo\x00bar")
+
+
+def test_nul_byte_entry_does_not_abort_the_revert(repo_and_sibling) -> None:
+    repo, _ = repo_and_sibling
+    junk = repo / "scratch.tmp"
+    junk.write_text("throwaway\n")
+    entries = [
+        {"path": "foo\x00bar", "classification": "untracked"},
+        {"path": "scratch.tmp", "classification": "untracked"},
+    ]
+
+    with patch("send2trash.send2trash") as trash_mock:
+        _, trashed, errors = _revert_paths(repo, entries)
+
+    assert trashed == ["scratch.tmp"], "a NUL-byte entry aborted the whole revert"
+    assert trash_mock.call_count == 1
+    assert len(errors) == 1
+
+
+# --- the audit trail -------------------------------------------------------
+
+
+def test_deletion_is_logged_before_it_happens(repo_and_sibling, tmp_path, monkeypatch) -> None:
+    """Every in-process delete must leave a record.
+
+    The bash-validator hook cannot see a send2trash() call inside a Python
+    process — which is why the tax-organizer trashing left no trail anywhere.
+    """
+    import json as _json
+
+    repo, _ = repo_and_sibling
+    junk = repo / "scratch.tmp"
+    junk.write_text("throwaway\n")
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with patch("send2trash.send2trash"):
+        _revert_paths(repo, [{"path": "scratch.tmp", "classification": "untracked"}])
+
+    log = tmp_path / ".claude" / "logs" / "pt-destructive.log"
+    assert log.exists(), "an in-process deletion left no audit record"
+    record = _json.loads(log.read_text().strip().splitlines()[-1])
+    assert record["operation"] == "send2trash"
+    assert record["target"] == str(junk.resolve())
+    assert record["repo_dir"] == str(repo)
+    assert record["pid"] > 0
+
+
+def test_refused_paths_are_not_logged_as_deletions(repo_and_sibling, tmp_path, monkeypatch) -> None:
+    """The log records what was deleted, not what was attempted and refused."""
+    repo, sibling = repo_and_sibling
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with patch("send2trash.send2trash"):
+        _revert_paths(repo, [{"path": str(sibling), "classification": "untracked"}])
+
+    log = tmp_path / ".claude" / "logs" / "pt-destructive.log"
+    assert not log.exists() or log.read_text().strip() == ""

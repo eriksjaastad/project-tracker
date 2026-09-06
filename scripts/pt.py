@@ -1420,6 +1420,10 @@ def retire_project(project, execute, keep_files, yes):
     # 1. Send directory to Trash (unless --keep-files)
     if not keep_files and path_ok:
         try:
+            # Highest-consequence delete in this codebase — it trashes a whole
+            # project directory, which is the exact shape of the tax-organizer
+            # incident. Record it before it happens (#6890).
+            _audit_destructive("retire-project", project_path, project_path.parent)
             send2trash(str(project_path))
             console.print(f"[green]✓[/green] sent {project_path} to Trash")
         except Exception as e:
@@ -5685,12 +5689,23 @@ def _contained_path(repo_dir: Path, raw: str) -> Path:
     if not isinstance(raw, str) or not raw.strip():
         raise PathEscapesRepoError("path is empty")
 
+    # A NUL byte makes `.resolve()`'s lstat raise a bare ValueError, which would
+    # escape the PathEscapesRepoError handlers and abort the whole revert
+    # instead of skipping just this entry. Refuse it as what it is.
+    if "\x00" in raw:
+        raise PathEscapesRepoError(f"path contains a NUL byte: {raw!r}")
+
     candidate = Path(raw)
     if candidate.is_absolute():
         raise PathEscapesRepoError(f"path is absolute: {raw!r}")
 
     root = repo_dir.resolve()
-    target = (root / candidate).resolve()
+    try:
+        target = (root / candidate).resolve()
+    except (ValueError, OSError) as exc:
+        # Anything else the filesystem refuses to resolve is, by definition,
+        # not a path we can prove is inside the repo.
+        raise PathEscapesRepoError(f"path could not be resolved: {raw!r} ({exc})") from exc
 
     if target == root:
         raise PathEscapesRepoError(f"path resolves to the repository root: {raw!r}")
