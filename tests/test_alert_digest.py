@@ -616,3 +616,27 @@ class TestFetchScheduledJobs:
 
         monkeypatch.setattr(ad.subprocess, "run", _missing)
         assert ad.fetch_scheduled_jobs() is None
+
+
+# --- escaping helpers (#6881) ----------------------------------------------
+
+
+def test_esc_handles_text_node_characters():
+    assert ad._esc('<script>&</script>') == (
+        "&lt;script&gt;&amp;&lt;/script&gt;"
+    )
+
+
+def test_esc_attr_also_neutralises_quotes():
+    """A quote inside an attribute value closes it early; _esc alone doesn't
+    stop that, which is the whole reason _esc_attr exists."""
+    hostile = '" onmouseover=alert(1) x="'
+    assert '"' in ad._esc(hostile), "_esc is text-node-only by design"
+    escaped = ad._esc_attr(hostile)
+    assert '"' not in escaped
+    assert "&quot;" in escaped
+
+
+def test_esc_attr_escapes_single_quotes_too():
+    assert "'" not in ad._esc_attr("it's")
+    assert "&#x27;" in ad._esc_attr("it's")
