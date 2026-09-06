@@ -90,11 +90,28 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
               📋 {task.subtask_progress.done}/{task.subtask_progress.total}
             </span>
           )}
-          {/* Blocked indicator (Task #4579) */}
+          {/* Blocked indicator (Task #4579).
+              A card blocked by a reference that resolves to nothing is not the
+              same problem as one waiting on real work — the first is a data
+              bug you fix by correcting the reference, the second you fix by
+              doing the task. They looked identical until #6924. */}
           {task.is_blocked && (
-            <span className="task-card-blocked-badge" title="Blocked by incomplete tasks">
-              🔒 Blocked
-            </span>
+            (task.unresolved_blocking_ids?.length ?? 0) > 0 ? (
+              <span
+                className="task-card-blocked-badge task-card-blocked-badge-broken"
+                title={
+                  `Blocked by ${task.unresolved_blocking_ids!.length} reference(s) ` +
+                  `that no longer exist: ${task.unresolved_blocking_ids!.join(', ')}. ` +
+                  `Fix the blocked_by value — no task will ever clear this.`
+                }
+              >
+                🔗 Broken blocker
+              </span>
+            ) : (
+              <span className="task-card-blocked-badge" title="Blocked by incomplete tasks">
+                🔒 Blocked
+              </span>
+            )
           )}
           {/* Parent indicator (Task #4645) */}
           {parentDisplayId && (
