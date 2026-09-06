@@ -148,6 +148,14 @@ def plan_backfill(conn: sqlite3.Connection) -> dict:
         resolved: list = []
         unresolved: list = []
         for token in stored:
+            # NOTE: this checks live PKs before display IDs, the opposite order
+            # from `DatabaseManager.resolve_task_id`, which tries display_id
+            # first. The two cannot currently disagree: migration 009 gave
+            # legacy tasks `display_id == id` and allocates newer display_ids
+            # only above the max legacy id, while Snowflake `tasks.id` values
+            # are all >= 10**12 — so the ranges the two orderings would rank
+            # differently never overlap. If either allocation scheme changes,
+            # this and `resolve_task_id` must be reconciled deliberately.
             if token in live_ids:
                 resolved.append(token)
             elif isinstance(token, int) and token in display_to_pk:
