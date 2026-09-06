@@ -466,6 +466,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # launchd owns this job's stdout/stderr descriptors, so Python logging
+    # cannot cap them and sync-daemon.err reached 37MB unchecked (#6888).
+    # Copy-truncate them here, at startup, before we write anything.
+    try:
+        from scripts.log_rotation import rotate_own_logs
+        rotate_own_logs("sync-daemon.err", "sync-daemon.log")
+    except Exception as exc:  # noqa: BLE001 — housekeeping must not block startup
+        print(f"warning: log rotation skipped: {exc}", file=sys.stderr)
+
     logging.basicConfig(
         level=args.log_level.upper(),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
