@@ -4,7 +4,10 @@
 #
 # Polls the hosted Agent Chat API for new messages.
 # Outputs new messages to stdout so Claude Code injects them into context.
-# Stores the last-seen timestamp in ~/.claude/chat_cursor to avoid re-reading.
+# Stores the last-seen timestamp in ~/.claude/chat_cursor.<address> to avoid
+# re-reading. The cursor is PER ADDRESS: several floor managers share one
+# laptop, and a single shared cursor let one session's poll skip past mail
+# addressed to another.
 #
 # Environment:
 #   AGENT_CHAT_URL     — API base URL (default: https://chat.synthinsightlabs.com)
@@ -25,7 +28,7 @@ set -euo pipefail
 
 CHAT_URL="${AGENT_CHAT_URL:-https://agent-chat-90116449356.us-central1.run.app}"
 API_KEY="${AGENT_CHAT_API_KEY:-}"
-CURSOR_FILE="$HOME/.claude/chat_cursor"
+LEGACY_CURSOR_FILE="$HOME/.claude/chat_cursor"
 DROP_LOG="$HOME/.claude/open-brain/agent_chat_drops.log"
 
 # Record why a poll produced nothing. Best-effort; never fails the hook.
@@ -48,6 +51,85 @@ if [[ -n "$SESSION_ID" && -f "$IDENTITY_DIR/${SESSION_ID}.txt" ]]; then
 fi
 [[ -n "$SENDER" ]] || SENDER="${AGENT_CHAT_SENDER:-}"
 
+# The cursor is scoped to the address we poll for, because the response is
+# too: the request carries `?for=$SENDER`, so advancing one machine-global
+# file marks mail as seen that this poll could never have returned. That is
+# not hypothetical — the shared cursor sat at 2026-08-30T17:36:50, the exact
+# timestamp of board message #94, a DM addressed to `ai-memory`, parked there
+# by a `for=project-tracker` poll that never saw it. The addressee never got
+# the message.
+#
+# Sanitize before the address reaches a path: it can contain `@`
+# (`project-tracker@laptop`) and, if it is ever mis-derived, a separator.
+#
+# Percent-encode every character outside [A-Za-z0-9_-] rather than folding
+# them to `_`. Folding is lossy — `a/b` and `a_b` would land on one file and
+# steal each other's position, which is the bug this card exists to kill,
+# re-introduced at a smaller scale. Encoding is injective (`%` is itself
+# encoded), so distinct addresses cannot collide, and it needs no hash and no
+# external binary in a hook that already has to degrade gracefully when `jq`
+# is missing. It also leaves the address readable in the filename. No `/` and
+# no `.` can appear in the output, so traversal and dot-runs are impossible by
+# construction rather than by patching them out afterwards.
+#
+# The exact guarantee: injective over addresses of 64 bytes or fewer. Longer
+# ones are truncated BEFORE encoding, so two addresses sharing a 64-byte
+# prefix would still share a cursor. An address is `<project>` or
+# `<project>@<machine>` — nothing close to the bound — and the bound is what
+# keeps the filename inside NAME_MAX at the 3x worst case, so it stays.
+#
+# `LC_ALL=C` is not decoration. Under a UTF-8 locale bash matches `[A-Za-z]`
+# by collation, so `ü` passes the allowlist untouched and the safe set is
+# whatever the ambient locale says it is. C forces the loop to walk bytes
+# against a fixed ASCII set, so the output is the same everywhere.
+cursor_slug() {
+    local LC_ALL=C
+    local raw="${1:0:64}" out="" i ch code enc
+    for (( i = 0; i < ${#raw}; i++ )); do
+        ch="${raw:i:1}"
+        case "$ch" in
+            [A-Za-z0-9_-]) out+="$ch" ;;
+            *)  printf -v code '%d' "'$ch"
+                printf -v enc '%%%02X' "$(( code & 0xFF ))"
+                out+="$enc" ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
+# A seed is only worth taking if it is actually a position. An empty legacy
+# file (a stray `touch`, a create that never got populated) would seed an
+# empty cursor and the next poll would go out with no `since` at all — the
+# unbounded replay the migration exists to prevent. A corrupt one is worse:
+# `since=<garbage>` reaches the API, which may reject it or return nothing,
+# turning a delivery bug into a silent one. Neither is trusted.
+#
+# The pattern is anchored at BOTH ends. Matching only a prefix let
+# `2026-08-30T17:36:50 garbage` through — and paired with a strip that deleted
+# interior whitespace it did worse than pass: it MANUFACTURED
+# `2026-08-30T17:36:50garbage` out of a line that was never valid, then sent
+# it as `since=`. Validate the whole line; never edit a line into validity.
+#
+# The shapes accepted are the two the server actually emits: SQLite's
+# `strftime('%Y-%m-%dT%H:%M:%fZ')` (fractional seconds, `Z`) and Postgres
+# TIMESTAMPTZ through `.isoformat()` (microseconds, `+00:00`) — see
+# agent-chat/server/db.py. Anything else is not a position this API issued.
+looks_like_cursor() {
+    local LC_ALL=C
+    local re='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$'
+    [[ "$1" =~ $re ]]
+}
+
+# Trim the ends only. Removing whitespace from the middle of a line can turn
+# an invalid seed into a valid-looking one, which is how the prefix bug above
+# got its teeth.
+trim_ends() {
+    local LC_ALL=C s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    printf '%s' "$s"
+}
+
 # No API key = skip
 [[ -n "$API_KEY" ]] || exit 0
 
@@ -61,6 +143,30 @@ if [[ -f "$THROTTLE_FILE" ]]; then
     fi
 fi
 date +%s > "$THROTTLE_FILE.tmp" && mv "$THROTTLE_FILE.tmp" "$THROTTLE_FILE"
+
+# Resolve this address's cursor. Deferred until after the key check and the
+# throttle so a skipped poll leaves no trace on disk.
+if [[ -n "$SENDER" ]]; then
+    CURSOR_FILE="$HOME/.claude/chat_cursor.$(cursor_slug "$SENDER")"
+    # One-time migration off the shared cursor. Without the seed the first
+    # per-address poll would carry no `since` and replay the whole board into
+    # this session's context. Only a legacy file that is non-empty AND holds a
+    # timestamp is trusted; anything else is ignored and this address starts
+    # clean rather than migrating garbage forward.
+    if [[ ! -f "$CURSOR_FILE" && -s "$LEGACY_CURSOR_FILE" ]]; then
+        legacy_seed=""
+        IFS= read -r legacy_seed < "$LEGACY_CURSOR_FILE" 2>/dev/null || true
+        legacy_seed="$(trim_ends "$legacy_seed")"
+        if looks_like_cursor "$legacy_seed"; then
+            { printf '%s\n' "$legacy_seed" > "$CURSOR_FILE.tmp" \
+                && mv "$CURSOR_FILE.tmp" "$CURSOR_FILE"; } 2>/dev/null || true
+        fi
+    fi
+else
+    # No address means no `?for=` filter, so the legacy global cursor still
+    # describes exactly what was fetched.
+    CURSOR_FILE="$LEGACY_CURSOR_FILE"
+fi
 
 # Read last cursor
 since=""
