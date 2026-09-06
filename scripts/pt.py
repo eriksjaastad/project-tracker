@@ -4850,6 +4850,29 @@ def _validate_files_array(parsed_files: list) -> None:
                 f"{sorted(_HANDOFF_FILE_CLASSIFICATIONS)}, got {classification!r}",
                 EXIT_VALIDATION,
             )
+        # Paths recorded here are later fed to `migration finish --revert`,
+        # which trashes untracked entries. Reject anything that isn't a plain
+        # repo-relative path at the point of entry, so a bad path is never
+        # written down in the first place (#6890). `_contained_path` at the
+        # revert site is the backstop for records written before this existed.
+        if not path.strip():
+            raise PtJsonError(
+                "validation",
+                f"--files element {i} path is empty",
+                EXIT_VALIDATION,
+            )
+        if Path(path).is_absolute():
+            raise PtJsonError(
+                "validation",
+                f"--files element {i} path must be repo-relative, got absolute {path!r}",
+                EXIT_VALIDATION,
+            )
+        if path.strip() in (".", "..") or ".." in Path(path).parts:
+            raise PtJsonError(
+                "validation",
+                f"--files element {i} path must stay inside the repository, got {path!r}",
+                EXIT_VALIDATION,
+            )
 
 
 def _handoff_row_to_dict(row: sqlite3.Row) -> dict:
@@ -5596,6 +5619,52 @@ def _append_manifest(
     return manifest_path
 
 
+class PathEscapesRepoError(ValueError):
+    """A recorded path does not resolve to a location inside its repository."""
+
+
+def _contained_path(repo_dir: Path, raw: str) -> Path:
+    """Resolve `raw` inside `repo_dir`, refusing anything that escapes it.
+
+    This is a destructive-operation guard, not a formatting nicety. Without it
+    `repo_dir / raw` is trivially escapable, because pathlib discards the
+    left-hand side when the right-hand side is absolute:
+
+        Path("repo") / "an/absolute/path"  ->  that absolute path, repo discarded
+        Path("repo") / ""                  ->  repo   (the root itself)
+        Path("repo") / "."                 ->  repo   (the root itself)
+        Path("repo") / "../sibling"        ->  repo/../sibling
+
+    A migration revert carrying such a path could send any directory on the
+    machine to the Trash from inside an unrelated repo. That is not
+    hypothetical — it is what trashed ~/projects/tax-organizer while its
+    developers were working, and it left no shell history and no hook log
+    because the deletion happened inside a Python call in another repo's
+    process (#6890).
+
+    Resolution is done with `.resolve()` on both sides so symlinked paths
+    cannot be used to step outside either.
+
+    Raises PathEscapesRepoError for absolute paths, `..` escapes, empty/`.`
+    paths that name the repository root itself, and symlink escapes.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        raise PathEscapesRepoError("path is empty")
+
+    candidate = Path(raw)
+    if candidate.is_absolute():
+        raise PathEscapesRepoError(f"path is absolute: {raw!r}")
+
+    root = repo_dir.resolve()
+    target = (root / candidate).resolve()
+
+    if target == root:
+        raise PathEscapesRepoError(f"path resolves to the repository root: {raw!r}")
+    if not target.is_relative_to(root):
+        raise PathEscapesRepoError(f"path escapes the repository: {raw!r}")
+    return target
+
+
 def _revert_paths(
     repo_dir: Path, entries: list[dict]
 ) -> tuple[list[str], list[str], list[tuple[str, str]]]:
@@ -5605,14 +5674,31 @@ def _revert_paths(
     Untracked paths → send2trash. Already-missing untracked files are
     reported as "already missing" rather than erroring.
 
+    Every path is checked with `_contained_path` before anything destructive
+    happens. State files written before that guard existed may carry absolute
+    or escaping paths, so validating only at the `--files` entry point is not
+    enough — the check has to sit at the destructive boundary too.
+
     Returns (restored, trashed, errors) where errors is [(path, reason)].
     """
     restored: list[str] = []
     trashed: list[str] = []
     errors: list[tuple[str, str]] = []
 
-    tracked = [e for e in entries if e["classification"] in ("staged", "dirty")]
-    untracked = [e for e in entries if e["classification"] == "untracked"]
+    def _safe(entries_in: list[dict]) -> list[dict]:
+        """Drop entries that escape the repo, recording why."""
+        kept = []
+        for entry in entries_in:
+            try:
+                _contained_path(repo_dir, entry["path"])
+            except PathEscapesRepoError as exc:
+                errors.append((str(entry.get("path")), f"refused: {exc}"))
+                continue
+            kept.append(entry)
+        return kept
+
+    tracked = _safe([e for e in entries if e["classification"] in ("staged", "dirty")])
+    untracked = _safe([e for e in entries if e["classification"] == "untracked"])
 
     # Restore tracked files (one-shot — git restore takes a list).
     if tracked:
@@ -5643,7 +5729,14 @@ def _revert_paths(
             return restored, trashed, errors
 
         for e in untracked:
-            target = repo_dir / e["path"]
+            # Re-derive through the guard rather than reusing repo_dir / path:
+            # this is the line that actually deletes, so it resolves its own
+            # target rather than trusting an earlier check (#6890).
+            try:
+                target = _contained_path(repo_dir, e["path"])
+            except PathEscapesRepoError as exc:
+                errors.append((str(e.get("path")), f"refused: {exc}"))
+                continue
             if not target.exists():
                 errors.append((e["path"], "already missing"))
                 continue
