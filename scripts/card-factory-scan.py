@@ -127,23 +127,33 @@ def check_orphans(project_path: Path) -> list[dict]:
     if not py_files:
         return findings
 
+    # Read every file exactly once. The old implementation re-read every
+    # other file inside the per-file loop below (the "referenced as a
+    # string" fallback), making this whole check O(n^2) file reads. Caching
+    # each file's text here lets both the import scan and the fallback
+    # substring check reuse the same read.
+    file_texts: dict[Path, str] = {}
+    for f in py_files:
+        try:
+            file_texts[f] = f.read_text(encoding="utf-8", errors="ignore")
+        except Exception as e:
+            logger.debug("Could not read %s: %s", f, e)
+
     # Build a set of all module names that are imported somewhere
     imported_modules: set[str] = set()
     import_pattern = IMPORT_PATTERN
     for f in py_files:
-        try:
-            text = f.read_text(encoding="utf-8", errors="ignore")
-            for m in import_pattern.finditer(text):
-                mod = m.group(1) or m.group(2)
-                # Add all parts: "from scripts.db.manager" -> scripts, scripts.db, scripts.db.manager
-                parts = mod.split(".")
-                for i in range(len(parts)):
-                    imported_modules.add(".".join(parts[:i+1]))
-                # Also add the leaf name alone for relative-style matching
-                imported_modules.add(parts[-1])
-        except Exception as e:
-            logger.debug("Could not read %s: %s", f, e)
+        text = file_texts.get(f)
+        if text is None:
             continue
+        for m in import_pattern.finditer(text):
+            mod = m.group(1) or m.group(2)
+            # Add all parts: "from scripts.db.manager" -> scripts, scripts.db, scripts.db.manager
+            parts = mod.split(".")
+            for i in range(len(parts)):
+                imported_modules.add(".".join(parts[:i+1]))
+            # Also add the leaf name alone for relative-style matching
+            imported_modules.add(parts[-1])
 
     # Check each Python file: is its module name imported anywhere?
     for f in py_files:
@@ -160,12 +170,9 @@ def check_orphans(project_path: Path) -> list[dict]:
         if "migrations" in str(rel):
             continue
         # Skip standalone scripts (have if __name__ == "__main__")
-        try:
-            content = f.read_text(encoding="utf-8", errors="ignore")
-            if '__name__' in content and '__main__' in content:
-                continue
-        except Exception:
-            pass
+        content = file_texts.get(f, "")
+        if '__name__' in content and '__main__' in content:
+            continue
 
         # Derive module name from file path
         stem = f.stem
@@ -178,14 +185,12 @@ def check_orphans(project_path: Path) -> list[dict]:
             for other in py_files:
                 if other == f:
                     continue
-                try:
-                    text = other.read_text(encoding="utf-8", errors="ignore")
-                    if stem in text:
-                        referenced = True
-                        break
-                except Exception as e:
-                    logger.debug("Could not read %s: %s", other, e)
+                text = file_texts.get(other)
+                if text is None:
                     continue
+                if stem in text:
+                    referenced = True
+                    break
             if not referenced:
                 findings.append({
                     "check": "orphan",
