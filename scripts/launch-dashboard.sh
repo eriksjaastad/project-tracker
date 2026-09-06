@@ -49,8 +49,15 @@ rotate_if_large() {
     i="$prev"
   done
 
+  # Only truncate once the copy has actually succeeded. Callers invoke this in
+  # an `if !` context, which suspends `set -e` for the whole function body — so
+  # a failing `cp` would otherwise fall through to the truncate below and
+  # destroy the log it was meant to preserve.
   if [ "$LOG_BACKUPS" -ge 1 ]; then
-    cp "$target" "$target.1"
+    if ! cp "$target" "$target.1"; then
+      echo "warning: could not copy $target to $target.1; leaving it unrotated" >&2
+      return 1
+    fi
   fi
   : > "$target"
 
@@ -58,8 +65,19 @@ rotate_if_large() {
 }
 
 rotate_dashboard_logs() {
-  rotate_if_large "$LOG_DIR/dashboard.stderr.log"
-  rotate_if_large "$LOG_DIR/dashboard.stdout.log"
+  # Never let housekeeping stop the dashboard from starting. This script runs
+  # under `set -euo pipefail`, so an unguarded cp/mv/stat failure here — a full
+  # disk, a permissions hiccup — would abort before uvicorn is ever exec'd. With
+  # launchd KeepAlive that turns "logs are too big" into a restart loop, which
+  # is the exact failure that grew stderr to 213MB in the first place.
+  # Rotation is best-effort by design: warn and carry on.
+  if ! rotate_if_large "$LOG_DIR/dashboard.stderr.log"; then
+    echo "warning: could not rotate dashboard.stderr.log; starting anyway" >&2
+  fi
+  if ! rotate_if_large "$LOG_DIR/dashboard.stdout.log"; then
+    echo "warning: could not rotate dashboard.stdout.log; starting anyway" >&2
+  fi
+  return 0
 }
 
 # Sourced (tests exercise rotate_dashboard_logs directly) — define and stop.

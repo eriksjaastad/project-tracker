@@ -21,7 +21,7 @@ import re
 import sqlite3
 import json
 import uuid
-from time import time as _time
+from time import monotonic as _monotonic, time as _time
 
 import numpy as np
 
@@ -77,7 +77,7 @@ app = FastAPI(title="Project Tracker Dashboard", lifespan=_lifespan)
 # long this process has been up (a restarted dashboard looks identical to a
 # healthy one without this).
 _PROCESS_START_WALL = datetime.now()
-_PROCESS_START_MONOTONIC = _time()
+_PROCESS_START_MONOTONIC = _monotonic()
 
 # Run idempotent migrations on startup
 try:
@@ -974,7 +974,7 @@ async def api_health():
     cache_ts = _dashboard_cache["timestamp"]
     payload: Dict = {
         "status": "ok",
-        "uptime_seconds": int(_time() - _PROCESS_START_MONOTONIC),
+        "uptime_seconds": int(_monotonic() - _PROCESS_START_MONOTONIC),
         "started_at": _PROCESS_START_WALL.isoformat(timespec="seconds"),
         "dashboard_cache_age_seconds": int(_time() - cache_ts) if cache_ts else None,
     }
