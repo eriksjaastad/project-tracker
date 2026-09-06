@@ -2194,6 +2194,25 @@ async def list_tasks(
 
         subtasks_by_parent: Dict[int, List[Dict[str, object]]] = {}
         task_lookup = {task["id"]: dict(task) for task in tasks}
+
+        # Blockers that are not in this fetch get resolved individually below.
+        # `task_lookup` is scoped to one project's tasks and `blocked_by` is
+        # not project-scoped at all, so a cross-project blocker — an intended
+        # use case — misses on EVERY request, not just for archived or missing
+        # ids. Resolving those uncached would be an N+1 against a sidebar that
+        # calls this endpoint once per project. Cache per request, so each
+        # distinct id costs at most one lookup no matter how many cards
+        # reference it, and a card blocked by the same parent as its siblings
+        # costs one query for all of them.
+        blocker_cache: Dict[int, Optional[Dict[str, object]]] = {}
+
+        def _resolve_blocker(blocked_id):
+            if blocked_id in task_lookup:
+                return task_lookup[blocked_id]
+            if blocked_id not in blocker_cache:
+                blocker_cache[blocked_id] = db.get_task(blocked_id)
+            return blocker_cache[blocked_id]
+
         for task in tasks:
             parent = task.get("parent_id")
             if parent is not None:
@@ -2254,10 +2273,7 @@ async def list_tasks(
                     blocking_tasks = []
                     unresolved_ids = []
                     for blocked_id in blocked_by_ids:
-                        blocking_task = task_lookup.get(blocked_id)
-                        if blocking_task is None:
-                            fetched = db.get_task(blocked_id)
-                            blocking_task = dict(fetched) if fetched else None
+                        blocking_task = _resolve_blocker(blocked_id)
                         if blocking_task is None:
                             unresolved_ids.append(blocked_id)
                         else:
