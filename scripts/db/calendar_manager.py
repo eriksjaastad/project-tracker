@@ -155,7 +155,7 @@ class CalendarManager:
         now = _now()
         event_id = pt_next_id(self.db_path)
         with self._conn() as conn:
-            cursor = conn.execute(
+            conn.execute(
                 """
                 INSERT INTO calendar_events
                     (id, title, description, event_date, event_time, event_type, recurrence,

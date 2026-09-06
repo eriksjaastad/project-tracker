@@ -134,7 +134,6 @@ def test_display_ids_are_unique(tmp_path: Path) -> None:
 # DatabaseManager integration tests
 # -----------------------------------------------------------------------
 
-import os
 import pytest
 
 from db.manager import DatabaseManager
