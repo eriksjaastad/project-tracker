@@ -380,3 +380,101 @@ def test_state_file_removed_on_finish(repo_env) -> None:
     # Should be startable again without --force.
     result = _invoke(repo_env["env"], ["migration", "start", "reuse", "--json"])
     assert result.exit_code == 0, result.output
+
+
+# ---------------------------------------------------------------------------
+# #6851 — the recorded repo is the CALLER's repo, not project-tracker
+# ---------------------------------------------------------------------------
+
+
+def test_start_records_caller_repo_not_launcher_dir(repo_env, monkeypatch) -> None:
+    """The `pt` launcher does `cd "$launcher_dir"` before exec, so Path.cwd()
+    inside pt.py is always project-tracker. PT_CALLER_CWD is the real answer."""
+    repo_dir: Path = repo_env["repo_dir"]
+    # Simulate the launcher: cwd is project-tracker, PT_CALLER_CWD is the repo.
+    monkeypatch.chdir(Path(__file__).parent.parent)
+    env = {**repo_env["env"], "PT_CALLER_CWD": str(repo_dir)}
+
+    result = _invoke(env, ["migration", "start", "caller", "--json"])
+    assert result.exit_code == 0, result.output
+
+    state = json.loads((repo_env["state_dir"] / "caller.json").read_text())
+    assert Path(state["repo_dir"]).resolve() == repo_dir.resolve()
+
+
+def test_start_records_repo_root_when_called_from_a_subdirectory(
+    repo_env, monkeypatch
+) -> None:
+    """`--show-toplevel` on top of PT_CALLER_CWD, which Path.cwd() never did."""
+    repo_dir: Path = repo_env["repo_dir"]
+    subdir = repo_dir / "src" / "deep"
+    subdir.mkdir(parents=True)
+    monkeypatch.chdir(Path(__file__).parent.parent)
+    env = {**repo_env["env"], "PT_CALLER_CWD": str(subdir)}
+
+    result = _invoke(env, ["migration", "start", "subdir", "--json"])
+    assert result.exit_code == 0, result.output
+
+    state = json.loads((repo_env["state_dir"] / "subdir.json").read_text())
+    assert Path(state["repo_dir"]).resolve() == repo_dir.resolve()
+
+
+def test_finish_refuses_revert_when_state_repo_disagrees(repo_env, tmp_path) -> None:
+    """Stale state files written before the fix carry project-tracker as their
+    repo_dir. `--revert` runs `git restore` and trashes files under that path,
+    so finishing one from a different tree must refuse, not guess."""
+    repo_dir: Path = repo_env["repo_dir"]
+    _invoke(repo_env["env"], ["migration", "start", "stale", "--json"])
+
+    # Rewrite the state file the way a pre-#6851 run would have left it.
+    other_repo = tmp_path / "other"
+    other_repo.mkdir()
+    _init_repo(other_repo)
+    state_path = repo_env["state_dir"] / "stale.json"
+    state = json.loads(state_path.read_text())
+    state["repo_dir"] = str(other_repo)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    (repo_dir / "VICTIM.md").write_text("do not trash me\n", encoding="utf-8")
+
+    result = _invoke(
+        repo_env["env"], ["migration", "finish", "stale", "--revert", "--json"]
+    )
+    assert result.exit_code != 0
+    assert "refusing --revert" in result.output
+    assert str(other_repo) in result.output
+    # Nothing was touched, and the state file is still there to retry.
+    assert (repo_dir / "VICTIM.md").exists()
+    assert state_path.exists()
+
+
+def test_finish_without_revert_still_works_on_a_mismatched_state_file(
+    repo_env, tmp_path
+) -> None:
+    """The refusal is scoped to --revert, the destructive path. A manifest-only
+    finish stays available so a stale record can be closed out."""
+    _invoke(repo_env["env"], ["migration", "start", "stale2", "--json"])
+
+    other_repo = tmp_path / "other2"
+    other_repo.mkdir()
+    _init_repo(other_repo)
+    state_path = repo_env["state_dir"] / "stale2.json"
+    state = json.loads(state_path.read_text())
+    state["repo_dir"] = str(other_repo)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    result = _invoke(repo_env["env"], ["migration", "finish", "stale2", "--json"])
+    assert result.exit_code == 0, result.output
+
+
+def test_finish_allows_revert_when_repos_agree(repo_env) -> None:
+    """The guard must not break the normal case."""
+    repo_dir: Path = repo_env["repo_dir"]
+    _invoke(repo_env["env"], ["migration", "start", "agree", "--json"])
+    (repo_dir / "JUNK.md").write_text("junk\n", encoding="utf-8")
+
+    result = _invoke(
+        repo_env["env"], ["migration", "finish", "agree", "--revert", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    assert not (repo_dir / "JUNK.md").exists()
