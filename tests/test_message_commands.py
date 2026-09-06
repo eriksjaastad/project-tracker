@@ -322,6 +322,60 @@ class TestSelfSendGuard:
         assert "own address" in result.output
         req.assert_not_called()
 
+    def test_send_to_self_with_machine_qualifier_is_refused(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """--machine rewrites the recipient to `project-tracker@laptop`, which
+        never equals the always-bare sender. The old guard fell through and the
+        message went to this very session (#6775)."""
+        self._identity(tmp_path, monkeypatch, "project-tracker")
+        monkeypatch.setenv("AGENT_CHAT_MACHINE", "laptop")
+        with patch("pt._load_chat_config", return_value={"url": "u", "key": "k", "sender": "cfg"}), \
+             patch("pt._chat_api_request", return_value={"id": 1}) as req:
+            result = runner.invoke(
+                cli,
+                ["message", "send", "hi", "--to", "project-tracker",
+                 "--machine", "laptop"],
+            )
+
+        assert result.exit_code != 0
+        assert "own address" in result.output
+        req.assert_not_called()
+
+    def test_send_to_same_project_on_another_machine_is_allowed(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """`project-tracker@mini` from a laptop session is a different
+        machine's floor manager — a real peer, not a self-send."""
+        self._identity(tmp_path, monkeypatch, "project-tracker")
+        monkeypatch.setenv("AGENT_CHAT_MACHINE", "laptop")
+        with patch("pt._load_chat_config", return_value={"url": "u", "key": "k", "sender": "cfg"}), \
+             patch("pt._chat_api_request", return_value={"id": 1}) as req:
+            result = runner.invoke(
+                cli,
+                ["message", "send", "hi", "--to", "project-tracker",
+                 "--machine", "mini"],
+            )
+
+        assert result.exit_code == 0, result.output
+        req.assert_called_once()
+        assert req.call_args[1]["data"]["sender"] == "project-tracker"
+
+    def test_send_to_peer_with_machine_qualifier_is_allowed(
+        self, runner, tmp_path, monkeypatch
+    ):
+        self._identity(tmp_path, monkeypatch, "project-tracker")
+        monkeypatch.setenv("AGENT_CHAT_MACHINE", "laptop")
+        with patch("pt._load_chat_config", return_value={"url": "u", "key": "k", "sender": "cfg"}), \
+             patch("pt._chat_api_request", return_value={"id": 1}) as req:
+            result = runner.invoke(
+                cli,
+                ["message", "send", "hi", "--to", "ai-memory", "--machine", "laptop"],
+            )
+
+        assert result.exit_code == 0, result.output
+        req.assert_called_once()
+
     def test_send_to_peer_is_allowed(self, runner, tmp_path, monkeypatch):
         self._identity(tmp_path, monkeypatch, "project-tracker")
         with patch("pt._load_chat_config", return_value={"url": "u", "key": "k", "sender": "cfg"}), \
