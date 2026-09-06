@@ -5623,6 +5623,40 @@ class PathEscapesRepoError(ValueError):
     """A recorded path does not resolve to a location inside its repository."""
 
 
+def _audit_destructive(operation: str, target: Path, repo_dir: Path) -> None:
+    """Record an in-process deletion before it happens.
+
+    The `bash-validator` hook logs destructive *shell* commands, but it cannot
+    see a `send2trash()` call inside a running Python process. That blind spot
+    is not academic: when ~/projects/tax-organizer was sent to the Trash while
+    its developers were working in it, there was no shell history and no hook
+    log to attribute it, because the deletion happened inside `pt` (#6890).
+
+    Anything in this codebase that deletes should record it here first, so the
+    next incident is a `grep` rather than an interrogation. Logging must never
+    prevent the operation, but a failure is surfaced rather than swallowed —
+    a silently broken audit trail is the thing being fixed.
+    """
+    from datetime import datetime, timezone
+
+    log_path = Path.home() / ".claude" / "logs" / "pt-destructive.log"
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "operation": operation,
+            "target": str(target),
+            "repo_dir": str(repo_dir),
+            "caller_cwd": os.environ.get("PT_CALLER_CWD", os.getcwd()),
+            "pid": os.getpid(),
+            "session_id": os.environ.get("CLAUDE_SESSION_ID"),
+        }
+        with open(log_path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except Exception as exc:  # noqa: BLE001 — never block the operation
+        print(f"warning: could not write destructive-op audit log: {exc}", file=sys.stderr)
+
+
 def _contained_path(repo_dir: Path, raw: str) -> Path:
     """Resolve `raw` inside `repo_dir`, refusing anything that escapes it.
 
@@ -5741,6 +5775,7 @@ def _revert_paths(
                 errors.append((e["path"], "already missing"))
                 continue
             try:
+                _audit_destructive("send2trash", target, repo_dir)
                 send2trash(str(target))
                 trashed.append(e["path"])
             except Exception as exc:  # noqa: BLE001 — trash backend can raise OSError variants
