@@ -267,9 +267,9 @@ def _render_alert_rows(alerts: list) -> str:
         rows.append(
             f'<tr>'
             f'<td style="padding:6px 10px;vertical-align:top;white-space:nowrap;">{dot}</td>'
-            f'<td style="padding:6px 10px;vertical-align:top;"><strong>{name}</strong><br>'
-            f'<span style="color:#333;">{message}</span>'
-            f'<br><span style="color:#888;font-size:12px;">{details}</span></td>'
+            f'<td style="padding:6px 10px;vertical-align:top;"><strong>{_esc(name)}</strong><br>'
+            f'<span style="color:#333;">{_esc(message)}</span>'
+            f'<br><span style="color:#888;font-size:12px;">{_esc(details)}</span></td>'
             f'</tr>'
         )
     return "\n".join(rows)
@@ -462,7 +462,7 @@ def render_mini_section(mini_data: dict | None, ignore: set) -> str:
         )
     if mini_data.get("error"):
         return (
-            f'<div style="color:#8a1f1f;">⚠️ Mini scan error: {mini_data["error"]}</div>'
+            f'<div style="color:#8a1f1f;">⚠️ Mini scan error: {_esc(mini_data["error"])}</div>'
         )
 
     projects = [p for p in mini_data.get("projects", []) if p["name"] not in ignore]
@@ -475,15 +475,15 @@ def render_mini_section(mini_data: dict | None, ignore: set) -> str:
 
     heartbeat = (
         f'<div style="color:#888;font-size:12px;margin-bottom:8px;">'
-        f'Scanned {len(projects)} projects · {mini_data.get("scanned_at", "")}</div>'
+        f'Scanned {len(projects)} projects · {_esc(mini_data.get("scanned_at", ""))}</div>'
     )
 
     active_html = ""
     if active:
         rows = "".join(
             f'<tr><td style="padding:4px 10px;">🟢</td>'
-            f'<td style="padding:4px 10px;"><strong>{p["name"]}</strong> '
-            f'<span style="color:#888;">— active {_age(p)}</span></td></tr>'
+            f'<td style="padding:4px 10px;"><strong>{_esc(p["name"])}</strong> '
+            f'<span style="color:#888;">— active {_esc(_age(p))}</span></td></tr>'
             for p in active
         )
         active_html = f'<table style="border-collapse:collapse;width:100%;">{rows}</table>'
@@ -492,8 +492,8 @@ def render_mini_section(mini_data: dict | None, ignore: set) -> str:
     if stale:
         rows = "".join(
             f'<tr><td style="padding:4px 10px;">🟡</td>'
-            f'<td style="padding:4px 10px;"><strong>{p["name"]}</strong> '
-            f'<span style="color:#333;">no activity in {p["days_since"]} days</span></td></tr>'
+            f'<td style="padding:4px 10px;"><strong>{_esc(p["name"])}</strong> '
+            f'<span style="color:#333;">no activity in {_esc(p["days_since"])} days</span></td></tr>'
             for p in stale
         )
         stale_html = (
@@ -614,12 +614,13 @@ def send_email(subject: str, html: str) -> None:
 
 # --- Main -------------------------------------------------------------------
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    """Entry point. ``argv`` defaults to ``sys.argv[1:]``; tests pass it in."""
     parser = argparse.ArgumentParser(description="Portfolio alert digest (Phase 1).")
     parser.add_argument(
         "--dry-run", action="store_true", help="Print the email instead of sending."
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # This digest runs on the MacBook and renders BOTH machine sections, so it
     # loads both ignore lists explicitly rather than by current machine.

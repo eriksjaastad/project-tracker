@@ -60,4 +60,4 @@ cd dashboard/frontend && npm run build  # Rebuild React frontend
 
 ## CI
 
-PRs are reviewed by Claude Sonnet via [reusable workflow](https://github.com/eriksjaastad/tools). Auto-merges on APPROVE, blocks on REQUEST_CHANGES. Requires a label (`feature`, `bug`, `chore`, etc.).
+CI runs the test suite (`.github/workflows/tests.yml`) and requires a type label (`feature`, `bug`, `chore`, etc.). Code review runs locally via the `code-reviewer` sub-agent before a PR is opened — the remote Claude review workflow was removed in `0afb5a2`, and there is no auto-merge.

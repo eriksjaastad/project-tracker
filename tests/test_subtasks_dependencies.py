@@ -149,3 +149,82 @@ def test_api_subtasks_and_blocking(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     detail = start_response.json().get("detail", "").lower()
     assert "blocked by" in detail
     assert f"#{db.get_task_display_id(blocker['id'])}" in detail
+
+
+# ---------------------------------------------------------------------
+# #6873 — archived cards must not leak into subtask/blocked queries
+# ---------------------------------------------------------------------
+
+
+def _archive(db: DatabaseManager, task_id: int) -> None:
+    """Mark one card archived, the way trim_done_tasks does."""
+    from datetime import datetime, timezone
+    with db._get_conn() as conn:
+        conn.execute(
+            "UPDATE tasks SET archived_at = ? WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(), task_id),
+        )
+        conn.commit()
+
+
+def test_get_subtasks_excludes_archived_by_default(tmp_path: Path):
+    """An archived Done subtask used to inflate the progress denominator,
+    so a fully-complete parent rendered as e.g. 4/7."""
+    db_path, db, project_id = _setup_db(tmp_path)
+
+    parent = db.add_task(text="Parent", project_id=project_id)
+    live = db.add_task(
+        text="Live child", project_id=project_id,
+        parent_id=parent["id"], status="Done",
+    )
+    stale = db.add_task(
+        text="Archived child", project_id=project_id,
+        parent_id=parent["id"], status="Done",
+    )
+    _archive(db, stale["id"])
+
+    subtasks = db.get_subtasks(parent["id"])
+    assert [t["id"] for t in subtasks] == [live["id"]]
+
+    with_archived = db.get_subtasks(parent["id"], include_archived=True)
+    assert {t["id"] for t in with_archived} == {live["id"], stale["id"]}
+
+
+def test_get_subtask_progress_passes_include_archived_through(tmp_path: Path):
+    db_path, db, project_id = _setup_db(tmp_path)
+
+    parent = db.add_task(text="Parent", project_id=project_id)
+    db.add_task(
+        text="Done child", project_id=project_id,
+        parent_id=parent["id"], status="Done",
+    )
+    stale = db.add_task(
+        text="Archived child", project_id=project_id,
+        parent_id=parent["id"], status="Done",
+    )
+    _archive(db, stale["id"])
+
+    progress = db.get_subtask_progress(parent["id"])
+    assert (progress["done"], progress["total"], progress["percent"]) == (1, 1, 100)
+
+    everything = db.get_subtask_progress(parent["id"], include_archived=True)
+    assert (everything["done"], everything["total"]) == (2, 2)
+
+
+def test_get_blocked_tasks_excludes_archived_by_default(tmp_path: Path):
+    db_path, db, project_id = _setup_db(tmp_path)
+
+    blocker = db.add_task(text="Blocker", project_id=project_id, status="Backlog")
+    live = db.add_task(
+        text="Live blocked", project_id=project_id, blocked_by=[blocker["id"]],
+    )
+    stale = db.add_task(
+        text="Archived blocked", project_id=project_id,
+        blocked_by=[blocker["id"]], status="Done",
+    )
+    _archive(db, stale["id"])
+
+    assert [t["id"] for t in db.get_blocked_tasks(blocker["id"])] == [live["id"]]
+    assert {
+        t["id"] for t in db.get_blocked_tasks(blocker["id"], include_archived=True)
+    } == {live["id"], stale["id"]}

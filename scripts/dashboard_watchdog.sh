@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Dashboard health watchdog. Restarts the project-tracker dashboard if its
-# /api/alerts endpoint is unhealthy.
+# /api/health endpoint is unhealthy.
 #
 # Why this exists: launchd KeepAlive only restarts a process that has DIED. The
 # dashboard has twice (2026-07-06, 2026-07-08) gone "alive but broken" — the
@@ -17,7 +17,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 LOG="$PROJECT_DIR/logs/dashboard_watchdog.log"
 
-URL="${PT_DASHBOARD_URL:-http://localhost:8000/api/alerts}"
+# /api/health opens its own DB connection and runs a real query, so it 503s
+# in exactly the failure mode above. It replaced /api/alerts as the probe
+# (#6752): /api/alerts ran a full board scan (get_all_projects + _bulk_enrich +
+# get_all_alerts) every 300s just to prove the process was alive.
+URL="${PT_DASHBOARD_URL:-http://localhost:8000/api/health}"
 LABEL="com.eriksjaastad.project-tracker"
 
 ts() { date '+%Y-%m-%dT%H:%M:%S'; }

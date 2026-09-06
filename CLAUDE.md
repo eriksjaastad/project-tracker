@@ -40,6 +40,48 @@ Standard restart: `pkill -f "uvicorn dashboard.app" && sleep 1 && doppler run --
 
 Verify it's up: `curl -s http://localhost:8000/api/health` or check `lsof -i :8000`.
 
+## Authorization — Check Doppler First (#6065)
+
+This repo runs **self-contained** through Doppler. There is no `.env`, no exported shell secret, no manual login step. `doppler.yaml` at the repo root pins `project-tracker/dev`, and the `Makefile` wraps the common commands so a cold shell with nothing exported just works: `make help` lists them.
+
+**Before assuming an auth problem is missing infrastructure — check Doppler first.** The token almost certainly already exists; the usual cause is that the command wasn't run under `doppler run --`, or was run under the *wrong* Doppler project (see the second table).
+
+**Tokens in this repo's own config (project: `project-tracker`, config: `dev`):**
+
+| Token | What it's for | Required when |
+|---|---|---|
+| `TURSO_KANBAN_URL` | Turso cloud endpoint for the Kanban DB (tasks, projects, calendar) | Only when `~/projects/.turso-config.json` has `turso_enabled: true`. It is currently **false**, so this is dormant and the backend is local `data/tracker.db`. |
+| `TURSO_KANBAN_TOKEN` | Turso auth token, paired with `TURSO_KANBAN_URL` | Same as above |
+| `COST_TRACKER_API_KEY` | Auth for the SIL cost-tracker API the dashboard queries (`dashboard/app.py`) | Whenever the dashboard's cost panel needs live data |
+| `DOPPLER_PROJECT`, `DOPPLER_CONFIG`, `DOPPLER_ENVIRONMENT` | Doppler's own metadata, injected automatically | Never set by hand |
+
+**Secrets this repo's scripts need that do *not* live in `project-tracker/dev`.** This is a real deviation from the portfolio pattern: several scripts pass an explicit `--project/--config` because their secret belongs to a different product's Doppler project. Do not "fix" this by copying the secret into `project-tracker/dev`.
+
+| Token | Doppler location | Consumer |
+|---|---|---|
+| `RESEND_API_KEY` | `synth-insight-labs` / `prd` | `scripts/alert_digest.py` (daily portfolio digest email), wrapped by `scripts/alert-digest.sh` and `make digest` |
+| `XAI_API_KEY` | `synth-insight-labs` / `prd` | `scripts/card_factory_grok.py` (Grok card-factory shadow run) |
+| `TURSO_KANBAN_URL` / `TURSO_KANBAN_TOKEN` | `openclaw` / `dev` | `scripts/turso_to_local.py` one-time Turso → local dump (`make turso-sync`) — historically these creds lived in `openclaw`, and that script still reads them there |
+| `TURSO_BRAIN_URL` / `TURSO_BRAIN_TOKEN` | `ai-memory` / `dev` | `pt memory ...` shells out to `brain.py` under `doppler run --project ai-memory --config dev` itself; you do not wrap it |
+| `GOOGLE_API_KEY` | `trading-copilot` / `dev` | `scripts/doc_audit_v2.py`, which fetches it via `doppler secrets get` at runtime |
+
+**Not in Doppler at all:** Agent Chat reads `AGENT_CHAT_URL`, `AGENT_CHAT_API_KEY`, and `AGENT_CHAT_SENDER` from `~/.claude/agent-chat.env` (or the environment) — see `_load_chat_config` in `scripts/pt.py`. If `pt message ...` says "Agent Chat not configured", the fix is that file, not Doppler.
+
+**Deviations in the `pt` launcher — read these before debugging an auth failure:**
+
+- **`./pt` wraps itself.** The launcher runs `doppler run --project ... --config ... -- uv run scripts/pt.py`. Never prefix `./pt` with `doppler run --`; double-wrapping is the bug, not the fix.
+- **`PT_SKIP_DOPPLER=1`** skips the wrap entirely. Used for read-only cron/SSH paths (`PT_SKIP_DOPPLER=1 ./pt memory recent --since 7d --json`), where the local SQLite backend needs no secret and paying Doppler's startup cost is waste. `--help`/`help` skip it automatically for the same reason.
+- **`PT_DOPPLER_PROJECT` / `PT_DOPPLER_CONFIG`** override the project/config the launcher passes (defaults `project-tracker` / `dev`). Use for testing against another config; empty values are rejected.
+- **The Turso switch skips Doppler.** If `~/projects/.turso-config.json` has `turso_enabled: false` — which is the **current, deliberate state** (local SQLite since 2026-04-05; Turso added ~2.5s latency per query for no benefit) — the launcher skips `doppler run` completely and execs `uv run scripts/pt.py` bare. That means: **on this machine today, a normal `./pt` invocation gets NO Doppler secrets injected**, and it does not need any. If you are debugging a missing env var in `pt`, check that file before you conclude Doppler is broken. Scripts that need secrets regardless (the digest, the dashboard) do their own explicit `doppler run` and are unaffected by this switch.
+
+**If a command fails with auth/credential errors:**
+1. Confirm you ran it through `doppler run --` — or, for `./pt`, that you did **not** (the launcher self-wraps).
+2. Confirm you are pointed at the right Doppler project. Most auth failures here are the second table above: the secret exists, just not in `project-tracker/dev`.
+3. Confirm `doppler.yaml` is intact (`cat doppler.yaml` → `project: project-tracker`, `config: dev`), then check the token exists: `make doppler-check`, or `doppler secrets --project <proj> --config <cfg> --only-names`. **Names only — never print values.**
+4. If the token is genuinely missing, surface it to Erik — don't add tokens to Doppler silently.
+
+**Deploy target:** local only. `agent-chat/` deploys to Cloud Run, but project-tracker itself — CLI, DB, dashboard — runs on the machine it lives on.
+
 ## Database Safety — CRITICAL
 
 On 2026-01-27, an agent dropped the tasks table without backup, destroying 94 tasks. The rule below exists because of that incident. Do not skip the gate.
