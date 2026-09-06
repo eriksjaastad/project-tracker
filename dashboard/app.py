@@ -3535,8 +3535,9 @@ async def delete_idea(idea_id: int):
 # GitHub API  (#5373)
 # ---------------------------------------------------------------------------
 
-_github_cache: Dict = {"data": None, "timestamp": 0}
-_GITHUB_CACHE_TTL = 300  # 5 minutes
+from dashboard.github_cache import GitHubCache
+
+_github_cache = GitHubCache()
 
 
 def _find_gh() -> str:
@@ -3915,24 +3916,10 @@ def _fetch_github_data() -> Dict:
 
 @app.get("/api/github")
 async def api_github():
-    """Comprehensive GitHub account data via gh CLI.
+    """Return the last snapshot immediately while one worker refreshes GitHub.
 
-    Returns repos, open PRs, recent commits, branches, and CI status.
-    Cached for 5 minutes to avoid hammering the GitHub API.
+    A cold response has no repository data and ``refreshing: true``. Clients
+    poll using retry_after_seconds until the snapshot arrives. Failed refreshes
+    preserve old data and expose refresh_error rather than emptying the page.
     """
-    now = _time()
-    if (_github_cache["data"] is not None
-            and now - _github_cache["timestamp"] < _GITHUB_CACHE_TTL):
-        data = _github_cache["data"].copy()
-        data["cached"] = True
-        return data
-
-    try:
-        data = _fetch_github_data()
-        if "error" not in data:
-            _github_cache["data"] = data
-            _github_cache["timestamp"] = _time()
-        return data
-    except Exception as e:
-        logger.error(f"Error fetching GitHub data: {e}", exc_info=True)
-        return {"error": str(e), "cached": False}
+    return _github_cache.read(_fetch_github_data)
