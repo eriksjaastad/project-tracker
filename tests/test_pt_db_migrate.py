@@ -121,6 +121,40 @@ def test_pt_db_migrate_refuses_under_turso(
     assert "Turso" in result.output
 
 
+def test_pt_db_migrate_reports_migration_error_without_traceback(
+    runner: CliRunner, fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad migration is an operator condition, not a pt bug — #6873.
+    The bare try/finally used to let MigrationError escape Click as a
+    raw traceback."""
+    from db.migration_runner import MigrationError
+
+    def boom(conn, migrations_dir):
+        raise MigrationError("003_crr_pk_not_null: checksum mismatch")
+
+    monkeypatch.setattr("db.migration_runner.apply_all", boom)
+    result = runner.invoke(cli, ["db", "migrate"])
+
+    assert result.exit_code == 2
+    assert "pt db migrate: 003_crr_pk_not_null: checksum mismatch" in result.output
+    assert not isinstance(result.exception, MigrationError)
+    assert "Traceback" not in result.output
+
+
+def test_pt_db_migrate_still_tracebacks_on_unexpected_error(
+    runner: CliRunner, fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only MigrationError is caught; a real bug must stay loud."""
+    def boom(conn, migrations_dir):
+        raise RuntimeError("genuine bug")
+
+    monkeypatch.setattr("db.migration_runner.apply_all", boom)
+    result = runner.invoke(cli, ["db", "migrate"])
+
+    assert result.exit_code != 0
+    assert isinstance(result.exception, RuntimeError)
+
+
 # ---------------------------------------------------------------------
 # _warn_unapplied_migrations
 # ---------------------------------------------------------------------

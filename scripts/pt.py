@@ -4456,7 +4456,7 @@ def db_migrate():
         )
         sys.exit(2)
 
-    from db.migration_runner import apply_all
+    from db.migration_runner import MigrationError, apply_all
 
     db_path = get_db_path()
     migrations_dir = Path(__file__).parent / "db" / "migrations"
@@ -4485,8 +4485,15 @@ def db_migrate():
     except Exception as crsql_err:
         console.print(f"[yellow]cr-sqlite not loaded for migration: {crsql_err}[/yellow]")
 
+    # A MigrationError is an operator-facing condition (a bad migration
+    # module, a CRR alter without cr-sqlite loaded, a checksum mismatch) —
+    # report it the way `pt sync` reports DB failures rather than dumping a
+    # traceback. Anything else is a real bug and still tracebacks.
     try:
         applied = apply_all(conn, migrations_dir)
+    except MigrationError as err:
+        console.print(f"[red]pt db migrate: {err}[/red]")
+        sys.exit(2)
     finally:
         conn.close()
 
