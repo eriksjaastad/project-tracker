@@ -380,7 +380,68 @@ class TestPerAddressCursor:
             identity="project-tracker@laptop", home=home,
         )
         assert "x" in run
-        assert cursors(home) == ["chat_cursor.project-tracker_laptop"]
+        assert cursors(home) == ["chat_cursor.project-tracker%40laptop"]
+
+    def test_distinct_addresses_cannot_collide(self, tmp_path):
+        """Folding unsafe characters to `_` re-creates this card's own bug.
+
+        `a/b` and `a_b` are different addresses. If they sanitize to one
+        filename they share a position, and one steals the other's mail —
+        the shared-cursor race again, just smaller.
+        """
+        home = tmp_path / "shared-home"
+        first = run_hook(
+            tmp_path, [msg(32, "ai-memory", "a/b", "slash")],
+            identity="a/b", home=home,
+        )
+        assert "slash" in first
+
+        second = run_hook(
+            tmp_path, [msg(33, "ai-memory", "a_b", "under")],
+            identity="a_b", home=home,
+        )
+        assert "since=" not in second.url
+        assert "under" in second
+
+        assert cursors(home) == ["chat_cursor.a%2Fb", "chat_cursor.a_b"]
+        assert (home / ".claude" / "chat_cursor.a%2Fb").read_text().strip() == (
+            "2026-08-30T00:00:32Z"
+        )
+
+    def test_an_empty_legacy_cursor_is_not_taken_as_a_seed(self, tmp_path):
+        """A 0-byte legacy file is not a position — a stray `touch` makes one.
+
+        Seeding from it wrote an empty cursor, and the next poll went out with
+        no `since` at all: the unbounded replay the migration exists to stop.
+        """
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor").write_text("")
+
+        run = run_hook(tmp_path, [], identity="emptytest", home=home)
+        assert "since=" not in run.url
+        assert cursors(home) == ["chat_cursor"]  # nothing seeded
+
+    def test_a_corrupt_legacy_cursor_is_not_taken_as_a_seed(self, tmp_path):
+        """`since=<garbage>` reaches the API and may return nothing, forever.
+
+        Starting this address clean is the honest failure; migrating junk
+        forward turns a delivery bug into a silent one.
+        """
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor").write_text("not-a-timestamp\n")
+
+        run = run_hook(
+            tmp_path, [msg(34, "ai-memory", "corrupt", "x")],
+            identity="corrupt", home=home,
+        )
+        assert "since=" not in run.url
+        assert "not-a-timestamp" not in run.url
+        # The poll's own result still lands, so the address is not stuck.
+        assert (home / ".claude" / "chat_cursor.corrupt").read_text().strip() == (
+            "2026-08-30T00:00:34Z"
+        )
 
     def test_a_separator_in_the_address_cannot_escape_the_claude_dir(self, tmp_path):
         """Defense in depth: a mis-derived address must not write outside ~/.claude."""

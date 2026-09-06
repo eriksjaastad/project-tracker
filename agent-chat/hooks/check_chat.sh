@@ -61,12 +61,48 @@ fi
 #
 # Sanitize before the address reaches a path: it can contain `@`
 # (`project-tracker@laptop`) and, if it is ever mis-derived, a separator.
-# Allowlist to [A-Za-z0-9._-], then neutralize dot runs and a leading dot, so
-# the slug can only ever name an inert file directly inside ~/.claude.
+#
+# Percent-encode every character outside [A-Za-z0-9_-] rather than folding
+# them to `_`. Folding is lossy — `a/b` and `a_b` would land on one file and
+# steal each other's position, which is the bug this card exists to kill,
+# re-introduced at a smaller scale. Encoding is injective (`%` is itself
+# encoded), so distinct addresses cannot collide, and it needs no hash and no
+# external binary in a hook that already has to degrade gracefully when `jq`
+# is missing. It also leaves the address readable in the filename. No `/` and
+# no `.` can appear in the output, so traversal and dot-runs are impossible by
+# construction rather than by patching them out afterwards.
+#
+# The address is bounded first: a real one is `<project>` or
+# `<project>@<machine>`, far under 64 bytes, and the bound keeps the filename
+# inside NAME_MAX even when every byte expands to three characters.
+#
+# `LC_ALL=C` is not decoration. Under a UTF-8 locale bash matches `[A-Za-z]`
+# by collation, so `ü` passes the allowlist untouched and the safe set is
+# whatever the ambient locale says it is. C forces the loop to walk bytes
+# against a fixed ASCII set, so the output is the same everywhere.
 cursor_slug() {
-    local safe="${1//[!A-Za-z0-9._-]/_}"
-    safe="${safe//../__}"
-    printf '%s' "${safe#.}"
+    local LC_ALL=C
+    local raw="${1:0:64}" out="" i ch code enc
+    for (( i = 0; i < ${#raw}; i++ )); do
+        ch="${raw:i:1}"
+        case "$ch" in
+            [A-Za-z0-9_-]) out+="$ch" ;;
+            *)  printf -v code '%d' "'$ch"
+                printf -v enc '%%%02X' "$(( code & 0xFF ))"
+                out+="$enc" ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
+# A seed is only worth taking if it is actually a position. An empty legacy
+# file (a stray `touch`, a create that never got populated) would seed an
+# empty cursor and the next poll would go out with no `since` at all — the
+# unbounded replay the migration exists to prevent. A corrupt one is worse:
+# `since=<garbage>` reaches the API, which may reject it or return nothing,
+# turning a delivery bug into a silent one. Neither is trusted.
+looks_like_cursor() {
+    [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2} ]]
 }
 
 # No API key = skip
@@ -89,10 +125,17 @@ if [[ -n "$SENDER" ]]; then
     CURSOR_FILE="$HOME/.claude/chat_cursor.$(cursor_slug "$SENDER")"
     # One-time migration off the shared cursor. Without the seed the first
     # per-address poll would carry no `since` and replay the whole board into
-    # this session's context.
-    if [[ ! -f "$CURSOR_FILE" && -f "$LEGACY_CURSOR_FILE" ]]; then
-        { cp "$LEGACY_CURSOR_FILE" "$CURSOR_FILE.tmp" \
-            && mv "$CURSOR_FILE.tmp" "$CURSOR_FILE"; } 2>/dev/null || true
+    # this session's context. Only a legacy file that is non-empty AND holds a
+    # timestamp is trusted; anything else is ignored and this address starts
+    # clean rather than migrating garbage forward.
+    if [[ ! -f "$CURSOR_FILE" && -s "$LEGACY_CURSOR_FILE" ]]; then
+        legacy_seed=""
+        IFS= read -r legacy_seed < "$LEGACY_CURSOR_FILE" 2>/dev/null || true
+        legacy_seed="${legacy_seed//[$'\t\r\n ']/}"
+        if looks_like_cursor "$legacy_seed"; then
+            { printf '%s\n' "$legacy_seed" > "$CURSOR_FILE.tmp" \
+                && mv "$CURSOR_FILE.tmp" "$CURSOR_FILE"; } 2>/dev/null || true
+        fi
     fi
 else
     # No address means no `?for=` filter, so the legacy global cursor still
