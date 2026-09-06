@@ -71,6 +71,46 @@ EXTRA_KEYS = {
         "COST_TRACKER_API_KEY": "SIL cost tracker API key (from Doppler synth-insight-labs)",
         "TELEMETRY_PATH": "Path to telemetry log file for discovery module",
         "CRON_JOB_LOG": "Cron job log file path for discovery module",
+        # --- added by #6257 -------------------------------------------------
+        # `pt info` documented 6 of roughly 30 PT_* vars actually read in
+        # source. Three of the missing ones were in USAGE.md but not here, and
+        # two were in neither. Note this is one of FOUR hand-maintained
+        # registries (this file, USAGE.md, the `cli` group docstring, and
+        # `_effective_config_payload`) that drift independently — deliberately
+        # left as four for now; unifying them is its own change.
+        "PT_ALLOW_REMOTE_ADMIN": "Set to 1 to allow dashboard admin endpoints off loopback (default: loopback only)",
+        "PT_DASHBOARD_HOST": "Dashboard bind host (default: 127.0.0.1)",
+        "PT_DASHBOARD_PORT": "Dashboard bind port (default: 8000)",
+        "PT_DASHBOARD_URL": "Full dashboard URL used by the watchdog probe",
+        "PT_BACKUP_DB_PATH": "Database path used by scripts/backup-db.sh",
+        "PT_FULL_BACKUP_DIR": "Destination directory for full DB backups",
+        "PT_BACKUP_LOG_PATH": "Backup log path read by discovery/backup_reader.py",
+        "PT_BACKUP_RCLONE_DEST": "rclone remote for offsite backup copies",
+        "PT_BACKUP_LAUNCH_AGENT_PATH": "Path to the backup LaunchAgent plist",
+        "PT_BACKUP_CLOUD_STATE_FILE": "State file tracking cloud backup status",
+        "PT_CALLER_CWD": "Set by the pt launcher to the directory you ran pt from — read this, never Path.cwd(), which is always project-tracker",
+        "PT_PROJECTS_DIR": "Override for the projects root (default: ~/projects)",
+        "PT_RESOURCES_FILE": "Path to the resources reference file",
+        "PT_REINDEX_SCRIPT": "Path to the reindex script",
+        "PT_MEMORY_DB_PATH": "Override for the Open Brain memory database",
+        "PT_MIGRATION_DIR": "Override for migration state files (default: ~/.project-tracker/migrations)",
+        "PT_NO_BANNER": "Set to 1 to suppress the pt startup banner",
+        "PT_SUPPRESS_MIGRATION_WARNING": "Set to 1 to silence the unapplied-migration warning (tests set this)",
+        "PT_SKIP_DOPPLER": "Set to 1 to skip the launcher's doppler wrap — read-only cron/SSH paths",
+        "PT_DOPPLER_PROJECT": "Override the Doppler project the launcher passes (default: project-tracker)",
+        "PT_DOPPLER_CONFIG": "Override the Doppler config the launcher passes (default: dev)",
+        "PT_ALERTS_URL": "Alerts endpoint the digest reads (default: localhost:8000/api/alerts)",
+        "PT_TASKS_URL": "Tasks endpoint the digest reads",
+        "PT_MINI_HOST": "SSH host for the Mac Mini scan (default: eriks-mac-mini)",
+        "PT_MINI_ENABLED": "Set to 0 to skip the Mac Mini section of the digest",
+        "PT_LOG_MAX_BYTES": "Rotation cap for Python-written logs (default: 10MB)",
+        "PT_LOG_BACKUP_COUNT": "Generations kept by the Python log handler (default: 3)",
+        "PT_LOG_BACKUPS": "Generations kept by scripts/log_rotation.py for launchd-owned logs (default: 2)",
+        "PT_DASHBOARD_LOG_MAX_BYTES": "Rotation cap for the launchd-owned dashboard logs",
+        "PT_DASHBOARD_LOG_BACKUPS": "Generations kept for the launchd-owned dashboard logs",
+        "PT_DESTRUCTIVE_LOG_PATH": "Override for the in-process deletion audit log (tests redirect this)",
+        "PT_ALLOW_MAIN_EDIT": "One-shot bypass for the no-edits-on-main hook",
+        "PT_ALLOW_DIRTY_EXIT": "One-shot bypass for the session-end cleanliness gate",
     },
     "ai-memory": {
         "infrastructure": "libsql/SQLite (brain.db), MCP server (mcp_server.py), graph analytics (graspologic)",
