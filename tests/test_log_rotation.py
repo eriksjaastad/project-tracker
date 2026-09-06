@@ -7,6 +7,7 @@ uvicorn, so Python logging cannot cap them).
 """
 
 import logging
+import os
 import subprocess
 import sys
 from logging.handlers import RotatingFileHandler
@@ -52,6 +53,7 @@ def _rotate(log_dir: Path, max_bytes: int = 100, backups: int = 2) -> subprocess
         capture_output=True,
         text=True,
         check=True,
+        timeout=30,
     )
 
 
@@ -99,3 +101,51 @@ def test_rotation_is_a_noop_when_logs_are_absent(tmp_path: Path):
 
     assert result.returncode == 0
     assert not list(tmp_path.iterdir())
+
+
+def test_rotation_failure_does_not_block_startup(tmp_path: Path):
+    """A failed rotation must warn and continue, never abort the launcher.
+
+    `launch-dashboard.sh` runs under `set -euo pipefail`. Before the guard,
+    an unguarded cp/mv failure here aborted the script before uvicorn was
+    exec'd — and with launchd KeepAlive that converts "logs are too big" into
+    a restart loop, which is the failure that grew stderr to 213MB to begin
+    with. Housekeeping must never be able to take the dashboard down.
+    """
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    stderr_log = log_dir / "dashboard.stderr.log"
+    stderr_log.write_text("x" * 200)
+
+    # Make the directory unwritable so creating the .1 backup fails, while the
+    # existing log file itself stays writable — which is precisely the shape
+    # that makes an unguarded rotation destructive: the copy cannot be made,
+    # but the truncate would still succeed.
+    os.chmod(log_dir, 0o555)
+
+    result = subprocess.run(
+        ["bash", "-c", f'source "{LAUNCH_SCRIPT}"; rotate_dashboard_logs; echo REACHED_END'],
+        env={
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME": str(log_dir),
+            "PT_DASHBOARD_LOG_DIR": str(log_dir),
+            "PT_DASHBOARD_LOG_MAX_BYTES": "100",
+            "PT_DASHBOARD_LOG_BACKUPS": "2",
+        },
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    try:
+        assert "REACHED_END" in result.stdout, (
+            "rotation failure aborted the launcher; uvicorn would never start"
+        )
+        assert result.returncode == 0
+        # The log it could not back up must still be intact, not truncated.
+        assert stderr_log.read_text() == "x" * 200, (
+            "log was truncated despite the backup copy failing"
+        )
+    finally:
+        # Restore permissions so pytest can clean tmp_path up.
+        os.chmod(log_dir, 0o755)
