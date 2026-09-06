@@ -31,8 +31,10 @@ export function summarizeActivity(rows: Usage[], day: string): Activity[] {
     const key = JSON.stringify([provider, service, project]);
     const group = groups.get(key) || { provider, service, project, calls: 0, cost: 0, unpriced: false, lastSeen: row.timestamp };
     group.calls += 1;
-    const cost = Number(row.estimated_cost_usd);
-    if (row.estimated_cost_usd == null || row.estimated_cost_usd === '' || !Number.isFinite(cost)) group.unpriced = true;
+    const rawCost = row.estimated_cost_usd;
+    const cost = typeof rawCost === 'number' ? rawCost
+      : typeof rawCost === 'string' && rawCost.trim() ? Number(rawCost) : NaN;
+    if (!Number.isFinite(cost)) group.unpriced = true;
     else group.cost += cost;
     if (timestamp > new Date(group.lastSeen).getTime()) group.lastSeen = row.timestamp;
     groups.set(key, group);
