@@ -232,12 +232,11 @@ def test_deletion_is_logged_before_it_happens(repo_and_sibling, tmp_path, monkey
     repo, _ = repo_and_sibling
     junk = repo / "scratch.tmp"
     junk.write_text("throwaway\n")
-    monkeypatch.setenv("HOME", str(tmp_path))
+    log = tmp_path / "pt-destructive.log"
+    monkeypatch.setenv("PT_DESTRUCTIVE_LOG_PATH", str(log))
 
     with patch("send2trash.send2trash"):
         _revert_paths(repo, [{"path": "scratch.tmp", "classification": "untracked"}])
-
-    log = tmp_path / ".claude" / "logs" / "pt-destructive.log"
     assert log.exists(), "an in-process deletion left no audit record"
     record = _json.loads(log.read_text().strip().splitlines()[-1])
     assert record["operation"] == "send2trash"
@@ -249,10 +248,9 @@ def test_deletion_is_logged_before_it_happens(repo_and_sibling, tmp_path, monkey
 def test_refused_paths_are_not_logged_as_deletions(repo_and_sibling, tmp_path, monkeypatch) -> None:
     """The log records what was deleted, not what was attempted and refused."""
     repo, sibling = repo_and_sibling
-    monkeypatch.setenv("HOME", str(tmp_path))
+    log = tmp_path / "pt-destructive.log"
+    monkeypatch.setenv("PT_DESTRUCTIVE_LOG_PATH", str(log))
 
     with patch("send2trash.send2trash"):
         _revert_paths(repo, [{"path": str(sibling), "classification": "untracked"}])
-
-    log = tmp_path / ".claude" / "logs" / "pt-destructive.log"
     assert not log.exists() or log.read_text().strip() == ""
