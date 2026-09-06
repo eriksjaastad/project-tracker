@@ -44,6 +44,23 @@ STANDARD_FILES = {
 }
 
 
+# Anchored at line start so prose in comments cannot be read as an import.
+# Unanchored, "if that import ever changes" yields a module named `ever`, and
+# this file had that bug in three separate checks — #6258 (check_stale_tests,
+# which invented false-positive cards), #6882 (check_orphans, which masked real
+# orphans) and #6904 (check_dead_deps, which masked real dead dependencies).
+# The direction differs per check, which is why it kept getting missed. One
+# pattern now, so there is no fourth.
+#
+# `group(1) or group(2)` gives the dotted module; callers wanting only the
+# top-level package take `.split(".")[0]`. MULTILINE matters when scanning a
+# whole file with finditer; it is harmless for per-line `.match()` callers.
+IMPORT_PATTERN = re.compile(
+    r'^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))',
+    re.MULTILINE,
+)
+
+
 def find_project_files(project_path: Path, extensions: set[str] | None = None) -> list[Path]:
     """Walk project tree, skipping ignored dirs/extensions."""
     files = []
@@ -112,15 +129,7 @@ def check_orphans(project_path: Path) -> list[dict]:
 
     # Build a set of all module names that are imported somewhere
     imported_modules: set[str] = set()
-    # Anchored at line start, same as check_stale_tests after #6258. Unanchored,
-    # this matched prose inside comments — "if that import ever changes" made
-    # `ever` an imported module. Here that direction is a false NEGATIVE: a
-    # bogus name in this set masks a genuine orphan rather than inventing one,
-    # which is quieter and therefore easier to miss (#6882).
-    import_pattern = re.compile(
-        r'^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))',
-        re.MULTILINE,
-    )
+    import_pattern = IMPORT_PATTERN
     for f in py_files:
         try:
             text = f.read_text(encoding="utf-8", errors="ignore")
@@ -251,9 +260,7 @@ def check_stale_tests(project_path: Path) -> list[dict]:
     # Anchored at line start: a real import statement is the first thing on its
     # line, modulo indentation. Unanchored, the pattern matched prose inside
     # comments — "if that import ever changes" reported a module named 'ever'.
-    import_pattern = re.compile(
-        r'^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))'
-    )
+    import_pattern = IMPORT_PATTERN
 
     for test_file in test_dir.glob("test_*.py"):
         try:
@@ -464,12 +471,18 @@ def check_dead_deps(project_path: Path) -> list[dict]:
 
     # Collect all imports in the project
     all_imports: set[str] = set()
-    import_pattern = re.compile(r'(?:from\s+([\w]+)|\bimport\s+([\w]+))')
+    import_pattern = IMPORT_PATTERN
     for f in find_project_files(project_path, {".py"}):
         try:
             text = f.read_text(encoding="utf-8", errors="ignore")
             for m in import_pattern.finditer(text):
-                all_imports.add((m.group(1) or m.group(2)).lower())
+                # The shared pattern captures the dotted module; this check
+                # compares against distribution names, so take the top-level
+                # package. Without the split, `import requests.adapters` would
+                # not match the "requests" dependency and a used package would
+                # be reported dead.
+                mod = m.group(1) or m.group(2)
+                all_imports.add(mod.split(".")[0].lower())
         except Exception as e:
             logger.debug("Could not read %s: %s", f, e)
             continue
