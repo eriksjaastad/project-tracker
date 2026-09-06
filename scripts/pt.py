@@ -5456,6 +5456,35 @@ def _validate_migration_name(name: str) -> None:
         )
 
 
+def _caller_repo_root() -> Path:
+    """The repo root of the directory the operator actually ran `pt` from.
+
+    `Path.cwd()` is useless here: the `pt` launcher does `cd "$launcher_dir"`
+    before exec'ing, so inside pt.py the cwd is ALWAYS project-tracker. That is
+    why `pt migration start` recorded the wrong repo for every project (#6851).
+    The launcher exports the real directory as PT_CALLER_CWD, which the rest of
+    the codebase already reads (_detect_project_from_cwd, scripts/origin.py);
+    migration never got the memo.
+
+    PT_CALLER_CWD is the load-bearing part. `git rev-parse --show-toplevel`
+    on top of it additionally handles being invoked from a subdirectory of a
+    repo, which `Path.cwd()` never did. Falls back to the caller cwd itself
+    when that is not a git repo.
+
+    Deliberately NOT `_find_repo_root()`: that helper tries
+    `Path(__file__).parent.parent` first and so has this same bug by design.
+    """
+    caller = Path(os.environ.get("PT_CALLER_CWD") or os.getcwd())
+    try:
+        stdout, rc = _run_git(caller, ["rev-parse", "--show-toplevel"])
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return caller
+    if rc != 0:
+        return caller
+    top = stdout.strip()
+    return Path(top) if top else caller
+
+
 def _git_head_sha(repo_dir: Path) -> Optional[str]:
     """Return current HEAD SHA, or None if outside a repo / git missing."""
     try:
@@ -5570,7 +5599,7 @@ def migration_start(name: str, force: bool, json_output: bool) -> None:
             "migration.start",
         )
 
-    repo_dir = Path.cwd()
+    repo_dir = _caller_repo_root()
     head_sha = _git_head_sha(repo_dir)
     baseline = _git_porcelain_baseline(repo_dir)
     now = datetime.now(_timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -5800,7 +5829,30 @@ def migration_finish(
             "migration.finish",
         )
 
-    repo_dir = Path(state.get("repo_dir") or Path.cwd())
+    caller_root = _caller_repo_root()
+    repo_dir = Path(state.get("repo_dir") or caller_root)
+
+    # Every state file written before #6851 carries project-tracker as its
+    # repo_dir, whatever repo the operator was actually in. Today that is
+    # mostly benign — baseline and current were both computed against the
+    # wrong tree, so the diff comes out empty — but `--revert` runs
+    # `git restore` with cwd=repo_dir and trashes `repo_dir / path`. Acting
+    # on a stale state file would be a destructive operation against the
+    # wrong worktree, so refuse rather than guess which one is right.
+    if revert_flag and repo_dir.resolve() != caller_root.resolve():
+        _emit_json_error(
+            PtJsonError(
+                "validation",
+                f"refusing --revert: state file records repo_dir {repo_dir}, "
+                f"but this session's repo root is {caller_root}. Reverting "
+                f"would run `git restore` and trash files in a different tree. "
+                f"Re-run `pt migration finish {name}` from {repo_dir}, or "
+                f"finish without --revert and undo by hand.",
+                EXIT_VALIDATION,
+            ),
+            "migration.finish",
+        )
+
     baseline_head: Optional[str] = state.get("baseline_head")
     current_head = _git_head_sha(repo_dir)
     head_drift_warning: Optional[str] = None
