@@ -26,7 +26,7 @@ import time
 import json
 from datetime import datetime, timezone as _timezone
 from pathlib import Path
-from typing import NoReturn, Optional
+from typing import List, NoReturn, Optional
 import subprocess
 
 import click
@@ -447,6 +447,100 @@ def _resolve_task_id(db, token: int) -> int:
     """
     resolved = db.resolve_task_id(token)
     return resolved if resolved is not None else token
+
+
+def _parse_blocked_by(db, blocked_by: str) -> str:
+    """Turn a `--blocked-by` token list into a JSON array of canonical task PKs.
+
+    Two things happen here, and both are load-bearing (#6747):
+
+    1. Every token goes through ``db.resolve_task_id`` so display IDs work the
+       way they do in every other command. `--blocked-by 6742` used to store
+       the display ID verbatim, which matches no row.
+    2. A token that resolves to nothing is refused outright. Storing it makes
+       ``get_blocking_tasks`` drop it silently, ``is_blocked`` return
+       ``(False, [])``, and the board report the card as unblocked while it is
+       genuinely blocked — the exact opposite of the truth.
+
+    Raises ``click.ClickException`` on anything unparseable or unresolvable.
+    """
+    import json as _json
+
+    tokens = [t.strip() for t in blocked_by.split(",") if t.strip()]
+    if not tokens:
+        raise click.ClickException(
+            "--blocked-by must be comma-separated task IDs (e.g., '4645,4646')"
+        )
+
+    resolved: List[int] = []
+    unknown: List[str] = []
+    for token in tokens:
+        try:
+            value = int(token)
+        except ValueError:
+            raise click.ClickException(
+                "--blocked-by must be comma-separated task IDs "
+                f"(e.g., '4645,4646'); got {token!r}"
+            )
+        task_pk = db.resolve_task_id(value)
+        if task_pk is None:
+            unknown.append(token)
+        else:
+            resolved.append(task_pk)
+
+    if unknown:
+        plural = "IDs" if len(unknown) > 1 else "ID"
+        raise click.ClickException(
+            f"--blocked-by names {plural} that match no task: "
+            f"{', '.join('#' + u for u in unknown)}. Storing an unresolvable ID "
+            f"would make this card report itself unblocked while it is blocked."
+        )
+
+    return _json.dumps(resolved)
+
+
+def _blocked_by_report(db, task) -> Optional[str]:
+    """One "Blocked by:" line for a task, or None when it has no blockers.
+
+    Three outcomes are kept distinct so this can never again print the exact
+    opposite of the truth (#6747). Before the write-time resolution fix, an
+    unresolvable stored ID was silently dropped by ``get_blocking_tasks``,
+    ``is_blocked`` answered ``(False, [])``, and this line read
+    "(all resolved)" for a card that was genuinely blocked.
+    """
+    import json as _json
+
+    raw = task.get("blocked_by")
+    if not raw:
+        return None
+    try:
+        stored = _json.loads(raw)
+    except (TypeError, ValueError):
+        return f"Blocked by: (malformed blocked_by value: {raw!r})"
+    if not isinstance(stored, list) or not stored:
+        return None
+
+    incomplete: List = []
+    unknown: List = []
+    for tid in stored:
+        blocker = db.get_task(tid) if isinstance(tid, int) else None
+        if blocker is None:
+            unknown.append(tid)
+        elif blocker["status"] != "Done":
+            incomplete.append(tid)
+
+    parts = []
+    if incomplete:
+        parts.append(f"{', '.join(f'#{t}' for t in incomplete)} (incomplete)")
+    if unknown:
+        parts.append(
+            f"{', '.join(f'#{t}' for t in unknown)} (UNRESOLVED - no such task; "
+            f"this card's blocked state cannot be trusted, re-set it with "
+            f"`pt tasks update <id> --blocked-by ...`)"
+        )
+    if not parts:
+        return "Blocked by: (all resolved)"
+    return "Blocked by: " + "; ".join(parts)
 
 
 def _detect_project_from_cwd(db):
@@ -1688,7 +1782,6 @@ def tasks_create(text, project, status, priority, prompt, category, description,
 
     Auto-detects project from current directory.
     """
-    import json
     db = DatabaseManager()
     if project: project_id = _resolve_project_id(db, project)
     else: project_id = _detect_project_from_cwd(db)
@@ -1703,11 +1796,7 @@ def tasks_create(text, project, status, priority, prompt, category, description,
         console.print(f"[red]Invalid priority '{priority}'. Must be one of: Critical, High, Medium, Low[/red]"); return
     blocked_by_json = None
     if blocked_by:
-        try:
-            ids = [int(tid.strip()) for tid in blocked_by.split(",")]
-            blocked_by_json = json.dumps(ids)
-        except ValueError:
-            console.print("[red]Error: blocked-by must be comma-separated task IDs (e.g., '4645,4646')[/red]"); return
+        blocked_by_json = _parse_blocked_by(db, blocked_by)
     WORKFLOW_FOOTER = "\n---\n\n## Workflow Protocol\n- [ ] Start: `./pt tasks start <id>`\n- [ ] Complete work\n- [ ] Report: \"Work complete. Awaiting Conductor sign-off.\"\n- [ ] FORBIDDEN: `./pt tasks done` (Conductor only)"
     try:
         final_prompt = prompt
@@ -1741,7 +1830,6 @@ def tasks_create(text, project, status, priority, prompt, category, description,
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs (empty string clears)")
 def tasks_update(task_id, status, text, priority, prompt, review_comment, notes, blocked_by):
     """Update an existing task."""
-    import json as json_lib
     db = DatabaseManager()
     updates = {}
     if status:
@@ -1759,12 +1847,7 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes,
     if notes is not None: updates["notes"] = notes
     if blocked_by is not None:
         if blocked_by == "": updates["blocked_by"] = None
-        else:
-            try:
-                ids = [int(tid.strip()) for tid in blocked_by.split(",")]
-                updates["blocked_by"] = json_lib.dumps(ids)
-            except ValueError:
-                console.print("[red]Error: blocked-by must be comma-separated task IDs[/red]"); return
+        else: updates["blocked_by"] = _parse_blocked_by(db, blocked_by)
     if not updates:
         console.print("[yellow]No updates specified. Use -s, -t, --priority, --prompt, --notes, or --blocked-by.[/yellow]"); return
     task_id = _resolve_task_id(db, task_id)
@@ -1998,9 +2081,8 @@ def tasks_show(task_ids, json_output):
                 print(f"Project: {task['project_id']}")
                 print(f"Status: {task['status']}")
                 print(f"Priority: {task.get('priority') or 'None'}")
-                is_blocked, blocking_ids = db.is_blocked(task['id'])
-                if is_blocked: print(f"Blocked by: {', '.join(f'#{tid}' for tid in blocking_ids)} (incomplete)")
-                elif task.get('blocked_by'): print(f"Blocked by: (all resolved)")
+                blocked_report = _blocked_by_report(db, task)
+                if blocked_report: print(blocked_report)
                 print(f"Created: {task['created_at']}")
                 if task.get('created_by'): print(f"Created by: {task['created_by']}")
                 print(f"Updated: {task['updated_at']}")
@@ -2072,6 +2154,9 @@ def tasks_next(project, json_output):
 def tasks_tree(task_id):
     """Show dependency tree for a parent task."""
     db = DatabaseManager()
+    # Every other tasks subcommand resolves display IDs; this one did not, so
+    # `pt tasks tree 6742` reported "not found" for a card that exists (#6747).
+    task_id = _resolve_task_id(db, task_id)
     task = db.get_task(task_id)
     if not task: console.print(f"[red]Task #{task_id} not found[/red]"); return
     subtasks = db.get_subtasks(task_id)
@@ -3989,6 +4074,29 @@ def _qualify_chat_address(address: str, machine: str) -> str:
         return f"{project}@{machine}" if machine else project
 
 
+def _self_machine_name() -> Optional[str]:
+    """This machine's @qualifier ("laptop", "mini"), per agent-chat/identity.py.
+
+    The sender address is always BARE — `identity.project_name_for()` returns a
+    basename and never a qualified address — so comparing a qualified recipient
+    against the sender string can never tell you whether it names THIS machine.
+    identity.machine_name() has to be consulted directly.
+
+    Returns None only when identity.py cannot be imported, the same condition
+    _split_chat_address falls back on. Callers must read None as "cannot
+    verify" and never let it widen a guard.
+    """
+    import sys as _sys
+    agent_chat_root = Path(__file__).resolve().parent.parent / "agent-chat"
+    if str(agent_chat_root) not in _sys.path:
+        _sys.path.insert(0, str(agent_chat_root))
+    try:
+        import identity as _identity
+        return _identity.machine_name()
+    except ImportError:
+        return None
+
+
 def _split_chat_address(address: str):
     """Split `ai-memory@mini` into ("ai-memory", "mini"); bare name -> (name, None).
 
@@ -4102,9 +4210,22 @@ def message_send(text, recipient, priority, reply_to, machine, force, json_outpu
         recipient = _qualify_chat_address(recipient, machine)
 
     if recipient:
-        target_project, _ = _split_chat_address(recipient)
+        target_project, target_machine = _split_chat_address(recipient)
         self_project, _ = _split_chat_address(sender)
-        if target_project == self_project and recipient == sender:
+        # The `recipient == sender` conjunct this used to carry was redundant
+        # for a bare address (already implied by the project comparison) and
+        # actively harmful for a qualified one: the sender is ALWAYS bare, so
+        # `--to project-tracker --machine laptop` rewrote the recipient to
+        # `project-tracker@laptop`, which never equals bare `project-tracker`,
+        # the guard fell through, and the message went to this very session
+        # (#6775). Compare machines instead. `project-tracker@mini` from a
+        # laptop session stays allowed — that is a different machine's floor
+        # manager, a real peer.
+        self_machine = _self_machine_name()
+        names_this_machine = (
+            target_machine is None or target_machine == self_machine
+        )
+        if target_project == self_project and names_this_machine:
             raise click.ClickException(
                 f"'{recipient}' is this session's own address — that message would "
                 f"go nowhere. Use --to <other-project>, or omit --to to broadcast."
@@ -4456,7 +4577,7 @@ def db_migrate():
         )
         sys.exit(2)
 
-    from db.migration_runner import apply_all
+    from db.migration_runner import MigrationError, apply_all
 
     db_path = get_db_path()
     migrations_dir = Path(__file__).parent / "db" / "migrations"
@@ -4485,8 +4606,15 @@ def db_migrate():
     except Exception as crsql_err:
         console.print(f"[yellow]cr-sqlite not loaded for migration: {crsql_err}[/yellow]")
 
+    # A MigrationError is an operator-facing condition (a bad migration
+    # module, a CRR alter without cr-sqlite loaded, a checksum mismatch) —
+    # report it the way `pt sync` reports DB failures rather than dumping a
+    # traceback. Anything else is a real bug and still tracebacks.
     try:
         applied = apply_all(conn, migrations_dir)
+    except MigrationError as err:
+        console.print(f"[red]pt db migrate: {err}[/red]")
+        sys.exit(2)
     finally:
         conn.close()
 
@@ -5364,6 +5492,35 @@ def _validate_migration_name(name: str) -> None:
         )
 
 
+def _caller_repo_root() -> Path:
+    """The repo root of the directory the operator actually ran `pt` from.
+
+    `Path.cwd()` is useless here: the `pt` launcher does `cd "$launcher_dir"`
+    before exec'ing, so inside pt.py the cwd is ALWAYS project-tracker. That is
+    why `pt migration start` recorded the wrong repo for every project (#6851).
+    The launcher exports the real directory as PT_CALLER_CWD, which the rest of
+    the codebase already reads (_detect_project_from_cwd, scripts/origin.py);
+    migration never got the memo.
+
+    PT_CALLER_CWD is the load-bearing part. `git rev-parse --show-toplevel`
+    on top of it additionally handles being invoked from a subdirectory of a
+    repo, which `Path.cwd()` never did. Falls back to the caller cwd itself
+    when that is not a git repo.
+
+    Deliberately NOT `_find_repo_root()`: that helper tries
+    `Path(__file__).parent.parent` first and so has this same bug by design.
+    """
+    caller = Path(os.environ.get("PT_CALLER_CWD") or os.getcwd())
+    try:
+        stdout, rc = _run_git(caller, ["rev-parse", "--show-toplevel"])
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return caller
+    if rc != 0:
+        return caller
+    top = stdout.strip()
+    return Path(top) if top else caller
+
+
 def _git_head_sha(repo_dir: Path) -> Optional[str]:
     """Return current HEAD SHA, or None if outside a repo / git missing."""
     try:
@@ -5478,7 +5635,7 @@ def migration_start(name: str, force: bool, json_output: bool) -> None:
             "migration.start",
         )
 
-    repo_dir = Path.cwd()
+    repo_dir = _caller_repo_root()
     head_sha = _git_head_sha(repo_dir)
     baseline = _git_porcelain_baseline(repo_dir)
     now = datetime.now(_timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -5708,7 +5865,30 @@ def migration_finish(
             "migration.finish",
         )
 
-    repo_dir = Path(state.get("repo_dir") or Path.cwd())
+    caller_root = _caller_repo_root()
+    repo_dir = Path(state.get("repo_dir") or caller_root)
+
+    # Every state file written before #6851 carries project-tracker as its
+    # repo_dir, whatever repo the operator was actually in. Today that is
+    # mostly benign — baseline and current were both computed against the
+    # wrong tree, so the diff comes out empty — but `--revert` runs
+    # `git restore` with cwd=repo_dir and trashes `repo_dir / path`. Acting
+    # on a stale state file would be a destructive operation against the
+    # wrong worktree, so refuse rather than guess which one is right.
+    if revert_flag and repo_dir.resolve() != caller_root.resolve():
+        _emit_json_error(
+            PtJsonError(
+                "validation",
+                f"refusing --revert: state file records repo_dir {repo_dir}, "
+                f"but this session's repo root is {caller_root}. Reverting "
+                f"would run `git restore` and trash files in a different tree. "
+                f"Re-run `pt migration finish {name}` from {repo_dir}, or "
+                f"finish without --revert and undo by hand.",
+                EXIT_VALIDATION,
+            ),
+            "migration.finish",
+        )
+
     baseline_head: Optional[str] = state.get("baseline_head")
     current_head = _git_head_sha(repo_dir)
     head_drift_warning: Optional[str] = None
