@@ -73,6 +73,12 @@ async def _lifespan(application: FastAPI):
 
 app = FastAPI(title="Project Tracker Dashboard", lifespan=_lifespan)
 
+# Wall-clock and monotonic marks taken at import so /api/health can report how
+# long this process has been up (a restarted dashboard looks identical to a
+# healthy one without this).
+_PROCESS_START_WALL = datetime.now()
+_PROCESS_START_MONOTONIC = _time()
+
 # Run idempotent migrations on startup
 try:
     DatabaseManager().migrate_attachments_table()
@@ -940,6 +946,62 @@ async def api_task_policy():
         "blocked_project_ids": blocked_ids,
         "blocked_project_reasons": blocked_reasons,
     }
+
+
+@app.get("/api/health")
+async def api_health():
+    """Deep health check: is this process actually able to serve requests?
+
+    Deliberately NOT a liveness stub. The dashboard has twice (2026-07-06,
+    2026-07-08) gone "alive but broken" — the process stays up but its SQLite
+    handle rots and every request 500s with "unable to open database file"
+    (see #6482). A `{"status": "ok"}` constant would have reported green
+    through both incidents and told the watchdog not to restart a dead server.
+
+    So this opens its own DatabaseManager connection and runs a real query.
+    Paying for a connection per call is the point, not overhead: it fails in
+    the same way real requests fail.
+
+    Not gated by _require_local_admin_request — health probes are
+    conventionally unauthenticated, and a 403 to a remote monitor would be
+    indistinguishable from a broken server. The payload is diagnostic only
+    (row count, uptime, cache age); it exposes no task or project content.
+
+    Returns 200 with the diagnostics when the DB answers, 503 with the error
+    string when it does not — so both `curl` and the watchdog's %{http_code}
+    check see the failure.
+    """
+    cache_ts = _dashboard_cache["timestamp"]
+    payload: Dict = {
+        "status": "ok",
+        "uptime_seconds": int(_time() - _PROCESS_START_MONOTONIC),
+        "started_at": _PROCESS_START_WALL.isoformat(timespec="seconds"),
+        "dashboard_cache_age_seconds": int(_time() - cache_ts) if cache_ts else None,
+    }
+
+    try:
+        db = DatabaseManager()
+        query_start = _time()
+        with db._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM tasks")
+            row = cursor.fetchone()
+        payload["database"] = {
+            "ok": True,
+            "path": str(db.db_path),
+            "task_count": int(row[0]) if row else 0,
+            "query_ms": round((_time() - query_start) * 1000, 1),
+        }
+    except Exception as exc:
+        logger.error(f"Health check failed: {exc}")
+        payload["status"] = "error"
+        payload["database"] = {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        return JSONResponse(status_code=503, content=payload)
+
+    return payload
 
 
 @app.get("/api/alerts")
