@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { PageShell } from './PageShell';
 import { CostPanel } from './CostPanel';
 import { ShadowPricingPanel } from './ShadowPricingPanel';
+import { ApiActivityPanel } from './ApiActivityPanel';
 import './DashboardPage.css';
 
 interface GitHubData {
@@ -70,6 +71,10 @@ interface GitHubData {
   };
   fetched_at?: string;
   cached?: boolean;
+  refreshing?: boolean;
+  stale?: boolean;
+  refresh_error?: string;
+  retry_after_seconds?: number;
   error?: string;
 }
 
@@ -88,7 +93,13 @@ function timeAgo(dateStr: string): string {
 
 const ACTIVITY_LIMIT = 10;
 
-function RecentActivity({ repos, commitsByRepo }: {
+function GitHubClock({ fetching }: { fetching: boolean }) {
+  if (!fetching) return null;
+  return <span className="github-fetching"><span aria-hidden="true">◷</span> Fetching GitHub…</span>;
+}
+
+function RecentActivity({ repos, commitsByRepo, fetching }: {
+  fetching: boolean;
   repos: GitHubData['repos'] & Array<{ pushedAt: string }>;
   commitsByRepo: Record<string, GitHubData['recent_commits']>;
 }) {
@@ -99,7 +110,7 @@ function RecentActivity({ repos, commitsByRepo }: {
 
   return (
     <div className="dashboard-section">
-      <h2>Recent Activity (7 days)</h2>
+      <h2>Recent Activity (7 days) <GitHubClock fetching={fetching} /></h2>
       <div className="activity-list">
         {visible.map((repo, i) => (
           <div key={i} className="activity-item">
@@ -125,39 +136,52 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [refreshing, setRefreshing] = useState(true);
+
   useEffect(() => {
-    fetch('/api/github')
-      .then(res => res.json())
-      .then(d => {
-        if (d.error) setError(d.error);
-        else setData(d);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError(err.message);
-        setLoading(false);
-      });
+    let disposed = false;
+    let pollTimer: ReturnType<typeof setTimeout>;
+    let controller: AbortController;
+
+    async function load() {
+      controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      let delay = 60000;
+      try {
+        const response = await fetch('/api/github', { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const next: GitHubData = await response.json();
+        if (disposed) return;
+        if (next.summary) setData(next);
+        setError(next.refresh_error || next.error || null);
+        setRefreshing(Boolean(next.refreshing));
+        if (next.refreshing) delay = 2000;
+        else if (next.retry_after_seconds) {
+          delay = Math.min(60000, Math.max(2000, next.retry_after_seconds * 1000));
+        }
+      } catch {
+        if (disposed) return;
+        setError('GitHub is unavailable. Retrying shortly.');
+        setRefreshing(false);
+      } finally {
+        clearTimeout(timeout);
+        if (!disposed) {
+          setLoading(false);
+          pollTimer = setTimeout(load, delay);
+        }
+      }
+    }
+
+    void load();
+    return () => {
+      disposed = true;
+      clearTimeout(pollTimer);
+      controller?.abort();
+    };
   }, []);
 
-  if (loading) {
-    return (
-      <PageShell title="Dashboard" subtitle="Loading GitHub data...">
-        <div className="dashboard-loading">Fetching from GitHub API...</div>
-      </PageShell>
-    );
-  }
-
-  if (error) {
-    return (
-      <PageShell title="Dashboard" subtitle="GitHub integration">
-        <div className="dashboard-error">Error: {error}</div>
-      </PageShell>
-    );
-  }
-
-  if (!data) return null;
-
-  const { summary, repos, open_pull_requests, recent_commits, workflow_runs, branches, fetch_errors } = data;
+  const fetching = loading || refreshing;
+  const { summary, repos, open_pull_requests, recent_commits, workflow_runs, branches, fetch_errors } = data || {};
   const fetchErrors = fetch_errors || [];
 
   // Group commits by repo
@@ -200,17 +224,37 @@ export function DashboardPage() {
   return (
     <PageShell
       title="Dashboard"
-      subtitle={`${summary?.total_repos} repos · ${summary?.recent_commit_count} commits this week · ${data.cached ? 'cached' : 'fresh'}${fetchErrors.length ? ` · ${fetchErrors.length} incomplete` : ''}`}
+      subtitle={summary ? `${summary.total_repos} repos · ${summary.recent_commit_count} commits this week${fetchErrors.length ? ` · ${fetchErrors.length} incomplete` : ''}` : 'Project activity and API usage'}
     >
       <div className="dashboard-grid">
         {/* API Cost Overview */}
         <CostPanel />
+        <ApiActivityPanel />
 
         {/* Shadow Pricing — subscription value */}
         <ShadowPricingPanel />
 
+        <div className="github-status" role="status">
+          <GitHubClock fetching={fetching} />
+          {data?.fetched_at && (
+            <span>GitHub updated {new Date(data.fetched_at).toLocaleString()}{data.stale ? ' · showing previous results' : ''}</span>
+          )}
+        </div>
+        {error && <div className="dashboard-error" role="alert">{error}{data ? ' Showing the last available results.' : ''}</div>}
+        {!data && (
+          <>
+            {['GitHub Summary', 'Open Pull Requests', 'Recent Activity', 'Failing CI', 'Stale Branches'].map(title => (
+              <section className="dashboard-section" key={title}>
+                <h2>{title} <GitHubClock fetching={fetching} /></h2>
+                <p>{fetching ? 'Waiting for GitHub information…' : 'GitHub information is unavailable.'}</p>
+              </section>
+            ))}
+          </>
+        )}
+        {data && <>
         {/* Summary Cards */}
-        <div className="dashboard-summary">
+        <div className="dashboard-summary" aria-label="GitHub summary">
+          <GitHubClock fetching={fetching} />
           <div className="summary-card">
             <span className="summary-number">{summary?.total_repos}</span>
             <span className="summary-label">Repos</span>
@@ -241,16 +285,7 @@ export function DashboardPage() {
               <span className="summary-label">Failed fetches</span>
             </div>
           )}
-          {/* GitHub reports "absent" and "not visible to this token" the same
-              way, so a lost `repo` scope would land here rather than in failed
-              fetches. Showing the count means that arrives as a visible jump
-              instead of silence. */}
-          {!!summary?.repos_not_on_github && (
-            <div className="summary-card">
-              <span className="summary-number">{summary.repos_not_on_github}</span>
-              <span className="summary-label">Not on GitHub</span>
-            </div>
-          )}
+
         </div>
 
         {/* Incomplete data — every number above is a floor, not a total, while
@@ -275,7 +310,7 @@ export function DashboardPage() {
         {/* Open PRs */}
         {open_pull_requests && open_pull_requests.length > 0 && (
           <div className="dashboard-section">
-            <h2>Open Pull Requests</h2>
+            <h2>Open Pull Requests <GitHubClock fetching={fetching} /></h2>
             <div className="pr-list">
               {open_pull_requests.map((pr, i) => (
                 <div key={i} className="pr-item">
@@ -294,12 +329,12 @@ export function DashboardPage() {
         )}
 
         {/* Recent Activity */}
-        <RecentActivity repos={activeRepos} commitsByRepo={commitsByRepo} />
+        <RecentActivity repos={activeRepos} commitsByRepo={commitsByRepo} fetching={fetching} />
 
         {/* Failing CI */}
         {failingRuns.length > 0 && (
           <div className="dashboard-section">
-            <h2>Failing CI</h2>
+            <h2>Failing CI <GitHubClock fetching={fetching} /></h2>
             <div className="ci-list">
               {failingRuns.map((run, i) => (
                 <div key={i} className="ci-item failing">
@@ -318,7 +353,7 @@ export function DashboardPage() {
         {/* Stale Branches */}
         {Object.keys(branchesByRepo).length > 0 && (
           <div className="dashboard-section">
-            <h2>Stale Branches ({staleBranches.length} across {Object.keys(branchesByRepo).length} repos)</h2>
+            <h2>Stale Branches ({staleBranches.length} across {Object.keys(branchesByRepo).length} repos) <GitHubClock fetching={fetching} /></h2>
             <div className="branch-list">
               {Object.entries(branchesByRepo)
                 .sort((a, b) => b[1].length - a[1].length)
@@ -338,6 +373,7 @@ export function DashboardPage() {
           <summary>Raw API Response ({JSON.stringify(data).length} bytes)</summary>
           <pre>{JSON.stringify(data, null, 2)}</pre>
         </details>
+        </>}
       </div>
     </PageShell>
   );
