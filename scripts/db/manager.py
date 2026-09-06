@@ -287,6 +287,7 @@ class DatabaseManager:
         # Load cr-sqlite so CRR triggers (crsql_internal_sync_bit etc.) resolve on writes.
         # Soft-fail: if the dylib isn't present, reads still work; writes to CRR tables fail
         # with a clear "no such function" error rather than a silent bad state.
+        crsql_loaded = False
         try:
             from db.pt_id import _find_crsqlite_dylib
             _dylib = _find_crsqlite_dylib()
@@ -294,6 +295,7 @@ class DatabaseManager:
                 conn.enable_load_extension(True)
                 conn.load_extension(str(_dylib), entrypoint="sqlite3_crsqlite_init")
                 conn.enable_load_extension(False)
+                crsql_loaded = True
         except Exception as _crsql_err:
             logger.warning("crsqlite load skipped: %s", _crsql_err)
         conn.execute("PRAGMA foreign_keys = ON")
@@ -302,6 +304,24 @@ class DatabaseManager:
         try:
             yield conn
         finally:
+            # cr-sqlite keeps per-connection prepared statements alive, and
+            # sqlite3_close_v2 cannot fully tear the connection down while they
+            # exist — so `conn.close()` alone leaves the .db and -wal file
+            # descriptors open. Measured: 30 open/close cycles leak 62 handles
+            # without this call and 1 with it.
+            #
+            # That is what kills the dashboard every 1-3 days (#6482). It hits
+            # the 256 soft limit, and from then on every query fails with
+            # "unable to open database file" — SQLite's rendering of EMFILE —
+            # while the process stays up and answers requests. Caught live at
+            # 256 handles on tracker.db against a 256 limit.
+            if crsql_loaded:
+                try:
+                    conn.execute("SELECT crsql_finalize()")
+                except Exception as _fin_err:
+                    # Never let cleanup prevent the close below; a connection we
+                    # failed to finalize still has to be released.
+                    logger.warning("crsql_finalize failed: %s", _fin_err)
             conn.close()
     
     def _backup_before_delete(
