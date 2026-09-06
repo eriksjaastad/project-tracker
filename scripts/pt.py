@@ -3606,17 +3606,29 @@ def worktrees_clean(dry_run, force):
 
 
 def _find_repo_root() -> Optional[Path]:
-    """Find the git repo root from cwd or the project-tracker directory."""
-    # Try project-tracker's own root first
-    pt_root = Path(__file__).resolve().parent.parent
-    if (pt_root / ".git").exists():
-        return pt_root
-    # Fallback: walk up from cwd
-    cwd = Path.cwd()
-    while cwd != cwd.parent:
-        if (cwd / ".git").exists():
-            return cwd
-        cwd = cwd.parent
+    """The git repo root of the directory the operator ran `pt` from.
+
+    This used to try project-tracker's own root FIRST — `Path(__file__).parent
+    .parent` — which always exists, so it returned project-tracker
+    unconditionally no matter where `pt` was invoked. Its callers are
+    `pt worktrees list` and `pt worktrees clean`, and clean REMOVES worktrees,
+    so running it from another repo operated on project-tracker's worktrees
+    instead. Same wrong-target family as #6851 (#6883).
+
+    `Path.cwd()` is no help either: the launcher does `cd "$launcher_dir"`
+    before exec'ing, so cwd inside pt.py is always project-tracker. The
+    caller's real directory arrives as PT_CALLER_CWD.
+    """
+    root = _caller_repo_root()
+    if (root / ".git").exists():
+        return root
+    # _caller_repo_root falls back to the caller cwd when it is not a repo;
+    # walk up from there before giving up.
+    cur = root
+    while cur != cur.parent:
+        if (cur / ".git").exists():
+            return cur
+        cur = cur.parent
     return None
 
 
@@ -5800,7 +5812,14 @@ def _audit_destructive(operation: str, target: Path, repo_dir: Path) -> None:
     """
     from datetime import datetime, timezone
 
-    log_path = Path.home() / ".claude" / "logs" / "pt-destructive.log"
+    # PT_DESTRUCTIVE_LOG_PATH lets tests redirect this. Without it every test
+    # run that touches a delete site writes synthetic pytest-tmp entries into
+    # the real log — 51 of 51 entries were test chaff before this existed,
+    # which buries genuine evidence in exactly the file meant to preserve it.
+    log_path = Path(
+        os.environ.get("PT_DESTRUCTIVE_LOG_PATH")
+        or Path.home() / ".claude" / "logs" / "pt-destructive.log"
+    )
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         record = {
