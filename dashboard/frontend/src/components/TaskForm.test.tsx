@@ -7,6 +7,7 @@ vi.mock('../api', () => ({
   fetchProjects: vi.fn(),
   fetchTasks: vi.fn(),
   fetchTaskPolicy: vi.fn(),
+  isAbortError: (error: unknown) => error instanceof Error && error.name === 'AbortError',
 }));
 
 import { fetchProjects, fetchTaskPolicy, fetchTasks } from '../api';

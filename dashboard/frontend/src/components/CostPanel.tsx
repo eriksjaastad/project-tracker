@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isAbortError } from '../api';
 import './CostPanel.css';
 
 interface DailyEntry {
@@ -47,14 +48,15 @@ export function CostPanel() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
     const since = new Date();
     since.setDate(since.getDate() - 30);
     const sinceStr = since.toISOString().split('T')[0];
 
     Promise.all([
-      fetch(`/api/costs/daily?days=30`).then(r => r.json()),
-      fetch(`/api/costs/providers?since=${sinceStr}`).then(r => r.json()),
-      fetch(`/api/costs/projects?since=${sinceStr}`).then(r => r.json()),
+      fetch(`/api/costs/daily?days=30`, { signal: controller.signal }).then(r => r.json()),
+      fetch(`/api/costs/providers?since=${sinceStr}`, { signal: controller.signal }).then(r => r.json()),
+      fetch(`/api/costs/projects?since=${sinceStr}`, { signal: controller.signal }).then(r => r.json()),
     ])
       .then(([daily, providers, projects]) => {
         // Handle both direct arrays and wrapped responses
@@ -108,9 +110,14 @@ export function CostPanel() {
         setLoading(false);
       })
       .catch(err => {
+        if (isAbortError(err)) {
+          return;
+        }
         setError(err.message);
         setLoading(false);
       });
+
+    return () => controller.abort();
   }, []);
 
   if (loading) {

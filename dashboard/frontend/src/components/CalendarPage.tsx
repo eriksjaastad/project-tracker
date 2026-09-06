@@ -5,6 +5,7 @@ import {
   createCalendarEvent,
   markCalendarEventDone,
   fetchProjects,
+  isAbortError,
 } from '../api';
 import type {
   CalendarEvent,
@@ -106,26 +107,33 @@ export function CalendarPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [markDoneError, setMarkDoneError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
     try {
       const [evData, cronData, projData] = await Promise.all([
-        fetchCalendarEvents({ days: 120, include_all: true }),
-        fetchCalendarCrons(),
-        fetchProjects(),
+        fetchCalendarEvents({ days: 120, include_all: true }, signal),
+        fetchCalendarCrons(undefined, signal),
+        fetchProjects(signal),
       ]);
       setEvents(evData);
       setCrons(cronData);
       setProjects(projData.slice().sort((a, b) => a.name.localeCompare(b.name)));
     } catch (e) {
+      if (isAbortError(e)) {
+        return;
+      }
       setError(e instanceof Error ? e.message : 'Failed to load calendar');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
 
   // Filtered events for the current month view
   const visibleEvents = events.filter(ev => {

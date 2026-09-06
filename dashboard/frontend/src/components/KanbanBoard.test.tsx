@@ -10,6 +10,7 @@ vi.mock('../api', () => ({
   updateTask: vi.fn(),
   createTask: vi.fn(),
   deleteTask: vi.fn(),
+  isAbortError: (error: unknown) => error instanceof Error && error.name === 'AbortError',
 }));
 
 vi.mock('./Column', () => ({ Column: () => <div data-testid="column" /> }));

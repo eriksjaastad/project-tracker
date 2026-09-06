@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isAbortError } from '../api';
 import './LoopMonitor.css';
 
 interface LoopStatus {
@@ -22,14 +23,17 @@ export function LoopMonitor({ refreshInterval = 60000 }: LoopMonitorProps) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const fetchLoopStatus = async () => {
+    const fetchLoopStatus = async (signal?: AbortSignal) => {
         try {
-            const response = await fetch('/api/loops');
+            const response = await fetch('/api/loops', { signal });
             if (!response.ok) throw new Error('Failed to fetch loop status');
             const data = await response.json();
             setLoops(data.loops);
             setError(null);
         } catch (err) {
+            if (isAbortError(err)) {
+                return;
+            }
             setError(err instanceof Error ? err.message : 'Unknown error');
         } finally {
             setLoading(false);
@@ -37,9 +41,20 @@ export function LoopMonitor({ refreshInterval = 60000 }: LoopMonitorProps) {
     };
 
     useEffect(() => {
-        fetchLoopStatus();
-        const interval = setInterval(fetchLoopStatus, refreshInterval);
-        return () => clearInterval(interval);
+        // Each tick gets its own controller so aborting the *previous*
+        // in-flight request (unmount, interval change) never cancels the
+        // next poll — only ever the one it was created for.
+        let controller = new AbortController();
+        const run = () => {
+            controller = new AbortController();
+            fetchLoopStatus(controller.signal);
+        };
+        run();
+        const interval = setInterval(run, refreshInterval);
+        return () => {
+            clearInterval(interval);
+            controller.abort();
+        };
     }, [refreshInterval]);
 
     if (loading) {
@@ -85,7 +100,7 @@ export function LoopMonitor({ refreshInterval = 60000 }: LoopMonitorProps) {
         <div className="loop-monitor">
             <div className="loop-monitor-header">
                 <h2>🤖 Autonomous Loops</h2>
-                <button onClick={fetchLoopStatus} className="refresh-button" title="Refresh">
+                <button onClick={() => fetchLoopStatus()} className="refresh-button" title="Refresh">
                     ↻
                 </button>
             </div>

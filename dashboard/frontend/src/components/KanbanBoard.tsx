@@ -4,7 +4,7 @@ import { DndContext, rectIntersection, useSensor, useSensors, PointerSensor } fr
 import type { DragEndEvent } from '@dnd-kit/core';
 import type { Project, Task, TaskStatus, TaskPriority, TaskType } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS } from '../types';
-import { fetchProjects, fetchTasks, updateTask, createTask, deleteTask } from '../api';
+import { fetchProjects, fetchTasks, updateTask, createTask, deleteTask, isAbortError } from '../api';
 import { Column } from './Column';
 import { Notification } from './Notification';
 import { AddTaskButton } from './AddTaskButton';
@@ -52,13 +52,16 @@ export function KanbanBoard() {
     setNotification({ message, type, visible: true });
   }, []);
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true);
       // Filter by project if URL parameter is present
-      const fetchedTasks = await fetchTasks(project);
+      const fetchedTasks = await fetchTasks(project, undefined, signal);
       setTasks(fetchedTasks);
     } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
       console.error('Failed to load tasks:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to load tasks';
       showNotification(errorMessage, 'error');
@@ -69,26 +72,36 @@ export function KanbanBoard() {
 
   // Load tasks on mount and when project param changes
   useEffect(() => {
-    loadTasks();
+    const controller = new AbortController();
+    loadTasks(controller.signal);
+    return () => controller.abort();
   }, [loadTasks]);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const loadProjects = async () => {
       try {
-        const fetchedProjects = await fetchProjects();
+        const fetchedProjects = await fetchProjects(controller.signal);
         setProjects(fetchedProjects);
-      } catch {
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
         // Optional for button state only.
       }
     };
 
     loadProjects();
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const loadWarnings = async () => {
       try {
-        const response = await fetch('/api/system/warnings');
+        const response = await fetch('/api/system/warnings', { signal: controller.signal });
         if (!response.ok) {
           return;
         }
@@ -96,12 +109,16 @@ export function KanbanBoard() {
         if (Array.isArray(data.warnings)) {
           setSystemWarnings(data.warnings);
         }
-      } catch {
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
         // Optional endpoint - ignore failures
       }
     };
 
     loadWarnings();
+    return () => controller.abort();
   }, []);
 
   const handleSearchTask = () => {
@@ -291,7 +308,7 @@ export function KanbanBoard() {
         </button>
       </div>
       {canCreateCards && <AddTaskButton onClick={() => setShowTaskForm(true)} />}
-      <button onClick={loadTasks} className="refresh-button" type="button">
+      <button onClick={() => loadTasks()} className="refresh-button" type="button">
         Refresh
       </button>
     </>
