@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -38,22 +39,44 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def run_hook(tmp_path, messages, *, identity=None, machine=None, machine_file=None):
+def run_hook(
+    tmp_path,
+    messages,
+    *,
+    identity=None,
+    machine=None,
+    machine_file=None,
+    home=None,
+    clear_throttle=True,
+):
     """Execute check_chat.sh against a stubbed API response.
 
     Returns the additionalContext string the hook would inject, or "" when it
     emits nothing.
-    """
-    home = tmp_path / "home"
-    (home / ".claude").mkdir(parents=True)
 
-    payload = tmp_path / "response.json"
+    `home` lets a test poll twice from the same HOME — that is the only way to
+    exercise cursor state, which is what several sessions on one laptop share.
+    Each call still gets its own stub dir, so the recorded URL belongs to that
+    poll alone. The 30s throttle would otherwise suppress the second poll, so
+    it is reset unless a test is specifically asserting on it.
+    """
+    if home is None:
+        home = tmp_path / "home"
+    home = Path(home)
+    (home / ".claude").mkdir(parents=True, exist_ok=True)
+    if clear_throttle:
+        throttle = home / ".claude" / "chat_throttle"
+        if throttle.exists():
+            throttle.unlink()
+
+    rundir = Path(tempfile.mkdtemp(dir=tmp_path))
+    payload = rundir / "response.json"
     payload.write_text(json.dumps({"messages": messages}))
 
     # Stub curl so no network is touched and the response is deterministic.
-    bindir = tmp_path / "bin"
+    bindir = rundir / "bin"
     bindir.mkdir()
-    url_log = tmp_path / "curl_url.txt"
+    url_log = rundir / "curl_url.txt"
     curl = bindir / "curl"
     curl.write_text(
         f'#!/usr/bin/env bash\n'
@@ -72,7 +95,7 @@ def run_hook(tmp_path, messages, *, identity=None, machine=None, machine_file=No
     env.pop("CLAUDE_CODE_SESSION_ID", None)
 
     if identity is not None:
-        state = tmp_path / "identity"
+        state = rundir / "identity"
         state.mkdir(exist_ok=True)
         (state / "sess.txt").write_text(identity)
         env["AGENT_CHAT_STATE_DIR"] = str(state)
@@ -81,7 +104,7 @@ def run_hook(tmp_path, messages, *, identity=None, machine=None, machine_file=No
         env["AGENT_CHAT_MACHINE"] = machine
 
     if machine_file is not None:
-        state = Path(env.get("AGENT_CHAT_STATE_DIR", tmp_path / "identity"))
+        state = Path(env.get("AGENT_CHAT_STATE_DIR", rundir / "identity"))
         state.mkdir(parents=True, exist_ok=True)
         (state / "machine.txt").write_text(machine_file)
         env["AGENT_CHAT_STATE_DIR"] = str(state)
@@ -263,3 +286,130 @@ class TestNeverBlocksClaude:
             tmp_path, [msg(11, "project-tracker", None, "own")], identity="project-tracker"
         )
         assert out == ""
+
+
+def cursors(home):
+    """Cursor files that exist under a HOME, by name."""
+    return sorted(p.name for p in (Path(home) / ".claude").glob("chat_cursor*"))
+
+
+class TestPerAddressCursor:
+    """#6952: one cursor per address, because one response per address.
+
+    Several floor managers run on one laptop at once. The request is scoped
+    `?for=$SENDER`, so a single shared cursor let session A mark as seen mail
+    that A's own poll could never have returned — mail addressed to B. It
+    happened: the shared cursor sat at the timestamp of a DM to `ai-memory`,
+    parked there by a `for=project-tracker` poll.
+    """
+
+    def test_one_sessions_poll_does_not_advance_anothers(self, tmp_path):
+        home = tmp_path / "shared-home"
+        alpha = run_hook(
+            tmp_path, [msg(20, "ai-memory", "alpha", "for-alpha")],
+            identity="alpha", home=home,
+        )
+        assert "for-alpha" in alpha
+
+        beta = run_hook(
+            tmp_path, [msg(21, "ai-memory", "beta", "for-beta")],
+            identity="beta", home=home,
+        )
+        # The core bug: alpha's advance must not become beta's floor.
+        assert "since=" not in beta.url
+        assert "for-beta" in beta
+
+        assert cursors(home) == ["chat_cursor.alpha", "chat_cursor.beta"]
+        alpha_file = home / ".claude" / "chat_cursor.alpha"
+        assert alpha_file.read_text().strip() == "2026-08-30T00:00:20Z"
+
+    def test_an_address_does_advance_its_own_cursor(self, tmp_path):
+        home = tmp_path / "shared-home"
+        run_hook(
+            tmp_path, [msg(22, "ai-memory", "alpha", "first")],
+            identity="alpha", home=home,
+        )
+        second = run_hook(
+            tmp_path, [msg(23, "ai-memory", "alpha", "second")],
+            identity="alpha", home=home,
+        )
+        assert "since=2026-08-30T00%3A00%3A22Z" in second.url
+
+    def test_legacy_global_cursor_seeds_the_per_address_file(self, tmp_path):
+        """Without the seed, the first per-address poll replays the whole board."""
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor").write_text("2026-08-30T17:36:50\n")
+
+        run = run_hook(
+            tmp_path, [msg(24, "ai-memory", "alpha", "x")],
+            identity="alpha", home=home,
+        )
+        assert "since=2026-08-30T17%3A36%3A50" in run.url
+        assert (home / ".claude" / "chat_cursor.alpha").exists()
+
+    def test_the_legacy_cursor_seeds_only_once(self, tmp_path):
+        """After the first poll the per-address file owns the position.
+
+        A re-seed on every poll would drag the address backwards (or forwards)
+        to whatever some other session last wrote globally — the original bug
+        wearing a migration's clothes.
+        """
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        legacy = home / ".claude" / "chat_cursor"
+        legacy.write_text("2026-08-30T17:36:50")
+
+        run_hook(
+            tmp_path, [msg(25, "ai-memory", "alpha", "x")],
+            identity="alpha", home=home,
+        )
+        legacy.write_text("2026-09-01T00:00:00")
+        second = run_hook(
+            tmp_path, [msg(26, "ai-memory", "alpha", "y")],
+            identity="alpha", home=home,
+        )
+        assert "since=2026-08-30T00%3A00%3A25Z" in second.url
+        assert "2026-09-01" not in second.url
+
+    def test_at_qualified_address_produces_a_safe_filename(self, tmp_path):
+        """`project-tracker@laptop` is a normal address, not a path."""
+        home = tmp_path / "home"
+        run = run_hook(
+            tmp_path, [msg(27, "ai-memory", "project-tracker@laptop", "x")],
+            identity="project-tracker@laptop", home=home,
+        )
+        assert "x" in run
+        assert cursors(home) == ["chat_cursor.project-tracker_laptop"]
+
+    def test_a_separator_in_the_address_cannot_escape_the_claude_dir(self, tmp_path):
+        """Defense in depth: a mis-derived address must not write outside ~/.claude."""
+        home = tmp_path / "home"
+        run_hook(
+            tmp_path, [msg(28, "ai-memory", None, "x")],
+            identity="../../pwned", home=home,
+        )
+        written = cursors(home)
+        assert len(written) == 1
+        assert "/" not in written[0] and ".." not in written[0]
+        # The only file anywhere named for that address is the one inside .claude.
+        assert list(tmp_path.rglob("*pwned*")) == [home / ".claude" / written[0]]
+
+    def test_a_session_with_no_address_keeps_the_global_cursor(self, tmp_path):
+        """No address means no `for=` filter, so the global cursor still fits."""
+        home = tmp_path / "home"
+        run_hook(tmp_path, [msg(29, "auxesis-ops", None, "public")],
+                 identity=None, home=home)
+        assert cursors(home) == ["chat_cursor"]
+
+    def test_the_throttle_still_suppresses_a_second_poll(self, tmp_path):
+        """Per-address cursors must not cost the 30s throttle."""
+        home = tmp_path / "home"
+        run_hook(tmp_path, [msg(30, "ai-memory", "alpha", "first")],
+                 identity="alpha", home=home)
+        second = run_hook(
+            tmp_path, [msg(31, "ai-memory", "alpha", "second")],
+            identity="alpha", home=home, clear_throttle=False,
+        )
+        assert second == ""
+        assert second.url == ""

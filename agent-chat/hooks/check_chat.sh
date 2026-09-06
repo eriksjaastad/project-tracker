@@ -4,7 +4,10 @@
 #
 # Polls the hosted Agent Chat API for new messages.
 # Outputs new messages to stdout so Claude Code injects them into context.
-# Stores the last-seen timestamp in ~/.claude/chat_cursor to avoid re-reading.
+# Stores the last-seen timestamp in ~/.claude/chat_cursor.<address> to avoid
+# re-reading. The cursor is PER ADDRESS: several floor managers share one
+# laptop, and a single shared cursor let one session's poll skip past mail
+# addressed to another.
 #
 # Environment:
 #   AGENT_CHAT_URL     — API base URL (default: https://chat.synthinsightlabs.com)
@@ -25,7 +28,7 @@ set -euo pipefail
 
 CHAT_URL="${AGENT_CHAT_URL:-https://agent-chat-90116449356.us-central1.run.app}"
 API_KEY="${AGENT_CHAT_API_KEY:-}"
-CURSOR_FILE="$HOME/.claude/chat_cursor"
+LEGACY_CURSOR_FILE="$HOME/.claude/chat_cursor"
 DROP_LOG="$HOME/.claude/open-brain/agent_chat_drops.log"
 
 # Record why a poll produced nothing. Best-effort; never fails the hook.
@@ -48,6 +51,24 @@ if [[ -n "$SESSION_ID" && -f "$IDENTITY_DIR/${SESSION_ID}.txt" ]]; then
 fi
 [[ -n "$SENDER" ]] || SENDER="${AGENT_CHAT_SENDER:-}"
 
+# The cursor is scoped to the address we poll for, because the response is
+# too: the request carries `?for=$SENDER`, so advancing one machine-global
+# file marks mail as seen that this poll could never have returned. That is
+# not hypothetical — the shared cursor sat at 2026-08-30T17:36:50, the exact
+# timestamp of board message #94, a DM addressed to `ai-memory`, parked there
+# by a `for=project-tracker` poll that never saw it. The addressee never got
+# the message.
+#
+# Sanitize before the address reaches a path: it can contain `@`
+# (`project-tracker@laptop`) and, if it is ever mis-derived, a separator.
+# Allowlist to [A-Za-z0-9._-], then neutralize dot runs and a leading dot, so
+# the slug can only ever name an inert file directly inside ~/.claude.
+cursor_slug() {
+    local safe="${1//[!A-Za-z0-9._-]/_}"
+    safe="${safe//../__}"
+    printf '%s' "${safe#.}"
+}
+
 # No API key = skip
 [[ -n "$API_KEY" ]] || exit 0
 
@@ -61,6 +82,23 @@ if [[ -f "$THROTTLE_FILE" ]]; then
     fi
 fi
 date +%s > "$THROTTLE_FILE.tmp" && mv "$THROTTLE_FILE.tmp" "$THROTTLE_FILE"
+
+# Resolve this address's cursor. Deferred until after the key check and the
+# throttle so a skipped poll leaves no trace on disk.
+if [[ -n "$SENDER" ]]; then
+    CURSOR_FILE="$HOME/.claude/chat_cursor.$(cursor_slug "$SENDER")"
+    # One-time migration off the shared cursor. Without the seed the first
+    # per-address poll would carry no `since` and replay the whole board into
+    # this session's context.
+    if [[ ! -f "$CURSOR_FILE" && -f "$LEGACY_CURSOR_FILE" ]]; then
+        { cp "$LEGACY_CURSOR_FILE" "$CURSOR_FILE.tmp" \
+            && mv "$CURSOR_FILE.tmp" "$CURSOR_FILE"; } 2>/dev/null || true
+    fi
+else
+    # No address means no `?for=` filter, so the legacy global cursor still
+    # describes exactly what was fetched.
+    CURSOR_FILE="$LEGACY_CURSOR_FILE"
+fi
 
 # Read last cursor
 since=""
