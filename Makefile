@@ -19,11 +19,35 @@
 # they exist as muscle-memory shortcuts, not abstractions over the
 # underlying commands. If a target stops working, run the body directly.
 #
-# PYTHON defaults to the repo venv. Override it when running from a git
-# worktree, which has no venv of its own:
-#   make test PYTHON=$HOME/projects/project-tracker/venv/bin/python
-
-PYTHON ?= venv/bin/python
+# PYTHON resolves to the repo venv, and finds it from a git worktree too.
+#
+# A worktree has no venv/ of its own, so a bare `venv/bin/python` simply did
+# not exist there and every target failed on sight. The override was
+# documented, but three separate agents still tripped over it in one day --
+# and worktrees are the sanctioned way to do risky work (editing
+# ~/.claude/hooks/ in place blocks every concurrent agent's Bash calls the
+# moment the file is briefly unparseable). A tax on the safe workflow gets
+# paid in people not using it.
+#
+# --git-common-dir points at the MAIN checkout's .git even from a worktree (a
+# worktree's own .git is a text pointer file, so --git-dir would give the wrong
+# answer), and its parent is the main worktree root. Outside a repo both lookups
+# miss and PYTHON falls back to python3, which fails loudly on a missing import.
+#
+# Resolved entirely inside one $(shell), NOT with $(abspath)/$(patsubst): those
+# operate on whitespace-separated word lists, so a checkout path containing a
+# space is shredded into fragments, the venv lookup misses, and make silently
+# falls back to python3 -- breaking the very worktree case this exists to fix,
+# with no error. Shell quoting handles spaces; Make's word functions cannot.
+# Every use site quotes "$(PYTHON)" for the same reason.
+PYTHON ?= $(shell \
+	if [ -x venv/bin/python ]; then printf '%s' venv/bin/python; \
+	else \
+	  common=$$(git rev-parse --git-common-dir 2>/dev/null) && \
+	  root=$$(cd "$$common/.." 2>/dev/null && pwd) && \
+	  [ -x "$$root/venv/bin/python" ] && printf '%s' "$$root/venv/bin/python" \
+	  || printf '%s' python3; \
+	fi)
 HOST ?= 127.0.0.1
 PORT ?= 8000
 
@@ -36,10 +60,10 @@ help:  ## Show this help.
 	  awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 test:  ## Full pytest suite (no secrets needed — tests run offline).
-	$(PYTHON) -m pytest tests/ -q
+	"$(PYTHON)" -m pytest tests/ -q
 
 test-fast:  ## Same suite, stop at the first failure.
-	$(PYTHON) -m pytest tests/ -q -x --no-header
+	"$(PYTHON)" -m pytest tests/ -q -x --no-header
 
 dashboard:  ## Launch the dashboard in the foreground (doppler-wrapped by the script).
 	./scripts/launch-dashboard.sh
@@ -47,7 +71,7 @@ dashboard:  ## Launch the dashboard in the foreground (doppler-wrapped by the sc
 dashboard-restart:  ## Kill and relaunch the dashboard in the background on $(HOST):$(PORT).
 	-pkill -f "uvicorn dashboard.app"
 	sleep 1
-	doppler run -- $(PYTHON) -m uvicorn dashboard.app:app --host $(HOST) --port $(PORT) &
+	doppler run -- "$(PYTHON)" -m uvicorn dashboard.app:app --host $(HOST) --port $(PORT) &
 
 dashboard-stop:  ## Stop the running dashboard.
 	-pkill -f "uvicorn dashboard.app"
