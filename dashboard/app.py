@@ -2239,19 +2239,47 @@ async def list_tasks(
                 try:
                     blocked_by_ids = json.loads(task["blocked_by"])
                     task_dict["blocked_by_ids"] = blocked_by_ids
-                    blocking_tasks = [
-                        blocking_task
-                        for blocked_id in blocked_by_ids
-                        if (blocking_task := task_lookup.get(blocked_id)) is not None
-                    ]
+
+                    # A miss in task_lookup used to be dropped silently, so a
+                    # card whose blockers were not in the fetched set rendered
+                    # as unblocked — the dashboard's version of the #6747 bug,
+                    # where "(all resolved)" meant the opposite.
+                    #
+                    # A miss has two very different causes and they must not be
+                    # conflated: the blocker may be archived (Done, and
+                    # excluded by default since #6870 — genuinely not blocking),
+                    # or it may not exist at all. Fall back to a PK lookup,
+                    # which ignores archive state, and only then call it
+                    # unresolvable.
+                    blocking_tasks = []
+                    unresolved_ids = []
+                    for blocked_id in blocked_by_ids:
+                        blocking_task = task_lookup.get(blocked_id)
+                        if blocking_task is None:
+                            fetched = db.get_task(blocked_id)
+                            blocking_task = dict(fetched) if fetched else None
+                        if blocking_task is None:
+                            unresolved_ids.append(blocked_id)
+                        else:
+                            blocking_tasks.append(blocking_task)
+
                     incomplete_ids = [
                         blocking_task["id"]
                         for blocking_task in blocking_tasks
                         if blocking_task.get("status") != "Done"
                     ]
                     task_dict["blocking_tasks"] = blocking_tasks
-                    task_dict["is_blocked"] = len(incomplete_ids) > 0
+                    # An id we cannot resolve is not proof of "not blocked".
+                    # Fail towards blocked and name it, so a bad reference is
+                    # visible rather than silently clearing the flag.
+                    task_dict["is_blocked"] = bool(incomplete_ids or unresolved_ids)
                     task_dict["incomplete_blocking_ids"] = incomplete_ids
+                    task_dict["unresolved_blocking_ids"] = unresolved_ids
+                    if unresolved_ids:
+                        logger.warning(
+                            "Task %s references blocking ids that do not exist: %s",
+                            task.get("id"), unresolved_ids,
+                        )
                 except (json.JSONDecodeError, TypeError) as exc:
                     logger.warning(
                         "Could not resolve blocked_by for task %s: %s",
