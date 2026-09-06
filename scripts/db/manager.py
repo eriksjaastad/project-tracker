@@ -404,7 +404,14 @@ class DatabaseManager:
             file_path = attachment_dir / str(stored_name)
             try:
                 if file_path.exists():
-                    file_path.unlink()
+                    # User-uploaded content: it goes to the Trash, recoverable,
+                    # not unlink()'d out of existence. `send2trash` is the only
+                    # sanctioned removal path in this codebase (#6905, #6899).
+                    from send2trash import send2trash
+                    send2trash(str(file_path))
+                # The now-empty per-task directory is our own bookkeeping, not
+                # user content, so removing it outright is fine — but only when
+                # it is genuinely empty.
                 if attachment_dir.exists() and not any(attachment_dir.iterdir()):
                     attachment_dir.rmdir()
             except OSError as exc:
