@@ -15,12 +15,14 @@
     /api/health.
 
     @PT_HOME@ is substituted at install time; launchd cannot expand $HOME or
-    parse placeholders, so do NOT copy this .plist.in directly. Render it:
+    parse placeholders, so do NOT copy this .plist.in directly. Install it with:
 
-        sed "s|@PT_HOME@|$HOME/projects/project-tracker|g" \
-          scripts/launchd/com.eriksjaastad.project-tracker.plist.in \
-          > ~/Library/LaunchAgents/com.eriksjaastad.project-tracker.plist
-        launchctl kickstart -k gui/$(id -u)/com.eriksjaastad.project-tracker
+        scripts/launchd/install-dashboard.sh install
+
+    Use the script rather than a hand-run sed: it guards against an
+    unsubstituted placeholder leaking into the installed plist, and it does
+    unload/load rather than `launchctl kickstart -k`, which only restarts an
+    already-bootstrapped job and does nothing on a fresh machine.
 -->
 <plist version="1.0">
 <dict>

@@ -2194,6 +2194,25 @@ async def list_tasks(
 
         subtasks_by_parent: Dict[int, List[Dict[str, object]]] = {}
         task_lookup = {task["id"]: dict(task) for task in tasks}
+
+        # Blockers that are not in this fetch get resolved individually below.
+        # `task_lookup` is scoped to one project's tasks and `blocked_by` is
+        # not project-scoped at all, so a cross-project blocker — an intended
+        # use case — misses on EVERY request, not just for archived or missing
+        # ids. Resolving those uncached would be an N+1 against a sidebar that
+        # calls this endpoint once per project. Cache per request, so each
+        # distinct id costs at most one lookup no matter how many cards
+        # reference it, and a card blocked by the same parent as its siblings
+        # costs one query for all of them.
+        blocker_cache: Dict[int, Optional[Dict[str, object]]] = {}
+
+        def _resolve_blocker(blocked_id):
+            if blocked_id in task_lookup:
+                return task_lookup[blocked_id]
+            if blocked_id not in blocker_cache:
+                blocker_cache[blocked_id] = db.get_task(blocked_id)
+            return blocker_cache[blocked_id]
+
         for task in tasks:
             parent = task.get("parent_id")
             if parent is not None:
@@ -2239,19 +2258,44 @@ async def list_tasks(
                 try:
                     blocked_by_ids = json.loads(task["blocked_by"])
                     task_dict["blocked_by_ids"] = blocked_by_ids
-                    blocking_tasks = [
-                        blocking_task
-                        for blocked_id in blocked_by_ids
-                        if (blocking_task := task_lookup.get(blocked_id)) is not None
-                    ]
+
+                    # A miss in task_lookup used to be dropped silently, so a
+                    # card whose blockers were not in the fetched set rendered
+                    # as unblocked — the dashboard's version of the #6747 bug,
+                    # where "(all resolved)" meant the opposite.
+                    #
+                    # A miss has two very different causes and they must not be
+                    # conflated: the blocker may be archived (Done, and
+                    # excluded by default since #6870 — genuinely not blocking),
+                    # or it may not exist at all. Fall back to a PK lookup,
+                    # which ignores archive state, and only then call it
+                    # unresolvable.
+                    blocking_tasks = []
+                    unresolved_ids = []
+                    for blocked_id in blocked_by_ids:
+                        blocking_task = _resolve_blocker(blocked_id)
+                        if blocking_task is None:
+                            unresolved_ids.append(blocked_id)
+                        else:
+                            blocking_tasks.append(blocking_task)
+
                     incomplete_ids = [
                         blocking_task["id"]
                         for blocking_task in blocking_tasks
                         if blocking_task.get("status") != "Done"
                     ]
                     task_dict["blocking_tasks"] = blocking_tasks
-                    task_dict["is_blocked"] = len(incomplete_ids) > 0
+                    # An id we cannot resolve is not proof of "not blocked".
+                    # Fail towards blocked and name it, so a bad reference is
+                    # visible rather than silently clearing the flag.
+                    task_dict["is_blocked"] = bool(incomplete_ids or unresolved_ids)
                     task_dict["incomplete_blocking_ids"] = incomplete_ids
+                    task_dict["unresolved_blocking_ids"] = unresolved_ids
+                    if unresolved_ids:
+                        logger.warning(
+                            "Task %s references blocking ids that do not exist: %s",
+                            task.get("id"), unresolved_ids,
+                        )
                 except (json.JSONDecodeError, TypeError) as exc:
                     logger.warning(
                         "Could not resolve blocked_by for task %s: %s",
