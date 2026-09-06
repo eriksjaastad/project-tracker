@@ -115,3 +115,48 @@ def test_nonexistent_blocker_is_surfaced_not_silently_cleared(board, monkeypatch
         "an unresolvable blocker rendered as unblocked — the card claims it is "
         "ready to work when nothing proved that"
     )
+
+
+def test_cross_project_blockers_are_resolved_once_per_request(board, monkeypatch):
+    """A blocker outside the fetched project misses task_lookup every time.
+
+    `blocked_by` is not project-scoped and the sidebar calls this endpoint once
+    per project, so an uncached fallback would be an N+1 — the class of thing
+    that has hurt this dashboard before. Several cards referencing the same
+    blocker must cost one lookup, not one each.
+    """
+    import dashboard.app as dashboard_app
+
+    board.add_project("beta", "Beta", "/tmp/beta", "active")
+    outsider = board.add_task("blocker in another project", "beta")
+
+    for i in range(4):
+        t = board.add_task(f"target {i}", "alpha")
+        board.update_task(t["id"], blocked_by=json.dumps([outsider["id"]]))
+
+    calls = []
+    real_get_task = board.get_task
+
+    def counting_get_task(task_id):
+        calls.append(task_id)
+        return real_get_task(task_id)
+
+    monkeypatch.setattr(board, "get_task", counting_get_task)
+    monkeypatch.setattr(dashboard_app, "DatabaseManager", lambda *a, **k: board)
+
+    import asyncio
+    loop = asyncio.get_event_loop_policy().get_event_loop()
+    rows = loop.run_until_complete(
+        dashboard_app.list_tasks(project_id="alpha", status_filter=None)
+    )
+    rows = rows["tasks"] if isinstance(rows, dict) else rows
+
+    blocked = [r for r in rows if r.get("blocked_by_ids")]
+    assert len(blocked) == 4, "fixture precondition: four cards share one blocker"
+    assert all(r["is_blocked"] for r in blocked), "cross-project blocker must still block"
+
+    outsider_lookups = [c for c in calls if c == outsider["id"]]
+    assert len(outsider_lookups) == 1, (
+        f"resolved the same cross-project blocker {len(outsider_lookups)} times "
+        f"in one request — the per-request cache is not working"
+    )
