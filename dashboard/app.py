@@ -1,7 +1,7 @@
 """FastAPI web dashboard for project tracker."""
 
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
@@ -1415,15 +1415,14 @@ async def get_memory_graph_data(
         }, status_code=404)
 
     try:
-        conn = sqlite3.connect(brain_db_path)
-        conn.row_factory = sqlite3.Row
+        with closing(sqlite3.connect(brain_db_path)) as conn:
+            conn.row_factory = sqlite3.Row
 
-        rows = conn.execute(
-            "SELECT id, content, embedding, metadata, created_at, source_machine FROM thoughts WHERE embedding IS NOT NULL ORDER BY created_at DESC LIMIT ?",
-            (max_nodes,)
-        ).fetchall()
-        total_in_db = conn.execute("SELECT COUNT(*) FROM thoughts").fetchone()[0]
-        conn.close()
+            rows = conn.execute(
+                "SELECT id, content, embedding, metadata, created_at, source_machine FROM thoughts WHERE embedding IS NOT NULL ORDER BY created_at DESC LIMIT ?",
+                (max_nodes,)
+            ).fetchall()
+            total_in_db = conn.execute("SELECT COUNT(*) FROM thoughts").fetchone()[0]
 
         nodes = []
         embeddings = []
@@ -1677,13 +1676,12 @@ async def get_memory_types():
         return {"types": ["observation", "decision", "idea", "question"]}
 
     try:
-        conn = sqlite3.connect(brain_db_path)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT DISTINCT json_extract(metadata, '$.type') AS thought_type FROM thoughts "
-            "WHERE metadata IS NOT NULL ORDER BY thought_type"
-        ).fetchall()
-        conn.close()
+        with closing(sqlite3.connect(brain_db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT DISTINCT json_extract(metadata, '$.type') AS thought_type FROM thoughts "
+                "WHERE metadata IS NOT NULL ORDER BY thought_type"
+            ).fetchall()
 
         types = sorted(set(
             row["thought_type"] for row in rows
@@ -1716,20 +1714,19 @@ async def get_memory_heatmap():
         return {"rows": [], "error": "Memory database not found"}
 
     try:
-        conn = sqlite3.connect(brain_db_path)
-        conn.row_factory = sqlite3.Row
+        with closing(sqlite3.connect(brain_db_path)) as conn:
+            conn.row_factory = sqlite3.Row
 
-        rows = conn.execute("""
-            SELECT
-                date(created_at) AS day,
-                json_extract(metadata, '$.type') AS thought_type,
-                COUNT(*) AS count
-            FROM thoughts
-            WHERE metadata IS NOT NULL
-            GROUP BY day, thought_type
-            ORDER BY day ASC, thought_type ASC
-        """).fetchall()
-        conn.close()
+            rows = conn.execute("""
+                SELECT
+                    date(created_at) AS day,
+                    json_extract(metadata, '$.type') AS thought_type,
+                    COUNT(*) AS count
+                FROM thoughts
+                WHERE metadata IS NOT NULL
+                GROUP BY day, thought_type
+                ORDER BY day ASC, thought_type ASC
+            """).fetchall()
 
         return {
             "rows": [
