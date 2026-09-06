@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { TaskStatus, TaskPriority, Project, Task, TaskType } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
-import { fetchProjects, fetchTaskPolicy, fetchTasks } from '../api';
+import { fetchProjects, fetchTaskPolicy, fetchTasks, isAbortError } from '../api';
 import { Spinner } from './Spinner';
 import './TaskForm.css';
 
@@ -45,12 +45,13 @@ export function TaskForm({
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
   useEffect(() => {
+    const controller = new AbortController();
     const loadData = async () => {
       try {
         const [projectData, taskData, taskPolicy] = await Promise.all([
-          fetchProjects(),
-          fetchTasks(),
-          fetchTaskPolicy(),
+          fetchProjects(controller.signal),
+          fetchTasks(undefined, undefined, controller.signal),
+          fetchTaskPolicy(controller.signal),
         ]);
         setProjects(projectData);
         setTasks(taskData);
@@ -65,12 +66,16 @@ export function TaskForm({
           setProjectId('');
         }
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         console.error('Failed to load data:', err);
         setError('Failed to load projects and tasks');
       }
     };
 
     loadData();
+    return () => controller.abort();
   }, [initialProjectId]);
 
   const handleSubmit = async (e: React.FormEvent) => {

@@ -10,7 +10,7 @@ import {
   Legend,
   ResponsiveContainer
 } from 'recharts';
-import { fetchTaskHistory, fetchProjects } from '../api';
+import { fetchTaskHistory, fetchProjects, isAbortError } from '../api';
 import type { TaskHistoryEntry } from '../types';
 import './ProductivityGraph.css';
 
@@ -38,37 +38,47 @@ export function ProductivityGraph() {
 
   // Fetch projects on mount
   useEffect(() => {
+    const controller = new AbortController();
     async function loadProjects() {
       try {
-        const projectsData = await fetchProjects();
+        const projectsData = await fetchProjects(controller.signal);
         setProjects(projectsData);
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         console.error('Failed to load projects:', err);
       }
     }
     loadProjects();
+    return () => controller.abort();
   }, []);
 
   // Fetch history when filters change
   useEffect(() => {
+    const controller = new AbortController();
     async function loadHistory() {
       setLoading(true);
       setError(null);
-      
+
       try {
         const days = timeRange === 'week' ? 7 : 30;
-        const data = await fetchTaskHistory(days, selectedProject);
+        const data = await fetchTaskHistory(days, selectedProject, controller.signal);
         setHistory(data.history);
         setTotalCompleted(data.total_completed);
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         setError(err instanceof Error ? err.message : 'Failed to load history');
         console.error('Failed to load task history:', err);
       } finally {
         setLoading(false);
       }
     }
-    
+
     loadHistory();
+    return () => controller.abort();
   }, [selectedProject, timeRange]);
 
   // Transform history data for Recharts

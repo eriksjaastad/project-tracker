@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Task, TaskStatus, TaskPriority, Project, TaskType, Attachment } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
-import { updateTask, fetchProjects, fetchAttachments, uploadAttachment, deleteAttachment } from '../api';
+import { updateTask, fetchProjects, fetchAttachments, uploadAttachment, deleteAttachment, isAbortError } from '../api';
 import './TaskDetailModal.css';
 
 interface TaskDetailModalProps {
@@ -76,21 +76,35 @@ export function TaskDetailModal({
       setIsEditing(false);
       setError(null);
       // Load attachments for this task
-      fetchAttachments(task.id).then(setAttachments).catch(() => setAttachments([]));
+      const controller = new AbortController();
+      fetchAttachments(task.id, controller.signal)
+        .then(setAttachments)
+        .catch((err) => {
+          if (isAbortError(err)) {
+            return;
+          }
+          setAttachments([]);
+        });
+      return () => controller.abort();
     }
   }, [task]);
 
   useEffect(() => {
+    const controller = new AbortController();
     const loadProjects = async () => {
       try {
-        const fetchedProjects = await fetchProjects();
+        const fetchedProjects = await fetchProjects(controller.signal);
         setProjects(fetchedProjects);
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         console.error('Failed to load projects:', err);
       }
     };
 
     loadProjects();
+    return () => controller.abort();
   }, []);
 
   if (!task) {
