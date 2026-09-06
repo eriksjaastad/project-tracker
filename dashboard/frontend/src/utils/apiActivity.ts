@@ -39,4 +39,3 @@ export function summarizeActivity(rows: Usage[], day: string): Activity[] {
   }
   return [...groups.values()].sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
 }
-
