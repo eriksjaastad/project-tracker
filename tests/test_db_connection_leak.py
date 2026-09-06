@@ -18,6 +18,7 @@ releases them.
 from __future__ import annotations
 
 import os
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -32,13 +33,25 @@ from db.schema import create_database  # noqa: E402
 
 
 def _open_handles(db_path: Path) -> int:
-    """Count this process's open descriptors against the database and its WAL."""
-    out = subprocess.run(
+    """Count this process's open descriptors against the database and its WAL.
+
+    Raises rather than returning 0 when lsof misbehaves. A silent 0 here would
+    make the leak test pass vacuously — baseline 0, growth 0 — which is the
+    failure mode this file exists to catch.
+    """
+    proc = subprocess.run(
         ["lsof", "-p", str(os.getpid())],
         capture_output=True, text=True, timeout=60,
-    ).stdout
+    )
+    # lsof exits 1 when some descriptors can't be stat'd, which is normal and
+    # still yields usable output. Empty output is not.
+    if not proc.stdout.strip():
+        raise RuntimeError(
+            f"lsof produced no output (rc={proc.returncode}): {proc.stderr[:200]!r} — "
+            "cannot measure descriptor growth"
+        )
     name = db_path.name
-    return sum(1 for line in out.splitlines() if name in line)
+    return sum(1 for line in proc.stdout.splitlines() if name in line)
 
 
 @pytest.mark.skipif(
@@ -87,20 +100,56 @@ def test_connection_still_usable_and_closed_cleanly(tmp_path: Path) -> None:
 
     # Using the connection after the context manager exits must fail, proving
     # close() still happened despite the extra finalize step.
-    with pytest.raises(Exception):
+    with pytest.raises(sqlite3.ProgrammingError):
         conn.execute("SELECT 1")
 
 
-def test_writes_still_work_after_finalize_is_wired_in(tmp_path: Path) -> None:
-    """crsql_finalize tears down cr-sqlite state; a later connection must still
-    be able to write to a CRR table rather than failing on a missing function."""
+@pytest.mark.skipif(
+    _find_crsqlite_dylib() is None,
+    reason="needs cr-sqlite to register a CRR table",
+)
+def test_writes_survive_finalize_on_a_real_crr_table(tmp_path: Path) -> None:
+    """crsql_finalize tears down cr-sqlite's per-connection state, so prove a
+    later connection can still write to a genuinely CRR-registered table.
+
+    `create_database()` does not run `crsql_as_crr()` — that is a manual step,
+    not part of any numbered migration — so a plain fixture would only catch
+    gross breakage while claiming more. Register the tables explicitly, the
+    same way tests/test_006_crr_drop_unique_constraints.py does. The migrations
+    must run first: `crsql_as_crr` refuses a table carrying a NOT NULL column
+    with no default, which is exactly what migrations 003/004 exist to fix.
+    """
+    from db.migration_runner import apply_all
+
     db_path = tmp_path / "tracker.db"
     create_database(db_path)
+
+    dylib = str(_find_crsqlite_dylib())
+    conn = sqlite3.connect(db_path)
+    conn.enable_load_extension(True)
+    conn.load_extension(dylib, entrypoint="sqlite3_crsqlite_init")
+    conn.enable_load_extension(False)
+    apply_all(conn, Path(__file__).parent.parent / "scripts" / "db" / "migrations")
+    for table in ("projects", "tasks"):
+        assert conn.execute("SELECT crsql_as_crr(?)", (table,)).fetchone() == ("OK",)
+    conn.commit()
+    conn.execute("SELECT crsql_finalize()")
+    conn.close()
+
+    # Every write below goes through _get_conn, so each one finalizes on exit.
     db = DatabaseManager(db_path=db_path)
-
     db.add_project("alpha", "Alpha", str(tmp_path / "alpha"), "active")
-    first = db.add_task("first task", "alpha")
-    second = db.add_task("second task", "alpha")
-
-    assert first and second
+    assert db.add_task("first task", "alpha")
+    assert db.add_task("second task", "alpha")
     assert len(db.get_tasks(project_id="alpha")) == 2
+
+    # The CRR clock must have recorded those writes — that is what proves
+    # finalize did not sever cr-sqlite's change tracking.
+    check = sqlite3.connect(db_path)
+    check.enable_load_extension(True)
+    check.load_extension(dylib, entrypoint="sqlite3_crsqlite_init")
+    check.enable_load_extension(False)
+    clock_rows = check.execute("SELECT COUNT(*) FROM tasks__crsql_clock").fetchone()[0]
+    check.execute("SELECT crsql_finalize()")
+    check.close()
+    assert clock_rows > 0, "writes did not reach the CRR clock after finalize"
