@@ -112,8 +112,14 @@ def check_orphans(project_path: Path) -> list[dict]:
 
     # Build a set of all module names that are imported somewhere
     imported_modules: set[str] = set()
+    # Anchored at line start, same as check_stale_tests after #6258. Unanchored,
+    # this matched prose inside comments — "if that import ever changes" made
+    # `ever` an imported module. Here that direction is a false NEGATIVE: a
+    # bogus name in this set masks a genuine orphan rather than inventing one,
+    # which is quieter and therefore easier to miss (#6882).
     import_pattern = re.compile(
-        r'(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))'
+        r'^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))',
+        re.MULTILINE,
     )
     for f in py_files:
         try:
