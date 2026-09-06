@@ -4074,6 +4074,29 @@ def _qualify_chat_address(address: str, machine: str) -> str:
         return f"{project}@{machine}" if machine else project
 
 
+def _self_machine_name() -> Optional[str]:
+    """This machine's @qualifier ("laptop", "mini"), per agent-chat/identity.py.
+
+    The sender address is always BARE — `identity.project_name_for()` returns a
+    basename and never a qualified address — so comparing a qualified recipient
+    against the sender string can never tell you whether it names THIS machine.
+    identity.machine_name() has to be consulted directly.
+
+    Returns None only when identity.py cannot be imported, the same condition
+    _split_chat_address falls back on. Callers must read None as "cannot
+    verify" and never let it widen a guard.
+    """
+    import sys as _sys
+    agent_chat_root = Path(__file__).resolve().parent.parent / "agent-chat"
+    if str(agent_chat_root) not in _sys.path:
+        _sys.path.insert(0, str(agent_chat_root))
+    try:
+        import identity as _identity
+        return _identity.machine_name()
+    except ImportError:
+        return None
+
+
 def _split_chat_address(address: str):
     """Split `ai-memory@mini` into ("ai-memory", "mini"); bare name -> (name, None).
 
@@ -4187,9 +4210,22 @@ def message_send(text, recipient, priority, reply_to, machine, force, json_outpu
         recipient = _qualify_chat_address(recipient, machine)
 
     if recipient:
-        target_project, _ = _split_chat_address(recipient)
+        target_project, target_machine = _split_chat_address(recipient)
         self_project, _ = _split_chat_address(sender)
-        if target_project == self_project and recipient == sender:
+        # The `recipient == sender` conjunct this used to carry was redundant
+        # for a bare address (already implied by the project comparison) and
+        # actively harmful for a qualified one: the sender is ALWAYS bare, so
+        # `--to project-tracker --machine laptop` rewrote the recipient to
+        # `project-tracker@laptop`, which never equals bare `project-tracker`,
+        # the guard fell through, and the message went to this very session
+        # (#6775). Compare machines instead. `project-tracker@mini` from a
+        # laptop session stays allowed — that is a different machine's floor
+        # manager, a real peer.
+        self_machine = _self_machine_name()
+        names_this_machine = (
+            target_machine is None or target_machine == self_machine
+        )
+        if target_project == self_project and names_this_machine:
             raise click.ClickException(
                 f"'{recipient}' is this session's own address — that message would "
                 f"go nowhere. Use --to <other-project>, or omit --to to broadcast."
