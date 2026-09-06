@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -12,6 +13,23 @@ from click.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from pt import cli
+
+
+def _ago(days: int) -> str:
+    """UTC timestamp `days` in the past, in the format `pt` compares against.
+
+    Seed rows must float with the clock: `_parse_since_until` in scripts/pt.py
+    resolves `--since 7d` to `datetime.now(timezone.utc) - 7 days` and the query
+    filters on `created_at >= ?`. Hardcoded dates silently rot out of the window.
+    """
+    stamp = datetime.now(timezone.utc) - timedelta(days=days)
+    return stamp.strftime("%Y-%m-%d %H:%M:%S")
+
+
+# Computed once at import so seeded rows and assertions agree exactly, and so
+# row 1 stays newer than row 2 (memory.recent orders by created_at DESC).
+SEED_NEWEST = _ago(1)
+SEED_OLDEST = _ago(2)
 
 
 def _seed_brain_db(path: Path) -> None:
@@ -39,7 +57,7 @@ def _seed_brain_db(path: Path) -> None:
                 '{"type":"decision","project":"project-tracker","source_agent":"Codex"}',
                 "shared",
                 "codex",
-                "2026-05-01 10:00:00",
+                SEED_NEWEST,
                 "mini.local",
                 "u1",
             ),
@@ -48,7 +66,7 @@ def _seed_brain_db(path: Path) -> None:
                 '{"type":"observation","project":"ai-memory","source_agent":"Claude Code"}',
                 "shared",
                 "claude",
-                "2026-04-24 10:00:00",
+                SEED_OLDEST,
                 "macbook.local",
                 "u2",
             ),
@@ -137,8 +155,8 @@ def test_memory_stats_json_is_machine_readable(tmp_path: Path) -> None:
     payload = json.loads(result.output)
     assert payload["schema_version"] == "pt.memory.v1"
     assert payload["stats"]["total"] == 2
-    assert payload["stats"]["oldest_created_at"] == "2026-04-24 10:00:00"
-    assert payload["stats"]["newest_created_at"] == "2026-05-01 10:00:00"
+    assert payload["stats"]["oldest_created_at"] == SEED_OLDEST
+    assert payload["stats"]["newest_created_at"] == SEED_NEWEST
 
 
 def test_memory_search_json_validation_error_is_structured(tmp_path: Path) -> None:
