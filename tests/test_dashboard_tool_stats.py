@@ -106,9 +106,18 @@ def test_tool_stats_filter_by_model_scopes_all_three_series():
     )
 
 
+@pytest.mark.skipif(not BRAIN_AVAILABLE, reason="brain.db not present on this machine")
 def test_tool_stats_filter_by_unknown_tool_returns_empty():
     """A nonsense tool filter returns empty series, not 500. by_date is still
-    a fully-padded date series of zeros so the frontend chart renders."""
+    a fully-padded date series of zeros so the frontend chart renders.
+
+    Gated on brain.db: the zero-filled padding only happens on the query path.
+    With no brain.db the endpoint short-circuits to the all-empty shape, which
+    is the documented contract and is pinned by
+    test_tool_stats_default_shape_when_brain_db_missing above. Without this
+    gate the two tests contradict each other on a fresh clone — which is
+    exactly what CI caught the first time it ran.
+    """
     response = client.get("/api/tool-stats?tool=NonexistentToolXYZZY&days=7")
     assert response.status_code == 200
     payload = response.json()
@@ -126,8 +135,14 @@ def test_tool_stats_days_clamps_to_valid_range():
     should clamp to 365. Both must respond 200."""
     low = client.get("/api/tool-stats?days=0")
     high = client.get("/api/tool-stats?days=9999")
+    # Input handling must never 500, with or without a database.
     assert low.status_code == 200
     assert high.status_code == 200
+    if not BRAIN_AVAILABLE:
+        # No brain.db means the endpoint short-circuits before clamping, so
+        # there is no padded series to measure. The 200s above are the part
+        # that still holds.
+        pytest.skip("brain.db not present; clamping is only observable on the query path")
     assert len(low.json()["by_date"]) == 1
     assert len(high.json()["by_date"]) == 365
 

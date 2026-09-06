@@ -1583,20 +1583,40 @@ class DatabaseManager:
             # Return updated task (already returned inside loop)
             return self.get_task(task_id)
 
-    def get_subtasks(self, parent_id: int) -> List[Dict[str, Any]]:
-        """Get all subtasks of a parent task."""
+    def get_subtasks(
+        self, parent_id: int, include_archived: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Get all subtasks of a parent task.
+
+        Args:
+            parent_id: Parent task ID
+            include_archived: Include subtasks with a non-NULL archived_at.
+                Same contract as ``get_tasks``: archived cards are Done cards
+                past the per-project display cap — still present, just hidden
+                from the board by default. Leaving them in inflates progress
+                denominators, so the default is to filter them out.
+
+        Returns:
+            List of subtask dictionaries
+        """
+        query = "SELECT * FROM tasks WHERE parent_id = ?"
+        if not include_archived:
+            query += " AND archived_at IS NULL"
+        query += " ORDER BY sequence_order ASC, created_at ASC"
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM tasks
-                WHERE parent_id = ?
-                ORDER BY sequence_order ASC, created_at ASC
-            """, (parent_id,))
+            cursor.execute(query, (parent_id,))
             return [dict(row) for row in cursor.fetchall()]
 
-    def get_subtask_progress(self, parent_id: int) -> Dict[str, Any]:
-        """Get completion progress for a parent task's subtasks."""
-        subtasks = self.get_subtasks(parent_id)
+    def get_subtask_progress(
+        self, parent_id: int, include_archived: bool = False
+    ) -> Dict[str, Any]:
+        """Get completion progress for a parent task's subtasks.
+
+        ``include_archived`` is passed straight through to ``get_subtasks``;
+        without it the flag would be unreachable from the real call sites.
+        """
+        subtasks = self.get_subtasks(parent_id, include_archived=include_archived)
         total = len(subtasks)
         done = len([t for t in subtasks if t["status"] == "Done"])
         return {
@@ -1624,14 +1644,26 @@ class DatabaseManager:
                 results.append(blocking_task)
         return results
 
-    def get_blocked_tasks(self, task_id: int) -> List[Dict[str, Any]]:
-        """Get tasks that are blocked by this task (reverse lookup)."""
+    def get_blocked_tasks(
+        self, task_id: int, include_archived: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Get tasks that are blocked by this task (reverse lookup).
+
+        Args:
+            task_id: The blocking task's ID
+            include_archived: Include tasks with a non-NULL archived_at.
+                Same contract as ``get_tasks`` — archived cards are hidden
+                from the board by default, so they are filtered out here too.
+
+        Returns:
+            List of task dictionaries that name ``task_id`` in blocked_by
+        """
+        query = "SELECT * FROM tasks WHERE blocked_by IS NOT NULL"
+        if not include_archived:
+            query += " AND archived_at IS NULL"
         with self._get_conn() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM tasks
-                WHERE blocked_by IS NOT NULL
-            """)
+            cursor.execute(query)
 
             results = []
             for row in cursor.fetchall():

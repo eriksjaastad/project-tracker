@@ -74,9 +74,18 @@ def check_ruff(project_path: Path) -> list[dict]:
         )
         if result.stdout.strip():
             for item in json.loads(result.stdout):
+                # ruff reports absolute paths; store them project-relative so
+                # grouping ("top-level directory") and card titles name real
+                # files instead of yielding an empty first path segment.
+                filename = item.get("filename", "")
+                if filename:
+                    try:
+                        filename = str(Path(filename).relative_to(project_path))
+                    except ValueError:
+                        pass
                 findings.append({
                     "check": "ruff",
-                    "file": item.get("filename", ""),
+                    "file": filename,
                     "line": item.get("location", {}).get("row", 0),
                     "code": item.get("code", ""),
                     "message": item.get("message", ""),
@@ -229,11 +238,15 @@ def check_stale_tests(project_path: Path) -> list[dict]:
         "bisect", "queue", "shelve", "pickle", "marshal",
         "fastapi", "starlette", "uvicorn", "pydantic", "jinja2",
         "typer", "playwright", "yaml", "toml",
+        "plistlib", "__future__",
     }
     available_modules.update(stdlib_prefixes)
 
+    # Anchored at line start: a real import statement is the first thing on its
+    # line, modulo indentation. Unanchored, the pattern matched prose inside
+    # comments — "if that import ever changes" reported a module named 'ever'.
     import_pattern = re.compile(
-        r'(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))'
+        r'^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))'
     )
 
     for test_file in test_dir.glob("test_*.py"):
@@ -248,7 +261,8 @@ def check_stale_tests(project_path: Path) -> list[dict]:
             # Skip lines that are inside strings (write_text, triple quotes, etc)
             if stripped.startswith(("'", '"', "(")):
                 continue
-            for m in import_pattern.finditer(line):
+            m = import_pattern.match(line)
+            if m:
                 mod = m.group(1) or m.group(2)
                 top_level = mod.split(".")[0]
                 if top_level not in available_modules:
@@ -647,8 +661,12 @@ def _print_create_commands(findings: list[dict], project_name: str) -> None:
         # Build description based on check type
         if check_type == "ruff":
             dir_name = key.replace("ruff_", "")
-            files = set(f["file"] for f in items)
-            desc = f"[Card Factory] Remove {count} unused imports/variables in {dir_name}/ ({len(files)} files)"
+            files = sorted(set(f["file"] for f in items))
+            file_list = ", ".join(files[:5])
+            if len(files) > 5:
+                file_list += f", +{len(files) - 5} more"
+            location = "the project root" if dir_name == "root" else f"{dir_name}/"
+            desc = f"[Card Factory] Remove {count} unused imports/variables in {location}: {file_list}"
         elif check_type == "orphan":
             file_list = ", ".join(f["file"] for f in items[:5])
             desc = f"[Card Factory] Audit {count} orphan Python files: {file_list}"
