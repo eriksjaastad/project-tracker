@@ -5546,8 +5546,9 @@ def _caller_repo_root() -> Path:
     repo, which `Path.cwd()` never did. Falls back to the caller cwd itself
     when that is not a git repo.
 
-    Deliberately NOT `_find_repo_root()`: that helper tries
-    `Path(__file__).parent.parent` first and so has this same bug by design.
+    `_find_repo_root()` used to carry this same bug by design — it tried
+    `Path(__file__).parent.parent` first — and now delegates here (#6883), so
+    this is the single place the caller's repo is resolved.
     """
     caller = Path(os.environ.get("PT_CALLER_CWD") or os.getcwd())
     try:
