@@ -3,7 +3,6 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Task } from '../types';
 import { TASK_TYPE_LABELS } from '../types';
-import { sanitizeText } from '../utils/sanitize';
 import './TaskCard.css';
 
 interface TaskCardProps {
@@ -27,11 +26,14 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
     opacity: isDragging ? 0.5 : 1,
   };
 
-  // Sanitize and truncate text (React automatically escapes, but we ensure safety)
-  const truncatedText = useMemo(() => {
-    const text = sanitizeText(task.text);
-    return text.length > 100 ? text.substring(0, 100) + '...' : text;
-  }, [task.text]);
+  // Truncate for display. No escaping happens here on purpose: this text is
+  // rendered as a JSX child and as a title attribute, both of which React
+  // escapes. An escapeHtml() here would either be a no-op (it was) or would
+  // double-escape (#6953).
+  const truncatedText = useMemo(
+    () => (task.text.length > 100 ? task.text.substring(0, 100) + '...' : task.text),
+    [task.text]
+  );
 
   const priorityColors: Record<string, string> = {
     Critical: 'var(--critical)',     // #dc2626 - dark alarm red
