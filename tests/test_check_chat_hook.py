@@ -422,6 +422,66 @@ class TestPerAddressCursor:
         assert "since=" not in run.url
         assert cursors(home) == ["chat_cursor"]  # nothing seeded
 
+    def test_a_legacy_cursor_with_trailing_content_is_rejected(self, tmp_path):
+        """Validating a prefix is not validating a line.
+
+        `2026-08-30T17:36:50 garbage` starts with a real timestamp. An
+        unanchored pattern passed it, and a strip that deleted interior
+        whitespace then collapsed it to `2026-08-30T17:36:50garbage` — a valid
+        string manufactured out of an invalid line, sent verbatim as `since=`
+        on the next poll. The line must be rejected, not repaired.
+        """
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor").write_text("2026-08-30T17:36:50 garbage\n")
+
+        run = run_hook(
+            tmp_path, [msg(35, "ai-memory", "trailing", "x")],
+            identity="trailing", home=home,
+        )
+        assert "since=" not in run.url
+        assert "garbage" not in run.url
+        assert "2026-08-30T17%3A36%3A50" not in run.url
+
+    @pytest.mark.parametrize(
+        "stored,encoded",
+        [
+            # SQLite: strftime('%Y-%m-%dT%H:%M:%fZ') — see agent-chat/server/db.py
+            ("2026-08-30T17:36:50.123Z", "2026-08-30T17%3A36%3A50.123Z"),
+            # Postgres TIMESTAMPTZ through .isoformat()
+            ("2026-08-30T17:36:50.123456+00:00",
+             "2026-08-30T17%3A36%3A50.123456%2B00%3A00"),
+            ("2026-08-30T17:36:50Z", "2026-08-30T17%3A36%3A50Z"),
+        ],
+    )
+    def test_the_real_timestamp_shapes_still_seed(self, tmp_path, stored, encoded):
+        """Anchoring must not reject the formats the server actually emits.
+
+        Too strict is not safe here: every address would start clean and the
+        migration would stop migrating anything.
+        """
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor").write_text(stored + "\n")
+
+        run = run_hook(
+            tmp_path, [msg(36, "ai-memory", "shapes", "x")],
+            identity="shapes", home=home,
+        )
+        assert f"since={encoded}" in run.url
+
+    def test_surrounding_whitespace_does_not_stop_a_valid_seed(self, tmp_path):
+        """Trimming the ends is legitimate; only interior edits are not."""
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor").write_text("  2026-08-30T17:36:50Z  \r\n")
+
+        run = run_hook(
+            tmp_path, [msg(37, "ai-memory", "padded", "x")],
+            identity="padded", home=home,
+        )
+        assert "since=2026-08-30T17%3A36%3A50Z" in run.url
+
     def test_a_corrupt_legacy_cursor_is_not_taken_as_a_seed(self, tmp_path):
         """`since=<garbage>` reaches the API and may return nothing, forever.
 

@@ -72,9 +72,11 @@ fi
 # no `.` can appear in the output, so traversal and dot-runs are impossible by
 # construction rather than by patching them out afterwards.
 #
-# The address is bounded first: a real one is `<project>` or
-# `<project>@<machine>`, far under 64 bytes, and the bound keeps the filename
-# inside NAME_MAX even when every byte expands to three characters.
+# The exact guarantee: injective over addresses of 64 bytes or fewer. Longer
+# ones are truncated BEFORE encoding, so two addresses sharing a 64-byte
+# prefix would still share a cursor. An address is `<project>` or
+# `<project>@<machine>` — nothing close to the bound — and the bound is what
+# keeps the filename inside NAME_MAX at the 3x worst case, so it stays.
 #
 # `LC_ALL=C` is not decoration. Under a UTF-8 locale bash matches `[A-Za-z]`
 # by collation, so `ü` passes the allowlist untouched and the safe set is
@@ -101,8 +103,31 @@ cursor_slug() {
 # unbounded replay the migration exists to prevent. A corrupt one is worse:
 # `since=<garbage>` reaches the API, which may reject it or return nothing,
 # turning a delivery bug into a silent one. Neither is trusted.
+#
+# The pattern is anchored at BOTH ends. Matching only a prefix let
+# `2026-08-30T17:36:50 garbage` through — and paired with a strip that deleted
+# interior whitespace it did worse than pass: it MANUFACTURED
+# `2026-08-30T17:36:50garbage` out of a line that was never valid, then sent
+# it as `since=`. Validate the whole line; never edit a line into validity.
+#
+# The shapes accepted are the two the server actually emits: SQLite's
+# `strftime('%Y-%m-%dT%H:%M:%fZ')` (fractional seconds, `Z`) and Postgres
+# TIMESTAMPTZ through `.isoformat()` (microseconds, `+00:00`) — see
+# agent-chat/server/db.py. Anything else is not a position this API issued.
 looks_like_cursor() {
-    [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2} ]]
+    local LC_ALL=C
+    local re='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$'
+    [[ "$1" =~ $re ]]
+}
+
+# Trim the ends only. Removing whitespace from the middle of a line can turn
+# an invalid seed into a valid-looking one, which is how the prefix bug above
+# got its teeth.
+trim_ends() {
+    local LC_ALL=C s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    printf '%s' "$s"
 }
 
 # No API key = skip
@@ -131,7 +156,7 @@ if [[ -n "$SENDER" ]]; then
     if [[ ! -f "$CURSOR_FILE" && -s "$LEGACY_CURSOR_FILE" ]]; then
         legacy_seed=""
         IFS= read -r legacy_seed < "$LEGACY_CURSOR_FILE" 2>/dev/null || true
-        legacy_seed="${legacy_seed//[$'\t\r\n ']/}"
+        legacy_seed="$(trim_ends "$legacy_seed")"
         if looks_like_cursor "$legacy_seed"; then
             { printf '%s\n' "$legacy_seed" > "$CURSOR_FILE.tmp" \
                 && mv "$CURSOR_FILE.tmp" "$CURSOR_FILE"; } 2>/dev/null || true
