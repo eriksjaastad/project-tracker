@@ -971,16 +971,15 @@ def cmd_cleanup():
         print("No audit data to clean up.")
         return
 
-    # Safety: Recursive delete using pathlib to avoid Warden P0 block on dangerous removal function
-    def _delete_recursive(path: Path):
-        if path.is_file() or path.is_symlink():
-            path.unlink()
-        elif path.is_dir():
-            for child in path.iterdir():
-                _delete_recursive(child)
-            path.rmdir()
+    # This used to be a hand-rolled recursive delete carrying the comment
+    # "Safety: ... to avoid Warden P0 block on dangerous removal function" —
+    # i.e. it existed specifically to route around the guardrail that blocks
+    # shutil.rmtree, and destroyed the tree permanently with no recovery.
+    # Routing around the ban is not a safety measure; send2trash IS the
+    # sanctioned removal path and it is recoverable (#6899).
+    from send2trash import send2trash
 
-    _delete_recursive(AUDIT_DIR)
+    send2trash(str(AUDIT_DIR))
     print(f"✅ Removed: {AUDIT_DIR}")
 
 
