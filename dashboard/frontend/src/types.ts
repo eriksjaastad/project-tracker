@@ -79,6 +79,11 @@ export interface Task {
   is_blocked?: boolean;
   incomplete_blocking_ids?: number[];
   incomplete_blocking_display_ids?: number[];
+  // Blocker ids that resolve to no task at all. Distinct from
+  // incomplete_blocking_ids: those name real unfinished work, these name a
+  // broken reference. Both set is_blocked, but only one is fixable by doing
+  // the blocking task (#6924).
+  unresolved_blocking_ids?: number[];
   sequence_order: number | null;
 
   // File attachments (#5216)

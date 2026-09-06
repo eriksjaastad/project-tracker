@@ -135,6 +135,16 @@
   border: 1px solid rgba(255, 107, 107, 0.2);
 }
 
+/* A blocker reference that resolves to nothing. Deliberately a different hue
+   from the normal blocked badge: waiting on real work is routine, a dangling
+   reference is a data bug that no amount of finishing tasks will clear. */
+.task-card-blocked-badge-broken {
+  color: var(--warning, #d68910);
+  background: rgba(214, 137, 16, 0.12);
+  border: 1px solid rgba(214, 137, 16, 0.3);
+  border-style: dashed;
+}
+
 .task-card-parent-badge {
   font-size: 0.75rem;
   color: var(--muted);
