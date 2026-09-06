@@ -2533,7 +2533,24 @@ async def delete_attachment(task_id: int, attachment_id: int):
         # User-uploaded content goes to the Trash, recoverable. A misclick in
         # the UI should not destroy a file outright (#6905, #6899).
         from send2trash import send2trash
-        send2trash(str(file_path))
+        try:
+            send2trash(str(file_path))
+        except OSError as exc:
+            # The DB row is already gone and committed by this point, so raising
+            # here would 500 the request while leaving the file orphaned on disk
+            # and invisible to the UI — losing track of it rather than losing it.
+            # Report the deletion that did happen and name the file loudly enough
+            # that it can be reclaimed by hand.
+            logger.error(
+                "Attachment row %s deleted but its file could not be trashed; "
+                "orphaned on disk at %s: %s",
+                attachment_id, file_path, exc,
+            )
+            return {
+                "deleted": True,
+                "attachment_id": attachment_id,
+                "file_orphaned": str(file_path),
+            }
     return {"deleted": True, "attachment_id": attachment_id}
 
 
