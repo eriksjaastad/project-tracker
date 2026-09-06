@@ -52,7 +52,7 @@ scanner in this change.
 ## Validation and rollout
 
 - Backend: `python -m pytest tests/test_github_cache.py tests/test_github_api.py tests/test_cost_panel.py tests/test_dashboard_health.py tests/test_dashboard_navigation.py -q` — 72 passed using the existing project virtual environment.
-- Frontend: `npm test` — 21 passed; `npm run lint` and `npm run build` passed.
+- Frontend: `npm test` — 22 passed; `npm run lint` and `npm run build` passed.
 - Chromium against an isolated server, actual new GitHub route with an
   eight-second simulated collector, and captured real cost responses: initial
   panels 0.102 s, six fetching clocks, navigation HTTP 200 in 0.013 s while

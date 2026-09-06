@@ -27,6 +27,13 @@ describe('API activity', () => {
     expect(screen.queryByText(/No calls recorded/)).not.toBeInTheDocument();
   });
 
+  it('marks malformed prices as incomplete instead of coercing them into money', () => {
+    for (const value of [' ', true, false, [], {}]) {
+      const result = summarizeActivity([{ ...row, estimated_cost_usd: value as unknown as string }], '2026-09-06');
+      expect(result[0]).toMatchObject({ unpriced: true, cost: 0 });
+    }
+  });
+
   it('moves the default day forward across local midnight', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-06T23:59:30'));
