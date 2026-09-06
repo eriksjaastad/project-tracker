@@ -2530,7 +2530,10 @@ async def delete_attachment(task_id: int, attachment_id: int):
         raise HTTPException(status_code=404, detail="Attachment not found")
     file_path = DatabaseManager._attachments_dir(task_id, create=False) / record["stored_name"]
     if file_path.exists():
-        file_path.unlink()
+        # User-uploaded content goes to the Trash, recoverable. A misclick in
+        # the UI should not destroy a file outright (#6905, #6899).
+        from send2trash import send2trash
+        send2trash(str(file_path))
     return {"deleted": True, "attachment_id": attachment_id}
 
 
