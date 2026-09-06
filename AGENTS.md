@@ -1,3 +1,6 @@
+<!-- GENERATED FROM: ~/projects/project-tracker/CLAUDE.md -->
+<!-- DO NOT EDIT DIRECTLY. Edit CLAUDE.md and re-run ~/.claude/scripts/sync-claude-md-to-agents-md.sh -->
+
 # CLAUDE.md - project-tracker
 
 **What this is:** project-tracker is the `pt` CLI, Kanban board, and dashboard that every other project in `~/projects` depends on for task coordination, agent memory, and cross-project messaging. If this project breaks, every other agent loses its work queue and its shared memory surface. "Broken" means: `pt` exits non-zero on common commands, the Kanban DB loses rows, or the dashboard stops loading. Treat data loss here as portfolio-wide damage, not a local bug.
