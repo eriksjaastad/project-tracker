@@ -276,10 +276,27 @@ def _render_alert_rows(alerts: list) -> str:
 
 
 def _esc(s: str) -> str:
-    """Minimal HTML escape for user-supplied card text."""
+    """Escape user-supplied text for an HTML TEXT NODE.
+
+    Handles `& < >` only. That is sufficient between tags and NOT sufficient
+    inside an attribute value, where an unescaped quote closes the attribute
+    early: `<a title="{_esc(x)}">` with x = `" onmouseover=alert(1) "` breaks
+    out. Every current caller interpolates into element content, but there are
+    now a dozen of them and the next person adding a `style=` or `href=` will
+    reach for the nearest-looking helper. Use `_esc_attr` there (#6881).
+    """
     return (
         str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     )
+
+
+def _esc_attr(s: str) -> str:
+    """Escape user-supplied text for an HTML ATTRIBUTE VALUE.
+
+    Everything `_esc` does, plus both quote characters, so the value cannot
+    terminate the attribute it sits in.
+    """
+    return _esc(s).replace('"', "&quot;").replace("'", "&#x27;")
 
 
 def _days_since(iso: str | None) -> int | None:
