@@ -1292,12 +1292,18 @@ class DatabaseManager:
         self,
         project_id: Optional[str] = None,
         status: Optional[str] = None,
+        include_archived: bool = False,
     ) -> List[Dict[str, Any]]:
         """Get tasks with optional filtering.
 
         Args:
             project_id: Filter by project ID (optional)
             status: Filter by status (optional)
+            include_archived: Include tasks with a non-NULL archived_at.
+                Archived tasks are Done cards past the per-project display
+                cap — they still exist and are never deleted, they are just
+                hidden from the board by default. Pass True for backups,
+                exports, and any count that must match a delete operation.
 
         Returns:
             List of task dictionaries
@@ -1307,6 +1313,9 @@ class DatabaseManager:
 
             query = "SELECT * FROM tasks WHERE 1=1"
             params = []
+
+            if not include_archived:
+                query += " AND archived_at IS NULL"
 
             if project_id:
                 query += " AND project_id = ?"
@@ -1523,7 +1532,14 @@ class DatabaseManager:
                         # Clear completed_at if moving away from Done
                         fields.append("completed_at = ?")
                         values.append(None)
-                    
+                        # Un-archive too. archived_at is only meaningful for
+                        # Done cards — it's a display cap on finished work.
+                        # A reopened card that kept the flag would sit in an
+                        # active status and still be filtered out of every
+                        # default board query, i.e. vanish entirely (#6870).
+                        fields.append("archived_at = ?")
+                        values.append(None)
+
                     values.append(task_id)
                     
                     query = f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?"
@@ -1821,8 +1837,57 @@ class DatabaseManager:
                 cursor.execute("UPDATE _delete_permissions SET enabled = 0 WHERE id = 1")
                 conn.commit()
 
+    def archive_done_tasks(self, keep_per_project: int = 25) -> int:
+        """Hide older Done cards from the board without deleting anything.
+
+        Sets `archived_at` on Done cards beyond the newest `keep_per_project`
+        **per project** (ordered by COALESCE(completed_at, updated_at) DESC).
+        Cards that are already archived don't count against the cap — the cap
+        is on what the board shows, not on what exists.
+
+        This never deletes a row and never touches `status` or `completed_at`.
+        It replaces the old portfolio-wide `trim_done_tasks` hard delete, which
+        let a burst of completions in one project evict another project's
+        history (1,288 Done cards were destroyed that way; #6870).
+
+        Returns:
+            Number of tasks newly archived
+        """
+        if keep_per_project < 0:
+            raise ValueError("keep_per_project must be >= 0")
+
+        archived_at = datetime.now(timezone.utc).isoformat()
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE tasks
+                SET archived_at = ?
+                WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id, ROW_NUMBER() OVER (
+                            PARTITION BY project_id
+                            ORDER BY COALESCE(completed_at, updated_at) DESC, id DESC
+                        ) AS rn
+                        FROM tasks
+                        WHERE status = 'Done' AND archived_at IS NULL
+                    )
+                    WHERE rn > ?
+                )
+                """,
+                (archived_at, keep_per_project),
+            )
+            archived = cursor.rowcount
+            conn.commit()
+            return archived
+
     def trim_done_tasks(self, keep: int = 75) -> int:
         """Delete oldest Done tasks beyond the retention cap.
+
+        DEPRECATED — destructive, and portfolio-wide rather than per-project.
+        Nothing calls this automatically any more; `pt tasks done` uses
+        `archive_done_tasks()` instead (#6870). Retained only so existing
+        callers/tests keep working.
 
         Keeps the most recent `keep` Done tasks (by completed_at/updated_at),
         deletes the rest. Runs backup before deletion.

@@ -1183,9 +1183,9 @@ def remove_project(project):
         console.print(f"[red]Project '{project}' not found in database.[/red]")
         return
 
-    # Show what will be deleted
+    # Show what will be deleted — archived cards are deleted too, so count them
     project_id = target["id"]
-    tasks = db.get_tasks(project_id=project_id)
+    tasks = db.get_tasks(project_id=project_id, include_archived=True)
     cron_jobs = db.get_cron_jobs(project_id)
     agents = db.get_ai_agents(project_id)
 
@@ -1360,7 +1360,8 @@ def retire_project(project, execute, keep_files, yes):
     project_name = target["name"]
     project_path = Path(target.get("path") or "")
 
-    tasks = db.get_tasks(project_id=project_id)
+    # Retirement removes every task, archived ones included — count them all.
+    tasks = db.get_tasks(project_id=project_id, include_archived=True)
     cron_jobs = db.get_cron_jobs(project_id)
     agents = db.get_ai_agents(project_id)
 
@@ -1556,7 +1557,8 @@ def backup_restore(backup_file: Path, yes: bool):
 @click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
 @click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)")
 @click.option("--proposals", is_flag=True, help="Show only proposal tasks")
-def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready, proposals):
+@click.option("--archived", is_flag=True, help="Show only archived Done cards (hidden from the board, never deleted)")
+def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready, proposals, archived):
     """Manage Kanban board tasks.
 
     \b
@@ -1565,6 +1567,7 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
         ./pt tasks -p project-tracker    # Tasks for a specific project
         ./pt tasks -s "In Progress"      # Filter by status
         ./pt tasks --all                 # Include completed tasks
+        ./pt tasks --archived            # Show archived Done cards
         ./pt tasks --proposals           # Show only proposals
         ./pt tasks create "Fix bug" -p myproject
 
@@ -1582,8 +1585,12 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
         if project_id:
             detected = db.get_project(project_id)
             project_label = detected["name"] if detected else None
-    task_list = db.get_tasks(project_id=project_id, status=status)
-    if proposals:
+    task_list = db.get_tasks(project_id=project_id, status=status, include_archived=archived)
+    if archived:
+        # --archived is a retention view: only the Done cards the per-project
+        # display cap has hidden. They still exist and are never deleted.
+        task_list = [t for t in task_list if t.get("archived_at")]
+    elif proposals:
         task_list = [t for t in task_list if t.get("task_type") == "proposal"]
     else:
         # Hide proposals from default listing unless --all is used
@@ -1607,7 +1614,8 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
 @click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
 @click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts")
 @click.option("--proposals", is_flag=True, help="Show only proposal tasks")
-def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready, proposals):
+@click.option("--archived", is_flag=True, help="Show only archived Done cards (hidden from the board, never deleted)")
+def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
     """List tasks from the Kanban board."""
     db = DatabaseManager()
     if project:
@@ -1621,8 +1629,12 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
         if project_id:
             detected = db.get_project(project_id)
             project_label = detected["name"] if detected else None
-    task_list = db.get_tasks(project_id=project_id, status=status)
-    if proposals:
+    task_list = db.get_tasks(project_id=project_id, status=status, include_archived=archived)
+    if archived:
+        # --archived is a retention view: only the Done cards the per-project
+        # display cap has hidden. They still exist and are never deleted.
+        task_list = [t for t in task_list if t.get("archived_at")]
+    elif proposals:
         task_list = [t for t in task_list if t.get("task_type") == "proposal"]
     else:
         if not show_all:
@@ -1818,10 +1830,12 @@ def tasks_done(task_ids):
             print(f"Failed to complete task #{task_id}: {e}")
     if len(task_ids) > 1: print(f"\nCompleted {success_count}/{len(task_ids)} tasks")
     if success_count > 0:
-        # Trim Done column to keep it manageable
-        trimmed = db.trim_done_tasks(keep=75)
-        if trimmed > 0:
-            print(f"Trimmed {trimmed} oldest Done task(s) (keeping 75 most recent)")
+        # Keep the Done column short by HIDING older cards, never deleting them.
+        # Per-project so a burst of completions in one project can't evict
+        # another project's history (#6870).
+        archived = db.archive_done_tasks(keep_per_project=25)
+        if archived > 0:
+            print(f"Archived {archived} older Done card(s) (keeping 25 most recent per project)")
         print("💡 Tip: Run /compound in Claude Code to journal what you learned")
 
 
@@ -2085,7 +2099,8 @@ def tasks_export(output):
     import json as json_lib
     from datetime import datetime, timezone
     db = DatabaseManager()
-    all_tasks = db.get_tasks()
+    # A backup that silently drops archived cards isn't a backup.
+    all_tasks = db.get_tasks(include_archived=True)
     export_data = {"exported_at": datetime.now(timezone.utc).isoformat(), "total_count": len(all_tasks), "tasks": all_tasks}
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2124,7 +2139,9 @@ def tasks_clear_done(project, yes):
     project_id = _resolve_project_id(db, project) if project else None
     if project and not project_id:
         console.print(f"[red]Project '{project}' not found[/red]"); return
-    done_tasks = db.get_tasks(project_id=project_id, status="Done")
+    # delete_done_tasks() deletes every Done row, archived included — so the
+    # count shown in the confirmation prompt has to include them too.
+    done_tasks = db.get_tasks(project_id=project_id, status="Done", include_archived=True)
     count = len(done_tasks)
     if count == 0: console.print("[dim]No Done tasks to delete[/dim]"); return
     if not yes:
@@ -4452,6 +4469,22 @@ def db_migrate():
     # only transaction boundaries. Without this, Python's sqlite3
     # auto-inserts a BEGIN before DML and we'd have nested transactions.
     conn = sqlite3.connect(db_path, isolation_level=None)
+    # Load cr-sqlite so the runner's crsql_begin_alter/crsql_commit_alter
+    # bracketing actually fires for migrations that declare CRR_TABLES.
+    # Without it the runner probes crsql_db_version(), finds nothing, and
+    # silently skips the bracket — which is correct only until a table has
+    # been through crsql_as_crr(). apply_migration() refuses in that case,
+    # so a missing dylib surfaces as a clear error rather than a bad alter.
+    try:
+        from db.pt_id import _find_crsqlite_dylib
+        _dylib = _find_crsqlite_dylib()
+        if _dylib:
+            conn.enable_load_extension(True)
+            conn.load_extension(str(_dylib), entrypoint="sqlite3_crsqlite_init")
+            conn.enable_load_extension(False)
+    except Exception as crsql_err:
+        console.print(f"[yellow]cr-sqlite not loaded for migration: {crsql_err}[/yellow]")
+
     try:
         applied = apply_all(conn, migrations_dir)
     finally:
