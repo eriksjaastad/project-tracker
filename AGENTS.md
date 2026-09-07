@@ -85,6 +85,45 @@ This repo runs **self-contained** through Doppler. There is no `.env`, no export
 
 **Deploy target:** local only. `agent-chat/` deploys to Cloud Run, but project-tracker itself — CLI, DB, dashboard — runs on the machine it lives on.
 
+### Deploying agent-chat
+
+`agent-chat/` is the one part of this repo that runs somewhere else: Cloud Run
+service `agent-chat`, project `synth-insight-labs`, region `us-central1`.
+
+```
+make deploy-chat-status   # which git SHA is live right now
+make deploy-chat          # build + deploy, WITHOUT promoting traffic
+```
+
+**Check the live version before and after every deploy.** A working Dockerfile
+sat here for five months with nothing referencing it — the image was built by
+hand once and the command was never written down, so production silently drifted
+five months behind `main` and four server commits never shipped, including the
+fix for a DM-loss incident. `make deploy-chat-status` exists so that is one
+command to notice instead of forensic archaeology against response shapes.
+
+`make deploy-chat` deploys with `--no-traffic --tag next`, so the new revision
+is live at a tagged URL but serves nobody. Smoke-test it, then promote:
+
+```
+gcloud run services update-traffic agent-chat --to-latest \
+  --region us-central1 --project synth-insight-labs
+```
+
+Roll back the same way with `--to-revisions=<previous>=100`. Cloud Run revisions
+are immutable and retained, so rollback is seconds and needs no rebuild — which
+is why this is a Makefile target and not a CI pipeline.
+
+**Requires a one-time interactive `gcloud auth login`** with deploy rights on
+`synth-insight-labs`. That is Erik's to run; no agent should. gcloud auth on this
+machine expires often, which is exactly why "what is live?" must be answerable
+by `curl /health` rather than by `gcloud run revisions list`.
+
+Server secrets come from Doppler project `agent-chat`, config `prd`
+(`AGENT_CHAT_API_KEY`, `AGENT_CHAT_DATABASE_URL`). The client side deliberately
+does **not**: `~/.claude/agent-chat.env` supplies each machine's identity. Don't
+merge the two — the server's secrets are shared, the identity is per-machine.
+
 ## Database Safety — CRITICAL
 
 On 2026-01-27, an agent dropped the tasks table without backup, destroying 94 tasks. The rule below exists because of that incident. Do not skip the gate.

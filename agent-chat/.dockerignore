@@ -1,0 +1,20 @@
+# The Dockerfile does `COPY . .`, and `gcloud run deploy --source .` uploads
+# the build context regardless of .gitignore. Without this file, local dev
+# databases and bytecode get baked into the deployed image.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local dev database — never belongs in a deployed image.
+chat_dev.db
+*.db
+
+.venv/
+venv/
+.env
+.DS_Store
+
+# Client-side and docs: the image only needs server/ and its requirements.
+IDEAS.md
+install-hooks.sh
