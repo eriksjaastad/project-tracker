@@ -16,7 +16,7 @@ echo "=== Doc Audit Daily Run: $(date) ===" >> "$LOG_FILE"
 cd "$PROJECT_DIR"
 
 # Activate virtual environment
-source venv/bin/activate
+source .venv/bin/activate
 
 # 1. Rebuild atlas to catch any new/changed documents
 echo "[$(date +%H:%M:%S)] Rebuilding Semantic Atlas..." >> "$LOG_FILE"

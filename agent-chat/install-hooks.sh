@@ -26,7 +26,7 @@ if [[ ! -f "$SETTINGS" ]]; then
     exit 1
 fi
 
-PYTHON="$REPO_ROOT/venv/bin/python"
+PYTHON="$REPO_ROOT/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="$(command -v python3)"
 
 "$PYTHON" - "$SETTINGS" "$SESSION_HOOK" "$CHECK_HOOK" "$CHECK_ONLY" <<'PY'
