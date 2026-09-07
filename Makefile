@@ -53,7 +53,8 @@ PORT ?= 8000
 
 .PHONY: help test test-fast dashboard dashboard-restart dashboard-stop \
         dashboard-health digest digest-dry backup backup-status \
-        turso-sync turso-sync-dry doppler-check
+        turso-sync turso-sync-dry doppler-check \
+        deploy-chat deploy-chat-status
 
 help:  ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -102,3 +103,41 @@ turso-sync:  ## Dump Turso → local tracker.db (backs up the existing local DB 
 
 doppler-check:  ## Verify Doppler auth by listing secret NAMES (never values).
 	doppler secrets --project project-tracker --config dev --only-names
+
+# --- agent-chat (the only part of this repo that is not local-only) -----------
+# Cloud Run service `agent-chat` in project synth-insight-labs, us-central1.
+# A working Dockerfile existed for five months with nothing referencing it; the
+# image was built by hand once and the command was never written down, so
+# production silently drifted five months behind main. These two targets exist
+# so that never happens unnoticed again.
+#
+# Requires a one-time interactive `gcloud auth login` as an account with deploy
+# rights. No agent should run that.
+#
+# --update-env-vars MERGES. Never --set-env-vars, which replaces the service's
+# entire env and would silently strip anything not present in Doppler.
+# --add-cloudsql-instances is required: AGENT_CHAT_DATABASE_URL is a Cloud SQL
+# unix socket, and without the flag the container cannot reach the database.
+# --no-traffic --tag next deploys without promoting, so the new revision can be
+# smoke-tested at its tagged URL before it serves anyone. Note that this
+# isolates TRAFFIC, not the DATABASE: server/app.py calls db.init_db() at import
+# time, so the new container touches the live production Postgres on boot even
+# at 0% traffic. That is safe here -- every statement is additive and idempotent
+# (CREATE TABLE / ADD COLUMN / CREATE INDEX IF NOT EXISTS) -- but it is not
+# nothing, so do not treat --no-traffic as a dry run. Promote with:
+#   gcloud run services update-traffic agent-chat --to-latest \
+#     --region us-central1 --project synth-insight-labs
+# Roll back the same way with --to-revisions=<previous>=100; Cloud Run revisions
+# are immutable and retained, so rollback needs no rebuild.
+deploy-chat:  ## Build + deploy agent-chat to Cloud Run, untagged (promote separately).
+	cd agent-chat && doppler run --project agent-chat --config prd -- \
+	  gcloud run deploy agent-chat --source . \
+	    --project synth-insight-labs --region us-central1 \
+	    --add-cloudsql-instances synth-insight-labs:us-central1:synth-insight-labs-pg \
+	    --update-env-vars "AGENT_CHAT_VERSION=$$(git rev-parse --short HEAD)" \
+	    --allow-unauthenticated --max-instances 3 \
+	    --no-traffic --tag next
+
+deploy-chat-status:  ## Show which git SHA the live agent-chat is actually running.
+	@curl -sS --max-time 10 https://agent-chat-2z5wcdmnga-uc.a.run.app/health \
+	  | ./scripts/agent_chat_status.py

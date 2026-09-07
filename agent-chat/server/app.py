@@ -48,7 +48,17 @@ def before_request():
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "ts": datetime.now().isoformat()})
+    # `version` is the git SHA the running image was built from, injected at
+    # deploy time. gcloud auth on the deploying machine expires constantly, so
+    # "which revision is actually live?" has to be answerable with a plain
+    # curl -- otherwise the only way to find out is forensics against response
+    # shapes, which is how this service sat 5 months stale without anyone
+    # noticing. "unknown" means the deploy did not set AGENT_CHAT_VERSION.
+    return jsonify({
+        "status": "ok",
+        "ts": datetime.now().isoformat(),
+        "version": os.environ.get("AGENT_CHAT_VERSION", "unknown"),
+    })
 
 
 @app.route("/send", methods=["POST"])
