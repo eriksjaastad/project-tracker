@@ -54,10 +54,17 @@ def health():
     # curl -- otherwise the only way to find out is forensics against response
     # shapes, which is how this service sat 5 months stale without anyone
     # noticing. "unknown" means the deploy did not set AGENT_CHAT_VERSION.
+    #
+    # `backend` exists for the same reason: a durable-storage failure is
+    # invisible from outside, because the service answers 200 on ephemeral
+    # SQLite exactly as it does on Postgres. Seeing "sqlite" in production
+    # means messages are being written to a container filesystem that will
+    # take them with it. Kind only -- never the URL or credentials.
     return jsonify({
         "status": "ok",
         "ts": datetime.now().isoformat(),
         "version": os.environ.get("AGENT_CHAT_VERSION", "unknown"),
+        "backend": db.describe_backend(),
     })
 
 
