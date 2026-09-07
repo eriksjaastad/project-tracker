@@ -116,8 +116,4 @@ deploy-chat:  ## Build + deploy agent-chat to Cloud Run, untagged (promote separ
 
 deploy-chat-status:  ## Show which git SHA the live agent-chat is actually running.
 	@curl -sS --max-time 10 https://agent-chat-2z5wcdmnga-uc.a.run.app/health \
-	  | $(HOME)/.local/bin/uv run --no-project --python 3.13 python -c \
-	    "import json,sys; raw=sys.stdin.read().strip();\
-	     d=(json.loads(raw) if raw.startswith('{') else None);\
-	     print('live version:', d.get('version','unknown'), '| status:', d.get('status'), '| ts:', d.get('ts')) if d else \
-	     print('agent-chat UNREACHABLE or returned non-JSON:', (raw[:200] or '<empty response>'))"
+	  | ./scripts/agent_chat_status.py
