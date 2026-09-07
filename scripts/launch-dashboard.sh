@@ -97,6 +97,11 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$BREW_PREFIX/bin:$PATH"
 HOST="${PT_DASHBOARD_HOST:-127.0.0.1}"
 PORT="${PT_DASHBOARD_PORT:-8000}"
 
+# Name the interpreter explicitly. `uv run --project` resolved to .venv/ while
+# `make` resolved to venv/, and the two drifted across a Starlette major version
+# without anything noticing (#6999). Spelling the path out means the thing that
+# serves traffic and the thing `make test` runs are visibly the same file, and a
+# missing .venv fails loudly here instead of being silently created at boot.
 exec doppler run -- \
-  uv run --project "$PROJECT_DIR" \
-  uvicorn dashboard.app:app --host "$HOST" --port "$PORT"
+  "$PROJECT_DIR/.venv/bin/python" -m uvicorn \
+  dashboard.app:app --host "$HOST" --port "$PORT"

@@ -39,7 +39,7 @@ When you start a task whose text begins with `[Card Factory]`, run `/validate-ca
 
 The dashboard server (uvicorn on port 8000) is yours to manage. Restart it whenever you need to — after code changes, after a crash, whenever. No need to ask Erik.
 
-Standard restart: `pkill -f "uvicorn dashboard.app" && sleep 1 && doppler run -- $HOME/projects/project-tracker/venv/bin/python -m uvicorn dashboard.app:app --host 127.0.0.1 --port 8000 &` (bind stays on loopback — admin endpoints require loopback unless `PT_ALLOW_REMOTE_ADMIN=1`)
+Standard restart: `pkill -f "uvicorn dashboard.app" && sleep 1 && doppler run -- $HOME/projects/project-tracker/.venv/bin/python -m uvicorn dashboard.app:app --host 127.0.0.1 --port 8000 &` (bind stays on loopback — admin endpoints require loopback unless `PT_ALLOW_REMOTE_ADMIN=1`)
 
 Verify it's up: `curl -s http://localhost:8000/api/health` or check `lsof -i :8000`.
 
