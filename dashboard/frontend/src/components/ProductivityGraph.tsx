@@ -73,7 +73,7 @@ export function ProductivityGraph() {
         setError(err instanceof Error ? err.message : 'Failed to load history');
         console.error('Failed to load task history:', err);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
 

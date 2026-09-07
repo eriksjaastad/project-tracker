@@ -3,11 +3,13 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import { TaskForm } from './TaskForm';
 
-vi.mock('../api', () => ({
+vi.mock('../api', async (importOriginal) => ({
+  // Spread the real module so isAbortError is the REAL implementation --
+  // a hand-copied literal here would not notice if api.ts changed.
+  ...(await importOriginal<typeof import('../api')>()),
   fetchProjects: vi.fn(),
   fetchTasks: vi.fn(),
   fetchTaskPolicy: vi.fn(),
-  isAbortError: (error: unknown) => error instanceof Error && error.name === 'AbortError',
 }));
 
 import { fetchProjects, fetchTaskPolicy, fetchTasks } from '../api';

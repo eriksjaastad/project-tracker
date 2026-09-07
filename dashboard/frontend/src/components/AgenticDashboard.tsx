@@ -99,7 +99,7 @@ export function AgenticDashboard() {
         setError(err instanceof Error ? err.message : 'Failed to load agentic summary');
         console.error('Failed to load agentic summary:', err);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
     loadSummary();
@@ -120,7 +120,7 @@ export function AgenticDashboard() {
         }
         console.error('Failed to load tool stats:', err);
       } finally {
-        setToolStatsLoading(false);
+        if (!controller.signal.aborted) setToolStatsLoading(false);
       }
     }
     loadToolStats();
@@ -141,7 +141,7 @@ export function AgenticDashboard() {
         }
         console.error('Failed to load bash stats:', err);
       } finally {
-        setBashStatsLoading(false);
+        if (!controller.signal.aborted) setBashStatsLoading(false);
       }
     }
     loadBashStats();

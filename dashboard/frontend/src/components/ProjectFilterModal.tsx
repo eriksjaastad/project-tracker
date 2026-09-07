@@ -59,7 +59,7 @@ export function ProjectFilterModal({
         const message = err instanceof Error ? err.message : 'Failed to load projects';
         setError(message);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
 

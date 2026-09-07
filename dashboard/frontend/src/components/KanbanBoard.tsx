@@ -66,7 +66,7 @@ export function KanbanBoard() {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load tasks';
       showNotification(errorMessage, 'error');
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [project, showNotification]);
 
