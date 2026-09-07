@@ -103,7 +103,11 @@ fix for a DM-loss incident. `make deploy-chat-status` exists so that is one
 command to notice instead of forensic archaeology against response shapes.
 
 `make deploy-chat` deploys with `--no-traffic --tag next`, so the new revision
-is live at a tagged URL but serves nobody. Smoke-test it, then promote:
+is live at a tagged URL but serves nobody. That isolates **traffic, not the
+database** — `server/app.py` calls `db.init_db()` at import time, so the new
+container touches the live production Postgres on boot even at 0% traffic. The
+statements are additive and idempotent, so this is safe, but `--no-traffic` is
+not a dry run. Smoke-test it, then promote:
 
 ```
 gcloud run services update-traffic agent-chat --to-latest \
