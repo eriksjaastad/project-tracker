@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { isAbortError } from '../api';
 import { Spinner } from './Spinner';
 
 export type SortOrder = 'alphabetical' | 'task-count';
@@ -75,16 +76,20 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
 
   // Fetch projects from API
   useEffect(() => {
+    const controller = new AbortController();
     const fetchProjects = async () => {
       setLoading(true);
       try {
-        const response = await fetch('/api/projects');
+        const response = await fetch('/api/projects', { signal: controller.signal });
         if (!response.ok) {
           throw new Error(`Failed to fetch projects: ${response.statusText}`);
         }
         const data = await response.json();
         setProjects(data.projects || []);
       } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
         console.error('Error fetching projects:', error);
         // Keep initial projects if fetch fails
       } finally {
@@ -93,17 +98,19 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
     };
 
     fetchProjects();
+    return () => controller.abort();
   }, []);
 
   // Fetch task counts for each project
   useEffect(() => {
+    const controller = new AbortController();
     const fetchTaskCounts = async () => {
       const counts: Record<string, number> = {};
 
       // Fetch tasks for each project in parallel
       const promises = projects.map(async (project) => {
         try {
-          const response = await fetch(`/api/tasks?project_id=${encodeURIComponent(project.id)}`);
+          const response = await fetch(`/api/tasks?project_id=${encodeURIComponent(project.id)}`, { signal: controller.signal });
           if (response.ok) {
             const data = await response.json();
             counts[project.id] = data.total || 0;
@@ -111,18 +118,24 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
             counts[project.id] = 0;
           }
         } catch (error) {
+          if (isAbortError(error)) {
+            return;
+          }
           console.error(`Error fetching task count for ${project.id}:`, error);
           counts[project.id] = 0;
         }
       });
 
       await Promise.all(promises);
-      setTaskCounts(counts);
+      if (!controller.signal.aborted) {
+        setTaskCounts(counts);
+      }
     };
 
     if (projects.length > 0) {
       fetchTaskCounts();
     }
+    return () => controller.abort();
   }, [projects]);
 
   // Sort projects based on current sort order
