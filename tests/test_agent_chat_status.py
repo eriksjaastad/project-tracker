@@ -77,3 +77,23 @@ def test_empty_object_is_not_mislabelled_as_unreachable():
 
 def test_output_is_truncated_so_a_huge_body_cannot_flood_the_terminal():
     assert len(describe("x" * 100_000)) < 400
+
+
+def test_truncated_multibyte_bytes_do_not_crash_the_script():
+    """The stdin decode, not just describe(), must survive truncation.
+
+    describe() takes an already-decoded str, so the ASCII truncation test above
+    never exercises the byte path. A response cut mid-transfer by --max-time can
+    end inside a multi-byte UTF-8 character, and a strict decode would raise
+    before describe() is ever called -- tracebacking in precisely the case this
+    script exists to report on.
+    """
+    import subprocess
+
+    truncated = b'{"status": "ok", "ver\xe2\x82'  # euro sign, cut one byte short
+    result = subprocess.run(
+        [str(_SCRIPT)], input=truncated, capture_output=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+    assert b"Traceback" not in result.stderr
+    assert b"non-JSON" in result.stdout
