@@ -41,7 +41,13 @@ def describe(raw: str) -> str:
 
 
 def main() -> int:
-    print(describe(sys.stdin.read()))
+    # Read bytes and decode leniently rather than sys.stdin.read(). A response
+    # cut mid-transfer by --max-time can end inside a multi-byte UTF-8
+    # character, and strict decoding raises UnicodeDecodeError *before*
+    # describe() ever sees the text -- which would traceback in exactly the
+    # truncation case this script exists to report on.
+    raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
+    print(describe(raw))
     return 0
 
 
