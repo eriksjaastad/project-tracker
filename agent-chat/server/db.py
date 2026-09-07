@@ -56,12 +56,55 @@ CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages(reply_to);
 """
 
 
+class DatabaseConfigError(RuntimeError):
+    """No durable database is configured and nobody opted into the local one.
+
+    Raised instead of quietly falling back to an on-disk SQLite file. In Cloud
+    Run that file lives on an ephemeral container filesystem, so the fallback
+    produced a service that starts, passes /health, accepts writes and returns
+    200s while every message vanishes with the container. The symptom is the
+    ABSENCE of messages, which is invisible by construction -- agents simply
+    stop receiving DMs and nothing reports why.
+    """
+
+
 def _get_database_url() -> Optional[str]:
     return os.environ.get("AGENT_CHAT_DATABASE_URL")
 
 
 def _use_postgres() -> bool:
     return HAS_PSYCOPG2 and _get_database_url() is not None
+
+
+def _sqlite_fallback_allowed() -> bool:
+    """True only for an affirmative opt-in.
+
+    Deliberately not `bool(os.environ.get(...))`: treating any non-empty value
+    as consent would make `AGENT_CHAT_ALLOW_SQLITE=0` mean yes, which is the
+    kind of guard that reads as protection and isn't one.
+    """
+    return os.environ.get("AGENT_CHAT_ALLOW_SQLITE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def describe_backend() -> str:
+    """Which store this process is actually using: 'postgres' or 'sqlite'.
+
+    Surfaced on /health for the same reason `version` is: a durable-storage
+    failure here is invisible from the outside, because the service answers
+    200 either way. Reports the kind only -- never the URL or credentials.
+    """
+    return "postgres" if _use_postgres() else "sqlite"
+
+
+def _fallback_sqlite_path() -> str:
+    """Path of the local dev database. Separate function so tests can redirect it."""
+    from pathlib import Path
+
+    return str(Path(__file__).parent.parent / "chat_dev.db")
 
 
 @contextmanager
@@ -82,8 +125,28 @@ def get_connection(sqlite_path: Optional[str] = None):
         finally:
             conn.close()
     else:
-        from pathlib import Path
-        db_path = str(Path(__file__).parent.parent / "chat_dev.db")
+        url = _get_database_url()
+        if url is not None and not HAS_PSYCOPG2:
+            # A configured URL we cannot honour is a broken image, not a reason
+            # to downgrade storage. This was the nastier half of the bug: the
+            # URL was right there and the old code ignored it.
+            raise DatabaseConfigError(
+                "AGENT_CHAT_DATABASE_URL is set but psycopg2 is not importable, so the "
+                "Postgres backend cannot be used. Refusing to fall back to a local "
+                "SQLite file, which is ephemeral in Cloud Run and would silently drop "
+                "every message. Install psycopg2-binary in the image."
+            )
+        if url is None and not _sqlite_fallback_allowed():
+            raise DatabaseConfigError(
+                "AGENT_CHAT_DATABASE_URL is not set. Refusing to fall back to a local "
+                "SQLite file: in Cloud Run that filesystem is ephemeral, so the service "
+                "would start, pass /health, accept writes and return 200s while every "
+                "message vanished with the container. "
+                "Set AGENT_CHAT_DATABASE_URL (Doppler project 'agent-chat', config "
+                "'prd'), or set AGENT_CHAT_ALLOW_SQLITE=1 to deliberately use the local "
+                "development database."
+            )
+        db_path = _fallback_sqlite_path()
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")

@@ -133,8 +133,39 @@ trim_ends() {
 # No API key = skip
 [[ -n "$API_KEY" ]] || exit 0
 
-# Throttle: only check every 30 seconds
-THROTTLE_FILE="$HOME/.claude/chat_throttle"
+# Resolve WHICH cursor this poll owns, before throttling, but touch no disk yet.
+#
+# #6952 keyed the cursor by address, which stopped sessions of DIFFERENT projects
+# stealing each other's mail. It did not help two sessions of the SAME project:
+# both resolved to chat_cursor.project-tracker, so whichever polled first
+# consumed the message and advanced the shared cursor, and the others polled
+# past it and never saw it. The message was never lost server-side -- it was
+# just never emitted into the other sessions' context, which is worse, because
+# nothing reports it. Erik routinely runs several sessions per project on one
+# laptop, so a DM to 'project-tracker' went to whichever session happened to
+# poll first, effectively at random (#6994).
+#
+# Deleting the message on read would be the wrong fix: it makes the race silent
+# instead of removing it.
+ADDRESS_CURSOR_FILE=""
+if [[ -n "$SENDER" ]]; then
+    CURSOR_KEY="$(cursor_slug "$SENDER")"
+    ADDRESS_CURSOR_FILE="$HOME/.claude/chat_cursor.$CURSOR_KEY"
+    # Sessions that predate identity binding have no SESSION_ID; they keep the
+    # per-address cursor rather than silently sharing a new one.
+    if [[ -n "$SESSION_ID" ]]; then
+        CURSOR_KEY="$CURSOR_KEY.$SESSION_ID"
+    fi
+    CURSOR_FILE="$HOME/.claude/chat_cursor.$CURSOR_KEY"
+else
+    CURSOR_KEY="global"
+    CURSOR_FILE="$LEGACY_CURSOR_FILE"
+fi
+
+# Throttle per cursor, not per machine. A single $HOME/.claude/chat_throttle
+# meant one session's poll suppressed every other session on the box for 30s,
+# which widened the race above rather than being merely wasteful.
+THROTTLE_FILE="$HOME/.claude/chat_throttle.$CURSOR_KEY"
 if [[ -f "$THROTTLE_FILE" ]]; then
     last_check=$(cat "$THROTTLE_FILE")
     now=$(date +%s)
@@ -144,10 +175,20 @@ if [[ -f "$THROTTLE_FILE" ]]; then
 fi
 date +%s > "$THROTTLE_FILE.tmp" && mv "$THROTTLE_FILE.tmp" "$THROTTLE_FILE"
 
-# Resolve this address's cursor. Deferred until after the key check and the
-# throttle so a skipped poll leaves no trace on disk.
+# Seeding happens only after the throttle, so a skipped poll still leaves no
+# trace on disk -- the property the original ordering was protecting.
 if [[ -n "$SENDER" ]]; then
-    CURSOR_FILE="$HOME/.claude/chat_cursor.$(cursor_slug "$SENDER")"
+    # Seed a new per-session cursor from this address's cursor, so a new session
+    # starts where the address left off instead of replaying the whole board.
+    if [[ -n "$SESSION_ID" && ! -f "$CURSOR_FILE" && -s "$ADDRESS_CURSOR_FILE" ]]; then
+        addr_seed=""
+        IFS= read -r addr_seed < "$ADDRESS_CURSOR_FILE" 2>/dev/null || true
+        addr_seed="$(trim_ends "$addr_seed")"
+        if looks_like_cursor "$addr_seed"; then
+            { printf '%s\n' "$addr_seed" > "$CURSOR_FILE.tmp" \
+                && mv "$CURSOR_FILE.tmp" "$CURSOR_FILE"; } 2>/dev/null || true
+        fi
+    fi
     # One-time migration off the shared cursor. Without the seed the first
     # per-address poll would carry no `since` and replay the whole board into
     # this session's context. Only a legacy file that is non-empty AND holds a
@@ -162,11 +203,10 @@ if [[ -n "$SENDER" ]]; then
                 && mv "$CURSOR_FILE.tmp" "$CURSOR_FILE"; } 2>/dev/null || true
         fi
     fi
-else
-    # No address means no `?for=` filter, so the legacy global cursor still
-    # describes exactly what was fetched.
-    CURSOR_FILE="$LEGACY_CURSOR_FILE"
 fi
+# The no-SENDER case needs no seeding: CURSOR_FILE is already $LEGACY_CURSOR_FILE
+# (set above), and with no address there is no `?for=` filter, so the legacy
+# global cursor still describes exactly what was fetched.
 
 # Read last cursor
 since=""
