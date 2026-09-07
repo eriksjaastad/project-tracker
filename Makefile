@@ -21,7 +21,16 @@
 #
 # PYTHON resolves to the repo venv, and finds it from a git worktree too.
 #
-# A worktree has no venv/ of its own, so a bare `venv/bin/python` simply did
+# It must be `.venv/`, not `venv/`. This repo runs on uv, and `uv run --project`
+# (which scripts/launch-dashboard.sh uses to serve the dashboard) creates and
+# uses `.venv/` by convention. `make` pointing at `venv/` meant the test suite
+# and production were two different interpreters -- they drifted across a
+# STARLETTE MAJOR VERSION (0.41 vs 1.0.0) before anyone noticed, so 883 green
+# tests were measured against a framework production was not running (#6999).
+# Whatever else changes here, the interpreter make uses and the interpreter
+# uv resolves must stay the same one.
+#
+# A worktree has no .venv/ of its own, so a bare `.venv/bin/python` simply did
 # not exist there and every target failed on sight. The override was
 # documented, but three separate agents still tripped over it in one day --
 # and worktrees are the sanctioned way to do risky work (editing
@@ -41,11 +50,11 @@
 # with no error. Shell quoting handles spaces; Make's word functions cannot.
 # Every use site quotes "$(PYTHON)" for the same reason.
 PYTHON ?= $(shell \
-	if [ -x venv/bin/python ]; then printf '%s' venv/bin/python; \
+	if [ -x .venv/bin/python ]; then printf '%s' .venv/bin/python; \
 	else \
 	  common=$$(git rev-parse --git-common-dir 2>/dev/null) && \
 	  root=$$(cd "$$common/.." 2>/dev/null && pwd) && \
-	  [ -x "$$root/venv/bin/python" ] && printf '%s' "$$root/venv/bin/python" \
+	  [ -x "$$root/.venv/bin/python" ] && printf '%s' "$$root/.venv/bin/python" \
 	  || printf '%s' python3; \
 	fi)
 HOST ?= 127.0.0.1
