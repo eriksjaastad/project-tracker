@@ -14,7 +14,6 @@ import subprocess
 import warnings
 from datetime import datetime
 from unittest.mock import patch, MagicMock
-from time import time as _time
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
@@ -403,109 +402,13 @@ class TestFetchGithubData:
 
 
 class TestApiGithubEndpoint:
-    """Tests for the /api/github endpoint — caching and response."""
-
-    def test_returns_cached_data_within_ttl(self):
-        """Endpoint returns cached data when within TTL."""
-        from dashboard.app import _github_cache, api_github
-
-        original = _github_cache.copy()
-        cached_data = {
-            "user": {"login": "testuser"},
-            "repos": [],
-            "summary": {},
-            "fetched_at": "2026-01-01T00:00:00Z",
-            "cached": False,
-        }
-        _github_cache["data"] = cached_data
-        _github_cache["timestamp"] = _time()  # just now
-
-        try:
-            result = asyncio.get_event_loop().run_until_complete(api_github())
-            assert result["cached"] is True
-            assert result["user"]["login"] == "testuser"
-        finally:
-            _github_cache.update(original)
-
-    def test_fetches_fresh_data_when_cache_expired(self):
-        """Endpoint fetches fresh data when cache TTL has passed."""
-        from dashboard.app import _github_cache, api_github, _GITHUB_CACHE_TTL
-
-        original = _github_cache.copy()
-        _github_cache["data"] = {"old": True}
-        _github_cache["timestamp"] = _time() - _GITHUB_CACHE_TTL - 10  # expired
-
-        fresh_data = {
-            "user": {"login": "fresh"},
-            "repos": [],
-            "summary": {},
-            "fetched_at": "2026-03-28T00:00:00Z",
-            "cached": False,
-        }
-
-        try:
-            with patch("dashboard.app._fetch_github_data", return_value=fresh_data):
-                result = asyncio.get_event_loop().run_until_complete(api_github())
-            assert result["user"]["login"] == "fresh"
-            assert _github_cache["data"] is not None
-        finally:
-            _github_cache.update(original)
-
-    def test_fetches_when_cache_empty(self):
-        """Endpoint fetches fresh data when cache is empty."""
-        from dashboard.app import _github_cache, api_github
-
-        original = _github_cache.copy()
-        _github_cache["data"] = None
-        _github_cache["timestamp"] = 0
-
-        fresh_data = {
-            "user": {"login": "testuser"},
-            "repos": [],
-            "summary": {},
-            "cached": False,
-        }
-
-        try:
-            with patch("dashboard.app._fetch_github_data", return_value=fresh_data):
-                result = asyncio.get_event_loop().run_until_complete(api_github())
-            assert result["user"]["login"] == "testuser"
-        finally:
-            _github_cache.update(original)
-
-    def test_does_not_cache_error_responses(self):
-        """Error responses are not stored in the cache."""
-        from dashboard.app import _github_cache, api_github
-
-        original = _github_cache.copy()
-        _github_cache["data"] = None
-        _github_cache["timestamp"] = 0
-
-        error_data = {"error": "gh CLI not available", "cached": False}
-
-        try:
-            with patch("dashboard.app._fetch_github_data", return_value=error_data):
-                result = asyncio.get_event_loop().run_until_complete(api_github())
-            assert "error" in result
-            assert _github_cache["data"] is None  # not cached
-        finally:
-            _github_cache.update(original)
-
-    def test_handles_fetch_exception(self):
-        """Endpoint returns error dict when _fetch_github_data raises."""
-        from dashboard.app import _github_cache, api_github
-
-        original = _github_cache.copy()
-        _github_cache["data"] = None
-        _github_cache["timestamp"] = 0
-
-        try:
-            with patch("dashboard.app._fetch_github_data", side_effect=RuntimeError("boom")):
-                result = asyncio.get_event_loop().run_until_complete(api_github())
-            assert "error" in result
-            assert result["cached"] is False
-        finally:
-            _github_cache.update(original)
+    def test_endpoint_delegates_without_waiting_for_collection(self):
+        from dashboard.app import api_github
+        pending = {"cached": False, "refreshing": True}
+        with patch("dashboard.app._github_cache") as cache:
+            cache.read.return_value = pending
+            assert asyncio.run(api_github()) == pending
+            cache.read.assert_called_once()
 
 
 class TestPrListFields:

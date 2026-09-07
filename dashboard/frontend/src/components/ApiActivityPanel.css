@@ -1,0 +1,8 @@
+.api-activity-header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.api-activity-header input { color-scheme: dark; margin-left: 0.5rem; }
+.api-activity p, .api-activity-status { font-size: 0.85rem; color: var(--text-secondary, #888); }
+.api-activity [role="alert"] { color: var(--warning, #eab308); }
+.api-activity-scroll { overflow-x: auto; margin-top: 1rem; }
+.api-activity table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.api-activity th, .api-activity td { padding: 0.75rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border-color, #333); }
+.api-activity small { display: block; color: var(--text-secondary, #888); margin-top: 0.25rem; }

@@ -1,12 +1,13 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardPage } from './DashboardPage';
 
 // Panels that fetch on their own — not under test here.
-vi.mock('./CostPanel', () => ({ CostPanel: () => null }));
+vi.mock('./CostPanel', () => ({ CostPanel: () => <div>Independent costs</div> }));
 vi.mock('./ShadowPricingPanel', () => ({ ShadowPricingPanel: () => null }));
+vi.mock('./ApiActivityPanel', () => ({ ApiActivityPanel: () => null }));
 
 const BASE = {
   user: { login: 'testuser', name: 'Test', avatar_url: '', public_repos: 1, private_repos: 0 },
@@ -40,18 +41,69 @@ function renderPage() {
   return render(<MemoryRouter><DashboardPage /></MemoryRouter>);
 }
 
+describe('DashboardPage — independent loading', () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  it('renders costs and clocks before the GitHub request resolves', () => {
+    const fetcher = vi.fn().mockReturnValue(new Promise(() => {}));
+    vi.stubGlobal('fetch', fetcher);
+    const view = renderPage();
+    expect(screen.getByText('Independent costs')).toBeInTheDocument();
+    expect(screen.getAllByText('Fetching GitHub…').length).toBeGreaterThan(1);
+    expect(screen.queryByText('Repos')).not.toBeInTheDocument();
+    const signal = fetcher.mock.calls[0][1].signal;
+    view.unmount();
+    expect(signal.aborted).toBe(true);
+  });
+
+  it('polls a cold response and replaces clocks with the completed snapshot', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ refreshing: true }) })
+      .mockResolvedValue({ ok: true, json: async () => BASE });
+    vi.stubGlobal('fetch', fetcher);
+    await act(async () => { renderPage(); });
+    expect(screen.getAllByText('Fetching GitHub…').length).toBeGreaterThan(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(screen.getByText('Repos')).toBeInTheDocument();
+    expect(screen.queryByText('Fetching GitHub…')).not.toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps cached results during refresh and after a failure', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ...BASE, refreshing: true, stale: true }) })
+      .mockResolvedValue({ ok: true, json: async () => ({ ...BASE, stale: true, refresh_error: 'GitHub refresh failed.' }) });
+    vi.stubGlobal('fetch', fetcher);
+    await act(async () => { renderPage(); });
+    expect(screen.getByText('Repos')).toBeInTheDocument();
+    expect(screen.getAllByText('Fetching GitHub…').length).toBeGreaterThan(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(screen.getByText('Repos')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Showing the last available results');
+    expect(screen.getByText('Independent costs')).toBeInTheDocument();
+  });
+
+  it('keeps independent panels available when GitHub returns an HTTP error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.getByText('Independent costs')).toBeInTheDocument();
+    expect(screen.queryByText('Repos')).not.toBeInTheDocument();
+  });
+});
+
 describe('DashboardPage — repos not visible on GitHub', () => {
   beforeEach(() => vi.resetAllMocks());
   afterEach(() => vi.unstubAllGlobals());
 
-  it('shows the not-on-GitHub count so lost access cannot be silent', async () => {
-    // GitHub returns the same answer for "absent" and "you cannot see this",
-    // so a lost `repo` scope surfaces here rather than as a failed fetch.
+  it('omits the unhelpful missing-repository count', async () => {
     mockApi({ ...BASE, summary: { ...BASE.summary, repos_not_on_github: 35 } });
     renderPage();
-
-    await waitFor(() => expect(screen.getByText('Not on GitHub')).toBeInTheDocument());
-    expect(screen.getByText('35')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Repos')).toBeInTheDocument());
+    expect(screen.queryByText('Not on GitHub')).not.toBeInTheDocument();
+    expect(screen.queryByText('35')).not.toBeInTheDocument();
   });
 
   it('hides the card when every tracked repo was found', async () => {
