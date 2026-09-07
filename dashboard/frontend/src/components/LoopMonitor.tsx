@@ -36,24 +36,32 @@ export function LoopMonitor({ refreshInterval = 60000 }: LoopMonitorProps) {
             }
             setError(err instanceof Error ? err.message : 'Unknown error');
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) setLoading(false);
         }
     };
 
     useEffect(() => {
-        // Each tick gets its own controller so aborting the *previous*
-        // in-flight request (unmount, interval change) never cancels the
-        // next poll — only ever the one it was created for.
-        let controller = new AbortController();
-        const run = () => {
-            controller = new AbortController();
-            fetchLoopStatus(controller.signal);
+        // Each tick gets its own controller, and every one is held until it
+        // settles. Keeping only the latest would orphan any earlier request
+        // still in flight when the next tick starts: cleanup could no longer
+        // abort it, and it would setState after unmount — the exact bug this
+        // card exists to close.
+        const inFlight = new Set<AbortController>();
+        const run = async () => {
+            const controller = new AbortController();
+            inFlight.add(controller);
+            try {
+                await fetchLoopStatus(controller.signal);
+            } finally {
+                inFlight.delete(controller);
+            }
         };
-        run();
-        const interval = setInterval(run, refreshInterval);
+        void run();
+        const interval = setInterval(() => void run(), refreshInterval);
         return () => {
             clearInterval(interval);
-            controller.abort();
+            inFlight.forEach(controller => controller.abort());
+            inFlight.clear();
         };
     }, [refreshInterval]);
 

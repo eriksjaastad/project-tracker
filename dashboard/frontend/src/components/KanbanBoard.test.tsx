@@ -4,13 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { KanbanBoard } from './KanbanBoard';
 
-vi.mock('../api', () => ({
+vi.mock('../api', async (importOriginal) => ({
+  // Spread the real module so isAbortError is the REAL implementation --
+  // a hand-copied literal here would not notice if api.ts changed.
+  ...(await importOriginal<typeof import('../api')>()),
   fetchTasks: vi.fn(),
   fetchProjects: vi.fn(),
   updateTask: vi.fn(),
   createTask: vi.fn(),
   deleteTask: vi.fn(),
-  isAbortError: (error: unknown) => error instanceof Error && error.name === 'AbortError',
 }));
 
 vi.mock('./Column', () => ({ Column: () => <div data-testid="column" /> }));
