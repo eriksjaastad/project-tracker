@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isAbortError } from '../api';
 import './ShadowPricingPanel.css';
 
 interface ModelEntry {
@@ -40,7 +41,8 @@ export function ShadowPricingPanel() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/shadow-pricing')
+    const controller = new AbortController();
+    fetch('/api/shadow-pricing', { signal: controller.signal })
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -51,9 +53,14 @@ export function ShadowPricingPanel() {
         setLoading(false);
       })
       .catch(err => {
+        if (isAbortError(err)) {
+          return;
+        }
         setError(err.message);
         setLoading(false);
       });
+
+    return () => controller.abort();
   }, []);
 
   if (loading) {

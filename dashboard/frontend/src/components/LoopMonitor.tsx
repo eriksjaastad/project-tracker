@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isAbortError } from '../api';
 import './LoopMonitor.css';
 
 interface LoopStatus {
@@ -22,24 +23,46 @@ export function LoopMonitor({ refreshInterval = 60000 }: LoopMonitorProps) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const fetchLoopStatus = async () => {
+    const fetchLoopStatus = async (signal?: AbortSignal) => {
         try {
-            const response = await fetch('/api/loops');
+            const response = await fetch('/api/loops', { signal });
             if (!response.ok) throw new Error('Failed to fetch loop status');
             const data = await response.json();
             setLoops(data.loops);
             setError(null);
         } catch (err) {
+            if (isAbortError(err)) {
+                return;
+            }
             setError(err instanceof Error ? err.message : 'Unknown error');
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) setLoading(false);
         }
     };
 
     useEffect(() => {
-        fetchLoopStatus();
-        const interval = setInterval(fetchLoopStatus, refreshInterval);
-        return () => clearInterval(interval);
+        // Each tick gets its own controller, and every one is held until it
+        // settles. Keeping only the latest would orphan any earlier request
+        // still in flight when the next tick starts: cleanup could no longer
+        // abort it, and it would setState after unmount — the exact bug this
+        // card exists to close.
+        const inFlight = new Set<AbortController>();
+        const run = async () => {
+            const controller = new AbortController();
+            inFlight.add(controller);
+            try {
+                await fetchLoopStatus(controller.signal);
+            } finally {
+                inFlight.delete(controller);
+            }
+        };
+        void run();
+        const interval = setInterval(() => void run(), refreshInterval);
+        return () => {
+            clearInterval(interval);
+            inFlight.forEach(controller => controller.abort());
+            inFlight.clear();
+        };
     }, [refreshInterval]);
 
     if (loading) {
@@ -85,7 +108,7 @@ export function LoopMonitor({ refreshInterval = 60000 }: LoopMonitorProps) {
         <div className="loop-monitor">
             <div className="loop-monitor-header">
                 <h2>🤖 Autonomous Loops</h2>
-                <button onClick={fetchLoopStatus} className="refresh-button" title="Refresh">
+                <button onClick={() => fetchLoopStatus()} className="refresh-button" title="Refresh">
                     ↻
                 </button>
             </div>

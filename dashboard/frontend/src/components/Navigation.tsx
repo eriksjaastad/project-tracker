@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { fetchNavigation } from '../api';
+import { fetchNavigation, isAbortError } from '../api';
 import type { NavigationItem, NavigationResponse } from '../types';
 import './Navigation.css';
 
@@ -23,15 +23,16 @@ export function Navigation() {
   const [navigation, setNavigation] = useState<NavigationResponse>(() => getInitialNavigation());
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
 
     async function loadNavigation() {
       try {
-        const data = await fetchNavigation();
-        if (!cancelled) {
-          setNavigation(data);
-        }
+        const data = await fetchNavigation(controller.signal);
+        setNavigation(data);
       } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
         console.error('Failed to load navigation metadata:', error);
       }
     }
@@ -39,7 +40,7 @@ export function Navigation() {
     loadNavigation();
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, []);
 
