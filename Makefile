@@ -60,14 +60,51 @@ PYTHON ?= $(shell \
 HOST ?= 127.0.0.1
 PORT ?= 8000
 
+FRONTEND ?= dashboard/frontend
+
 .PHONY: help test test-fast dashboard dashboard-restart dashboard-stop \
         dashboard-health digest digest-dry backup backup-status \
         turso-sync turso-sync-dry doppler-check \
-        deploy-chat deploy-chat-status
+        deploy-chat deploy-chat-status \
+        frontend-deps test-frontend lint-frontend build-frontend
 
 help:  ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 	  awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+# The frontend has the same worktree problem PYTHON has, for a different reason.
+# A git worktree gets no $(FRONTEND)/node_modules, so `npm run test` dies with
+# "sh: vitest: command not found". Pointing at the main checkout's binary does not
+# help either: Node resolves packages relative to the config file, so vite.config.ts
+# then fails with ERR_MODULE_NOT_FOUND 'vitest'. A symlink is the only thing that
+# actually works, and until this target existed every agent had to rediscover that
+# for themselves -- a tax on worktrees, which are the sanctioned way to do
+# concurrent work here. Same argument that justified the PYTHON block above (#6992).
+#
+# node_modules is gitignored, so the symlink never shows up in git status.
+frontend-deps:  ## Ensure the frontend's node_modules resolves (symlinks it in a worktree).
+	@if [ -e "$(FRONTEND)/node_modules" ]; then \
+	  exit 0; \
+	fi; \
+	common=$$(git rev-parse --git-common-dir 2>/dev/null); \
+	root=$$(cd "$$common/.." 2>/dev/null && pwd); \
+	if [ -n "$$root" ] && [ -d "$$root/$(FRONTEND)/node_modules" ]; then \
+	  ln -s "$$root/$(FRONTEND)/node_modules" "$(FRONTEND)/node_modules" && \
+	  echo "linked $(FRONTEND)/node_modules -> $$root/$(FRONTEND)/node_modules"; \
+	else \
+	  echo "No node_modules in this checkout or the main one." >&2; \
+	  echo "Run: cd $(FRONTEND) && npm install" >&2; \
+	  exit 1; \
+	fi
+
+test-frontend: frontend-deps  ## Frontend unit tests (vitest). Works from a worktree.
+	cd "$(FRONTEND)" && npm run test
+
+lint-frontend: frontend-deps  ## Frontend lint (eslint). Works from a worktree.
+	cd "$(FRONTEND)" && npm run lint
+
+build-frontend: frontend-deps  ## Frontend typecheck + build (tsc -b && vite build).
+	cd "$(FRONTEND)" && npm run build
 
 test:  ## Full pytest suite (no secrets needed — tests run offline).
 	"$(PYTHON)" -m pytest tests/ -q
