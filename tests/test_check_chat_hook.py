@@ -48,6 +48,7 @@ def run_hook(
     machine_file=None,
     home=None,
     clear_throttle=True,
+    session="sess",
 ):
     """Execute check_chat.sh against a stubbed API response.
 
@@ -65,8 +66,10 @@ def run_hook(
     home = Path(home)
     (home / ".claude").mkdir(parents=True, exist_ok=True)
     if clear_throttle:
-        throttle = home / ".claude" / "chat_throttle"
-        if throttle.exists():
+        # The throttle is per-cursor since #6994 (chat_throttle.<addr>.<session>),
+        # so clearing the single legacy path is no longer enough — a second poll
+        # would be silently suppressed and the test would see an empty URL.
+        for throttle in (home / ".claude").glob("chat_throttle*"):
             throttle.unlink()
 
     rundir = Path(tempfile.mkdtemp(dir=tmp_path))
@@ -97,9 +100,12 @@ def run_hook(
     if identity is not None:
         state = rundir / "identity"
         state.mkdir(exist_ok=True)
-        (state / "sess.txt").write_text(identity)
+        (state / f"{session}.txt").write_text(identity)
         env["AGENT_CHAT_STATE_DIR"] = str(state)
-        env["CLAUDE_CODE_SESSION_ID"] = "sess"
+        # `session` distinguishes two sessions of the SAME project on one box —
+        # the case #6994 is about. Defaults to "sess" so existing tests are
+        # unaffected.
+        env["CLAUDE_CODE_SESSION_ID"] = session
     if machine is not None:
         env["AGENT_CHAT_MACHINE"] = machine
 
@@ -319,8 +325,8 @@ class TestPerAddressCursor:
         assert "since=" not in beta.url
         assert "for-beta" in beta
 
-        assert cursors(home) == ["chat_cursor.alpha", "chat_cursor.beta"]
-        alpha_file = home / ".claude" / "chat_cursor.alpha"
+        assert cursors(home) == ["chat_cursor.alpha.sess", "chat_cursor.beta.sess"]
+        alpha_file = home / ".claude" / "chat_cursor.alpha.sess"
         assert alpha_file.read_text().strip() == "2026-08-30T00:00:20Z"
 
     def test_an_address_does_advance_its_own_cursor(self, tmp_path):
@@ -346,7 +352,7 @@ class TestPerAddressCursor:
             identity="alpha", home=home,
         )
         assert "since=2026-08-30T17%3A36%3A50" in run.url
-        assert (home / ".claude" / "chat_cursor.alpha").exists()
+        assert (home / ".claude" / "chat_cursor.alpha.sess").exists()
 
     def test_the_legacy_cursor_seeds_only_once(self, tmp_path):
         """After the first poll the per-address file owns the position.
@@ -380,7 +386,7 @@ class TestPerAddressCursor:
             identity="project-tracker@laptop", home=home,
         )
         assert "x" in run
-        assert cursors(home) == ["chat_cursor.project-tracker%40laptop"]
+        assert cursors(home) == ["chat_cursor.project-tracker%40laptop.sess"]
 
     def test_distinct_addresses_cannot_collide(self, tmp_path):
         """Folding unsafe characters to `_` re-creates this card's own bug.
@@ -403,8 +409,8 @@ class TestPerAddressCursor:
         assert "since=" not in second.url
         assert "under" in second
 
-        assert cursors(home) == ["chat_cursor.a%2Fb", "chat_cursor.a_b"]
-        assert (home / ".claude" / "chat_cursor.a%2Fb").read_text().strip() == (
+        assert cursors(home) == ["chat_cursor.a%2Fb.sess", "chat_cursor.a_b.sess"]
+        assert (home / ".claude" / "chat_cursor.a%2Fb.sess").read_text().strip() == (
             "2026-08-30T00:00:32Z"
         )
 
@@ -499,7 +505,7 @@ class TestPerAddressCursor:
         assert "since=" not in run.url
         assert "not-a-timestamp" not in run.url
         # The poll's own result still lands, so the address is not stuck.
-        assert (home / ".claude" / "chat_cursor.corrupt").read_text().strip() == (
+        assert (home / ".claude" / "chat_cursor.corrupt.sess").read_text().strip() == (
             "2026-08-30T00:00:34Z"
         )
 
@@ -513,8 +519,55 @@ class TestPerAddressCursor:
         written = cursors(home)
         assert len(written) == 1
         assert "/" not in written[0] and ".." not in written[0]
-        # The only file anywhere named for that address is the one inside .claude.
-        assert list(tmp_path.rglob("*pwned*")) == [home / ".claude" / written[0]]
+        # Since #6994 the throttle is keyed by the same slug, so it is a second
+        # address-derived filename and gets the same guarantee. Every file
+        # anywhere named for that address must sit directly inside .claude with
+        # the separators escaped — nothing may traverse out.
+        escaped = sorted(tmp_path.rglob("*pwned*"))
+        assert escaped, "expected the address-derived files to exist"
+        for path in escaped:
+            assert path.parent == home / ".claude", f"{path} escaped ~/.claude"
+            assert "/" not in path.name and ".." not in path.name
+
+    def test_two_sessions_of_one_project_both_receive_the_same_dm(self, tmp_path):
+        """#6994's acceptance criterion, and the reason the cursor is per-session.
+
+        #6952 stopped DIFFERENT projects stealing each other's mail. Two sessions
+        of the SAME project still shared chat_cursor.<address>, so the first to
+        poll consumed the message and advanced the shared cursor and the rest
+        polled past it. The message was never lost on the server -- it was just
+        never emitted into the other sessions, which is worse, because nothing
+        reports it.
+        """
+        home = tmp_path / "shared-home"
+        dm = [msg(40, "ai-memory", "project-tracker", "for-both")]
+
+        first = run_hook(tmp_path, dm, identity="project-tracker",
+                         home=home, session="sess-a")
+        second = run_hook(tmp_path, dm, identity="project-tracker",
+                          home=home, session="sess-b")
+
+        assert "for-both" in first
+        assert "for-both" in second, "second session was starved by the shared cursor"
+        assert cursors(home) == [
+            "chat_cursor.project-tracker.sess-a",
+            "chat_cursor.project-tracker.sess-b",
+        ]
+
+    def test_one_sessions_throttle_does_not_suppress_another(self, tmp_path):
+        """The throttle was machine-global, so one poll muted the whole box for 30s.
+
+        That did not merely waste a poll -- it widened the window in which the
+        shared cursor could be advanced by somebody else.
+        """
+        home = tmp_path / "shared-home"
+        run_hook(tmp_path, [msg(41, "ai-memory", "project-tracker", "a")],
+                 identity="project-tracker", home=home, session="sess-a")
+        # Do NOT clear throttles: sess-b must be unaffected by sess-a's poll.
+        out = run_hook(tmp_path, [msg(42, "ai-memory", "project-tracker", "b")],
+                       identity="project-tracker", home=home, session="sess-b",
+                       clear_throttle=False)
+        assert "b" in out, "sess-b was throttled by sess-a's poll"
 
     def test_a_session_with_no_address_keeps_the_global_cursor(self, tmp_path):
         """No address means no `for=` filter, so the global cursor still fits."""
