@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Project } from '../types';
-import { fetchProjects } from '../api';
+import { fetchProjects, isAbortError } from '../api';
 import './ProjectFilterModal.css';
 
 interface ProjectFilterModalProps {
@@ -45,31 +45,28 @@ export function ProjectFilterModal({
       return;
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
 
     async function loadProjects() {
       try {
-        const data = await fetchProjects();
-        if (!cancelled) {
-          setProjects(data || []);
-          setError(null);
-        }
+        const data = await fetchProjects(controller.signal);
+        setProjects(data || []);
+        setError(null);
       } catch (err) {
-        if (!cancelled) {
-          const message = err instanceof Error ? err.message : 'Failed to load projects';
-          setError(message);
+        if (isAbortError(err)) {
+          return;
         }
+        const message = err instanceof Error ? err.message : 'Failed to load projects';
+        setError(message);
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
 
     void loadProjects();
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [isOpen]);
 

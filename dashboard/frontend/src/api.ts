@@ -24,6 +24,16 @@ export interface TaskPolicyResponse {
 }
 
 /**
+ * True when `error` is the rejection a `fetch()` produces when its request
+ * was cancelled via `AbortController.abort()`. Callers use this to swallow
+ * the cancellation quietly (it isn't a real failure) while letting every
+ * other error follow the normal error-handling path.
+ */
+export function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+/**
  * Enhanced fetch with error handling and retry logic.
  */
 async function fetchWithErrorHandling(
@@ -43,7 +53,10 @@ async function fetchWithErrorHandling(
 
       return response;
     } catch (error) {
-      if (attempt === retries - 1) {
+      // An aborted request (unmount, filter toggle, etc.) will never
+      // succeed on retry — rethrow immediately instead of burning the
+      // backoff schedule on a request that's already dead.
+      if (isAbortError(error) || attempt === retries - 1) {
         throw error;
       }
       await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
@@ -53,7 +66,7 @@ async function fetchWithErrorHandling(
   throw new Error('Failed to fetch after retries');
 }
 
-export async function fetchTasks(projectId?: string, status?: TaskStatus): Promise<Task[]> {
+export async function fetchTasks(projectId?: string, status?: TaskStatus, signal?: AbortSignal): Promise<Task[]> {
   const params = new URLSearchParams();
   if (projectId) params.append('project_id', projectId);
   if (status) params.append('status', status);
@@ -61,7 +74,7 @@ export async function fetchTasks(projectId?: string, status?: TaskStatus): Promi
   const url = `${API_BASE}/tasks${params.toString() ? '?' + params.toString() : ''}`;
 
   try {
-    const response = await fetchWithErrorHandling(url);
+    const response = await fetchWithErrorHandling(url, { signal });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -202,9 +215,9 @@ export async function deleteDoneTasks(projectId?: string): Promise<{ deleted: nu
   }
 }
 
-export async function fetchProjects(): Promise<Project[]> {
+export async function fetchProjects(signal?: AbortSignal): Promise<Project[]> {
   try {
-    const response = await fetchWithErrorHandling(`${API_BASE}/projects`);
+    const response = await fetchWithErrorHandling(`${API_BASE}/projects`, { signal });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -221,9 +234,9 @@ export async function fetchProjects(): Promise<Project[]> {
   }
 }
 
-export async function fetchTaskPolicy(): Promise<TaskPolicyResponse> {
+export async function fetchTaskPolicy(signal?: AbortSignal): Promise<TaskPolicyResponse> {
   try {
-    const response = await fetchWithErrorHandling(`${API_BASE}/task-policy`);
+    const response = await fetchWithErrorHandling(`${API_BASE}/task-policy`, { signal });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -239,9 +252,9 @@ export async function fetchTaskPolicy(): Promise<TaskPolicyResponse> {
   }
 }
 
-export async function fetchNavigation(): Promise<NavigationResponse> {
+export async function fetchNavigation(signal?: AbortSignal): Promise<NavigationResponse> {
   try {
-    const response = await fetchWithErrorHandling(`${API_BASE}/navigation`);
+    const response = await fetchWithErrorHandling(`${API_BASE}/navigation`, { signal });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -259,7 +272,7 @@ export async function fetchNavigation(): Promise<NavigationResponse> {
   }
 }
 
-export async function fetchTaskHistory(days: number = 30, projectId?: string): Promise<TaskHistoryResponse> {
+export async function fetchTaskHistory(days: number = 30, projectId?: string, signal?: AbortSignal): Promise<TaskHistoryResponse> {
   const params = new URLSearchParams();
   params.append('days', days.toString());
   if (projectId) params.append('project_id', projectId);
@@ -267,7 +280,7 @@ export async function fetchTaskHistory(days: number = 30, projectId?: string): P
   const url = `${API_BASE}/tasks/history?${params.toString()}`;
 
   try {
-    const response = await fetchWithErrorHandling(url);
+    const response = await fetchWithErrorHandling(url, { signal });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -283,7 +296,7 @@ export async function fetchTaskHistory(days: number = 30, projectId?: string): P
   }
 }
 
-export async function fetchAgenticSummary(days: number = 30, projectId?: string): Promise<AgenticSummaryResponse> {
+export async function fetchAgenticSummary(days: number = 30, projectId?: string, signal?: AbortSignal): Promise<AgenticSummaryResponse> {
   const params = new URLSearchParams();
   params.append('days', days.toString());
   if (projectId) params.append('project_id', projectId);
@@ -291,7 +304,7 @@ export async function fetchAgenticSummary(days: number = 30, projectId?: string)
   const url = `${API_BASE}/agentic/summary?${params.toString()}`;
 
   try {
-    const response = await fetchWithErrorHandling(url);
+    const response = await fetchWithErrorHandling(url, { signal });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -309,9 +322,9 @@ export async function fetchAgenticSummary(days: number = 30, projectId?: string)
 
 // ==================== TOOL STATS API (WebSearch tracking) ====================
 
-export async function fetchToolStats(days: number = 30, tool: string = 'WebSearch'): Promise<ToolStatsResponse> {
+export async function fetchToolStats(days: number = 30, tool: string = 'WebSearch', signal?: AbortSignal): Promise<ToolStatsResponse> {
   const params = new URLSearchParams({ days: days.toString(), tool });
-  const response = await fetchWithErrorHandling(`${API_BASE}/tool-stats?${params}`);
+  const response = await fetchWithErrorHandling(`${API_BASE}/tool-stats?${params}`, { signal });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || 'Failed to fetch tool stats');
@@ -319,9 +332,9 @@ export async function fetchToolStats(days: number = 30, tool: string = 'WebSearc
   return response.json();
 }
 
-export async function fetchBashStats(days: number = 30): Promise<BashStatsResponse> {
+export async function fetchBashStats(days: number = 30, signal?: AbortSignal): Promise<BashStatsResponse> {
   const params = new URLSearchParams({ days: days.toString() });
-  const response = await fetchWithErrorHandling(`${API_BASE}/bash-stats?${params}`);
+  const response = await fetchWithErrorHandling(`${API_BASE}/bash-stats?${params}`, { signal });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || 'Failed to fetch bash stats');
@@ -331,8 +344,8 @@ export async function fetchBashStats(days: number = 30): Promise<BashStatsRespon
 
 // ==================== AGENTIC MARKERS API (#5009) ====================
 
-export async function fetchMarkers(): Promise<AgenticMarker[]> {
-  const response = await fetchWithErrorHandling(`${API_BASE}/agentic/markers`);
+export async function fetchMarkers(signal?: AbortSignal): Promise<AgenticMarker[]> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/agentic/markers`, { signal });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || 'Failed to fetch markers');
@@ -386,9 +399,9 @@ export async function deleteMarker(id: string): Promise<void> {
 
 
 
-export async function fetchIdeas(): Promise<Idea[]> {
+export async function fetchIdeas(signal?: AbortSignal): Promise<Idea[]> {
   try {
-    const response = await fetchWithErrorHandling(`${API_BASE}/ideas`);
+    const response = await fetchWithErrorHandling(`${API_BASE}/ideas`, { signal });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -473,8 +486,8 @@ export async function deleteIdea(ideaId: number): Promise<void> {
 
 // ==================== ATTACHMENT API (#5216) ====================
 
-export async function fetchAttachments(taskId: number): Promise<Attachment[]> {
-  const response = await fetchWithErrorHandling(`${API_BASE}/tasks/${taskId}/attachments`);
+export async function fetchAttachments(taskId: number, signal?: AbortSignal): Promise<Attachment[]> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/tasks/${taskId}/attachments`, { signal });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || 'Failed to fetch attachments');
@@ -561,21 +574,21 @@ export async function fetchCalendarEvents(params: {
   machine?: string;
   event_type?: string;
   include_all?: boolean;
-} = {}): Promise<CalendarEvent[]> {
+} = {}, signal?: AbortSignal): Promise<CalendarEvent[]> {
   const q = new URLSearchParams();
   if (params.days) q.append('days', String(params.days));
   if (params.project_id) q.append('project_id', params.project_id);
   if (params.machine) q.append('machine', params.machine);
   if (params.event_type) q.append('event_type', params.event_type);
   if (params.include_all) q.append('include_all', 'true');
-  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events?${q}`);
+  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events?${q}`, { signal });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Failed to fetch calendar events');
   const data = await response.json();
   return data.events || [];
 }
 
-export async function fetchCalendarEvent(id: number): Promise<CalendarEvent> {
-  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events/${id}`);
+export async function fetchCalendarEvent(id: number, signal?: AbortSignal): Promise<CalendarEvent> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events/${id}`, { signal });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Not found');
   return response.json();
 }
@@ -595,11 +608,11 @@ export async function markCalendarEventDone(id: number): Promise<void> {
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Failed to mark done');
 }
 
-export async function fetchCalendarCrons(params: { project_id?: string; machine?: string } = {}): Promise<CalendarCronJob[]> {
+export async function fetchCalendarCrons(params: { project_id?: string; machine?: string } = {}, signal?: AbortSignal): Promise<CalendarCronJob[]> {
   const q = new URLSearchParams();
   if (params.project_id) q.append('project_id', params.project_id);
   if (params.machine) q.append('machine', params.machine);
-  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/crons?${q}`);
+  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/crons?${q}`, { signal });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Failed to fetch cron jobs');
   const data = await response.json();
   return data.cron_jobs || [];

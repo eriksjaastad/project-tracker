@@ -19,6 +19,7 @@ import {
   fetchProjects,
   fetchToolStats,
   fetchBashStats,
+  isAbortError,
 } from '../api';
 import type { AgenticMarker, AgenticSeriesEntry, AgenticSummaryResponse, BashStatsResponse, Project, ToolStatsResponse } from '../types';
 import { PageShell } from './PageShell';
@@ -62,66 +63,89 @@ export function AgenticDashboard() {
   const [editAgent, setEditAgent] = useState('');
 
   useEffect(() => {
+    const controller = new AbortController();
     async function load() {
       try {
-        const [projectData, markerData] = await Promise.all([fetchProjects(), fetchMarkers()]);
+        const [projectData, markerData] = await Promise.all([
+          fetchProjects(controller.signal),
+          fetchMarkers(controller.signal),
+        ]);
         setProjects(projectData.slice().sort((a, b) => a.name.localeCompare(b.name)));
         setMarkers(markerData);
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         console.error('Failed to load initial data:', err);
       }
     }
     load();
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
     async function loadSummary() {
       setLoading(true);
       setError(null);
       try {
         const days = timeRange === 'week' ? 7 : 30;
-        const data = await fetchAgenticSummary(days, selectedProject);
+        const data = await fetchAgenticSummary(days, selectedProject, controller.signal);
         setSummary(data);
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         setError(err instanceof Error ? err.message : 'Failed to load agentic summary');
         console.error('Failed to load agentic summary:', err);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
     loadSummary();
+    return () => controller.abort();
   }, [timeRange, selectedProject]);
 
   useEffect(() => {
+    const controller = new AbortController();
     async function loadToolStats() {
       setToolStatsLoading(true);
       try {
         const days = timeRange === 'week' ? 7 : 30;
-        const data = await fetchToolStats(days);
+        const data = await fetchToolStats(days, undefined, controller.signal);
         setToolStats(data);
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         console.error('Failed to load tool stats:', err);
       } finally {
-        setToolStatsLoading(false);
+        if (!controller.signal.aborted) setToolStatsLoading(false);
       }
     }
     loadToolStats();
+    return () => controller.abort();
   }, [timeRange]);
 
   useEffect(() => {
+    const controller = new AbortController();
     async function loadBashStats() {
       setBashStatsLoading(true);
       try {
         const days = timeRange === 'week' ? 7 : 30;
-        const data = await fetchBashStats(days);
+        const data = await fetchBashStats(days, controller.signal);
         setBashStats(data);
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         console.error('Failed to load bash stats:', err);
       } finally {
-        setBashStatsLoading(false);
+        if (!controller.signal.aborted) setBashStatsLoading(false);
       }
     }
     loadBashStats();
+    return () => controller.abort();
   }, [timeRange]);
 
   const projectChartData = useMemo(() => {

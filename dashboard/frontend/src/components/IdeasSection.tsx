@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Idea } from '../types';
-import { fetchIdeas, createIdea, updateIdea, deleteIdea } from '../api';
+import { fetchIdeas, createIdea, updateIdea, deleteIdea, isAbortError } from '../api';
 import { IdeaCard } from './IdeaCard';
 import './IdeasSection.css';
 
@@ -12,12 +12,15 @@ export function IdeasSection() {
     const [ideaText, setIdeaText] = useState('');
     const [error, setError] = useState<string | null>(null);
 
-    const loadIdeas = useCallback(async () => {
+    const loadIdeas = useCallback(async (signal?: AbortSignal) => {
         try {
             setLoading(true);
-            const fetchedIdeas = await fetchIdeas();
+            const fetchedIdeas = await fetchIdeas(signal);
             setIdeas(fetchedIdeas);
         } catch (err) {
+            if (isAbortError(err)) {
+                return;
+            }
             console.error('Failed to load ideas:', err);
             setError(err instanceof Error ? err.message : 'Failed to load ideas');
         } finally {
@@ -26,7 +29,9 @@ export function IdeasSection() {
     }, []);
 
     useEffect(() => {
-        loadIdeas();
+        const controller = new AbortController();
+        loadIdeas(controller.signal);
+        return () => controller.abort();
     }, [loadIdeas]);
 
     const handleCreate = async () => {
