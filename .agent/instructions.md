@@ -77,7 +77,7 @@ This section details the AI agents currently employed within the `project-tracke
 - [ ] Code review completed (if significant architectural changes).
 
 ## 🚀 Execution Commands
-- Environment: `source venv/bin/activate`
+- Environment: `source .venv/bin/activate`
 - Run Dashboard: `./pt launch`
 - CLI Scan: `./pt scan`
 - CLI List: `./pt list`

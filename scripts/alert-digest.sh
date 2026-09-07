@@ -16,4 +16,4 @@ BREW_PREFIX="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
 export PATH="$HOME/.local/bin:$BREW_PREFIX/bin:$PATH"
 
 exec doppler run --project synth-insight-labs --config prd -- \
-  "$PROJECT_DIR/venv/bin/python3" "$SCRIPT_DIR/alert_digest.py" "$@"
+  "$PROJECT_DIR/.venv/bin/python3" "$SCRIPT_DIR/alert_digest.py" "$@"

@@ -12,7 +12,7 @@
 cd ~/projects/project-tracker
 
 # Activate virtual environment
-source venv/bin/activate
+source .venv/bin/activate
 
 # Launch dashboard (this also performs an initial scan)
 ./pt launch
@@ -40,7 +40,7 @@ cd ~/projects/project-tracker
 
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate
+source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -52,7 +52,7 @@ pip install -r requirements.txt
 
 ```bash
 # Activate venv first
-source venv/bin/activate
+source .venv/bin/activate
 
 # Run all tests
 pytest tests/
