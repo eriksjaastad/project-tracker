@@ -1527,7 +1527,7 @@ async def get_open_brain_graph(request: Request):
         return JSONResponse({"error": "brain.db not found"}, status_code=404)
 
     try:
-        with sqlite3.connect(brain_db_path) as conn:
+        with closing(sqlite3.connect(brain_db_path)) as conn:
             conn.row_factory = sqlite3.Row
 
             nodes = [dict(r) for r in conn.execute(
