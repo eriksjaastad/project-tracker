@@ -1,38 +1,45 @@
 """Integration tests for memory graph API type filters against live data.
 
-# requires running dashboard
-# Start with: cd project-tracker && ./pt launch (or uvicorn dashboard.app:app)
+Runs the app in-process via TestClient. It used to require a dashboard already
+listening on localhost:8000, probed once at import time with a 3-second
+timeout -- so a single blip during collection silently turned all six of these
+into skips for the whole run, and a skip reads as benign. That happened: one
+run reported 7 skipped, the next 1, with the server up the entire time. These
+tests were contributing coverage only by luck, and never at all in CI, which
+has no server.
+
+The only genuine precondition is brain.db, which these tests read real data
+from. That is a stable fact about the filesystem rather than a race, so it is
+what gates them now -- and the skip reason names the actual path, so "did not
+run" is legible instead of misleading.
 
 Tests the /api/memory/types and /api/memory-graph endpoints to verify
 that the type filter values returned by the types API correspond to
 actual nodes in the graph data.
 """
 
+from pathlib import Path
+
 import pytest
-import httpx
+from fastapi.testclient import TestClient
 
-BASE_URL = "http://localhost:8000"
+from dashboard.app import app
 
+client = TestClient(app)
 
-def _server_is_running() -> bool:
-    """Check if the dashboard server is reachable."""
-    try:
-        r = httpx.get(f"{BASE_URL}/api/memory/types", timeout=3)
-        return r.status_code == 200
-    except (httpx.ConnectError, httpx.TimeoutException):
-        return False
-
+BRAIN_DB = Path.home() / "projects" / "ai-memory" / "brain.db"
+BRAIN_AVAILABLE = BRAIN_DB.is_file()
 
 pytestmark = pytest.mark.skipif(
-    not _server_is_running(),
-    reason="Dashboard server not running at localhost:8000",
+    not BRAIN_AVAILABLE,
+    reason=f"brain.db not present at {BRAIN_DB}; these tests read real graph data",
 )
 
 
 @pytest.fixture(scope="module")
 def memory_types() -> list[str]:
     """Fetch the list of thought types from /api/memory/types."""
-    r = httpx.get(f"{BASE_URL}/api/memory/types", timeout=10)
+    r = client.get("/api/memory/types")
     assert r.status_code == 200, f"Types endpoint returned {r.status_code}"
     data = r.json()
     assert "types" in data, "Response missing 'types' key"
@@ -45,10 +52,9 @@ def graph_data() -> dict:
     """Fetch the full memory graph from /api/memory-graph."""
     # Use high min_similarity + low max_edges to minimize edge computation time.
     # We only need nodes and their types for filter testing, not the full edge set.
-    r = httpx.get(
-        f"{BASE_URL}/api/memory-graph",
+    r = client.get(
+        "/api/memory-graph",
         params={"min_similarity": 0.95, "max_edges_per_node": 1},
-        timeout=300,
     )
     assert r.status_code == 200, f"Graph endpoint returned {r.status_code}"
     data = r.json()
