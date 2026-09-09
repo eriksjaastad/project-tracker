@@ -22,7 +22,6 @@ Off-peak windows: 7 PM-1 AM GMT (3-9 PM EDT) and 11 AM-1 PM GMT (7-9 AM EDT).
 | ai-memory-sync (launchd) | always-on | 24/7 | partial | Daemon, must stay running |
 | journal-personal (launchd) | 22:00 | 02:00 | no | Safe |
 | cortana daily (launchd) | 13:00+22:00 | 17:00+02:00 | no | Safe |
-| model-updater (cron) | 12:00 Sun | 16:00 | no | Safe |
 | muffinpanrecipes (cron) | 12:00 daily | 16:00 | no | Safe |
 
 Launchd plist and crontab changes are out of scope for this repo — tracked separately.
@@ -53,7 +52,6 @@ Launchd plist and crontab changes are out of scope for this repo — tracked sep
 |----------|---------|---------|
 | `55 7 * * 1-5` (7:55 AM M-F) | trading-copilot | `morning_briefing_discord.py` |
 | `0 5 * * 0` (5:00 AM Sun) | project-tracker | `maintenance.sh` |
-| `0 12 * * 0` (noon Sun) | model-updater | `mu check` |
 | `0 12 * * *` (noon daily) | muffinpanrecipes | `run_compressed_week.py` |
 | `*/10 * * * *` (every 10 min) | project-tracker | `calendar_poller.py` |
 
