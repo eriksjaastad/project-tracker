@@ -1,5 +1,5 @@
 <!-- GENERATED FROM: ~/projects/project-tracker/CLAUDE.md -->
-<!-- DO NOT EDIT DIRECTLY. Edit CLAUDE.md and re-run ~/.claude/scripts/sync-claude-md-to-agents-md.sh -->
+<!-- DO NOT EDIT DIRECTLY. Edit CLAUDE.md and run instruction-writer . --changed claude --write from the project directory -->
 
 # CLAUDE.md - project-tracker
 
