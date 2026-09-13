@@ -13,7 +13,7 @@ What it does each run
 ---------------------
 1. Calls CalendarManager.get_upcoming_reminders(within_minutes, machine)
 2. For each firing event:
-   a. Writes a memory entry to open-brain (MCP) if MCP available, else to a
+   a. Writes a memory entry to ai-memory (MCP) if MCP available, else to a
       local append-only NDJSON log at data/calendar_notifications.ndjson
    b. If the event has a `prompt` field, runs it through the Ollama local agent
       (if available) or logs it as a pending prompt for manual followup
@@ -74,10 +74,10 @@ def _append_ndjson(path: Path, record: dict) -> None:
 
 
 def _write_brain(event: dict) -> bool:
-    """Write a memory to open-brain via the brain CLI or MCP subprocess.
+    """Write a memory to ai-memory via the brain CLI or MCP subprocess.
 
     Strategy:
-      1. Try the open-brain-mcp server via its Python client if importable.
+      1. Try the ai-memory-mcp server via its Python client if importable.
       2. Fall back to the brain.py CLI script in the ai-memory-replay project.
       3. Fall back to local NDJSON logging (caller handles this case).
 
@@ -93,8 +93,12 @@ def _write_brain(event: dict) -> bool:
         + (f"\nPrompt: {event['prompt']}" if event.get("prompt") else "")
     )
 
-    # Strategy 1: open-brain MCP Python client (when running inside MCP session)
+    # Strategy 1: ai-memory MCP Python client (when running inside MCP session)
     try:
+        # NOTE: module name kept as open_brain. This is a best-effort import of a
+        # client injected by the MCP runtime, not a package this repo controls, and
+        # it resolves under neither the old nor the new name in a plain interpreter
+        # (pre-existing dead path -- Strategy 2 below is what actually runs).
         from open_brain import brain_write  # type: ignore[import]
         brain_write(
             content=content,
@@ -108,12 +112,12 @@ def _write_brain(event: dict) -> bool:
     except ImportError:
         pass  # MCP client not importable — try CLI
     except Exception as exc:
-        logger.warning("open-brain Python client failed: %s", exc)
+        logger.warning("ai-memory Python client failed: %s", exc)
 
     # Strategy 2: brain CLI subprocess (ai-memory-replay project)
     brain_candidates = [
         _ROOT.parent / "ai-memory-replay" / "brain.py",
-        _ROOT.parent / "open-brain" / "brain.py",
+        _ROOT.parent / "ai-memory" / "brain.py",
     ]
     brain_cli = next((p for p in brain_candidates if p.exists()), None)
     if brain_cli:
@@ -138,7 +142,7 @@ def _write_brain(event: dict) -> bool:
         except Exception as exc:
             logger.warning("brain CLI error: %s", exc)
 
-    logger.info("open-brain write unavailable for event %d — using local NDJSON fallback", event["id"])
+    logger.info("ai-memory write unavailable for event %d — using local NDJSON fallback", event["id"])
     return False
 
 
@@ -244,7 +248,7 @@ def poll(
             "notified": False,
         }
 
-        # 1. Write to open-brain / fallback NDJSON
+        # 1. Write to ai-memory / fallback NDJSON
         brain_ok = _write_brain(event)
         event_result["brain_written"] = brain_ok
 

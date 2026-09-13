@@ -45,7 +45,7 @@ A FastAPI web application that provides a visual overview of all projects. It in
 The core intelligence of the system. It consists of multiple specialized scanners:
 - `project_scanner.py`: Discovers project directories (via `.git` markers) and basic metadata.
 - `git_metadata.py`: Collects recent git activity and branch information.
-- `graph_builder.py`: Builds the Open Brain knowledge graph from project data.
+- `graph_builder.py`: Builds the ai-memory knowledge graph from project data.
 - `telemetry_reader.py`: (In progress) Reads AI Router telemetry for usage statistics.
 - `hygiene_detector.py`: Checks for project standard compliance (e.g., `DIRECTION.md` existence).
 

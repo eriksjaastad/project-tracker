@@ -1,4 +1,4 @@
-// Open Brain Memory Graph — Classic D3+SVG Renderer
+// ai-memory Memory Graph — Classic D3+SVG Renderer
 // Original organic force physics with curved SVG arc edges.
 // Loaded lazily when the Classic tab is first activated.
 

@@ -29,6 +29,10 @@ set -euo pipefail
 CHAT_URL="${AGENT_CHAT_URL:-https://agent-chat-90116449356.us-central1.run.app}"
 API_KEY="${AGENT_CHAT_API_KEY:-}"
 LEGACY_CURSOR_FILE="$HOME/.claude/chat_cursor"
+# NOTE: the ~/.claude/open-brain/ directory keeps its legacy name on purpose.
+# ai-memory's state_paths.resolve_state_dir leaves existing installs there so
+# pending writes and checkpoints are never split, and it RAISES if both
+# open-brain/ and ai-memory/ exist. Do not rename this path (#7093).
 DROP_LOG="$HOME/.claude/open-brain/agent_chat_drops.log"
 
 # Record why a poll produced nothing. Best-effort; never fails the hook.

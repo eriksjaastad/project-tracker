@@ -1,4 +1,4 @@
-// Open Brain Heatmap View
+// ai-memory Heatmap View
 // Fetches /api/memory/heatmap lazily on first activation.
 // Renders a D3 date × type density grid.
 
