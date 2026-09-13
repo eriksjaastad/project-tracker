@@ -1,5 +1,5 @@
-// Code Graph Overlay — Open Brain renderer
-// Renders the Open Brain graph from brain.db: typed nodes + weighted edges.
+// Code Graph Overlay — ai-memory renderer
+// Renders the ai-memory graph from brain.db: typed nodes + weighted edges.
 // Uses d3-force for layout, Canvas 2D for rendering.
 
 let overlayCanvas, overlayCtx;
@@ -98,16 +98,16 @@ async function loadOverlay(forceReload = false, clusterMode = 'auto') {
         });
     }
 
-    // Fetch Open Brain graph with min_mentions filter
+    // Fetch ai-memory graph with min_mentions filter
     const minMentions = getOverlayMinMentions();
     try {
-        const resp = await fetch(`/api/open-brain?min_mentions=${minMentions}&cluster=${clusterMode}`);
+        const resp = await fetch(`/api/ai-memory?min_mentions=${minMentions}&cluster=${clusterMode}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         overlayData = await resp.json();
     } catch (e) {
         if (status) {
             status.style.display = 'block';
-            document.getElementById('overlay-waiting').textContent = `Error loading Open Brain graph: ${e.message}`;
+            document.getElementById('overlay-waiting').textContent = `Error loading ai-memory graph: ${e.message}`;
         }
         return;
     }
@@ -115,7 +115,7 @@ async function loadOverlay(forceReload = false, clusterMode = 'auto') {
     if (!overlayData.nodes || overlayData.nodes.length === 0) {
         if (status) {
             status.style.display = 'block';
-            document.getElementById('overlay-waiting').textContent = 'Open Brain graph is empty. Run: brain.py graph build';
+            document.getElementById('overlay-waiting').textContent = 'ai-memory graph is empty. Run: brain.py graph build';
         }
         return;
     }
@@ -176,7 +176,7 @@ async function loadOverlay(forceReload = false, clusterMode = 'auto') {
 
 // Top-level rebuild handler for the overlay button (wired via inline onclick
 // in memory.html so it's not dependent on loadOverlay()'s binding path).
-async function rebuildOpenBrainGraph() {
+async function rebuildAiMemoryGraph() {
     const rebuildBtn = document.getElementById('overlay-rebuild');
     if (rebuildBtn) {
         rebuildBtn.disabled = true;
@@ -184,7 +184,7 @@ async function rebuildOpenBrainGraph() {
     }
     if (typeof ptToast === 'function') ptToast('Rebuild started…', 'info');
     try {
-        const resp = await fetch('/api/open-brain/rebuild', { method: 'POST' });
+        const resp = await fetch('/api/ai-memory/rebuild', { method: 'POST' });
         const data = await resp.json();
         if (!resp.ok || !data.job_id) {
             throw new Error(data.message || `HTTP ${resp.status}`);

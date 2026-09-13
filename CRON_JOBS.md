@@ -19,7 +19,7 @@ Off-peak windows: 7 PM-1 AM GMT (3-9 PM EDT) and 11 AM-1 PM GMT (7-9 AM EDT).
 | pt maintenance (cron) | 05:00 Sun | 09:00 | YES | Reschedule to 20:00 EDT (00:00 GMT) |
 | calendar poller (cron) | */10 min | 24/7 | partial | Lightweight polling, acceptable as-is |
 | ai-memory sync-pending (launchd) | */5 min | 24/7 | partial | Lightweight polling, acceptable as-is |
-| open-brain-sync (launchd) | always-on | 24/7 | partial | Daemon, must stay running |
+| ai-memory-sync (launchd) | always-on | 24/7 | partial | Daemon, must stay running |
 | journal-personal (launchd) | 22:00 | 02:00 | no | Safe |
 | cortana daily (launchd) | 13:00+22:00 | 17:00+02:00 | no | Safe |
 | model-updater (cron) | 12:00 Sun | 16:00 | no | Safe |
@@ -36,7 +36,7 @@ Launchd plist and crontab changes are out of scope for this repo — tracked sep
 | Label | Project | Schedule | Status |
 |-------|---------|----------|--------|
 | `com.erik.journal-personal` | [ai-journal](#ai-journal--personal-journal) | Daily 22:00 | Installed |
-| `com.eriksjaastad.open-brain-antigravity-sync` | [ai-memory](#ai-memory--open-brain-sync) | Always-on daemon | Installed |
+| `com.ai-memory.antigravity-sync` | [ai-memory](#ai-memory--antigravity-sync) | Always-on daemon | Installed |
 | `com.ai-memory.daily-backup` | [ai-memory](#ai-memory--daily-backup) | Daily 03:00 | Installed |
 | `com.ai-memory.sync-pending` | [ai-memory](#ai-memory--sync-pending) | Every 5 min | Installed |
 | `com.user.cortana_daily_update` | [cortana-personal-ai](#cortana-personal-ai--daily-data-update) | Daily 13:00 + 22:00 | Template path |
@@ -78,25 +78,25 @@ launchctl unload ~/Library/LaunchAgents/com.erik.journal-personal.plist
 
 ---
 
-## ai-memory — Open Brain Sync
+## ai-memory — Antigravity Sync
 
-**Label:** `com.eriksjaastad.open-brain-antigravity-sync`  
+**Label:** `com.ai-memory.antigravity-sync`  
 **Schedule:** Always-on daemon (KeepAlive=true, restarts on crash, 5s throttle)  
-**Plist:** `~/Library/LaunchAgents/com.eriksjaastad.open-brain-antigravity-sync.plist` *(currently installed)*  
-**Script:** `~/projects/ai-memory/scripts/open-brain-antigravity-sync.py --poll 60`  
+**Plist:** `~/Library/LaunchAgents/com.ai-memory.antigravity-sync.plist` *(currently installed)*  
+**Script:** `~/projects/ai-memory/scripts/ai-memory-antigravity-sync.py --poll 60`  
 **Secrets:** Doppler project `ai-memory`, config `prd`  
-**Logs:** `~/.gemini/tmp/open-brain-antigravity-sync.log` / `open-brain-antigravity-sync.error.log`  
+**Logs:** `~/.gemini/tmp/ai-memory-antigravity-sync.log` / `ai-memory-antigravity-sync.error.log`  
 **Project:** [ai-memory/README.md](../ai-memory/README.md)
 
 ```bash
 # Install
-launchctl load ~/Library/LaunchAgents/com.eriksjaastad.open-brain-antigravity-sync.plist
+launchctl load ~/Library/LaunchAgents/com.ai-memory.antigravity-sync.plist
 
 # Check status
-launchctl list | grep open-brain
+launchctl list | grep ai-memory
 
 # Unload
-launchctl unload ~/Library/LaunchAgents/com.eriksjaastad.open-brain-antigravity-sync.plist
+launchctl unload ~/Library/LaunchAgents/com.ai-memory.antigravity-sync.plist
 ```
 
 ---
