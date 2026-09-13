@@ -7,7 +7,7 @@
 """
 Memory Graph Snapshot Generator
 
-Captures a high-resolution PNG of the entire Open Brain memory graph.
+Captures a high-resolution PNG of the entire ai-memory memory graph.
 Designed to run daily to track memory growth over time.
 
 Usage:
@@ -124,7 +124,7 @@ def generate_html(graph_data: Dict[str, Any]) -> str:
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Open Brain Memory Graph</title>
+    <title>ai-memory Memory Graph</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         body {{ margin: 0; padding: 20px; background: #0a0a0a; font-family: monospace; }}
@@ -282,7 +282,7 @@ def main():
     """Main entry point."""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Capture Open Brain memory graph snapshot")
+    parser = argparse.ArgumentParser(description="Capture ai-memory memory graph snapshot")
     parser.add_argument("--output", type=Path, help="Output PNG path (default: data/memory-snapshots/YYYY-MM-DD.png)")
     args = parser.parse_args()
     
@@ -296,7 +296,7 @@ def main():
     
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    print(f"\n🧠 Open Brain Memory Graph Snapshot")
+    print(f"\n🧠 ai-memory Memory Graph Snapshot")
     print(f"{'=' * 50}\n")
     
     # Load graph data

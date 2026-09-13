@@ -3035,7 +3035,7 @@ def _run_brain(*args: str) -> None:
 @click.group(name="memory", invoke_without_command=True)
 @click.pass_context
 def memory_group(ctx: click.Context) -> None:
-    """Search and write to the shared agent brain (Open Brain).
+    """Search and write to the shared agent brain (ai-memory).
 
     A thin wrapper around ai-memory/brain.py so every agent can access
     cross-agent memory without knowing the full path or needing MCP approval.
@@ -3281,16 +3281,16 @@ def memory_export(export_format, since, until, source, project, limit, offset) -
 
 
 # =============================================================================
-# Open Brain Graph (wraps brain.py graph subcommands)
+# ai-memory Graph (wraps brain.py graph subcommands)
 # =============================================================================
 
 
 @click.group(name="graph", invoke_without_command=True)
 @click.pass_context
 def graph_group(ctx: click.Context) -> None:
-    """Query and manage the Open Brain graph.
+    """Query and manage the ai-memory graph.
 
-    Open Brain extracts structured nodes (projects, people, artifacts,
+    ai-memory extracts structured nodes (projects, people, artifacts,
     concepts, tasks, decisions) and edges (co_mentioned, belongs_to, relates_to)
     from all memories in brain.db.
 
@@ -3314,7 +3314,7 @@ def graph_group(ctx: click.Context) -> None:
 
 @graph_group.command(name="stats")
 def graph_stats() -> None:
-    """Show Open Brain graph statistics — node/edge counts by type.
+    """Show ai-memory graph statistics — node/edge counts by type.
 
     \b
     Example output:
@@ -3418,7 +3418,7 @@ def graph_path(source: str, target: str, max_depth: int, as_json: bool) -> None:
 
 @graph_group.command(name="export")
 def graph_export() -> None:
-    """Export full Open Brain graph as JSON (nodes + edges).
+    """Export full ai-memory graph as JSON (nodes + edges).
 
     Outputs to stdout. Pipe to a file or tool:
 
@@ -3434,7 +3434,7 @@ def graph_export() -> None:
 @graph_group.command(name="build")
 @click.option("--force", is_flag=True, help="Truncate existing graph before rebuild")
 def graph_build(force: bool) -> None:
-    """Rebuild the Open Brain graph from all memories.
+    """Rebuild the ai-memory graph from all memories.
 
     Scans every entry in brain.db, extracts entities (projects, people,
     files, concepts, tasks, decisions), builds edges from co-mentions
