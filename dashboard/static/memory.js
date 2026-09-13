@@ -1,4 +1,4 @@
-// Open Brain Memory Graph — Canvas Renderer
+// ai-memory Memory Graph — Canvas Renderer
 // Uses d3-force for physics, Canvas 2D for rendering (handles 2000+ nodes at 60fps).
 // All filtering is client-side from a single full-data fetch.
 

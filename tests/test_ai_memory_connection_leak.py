@@ -1,6 +1,6 @@
-"""Regression test for #6963: leaked SQLite handle in /api/open-brain.
+"""Regression test for #6963: leaked SQLite handle in /api/ai-memory.
 
-`dashboard/app.py`'s `get_open_brain_graph` (the `/api/open-brain` and
+`dashboard/app.py`'s `get_ai_memory_graph` (the `/api/ai-memory` and
 `/api/knowledge-graph` handler) opened its brain.db connection with
 `with sqlite3.connect(brain_db_path) as conn:`. That construct manages the
 *transaction* (commit on success, rollback on exception) — sqlite3.Connection
@@ -130,7 +130,7 @@ def _request() -> Request:
         {
             "type": "http",
             "method": "GET",
-            "path": "/api/open-brain",
+            "path": "/api/ai-memory",
             "headers": [],
             "client": ("testclient", 5000),
             "server": ("testserver", 80),
@@ -152,19 +152,19 @@ def _force_brain_db_present(monkeypatch: pytest.MonkeyPatch, db_path: Path, fail
     monkeypatch.setattr(sqlite3, "connect", _make_connect(db_path, fail=fail))
 
 
-def test_open_brain_closes_connection_on_success(monkeypatch, brain_db):
+def test_ai_memory_closes_connection_on_success(monkeypatch, brain_db):
     _force_brain_db_present(monkeypatch, brain_db, fail=False)
 
-    result = _run_coro(dashboard_app.get_open_brain_graph(_request()))
+    result = _run_coro(dashboard_app.get_ai_memory_graph(_request()))
 
     assert _SpyConnection.close_calls == 1
     assert result["stats"]["total_nodes"] == 2
 
 
-def test_open_brain_closes_connection_on_query_failure(monkeypatch, brain_db):
+def test_ai_memory_closes_connection_on_query_failure(monkeypatch, brain_db):
     _force_brain_db_present(monkeypatch, brain_db, fail=True)
 
-    result = _run_coro(dashboard_app.get_open_brain_graph(_request()))
+    result = _run_coro(dashboard_app.get_ai_memory_graph(_request()))
 
     assert _SpyConnection.close_calls == 1
     assert result.status_code == 500

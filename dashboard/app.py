@@ -1507,10 +1507,10 @@ async def get_memory_graph_data(
         return JSONResponse({"error": f"Error reading memory data: {e}"}, status_code=500)
 
 
-@app.get("/api/open-brain")
+@app.get("/api/ai-memory")
 @app.get("/api/knowledge-graph")  # legacy alias
-async def get_open_brain_graph(request: Request):
-    """Return the Open Brain graph from brain.db (graph_nodes + graph_edges).
+async def get_ai_memory_graph(request: Request):
+    """Return the ai-memory graph from brain.db (graph_nodes + graph_edges).
 
     Query params:
         min_mentions: Minimum mention_count to include a node (default: 1, show all).
@@ -1566,7 +1566,7 @@ async def get_open_brain_graph(request: Request):
             }
         }
     except Exception as e:
-        logger.error(f"Open Brain graph error: {e}")
+        logger.error(f"ai-memory graph error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
@@ -1635,9 +1635,9 @@ def _cluster_dust_nodes(nodes: list[dict], edges: list[dict]) -> tuple[list[dict
     return kept_nodes, kept_edges
 
 
-@app.post("/api/open-brain/rebuild")
-async def rebuild_open_brain_graph(background_tasks: BackgroundTasks):
-    """Trigger a rebuild of the Open Brain knowledge graph (runs in background).
+@app.post("/api/ai-memory/rebuild")
+async def rebuild_ai_memory_graph(background_tasks: BackgroundTasks):
+    """Trigger a rebuild of the ai-memory knowledge graph (runs in background).
 
     Returns a job_id the frontend can poll via /api/rebuild-status/{job_id}.
     """
@@ -1654,9 +1654,9 @@ async def rebuild_open_brain_graph(background_tasks: BackgroundTasks):
         )
         if result.returncode != 0:
             raise RuntimeError(f"brain.py graph build exited {result.returncode}: {result.stderr[-500:]}")
-        logger.info("Open Brain graph rebuild complete")
+        logger.info("ai-memory graph rebuild complete")
 
-    job_id = _create_rebuild_job("open_brain_graph")
+    job_id = _create_rebuild_job("ai_memory_graph")
     background_tasks.add_task(_run_tracked_rebuild, job_id, _rebuild_brain_graph)
     return {"status": "rebuilding", "message": "Graph rebuild started in background", "job_id": job_id}
 

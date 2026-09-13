@@ -1,4 +1,4 @@
-// Open Brain List View Logic
+// ai-memory List View Logic
 
 let listState = {
     query: '',
