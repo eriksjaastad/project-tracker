@@ -73,8 +73,6 @@ REINDEX_SCRIPT_PATH = Path(
 )
 
 # Audit Agent (Go CLI) binary path
-_default_audit_bin = PROJECTS_BASE_DIR / "audit-agent" / "audit"
-AUDIT_BIN_PATH = os.getenv("PT_AUDIT_BIN", str(_default_audit_bin) if _default_audit_bin.exists() else "audit")
 
 # Ensure data directory exists
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)

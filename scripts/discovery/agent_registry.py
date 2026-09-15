@@ -39,20 +39,6 @@ def _init_agents():
     """Populate the agent registry."""
     global AGENTS
 
-    # audit-agent
-    audit_path = str(Path(PROJECTS_ROOT) / "audit-agent" / "audit")
-    AGENTS["audit-agent"] = Agent(
-        name="audit-agent",
-        description="Project health and frontmatter validation",
-        binary_path=audit_path,
-        available=Path(audit_path).exists(),
-        commands=[
-            AgentCommand("health", "Calculate project health score", "[project] --json"),
-            AgentCommand("tasks", "List all TODO items", ""),
-            AgentCommand("check", "Check frontmatter validity", "[file]"),
-        ]
-    )
-
     # pt (project-tracker)
     pt_path = str(Path(__file__).parent.parent.parent / "pt")
     AGENTS["pt"] = Agent(
@@ -112,7 +98,7 @@ def run_agent_command(
     Execute an agent command and capture output.
 
     Args:
-        agent_name: Name of the agent (e.g., "audit-agent")
+        agent_name: Name of the agent (e.g., "pt")
         command_name: Name of the command (e.g., "health")
         args: Additional arguments as string
 
