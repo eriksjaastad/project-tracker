@@ -72,7 +72,5 @@ REINDEX_SCRIPT_PATH = Path(
     )
 )
 
-# Audit Agent (Go CLI) binary path
-
 # Ensure data directory exists
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
