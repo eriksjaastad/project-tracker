@@ -62,7 +62,6 @@ EXTRA_KEYS = {
         "infrastructure": "SQLite (data/tracker.db), FastAPI dashboard on :8000, launchd cron jobs",
         "PT_DB_PATH": "Path to tracker.db (default: data/tracker.db)",
         "PT_EXTERNAL_BACKUP_DIR": "External backup directory for sandboxed environments",
-        "PT_AUDIT_BIN": "Path to audit binary",
         "PT_TEST_MODE": "Set to 1 for test mode (disables safety backups)",
         "PT_ALLOW_FRESH_DB": "Set to 1 to allow starting with empty database",
         "PT_AGENT_MODEL": "Agent model for calendar poller hooks",

@@ -1,8 +1,5 @@
 """Metadata providers for project discovery."""
 
-import shutil
-import subprocess
-import json
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
 from pathlib import Path
@@ -11,7 +8,6 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scripts.logger import get_logger
-from scripts.config import AUDIT_BIN_PATH
 
 logger = get_logger(__name__)
 
@@ -38,101 +34,6 @@ class MetadataProvider(ABC):
         """Returns True if fixed successfully."""
         pass
 
-class AuditProvider(MetadataProvider):
-    """Concrete provider that calls the Go `audit` binary."""
-    
-    def __init__(self, bin_path: str):
-        self.bin_path = bin_path
-        
-    def get_health(self, project_path: str) -> Optional[Dict[str, Any]]:
-        """Calls `audit health [project] --json`."""
-        abs_path = str(Path(project_path).absolute())
-        try:
-            result = subprocess.run(
-                [self.bin_path, "health", abs_path, "--json"],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            if result.returncode != 0:
-                logger.warning(f"audit health failed for {project_path}: {result.stderr}")
-                return None
-            data = json.loads(result.stdout)
-            
-            # 🛡️ Validate binary output
-            score = data.get("score")
-            grade = data.get("grade")
-            if not isinstance(score, int) or not (0 <= score <= 100):
-                logger.error(f"Invalid score from audit binary for {project_path}: {score}")
-                return None
-            if grade not in {"A", "B", "C", "D", "F"}:
-                logger.error(f"Invalid grade from audit binary for {project_path}: {grade}")
-                return None
-                
-            return {"score": score, "grade": grade}
-        except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError) as e:
-            logger.error(f"audit health error for {project_path}: {e}")
-            return None
-    
-    def get_tasks(self, project_path: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Calls `audit tasks` and parses NDJSON output."""
-        try:
-            cmd = [self.bin_path, "tasks"]
-            if project_path:
-                abs_path = str(Path(project_path).absolute())
-                cmd.extend(["--root", abs_path])
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode != 0:
-                logger.warning(f"audit tasks failed: {result.stderr}")
-                return []
-            
-            tasks = []
-            for line in result.stdout.strip().split('\n'):
-                if line:
-                    tasks.append(json.loads(line))
-            return tasks
-        except (subprocess.TimeoutExpired, json.JSONDecodeError) as e:
-            logger.error(f"audit tasks error: {e}")
-            return []
-    
-    def check_file(self, file_path: str) -> Dict[str, Any]:
-        """Calls `audit check [file]` and parses NDJSON."""
-        abs_path = str(Path(file_path).absolute())
-        try:
-            result = subprocess.run(
-                [self.bin_path, "check", abs_path],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            # Parse first line of NDJSON output
-            if result.stdout.strip():
-                data = json.loads(result.stdout.strip().split('\n')[0])
-                return {"valid": data.get("valid", False), "issues": data.get("issues", [])}
-            return {"valid": False, "issues": ["No output from audit check"]}
-        except (subprocess.TimeoutExpired, json.JSONDecodeError) as e:
-            logger.error(f"audit check error for {file_path}: {e}")
-            return {"valid": False, "issues": [str(e)]}
-    
-    def fix_file(self, file_path: str) -> bool:
-        """Calls `audit fix [file]`."""
-        abs_path = str(Path(file_path).absolute())
-        try:
-            result = subprocess.run(
-                [self.bin_path, "fix", abs_path],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            if result.returncode != 0:
-                logger.warning(f"audit fix failed for {file_path}: {result.stderr}")
-                return False
-            return True
-        except subprocess.TimeoutExpired as e:
-            logger.error(f"audit fix timeout for {file_path}: {e}")
-            return False
-
 class LegacyProvider(MetadataProvider):
     """Concrete provider that uses existing Python logic."""
     
@@ -153,37 +54,16 @@ class LegacyProvider(MetadataProvider):
         return False
 
 def get_provider() -> MetadataProvider:
+    """Return the metadata provider.
+
+    Until 2026-09-15 this probed for the Go `audit` binary from the audit-agent
+    project and returned an AuditProvider wrapping it. audit-agent was archived
+    (see ~/projects/_archive/audit-agent/ARCHIVED.md); its functions live in pt
+    itself now, so the binary no longer exists and that branch was unreachable.
+
+    Removing it also stops a pointless subprocess: with the binary gone,
+    `shutil.which("audit")` resolved to macOS's own /usr/sbin/audit — the BSD
+    audit daemon utility — and every call spawned it just to reject it on a
+    help-text match.
     """
-    Returns AuditProvider if audit binary exists, else LegacyProvider.
-    Checks config.AUDIT_BIN_PATH first, then falls back to PATH lookup.
-    """
-    # 1. Check config path
-    if AUDIT_BIN_PATH:
-        bin_path = Path(AUDIT_BIN_PATH)
-        if bin_path.is_absolute() and bin_path.exists():
-            # Verify it's actually our binary and not /usr/sbin/audit
-            try:
-                result = subprocess.run([str(bin_path), "--help"], capture_output=True, text=True, timeout=2)
-                if "Go-based CLI tool" in result.stdout:
-                    logger.info(f"Using AuditProvider with verified binary at: {AUDIT_BIN_PATH}")
-                    return AuditProvider(str(AUDIT_BIN_PATH))
-            except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
-                logger.debug(f"Binary verification failed for {AUDIT_BIN_PATH}: {e}")
-    
-    # 2. Check shutil.which
-    bin_name = AUDIT_BIN_PATH if AUDIT_BIN_PATH else "audit"
-    which_path = shutil.which(bin_name)
-    
-    if which_path:
-        # Verify it's actually our binary
-        try:
-            result = subprocess.run([which_path, "--help"], capture_output=True, text=True, timeout=2)
-            if "Go-based CLI tool" in result.stdout:
-                logger.info(f"Using AuditProvider with verified binary found in PATH: {which_path}")
-                return AuditProvider(which_path)
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
-            logger.debug(f"Binary verification failed for {which_path}: {e}")
-    
-    # 3. Fallback to Legacy
-    logger.info("audit-agent binary not found or invalid. Falling back to LegacyProvider.")
     return LegacyProvider()

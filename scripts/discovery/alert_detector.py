@@ -150,7 +150,7 @@ def detect_missing_index(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]
 
 
 def detect_invalid_frontmatter(projects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Detect projects with invalid frontmatter using audit check.
+    """Detect projects with invalid frontmatter. Disabled; returns [].
 
     Note: 00_Index files were removed (Librarian system deleted).
     This function now returns an empty list — frontmatter validation

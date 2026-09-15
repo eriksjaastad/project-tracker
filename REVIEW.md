@@ -59,6 +59,16 @@ A code review should be requested when:
 
 ## 6. Example Review Document (Phase 3 Audit Agent Integration)
 
+> **Historical — the integration this example reviews no longer exists.**
+> audit-agent was archived 2026-09-14 (`~/projects/_archive/audit-agent/ARCHIVED.md`)
+> and its integration was removed from project-tracker on 2026-09-15:
+> `AuditProvider`, the binary detection and fallback, the `audit health` /
+> `check` / `tasks` calls, and the missing-binary warning banner are all gone.
+> `get_provider()` now returns `LegacyProvider` directly. Everything below —
+> including the "Production Ready" verdict and "Ship it." — is a verbatim record
+> of a 2026-01-02 review, kept as an example of the review format. It does not
+> describe the current system.
+
 ```markdown
 # Code Review: Phase 3 Audit Agent Integration
 
@@ -138,8 +148,9 @@ All three phases complete. Provider pattern works, health scores display, parall
 **Phase 3: Audit Agent Integration is COMPLETE.**
 
 *Ship it.*
+```
 
 ## Related Documentation
 
 - [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
-- [audit-agent/README](../ai-model-scratch-build/README.md) - Audit Agent
+- audit-agent — archived 2026-09-14, see `~/projects/_archive/audit-agent/ARCHIVED.md`
