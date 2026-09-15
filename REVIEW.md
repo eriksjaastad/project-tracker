@@ -78,6 +78,15 @@ All three phases complete. Provider pattern works, health scores display, parall
 
 ## 2. Phase 3 Summary
 
+> **Historical — superseded 2026-09-15.** This section records the
+> audit-agent integration as it stood when Phase 3 completed. That project
+> was archived on 2026-09-14 (`~/projects/_archive/audit-agent/ARCHIVED.md`)
+> and the integration was removed: `AuditProvider`, the binary detection and
+> fallback, the `audit health`/`check`/`tasks` calls, and the missing-binary
+> warning banner are all gone. `get_provider()` now returns `LegacyProvider`
+> directly. The checklist below is kept as a record of what was built, not
+> as a description of the current system.
+
 ### Prerequisites ✅
 - Provider pattern (`AuditProvider` / `LegacyProvider`) implemented
 - Binary detection with graceful fallback

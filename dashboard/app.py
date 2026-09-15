@@ -804,7 +804,11 @@ async def create_index(project_id: str):
 
 @app.post("/api/fix-frontmatter/{project_id}")
 async def fix_frontmatter(project_id: str):
-    """Call audit fix for a specific project's CLAUDE.md file."""
+    """Attempt to auto-fix frontmatter in a project's CLAUDE.md or README.md.
+
+    Always reports failure: this was backed by the archived audit-agent binary,
+    and LegacyProvider.fix_file() returns False.
+    """
     db = DatabaseManager()
     project = db.get_project(project_id)
     if not project:
