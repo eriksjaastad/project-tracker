@@ -804,7 +804,11 @@ async def create_index(project_id: str):
 
 @app.post("/api/fix-frontmatter/{project_id}")
 async def fix_frontmatter(project_id: str):
-    """Call audit fix for a specific project's CLAUDE.md file."""
+    """Attempt to auto-fix frontmatter in a project's CLAUDE.md or README.md.
+
+    Always reports failure: this was backed by the archived audit-agent binary,
+    and LegacyProvider.fix_file() returns False.
+    """
     db = DatabaseManager()
     project = db.get_project(project_id)
     if not project:
@@ -823,7 +827,7 @@ async def fix_frontmatter(project_id: str):
         success = provider.fix_file(str(target_file))
         return {"success": success, "error": None if success else "Fix failed"}
     except NotImplementedError:
-        return JSONResponse({"success": False, "error": "audit-agent not installed"}, status_code=501)
+        return JSONResponse({"success": False, "error": "Frontmatter auto-fix is not implemented"}, status_code=501)
     except Exception as e:
         logger.error(f"Error fixing frontmatter: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
