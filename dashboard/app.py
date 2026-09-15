@@ -823,7 +823,7 @@ async def fix_frontmatter(project_id: str):
         success = provider.fix_file(str(target_file))
         return {"success": success, "error": None if success else "Fix failed"}
     except NotImplementedError:
-        return JSONResponse({"success": False, "error": "audit-agent not installed"}, status_code=501)
+        return JSONResponse({"success": False, "error": "Frontmatter auto-fix is not implemented"}, status_code=501)
     except Exception as e:
         logger.error(f"Error fixing frontmatter: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
