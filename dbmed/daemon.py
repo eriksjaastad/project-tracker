@@ -203,6 +203,9 @@ class Service:
         if op_name == "dbmed.count":
             return self._count(loaded, params)
 
+        if op_name == "dbmed.seed_task":
+            return self._test_support(loaded, "dbmed_seed_task", params)
+
         raise UnknownOperation(f"{op_name!r} is not a dbmed built-in operation")
 
     def _authorize(self, uid: int, loaded: LoadedProject, params: dict[str, Any]) -> dict:
@@ -305,11 +308,21 @@ class Service:
                 "exists for test fixtures and is refused on any registry entry that "
                 "does not explicitly enable it."
             )
-        handler = getattr(loaded.backend, "dbmed_seed", None)
-        if handler is None:
-            raise UnknownOperation(
-                f"{loaded.entry.project!r} does not implement dbmed_seed"
+        return self._test_support(loaded, "dbmed_seed", params)
+
+    def _test_support(
+        self, loaded: LoadedProject, attr: str, params: dict[str, Any]
+    ) -> Any:
+        """Dispatch a test-support operation, refusing unless it is enabled."""
+        if not loaded.entry.test_support:
+            raise NotAuthorized(
+                f"{loaded.entry.project!r} does not enable test-support operations. "
+                "These exist for fixtures and are refused on any registry entry "
+                "that does not explicitly opt in; install.sh never writes that flag."
             )
+        handler = getattr(loaded.backend, attr, None)
+        if handler is None:
+            raise UnknownOperation(f"{loaded.entry.project!r} does not implement {attr}")
         with loaded.lock:
             return handler(**params)
 

@@ -182,6 +182,10 @@ class RemoteDatabaseManager:
         """
         return self._client.call("dbmed.seed", {"task_id": task_id, **columns})
 
+    def seed_task(self, task_id: int, **fields: Any) -> Any:
+        """Create a task with a chosen id. Test support; see `seed`."""
+        return self._client.call("dbmed.seed_task", {"task_id": task_id, **fields})
+
     def count_rows(self, table: str) -> int:
         """Row count for an allowlisted table. Test support; see `seed`."""
         return self._client.call("dbmed.count", {"table": table})["rows"]

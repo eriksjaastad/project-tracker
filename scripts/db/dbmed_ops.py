@@ -1012,6 +1012,37 @@ class ProjectTrackerOps:
         finally:
             conn.close()
 
+    def dbmed_seed_task(
+        self,
+        task_id: int,
+        text: str,
+        project_id: str,
+        status: str = "To Do",
+        created_at: str | None = None,
+        updated_at: str | None = None,
+    ) -> dict:
+        """Insert a task with a caller-chosen id. Tests only.
+
+        `add_task` allocates ids through `pt_next_id`, which is correct and
+        which fixtures cannot predict. Several suites assert against a known
+        card number, so they need to choose one. That is a fixture need and
+        never a product one, so it lives behind the same registry flag as the
+        rest of the test-support surface.
+        """
+        stamp = created_at or "2026-01-01T00:00:00Z"
+        conn = self._tracker_conn()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO tasks "
+                "(id, text, status, project_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (task_id, text, status, project_id, stamp, updated_at or stamp),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return {"task_id": task_id}
+
     # -- dbmed integration hooks -----------------------------------------
 
     def dbmed_backup(self, label: str) -> Path:
