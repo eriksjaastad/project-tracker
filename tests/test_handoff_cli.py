@@ -11,7 +11,6 @@ parallel DDL string is maintained inside the test suite.
 from __future__ import annotations
 
 import json
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -21,11 +20,8 @@ from click.testing import CliRunner
 SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+from db.manager import DatabaseManager  # noqa: E402
 from pt import cli  # noqa: E402 — path setup precedes import
-from db.migration_runner import (  # noqa: E402
-    apply_migration,
-    discover_migrations,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -35,43 +31,25 @@ from db.migration_runner import (  # noqa: E402
 _MIGRATIONS_DIR = SCRIPTS_DIR / "db" / "migrations"
 
 
-def _apply_handoffs_migration(conn: sqlite3.Connection) -> None:
-    """Run migration 010 (handoffs table) using the real migration runner."""
-    migrations = discover_migrations(_MIGRATIONS_DIR)
-    target = next(m for m in migrations if m.version == 10)
-    # Ensure schema_migrations ledger exists (the runner expects it).
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_migrations ("
-        "version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
+def _make_tracker_db() -> None:
+    """Seed card 6151 into this test's own database.
+
+    Was: hand-rolled `CREATE TABLE tasks` DDL plus a direct INSERT plus a
+    manual run of migration 010 against a file the test owned. All three are
+    gone. The conftest daemon fixture supplies a fully-migrated schema, so
+    the only thing left to arrange is the one card these tests act on.
+
+    The id is chosen rather than generated because 29 assertions in this file
+    name it. `dbmed.seed_task` is refused by any daemon whose registry entry
+    does not enable test support, which the installer never does.
+    """
+    DatabaseManager().seed_task(
+        6151,
+        text="Phase D handoff test card",
+        project_id="project-tracker",
+        status="In Progress",
+        created_at="2026-05-05T00:00:00Z",
     )
-    apply_migration(conn, target)
-
-
-def _make_tracker_db(path: Path) -> None:
-    """Create a tracker DB with a tasks row for card 6151 + run migration 010."""
-    conn = sqlite3.connect(path)
-    try:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY NOT NULL,
-                text TEXT NOT NULL,
-                status TEXT NOT NULL,
-                project_id TEXT NOT NULL,
-                priority TEXT,
-                created_at TEXT NOT NULL DEFAULT '',
-                updated_at TEXT NOT NULL DEFAULT ''
-            )
-        """)
-        conn.execute(
-            "INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (6151, "Phase D handoff test card", "In Progress", "project-tracker",
-             "2026-05-05T00:00:00Z", "2026-05-05T00:00:00Z"),
-        )
-        conn.commit()
-        _apply_handoffs_migration(conn)
-    finally:
-        conn.close()
 
 
 _COMMON_ENV = {
@@ -89,26 +67,21 @@ _REQUIRED_CREATE_ARGS = [
 
 
 def _invoke(tmp_path: Path, args: list[str]):
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
-    runner = CliRunner()
-    return runner.invoke(
-        cli,
-        args,
-        env={**_COMMON_ENV, "PT_DB_PATH": str(db_path)},
-        catch_exceptions=False,
-    )
+    """Seed the card, then run `pt` against this test's own database."""
+    _make_tracker_db()
+    return _invoke_on_db(None, args)
 
 
-def _invoke_on_db(db_path: Path, args: list[str]):
-    """Invoke against an already-prepared DB (for multi-step tests)."""
+def _invoke_on_db(db_path, args: list[str]):
+    """Invoke against the already-seeded database.
+
+    `db_path` is vestigial and ignored — every test in this module shares one
+    daemon-backed database for its duration, so "which database" is no longer
+    a per-call decision. The parameter stays so the multi-step tests read the
+    same as they did.
+    """
     runner = CliRunner()
-    return runner.invoke(
-        cli,
-        args,
-        env={**_COMMON_ENV, "PT_DB_PATH": str(db_path)},
-        catch_exceptions=False,
-    )
+    return runner.invoke(cli, args, env=dict(_COMMON_ENV), catch_exceptions=False)
 
 
 # ---------------------------------------------------------------------------
@@ -136,8 +109,8 @@ def test_handoff_create_unfinished_json(tmp_path: Path) -> None:
 
 def test_handoff_create_persists_record(tmp_path: Path) -> None:
     """create inserts a row visible via handoff list."""
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
+    db_path = None
+    _make_tracker_db()
     _invoke_on_db(db_path, ["handoff", "create", "6151"] + _REQUIRED_CREATE_ARGS)
     result = _invoke_on_db(db_path, ["handoff", "list", "--json"])
     assert result.exit_code == 0, result.output
@@ -302,8 +275,8 @@ def _seed_two_handoffs(db_path: Path) -> None:
 
 def test_handoff_list_json_schema(tmp_path: Path) -> None:
     """list --json returns pt.handoff.v1 envelope with a list result."""
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
+    db_path = None
+    _make_tracker_db()
     _seed_two_handoffs(db_path)
     result = _invoke_on_db(db_path, ["handoff", "list", "--json"])
     assert result.exit_code == 0, result.output
@@ -317,8 +290,8 @@ def test_handoff_list_json_schema(tmp_path: Path) -> None:
 
 def test_handoff_list_filter_by_card(tmp_path: Path) -> None:
     """--card filters to only matching records."""
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
+    db_path = None
+    _make_tracker_db()
     _seed_two_handoffs(db_path)
     result = _invoke_on_db(db_path, ["handoff", "list", "--card", "6151", "--json"])
     assert result.exit_code == 0, result.output
@@ -329,8 +302,8 @@ def test_handoff_list_filter_by_card(tmp_path: Path) -> None:
 
 def test_handoff_list_filter_by_project(tmp_path: Path) -> None:
     """--project filters to only matching records."""
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
+    db_path = None
+    _make_tracker_db()
     _seed_two_handoffs(db_path)
     result = _invoke_on_db(db_path, ["handoff", "list", "--project", "project-tracker", "--json"])
     assert result.exit_code == 0, result.output
@@ -342,8 +315,8 @@ def test_handoff_list_filter_by_project(tmp_path: Path) -> None:
 
 def test_handoff_list_unresolved_only(tmp_path: Path) -> None:
     """--unresolved-only excludes resolved records."""
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
+    db_path = None
+    _make_tracker_db()
     _seed_two_handoffs(db_path)
 
     # Resolve the first handoff (id=1)
@@ -362,8 +335,8 @@ def test_handoff_list_unresolved_only(tmp_path: Path) -> None:
 
 def test_handoff_show_json(tmp_path: Path) -> None:
     """show HANDOFF_ID --json returns single record with pt.handoff.v1 envelope."""
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
+    db_path = None
+    _make_tracker_db()
     # Create one handoff
     create_result = _invoke_on_db(
         db_path,
@@ -396,8 +369,8 @@ def test_handoff_show_missing_id(tmp_path: Path) -> None:
 
 def test_handoff_resolve_sets_resolved_at(tmp_path: Path) -> None:
     """resolve sets resolved_at and resolved_note on the record."""
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
+    db_path = None
+    _make_tracker_db()
     create_result = _invoke_on_db(
         db_path,
         ["handoff", "create", "6151", "--json"] + _REQUIRED_CREATE_ARGS,
@@ -448,8 +421,8 @@ def test_handoff_error_path_emits_ok_false(tmp_path: Path) -> None:
 def test_auto_files_warns_on_git_missing(tmp_path: Path, monkeypatch) -> None:
     """If git binary is unavailable, --auto-files emits stderr warning and
     still creates a handoff with an empty file_list."""
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
+    db_path = None
+    _make_tracker_db()
 
     import pt as pt_module
 
@@ -475,8 +448,8 @@ def test_auto_files_warns_on_git_missing(tmp_path: Path, monkeypatch) -> None:
 def test_auto_files_warns_on_git_timeout(tmp_path: Path, monkeypatch) -> None:
     """If git status times out, --auto-files emits stderr warning and
     still creates a handoff with an empty file_list."""
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
+    db_path = None
+    _make_tracker_db()
 
     import pt as pt_module
 
@@ -502,8 +475,8 @@ def test_auto_files_warns_on_git_timeout(tmp_path: Path, monkeypatch) -> None:
 def test_auto_files_warns_on_git_nonzero_exit(tmp_path: Path, monkeypatch) -> None:
     """If git status returns non-zero exit code, --auto-files emits stderr
     warning and still creates a handoff with an empty file_list."""
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
+    db_path = None
+    _make_tracker_db()
 
     import pt as pt_module
 
@@ -587,8 +560,8 @@ def test_handoff_create_files_unknown_classification(tmp_path: Path) -> None:
 def test_handoff_resolve_double_refuses(tmp_path: Path) -> None:
     """Resolving an already-resolved handoff raises a validation error and
     does NOT overwrite the original resolved_at."""
-    db_path = tmp_path / "tracker.db"
-    _make_tracker_db(db_path)
+    db_path = None
+    _make_tracker_db()
     create_result = _invoke_on_db(
         db_path,
         ["handoff", "create", "6151", "--json"] + _REQUIRED_CREATE_ARGS,

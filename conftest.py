@@ -68,11 +68,28 @@ def _dbmed_template(tmp_path_factory) -> Path:
     under one. Multiplied across the suite that is the difference between a
     boundary that tests tolerate and one they resent.
     """
-    from db.dbmed_ops import ProjectTrackerOps  # noqa: F401  (import check)
+    import sqlite3
+
+    from db.migration_runner import apply_all
     from db.schema import create_database
 
     template = tmp_path_factory.mktemp("dbmed-template") / "tracker.db"
     create_database(template)
+
+    # Apply the numbered migrations too. `create_database` builds the base
+    # schema; tables like `handoffs` (010) and `migrations` (011) arrive as
+    # migrations, and a test database missing them is not the database
+    # production runs — tests would pass against a schema nobody ships.
+    migrations_dir = Path(__file__).resolve().parent / "scripts" / "db" / "migrations"
+    conn = sqlite3.connect(template, isolation_level=None)
+    try:
+        apply_all(conn, migrations_dir)
+    except Exception as exc:  # pragma: no cover - surfaced, never swallowed
+        raise RuntimeError(
+            f"could not build the test schema template: {type(exc).__name__}: {exc}"
+        ) from exc
+    finally:
+        conn.close()
     return template
 
 

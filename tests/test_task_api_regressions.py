@@ -14,6 +14,7 @@ from starlette.requests import Request
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import dashboard.app as dashboard_app
+from db.attachment_paths import attachments_dir
 from db.manager import DatabaseManager
 from db.schema import create_database
 
@@ -86,7 +87,7 @@ def test_attachment_download_requires_live_db_record(tmp_path: Path, monkeypatch
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
 
     task = db.add_task("Task with orphan", "project-tracker")
-    attachment_dir = DatabaseManager._attachments_dir(task["id"])
+    attachment_dir = attachments_dir(task["id"])
     (attachment_dir / "orphan.bin").write_text("secret-ish")
 
     response = TestClient(dashboard_app.app).get(f"/api/attachments/{task['id']}/orphan.bin")

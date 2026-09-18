@@ -291,7 +291,7 @@ def test_resume_blocks_when_peer_announcement_missing(
     # than patching sqlite3.Connection.execute (immutable C-extension
     # method — can't be monkeypatched).
     monkeypatch.setattr(
-        "pt._sync_resume_blocked_versions", lambda conn: [7, 9]
+        "db.sync_state.resume_blocked_versions", lambda conn: [7, 9]
     )
 
     result = runner.invoke(cli, ["sync", "resume"])
@@ -307,7 +307,7 @@ def test_resume_force_bypasses_block(
 ) -> None:
     runner.invoke(cli, ["sync", "pause"])
     monkeypatch.setattr(
-        "pt._sync_resume_blocked_versions", lambda conn: [7]
+        "db.sync_state.resume_blocked_versions", lambda conn: [7]
     )
     result = runner.invoke(cli, ["sync", "resume", "--force"])
     assert result.exit_code == 0, result.output
@@ -320,10 +320,10 @@ def test_sync_resume_blocked_versions_returns_empty_without_crsqlite(
     """Direct unit test: with a stock sqlite3 conn (no cr-sqlite),
     the helper returns [] — this is the guard that keeps daemon-less
     installs unblocked."""
-    from pt import _sync_resume_blocked_versions
+    from db.sync_state import resume_blocked_versions
     conn = sqlite3.connect(cli_env, isolation_level=None)
     try:
-        assert _sync_resume_blocked_versions(conn) == []
+        assert resume_blocked_versions(conn) == []
     finally:
         conn.close()
 

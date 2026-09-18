@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.calendar_manager import CalendarManager  # noqa: E402
+from db.attachment_paths import attachments_dir
 from db.manager import DatabaseManager  # noqa: E402
 from db.schema import create_database  # noqa: E402
 
@@ -27,7 +28,7 @@ def _count(conn: sqlite3.Connection, table: str) -> int:
 
 def test_crr_insert_paths_assign_explicit_ids(monkeypatch, tmp_path: Path):
     ids = iter([101, 102, 103, 104, 105, 106, 107])
-    monkeypatch.setattr("db.manager.pt_next_id", lambda _db_path: next(ids))
+    monkeypatch.setattr("db.backend_manager.pt_next_id", lambda _db_path: next(ids))
     monkeypatch.setattr("db.calendar_manager.pt_next_id", lambda _db_path: next(ids))
 
     db_path, db, cal = _setup_db(tmp_path)
@@ -55,7 +56,7 @@ def test_crr_insert_paths_assign_explicit_ids(monkeypatch, tmp_path: Path):
 
 def test_task_status_history_uses_explicit_ids(monkeypatch, tmp_path: Path):
     ids = iter([201, 202, 203])
-    monkeypatch.setattr("db.manager.pt_next_id", lambda _db_path: next(ids))
+    monkeypatch.setattr("db.backend_manager.pt_next_id", lambda _db_path: next(ids))
 
     db_path, db, _ = _setup_db(tmp_path)
     db.add_project("proj", "Proj", "/tmp/proj", "active")
@@ -119,7 +120,7 @@ def test_delete_project_cleans_children_without_fk_cascade(tmp_path: Path):
     db.add_project("proj", "Proj", "/tmp/proj", "active")
     task = db.add_task("Task", "proj")
     db.add_attachment(task["id"], "file.txt", "stored.txt", "text/plain", 12)
-    stored_file = DatabaseManager._attachments_dir(task["id"]) / "stored.txt"
+    stored_file = attachments_dir(task["id"]) / "stored.txt"
     stored_file.write_text("payload")
     db.add_ai_agent("proj", "architect", "reviewer")
     db.add_service("proj", "github", "hosting", 0.0)
@@ -154,8 +155,8 @@ def test_delete_task_cleans_descendants_and_children(monkeypatch, tmp_path: Path
     child = db.add_task("Child", "proj", parent_id=parent["id"])
     db.add_attachment(parent["id"], "p.txt", "p.bin", "text/plain", 1)
     db.add_attachment(child["id"], "c.txt", "c.bin", "text/plain", 1)
-    parent_file = DatabaseManager._attachments_dir(parent["id"]) / "p.bin"
-    child_file = DatabaseManager._attachments_dir(child["id"]) / "c.bin"
+    parent_file = attachments_dir(parent["id"]) / "p.bin"
+    child_file = attachments_dir(child["id"]) / "c.bin"
     parent_file.write_text("parent")
     child_file.write_text("child")
     event_id = cal.add_event("Milestone", "2026-06-01", project_id="proj")
