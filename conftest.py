@@ -1,7 +1,11 @@
 import os
+import shutil
 import sys
 import tempfile
+import threading
 from pathlib import Path
+
+import pytest
 
 # Ensure the project root is on sys.path so that `scripts` and `dashboard`
 # are importable in any environment (including sandboxed uv run on the Mini).
@@ -10,8 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # Phase 2.1a: the pt root callback emits a stderr warning when the DB
 # has unapplied migrations. Humans see it; CliRunner merges it into
 # ``result.output`` and breaks JSON-parsing tests that invoke real pt
-# subcommands against the live ``data/tracker.db`` (which hasn't had
-# 002 applied). Suppress by default for tests; tests that specifically
+# subcommands. Suppress by default for tests; tests that specifically
 # want to exercise the warning delete this env var per-test.
 os.environ.setdefault("PT_SUPPRESS_MIGRATION_WARNING", "1")
 
@@ -25,3 +28,173 @@ _TEST_DESTRUCTIVE_LOG = (
     Path(tempfile.gettempdir()) / f"pt-destructive-tests-{os.getpid()}.log"
 )
 os.environ.setdefault("PT_DESTRUCTIVE_LOG_PATH", str(_TEST_DESTRUCTIVE_LOG))
+
+# The schema layer refuses to initialise a database that is unexpectedly
+# empty — a guard against the 2026-01-27 incident, where an empty database
+# meant the real one had been destroyed. Every test database starts empty on
+# purpose, so the guard is off for the suite and only for the suite.
+os.environ.setdefault("PT_ALLOW_FRESH_DB", "1")
+
+
+# ---------------------------------------------------------------------------
+# dbmed: every test gets its own database, behind the same boundary as prod
+# ---------------------------------------------------------------------------
+#
+# Before the boundary, a test that wanted a throwaway database set PT_DB_PATH
+# and constructed `DatabaseManager(tmp_path / "tracker.db")`. Neither works
+# now, and deliberately so: a caller-chosen path is the bypass the boundary
+# exists to prevent, and the conftest that did not set PT_DB_PATH is how
+# fourteen test modules ended up writing to the live tracker.db.
+#
+# What replaces it is the real thing, scaled down. Each test gets a real dbmed
+# daemon on a real socket, serving a real database it alone owns, reached
+# through the same client the dashboard uses. Tests exercise the production
+# code path rather than a stand-in for it, which is the only way their passing
+# means anything about production.
+#
+# What is NOT reproduced here is the kernel-level part: these directories are
+# owned by the user running pytest, not by `_dbmed`. Proving that a process
+# cannot open the file needs the real root install, and those probes live in
+# tests/boundary/ where they skip loudly rather than pretending.
+
+_SOCKET_DIRS: list[Path] = []
+
+
+@pytest.fixture(scope="session")
+def _dbmed_template(tmp_path_factory) -> Path:
+    """A schema-only database, built once and copied per test.
+
+    Building the schema takes about 15ms and copying a 100KB file takes well
+    under one. Multiplied across the suite that is the difference between a
+    boundary that tests tolerate and one they resent.
+    """
+    from db.dbmed_ops import ProjectTrackerOps  # noqa: F401  (import check)
+    from db.schema import create_database
+
+    template = tmp_path_factory.mktemp("dbmed-template") / "tracker.db"
+    create_database(template)
+    return template
+
+
+@pytest.fixture
+def dbmed_daemon(tmp_path, _dbmed_template):
+    """An isolated dbmed daemon for one test. Yields its socket path."""
+    from dbmed import daemon as dbmed_daemon_module
+
+    root = tmp_path / "_dbmed"
+    config = root / "etc"
+    install = root / "libexec"
+    data = root / "var"
+    project_data = data / "project-tracker"
+
+    (config / "registry.d").mkdir(parents=True)
+    install.mkdir(parents=True)
+    for sub in ("backups", "fixtures", "attic"):
+        (project_data / sub).mkdir(parents=True)
+    (data / "external" / "project-tracker").mkdir(parents=True)
+
+    shutil.copy(_dbmed_template, project_data / "tracker.db")
+
+    (config / "registry.d" / "project-tracker.toml").write_text(
+        f'project = "project-tracker"\n'
+        f'db_path = "{project_data}/tracker.db"\n'
+        f'data_root = "{data}"\n'
+        f'backup_dir = "{project_data}/backups"\n'
+        f'external_backup_dir = "{data}/external/project-tracker"\n'
+        f'fixture_root = "{project_data}/fixtures"\n'
+        f'ops_module = "db.dbmed_ops"\n'
+        f"allowed_users = [{os.getuid()}]\n"
+        # Enables dbmed.seed and dbmed.count, which exist only for fixtures.
+        # install.sh never writes this flag, so a real daemon refuses both.
+        f"test_support = true\n"
+    )
+
+    # sun_path is capped near 104 bytes on macOS and pytest's tmp_path blows
+    # straight through it. The failure is a bare "AF_UNIX path too long", so
+    # the socket goes somewhere short.
+    socket_dir = Path(tempfile.mkdtemp(prefix="ptd", dir="/tmp"))
+    _SOCKET_DIRS.append(socket_dir)
+    socket_path = socket_dir / "d.sock"
+
+    ready: threading.Event = threading.Event()
+    control: dict = {}
+    thread = threading.Thread(
+        target=dbmed_daemon_module.serve,
+        kwargs={
+            "socket_path": socket_path,
+            "config_dir": config,
+            "install_dir": install,
+            "data_root": data,
+            # pytest cannot create root-owned files. The daemon refuses this
+            # flag when running as root, so the real service can never use it.
+            "verify_integrity": False,
+            "ready": ready,
+            "control": control,
+            "poll_interval": 0.01,
+        },
+        daemon=True,
+    )
+    thread.start()
+    if not ready.wait(30):
+        raise RuntimeError("the test dbmed daemon never became ready")
+
+    previous = os.environ.get("DBMED_SOCKET")
+    os.environ["DBMED_SOCKET"] = str(socket_path)
+    try:
+        yield socket_path
+    finally:
+        if previous is None:
+            os.environ.pop("DBMED_SOCKET", None)
+        else:
+            os.environ["DBMED_SOCKET"] = previous
+        server = control.get("server")
+        if server is not None:
+            server.shutdown()
+        thread.join(timeout=10)
+
+
+@pytest.fixture(autouse=True)
+def _dbmed_autouse(request):
+    """Point every database-touching test at its own daemon.
+
+    Autouse so the ~150 tests that construct a `DatabaseManager` did not each
+    need a new parameter threaded through them. Tests that never touch a
+    database pay nothing: the daemon is only started when this resolves
+    `dbmed_daemon`, and that is skipped for anything marked `no_dbmed`.
+    """
+    if request.node.get_closest_marker("no_dbmed"):
+        yield None
+        return
+    yield request.getfixturevalue("dbmed_daemon")
+
+
+@pytest.fixture
+def db(dbmed_daemon):
+    """A `DatabaseManager` for this test's isolated database.
+
+    The direct replacement for the old `DatabaseManager(tmp_path / 'x.db')`.
+    """
+    from db.manager import DatabaseManager
+
+    return DatabaseManager()
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "no_dbmed: test needs no database; skip starting a dbmed daemon for it",
+    )
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Clean up the short-path socket directories from /tmp."""
+    from send2trash import send2trash
+
+    for directory in _SOCKET_DIRS:
+        try:
+            if directory.exists():
+                send2trash(str(directory))
+        except OSError:
+            # A leftover socket directory in /tmp is cosmetic and the OS
+            # clears it on reboot. Never fail a test run over cleanup.
+            pass

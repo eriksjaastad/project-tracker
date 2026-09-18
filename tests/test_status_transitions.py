@@ -17,7 +17,7 @@ from pt import tasks_group
 def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, str]:
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = DatabaseManager(db_path=db_path)
+    db = DatabaseManager()
     db.add_project(
         project_id="project-tracker",
         name="Project Tracker",

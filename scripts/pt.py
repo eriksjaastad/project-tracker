@@ -2250,7 +2250,13 @@ def tasks_clear_done(project, yes):
         # Capture task info before deletion for notifications
         for t in done_tasks:
             _notify_inbox(t["id"], t.get("project_id", "unknown"), "Deleted", t["text"])
-        deleted_count = db.delete_done_tasks(project_id=project_id)
+        # A hard delete of every Done row. The daemon takes and verifies a
+        # full timestamped backup before it will issue the token this needs.
+        deleted_count = db.authorize(
+            "delete_done_tasks",
+            reason=f"pt tasks delete-done for {project_id or 'all projects'}",
+            project_id=project_id,
+        )
         console.print(f"[green]Deleted {deleted_count} Done task(s)[/green]")
     except Exception as e:
         console.print(f"[red]Failed to delete tasks: {e}[/red]")

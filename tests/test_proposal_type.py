@@ -26,7 +26,7 @@ from utils.validation import validate_task_type, VALID_TASK_TYPES
 def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, str]:
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = DatabaseManager(db_path=db_path)
+    db = DatabaseManager()
     db.add_project(
         project_id="test-project",
         name="Test Project",

@@ -31,7 +31,7 @@ def db(tmp_path):
     """Create a test database with a project."""
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    manager = DatabaseManager(db_path=db_path)
+    manager = DatabaseManager()
     manager.add_project(
         project_id="test-project",
         name="test-project",

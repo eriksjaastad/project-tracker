@@ -104,7 +104,7 @@ def _setup_fresh_database():
     conn.close()
     
     # Create DatabaseManager instance
-    db_manager = DatabaseManager(db_path=db_path)
+    db_manager = DatabaseManager()
     
     # Create test projects
     projects = [
@@ -282,7 +282,7 @@ def test_property_2_query_filtering_accuracy(num_tasks, filter_project_id, filte
 def test_add_task_inherits_portfolio_label_from_project_info(tmp_path):
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = DatabaseManager(db_path=db_path)
+    db = DatabaseManager()
     db.add_project(
         project_id="smart-invoice-workflow",
         name="Smart Invoice Workflow",
@@ -303,7 +303,7 @@ def test_add_task_inherits_portfolio_label_from_project_info(tmp_path):
 def test_add_task_explicit_category_overrides_portfolio_label(tmp_path):
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = DatabaseManager(db_path=db_path)
+    db = DatabaseManager()
     db.add_project(
         project_id="smart-invoice-workflow",
         name="Smart Invoice Workflow",

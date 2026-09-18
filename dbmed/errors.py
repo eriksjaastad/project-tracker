@@ -83,6 +83,58 @@ class OperationFailed(DbmedError):
 
     code = "OPERATION_FAILED"
 
+    def __init__(
+        self, message: str, *, detail: str | None = None, exc_type: str | None = None
+    ) -> None:
+        super().__init__(message, detail=detail)
+        self.exc_type = exc_type
+
+    def to_wire(self) -> dict:
+        payload = super().to_wire()
+        if self.exc_type:
+            payload["exc_type"] = self.exc_type
+        return payload
+
+
+# A domain error raised by the backend used to reach the caller as itself,
+# because the caller and the backend were the same process. They are not any
+# more, and an exception cannot cross a socket.
+#
+# That matters beyond tidiness: `dashboard/app.py` catches ValueError around
+# update_task, delete_task and the idea operations to turn invalid input into
+# an HTTP 400. Without this, those became 500s — the API would report a server
+# fault for a user mistake.
+#
+# So a short allowlist of builtin exception types is carried on the wire by
+# name, and re-raised here as something that is both `OperationFailed` and the
+# original type. `except ValueError` and `except OperationFailed` both still
+# work. Arbitrary types are deliberately not transported: that way lies
+# reconstructing attacker-chosen classes from a wire payload.
+_TRANSPARENT_EXC_TYPES: dict[str, type[Exception]] = {
+    "ValueError": ValueError,
+    "KeyError": KeyError,
+    "TypeError": TypeError,
+    "FileNotFoundError": FileNotFoundError,
+    "PermissionError": PermissionError,
+    "NotImplementedError": NotImplementedError,
+}
+
+_TRANSPARENT_CACHE: dict[str, type] = {}
+
+
+def _transparent_class(name: str) -> type | None:
+    """Build (once) a class that is both OperationFailed and the named builtin."""
+    builtin = _TRANSPARENT_EXC_TYPES.get(name)
+    if builtin is None:
+        return None
+    if name not in _TRANSPARENT_CACHE:
+        _TRANSPARENT_CACHE[name] = type(
+            f"Remote{name}",
+            (OperationFailed, builtin),
+            {"__doc__": f"A {name} raised by the dbmed backend, re-raised locally."},
+        )
+    return _TRANSPARENT_CACHE[name]
+
 
 BY_CODE = {
     cls.code: cls
@@ -102,7 +154,21 @@ BY_CODE = {
 def from_wire(payload: dict) -> DbmedError:
     """Rebuild a typed exception from a wire error object."""
     code = payload.get("code", "INTERNAL")
+    message = payload.get("message", "unknown error")
+    detail = payload.get("detail")
+
+    if code == "OPERATION_FAILED":
+        exc_type = payload.get("exc_type")
+        transparent = _transparent_class(exc_type) if exc_type else None
+        if transparent is not None:
+            err = transparent(message, detail=detail, exc_type=exc_type)
+            err.code = code
+            return err
+        err = OperationFailed(message, detail=detail, exc_type=exc_type)
+        err.code = code
+        return err
+
     cls = BY_CODE.get(code, DbmedError)
-    err = cls(payload.get("message", "unknown error"), detail=payload.get("detail"))
+    err = cls(message, detail=detail)
     err.code = code
     return err

@@ -116,7 +116,7 @@ def _setup_fresh_database():
     conn.close()
     
     # Create DatabaseManager instance
-    db_manager = DatabaseManager(db_path=db_path)
+    db_manager = DatabaseManager()
     
     # Create test projects
     projects = [

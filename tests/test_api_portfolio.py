@@ -20,7 +20,7 @@ def test_api_projects_include_portfolio_metadata(tmp_path: Path, monkeypatch: py
     project_path = tmp_path / "smart-invoice-workflow"
     project_path.mkdir()
 
-    db = DatabaseManager(db_path=db_path)
+    db = DatabaseManager()
     db.add_project(
         project_id="smart-invoice-workflow",
         name="smart-invoice-workflow",
