@@ -79,11 +79,12 @@ app = FastAPI(title="Project Tracker Dashboard", lifespan=_lifespan)
 _PROCESS_START_WALL = datetime.now()
 _PROCESS_START_MONOTONIC = _monotonic()
 
-# Run idempotent migrations on startup
-try:
-    DatabaseManager().migrate_attachments_table()
-except Exception as _mig_err:
-    logger.warning(f"Attachments migration skipped: {_mig_err}")
+# Idempotent startup migrations used to run here, at import. That made merely
+# importing this module write to the live tracker database — which is how
+# fourteen test modules ended up mutating data/tracker.db just by importing the
+# dashboard. The daemon runs them now, once, when it loads this project's
+# operations module, which is both the right owner and the only process with
+# permission to do it.
 
 # Setup templates and static files
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -552,17 +553,19 @@ def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
     return projects
 
 
-def _sync_portfolio_project_info(db: DatabaseManager, cursor, project: dict) -> None:
-    """Persist tracker-owned portfolio metadata without overwriting other project info."""
-    db._replace_project_info_entries_with_cursor(
-        cursor,
-        project["id"],
-        {
-            "portfolio_group": project.get("portfolio_group"),
-            "portfolio_label": project.get("portfolio_label"),
-            "portfolio_parent": project.get("portfolio_parent"),
-        },
-    )
+def _portfolio_project_info(project: dict) -> dict:
+    """Tracker-owned portfolio metadata for a discovered project.
+
+    Used to be a cursor-taking write inside the caller's transaction. The
+    dashboard is an unprivileged dbmed client now, so this is just the data;
+    the transaction belongs to `upsert_project_with_portfolio_info` on the
+    privileged side.
+    """
+    return {
+        "portfolio_group": project.get("portfolio_group"),
+        "portfolio_label": project.get("portfolio_label"),
+        "portfolio_parent": project.get("portfolio_parent"),
+    }
 
 
 def _collect_task_display_ids(task_payload: dict, acc: set[int]) -> None:
@@ -844,27 +847,16 @@ async def refresh_data():
         
         # Update database
         for project in projects:
-            with db._get_conn() as conn:
-                cursor = conn.cursor()
-                cursor.execute("BEGIN")
-                db._add_project_with_cursor(
-                    cursor=cursor,
-                    project_id=project["id"],
-                    name=project["name"],
-                    path=project["path"],
-                    status=project["status"],
-                    description=project.get("description"),
-                    phase=project.get("phase"),
-                    last_modified=project["last_modified"],
-                    completion_pct=project.get("completion_pct", 0),
-                    is_infrastructure=project.get("is_infrastructure", False),
-                    has_index=project.get("has_index", False),
-                    index_is_valid=project.get("index_is_valid", False),
-                    index_updated_at=project.get("index_updated_at"),
-                    project_type=project.get("project_type", "standard"),
+            outcome = db.upsert_project_with_portfolio_info(
+                project=project,
+                portfolio_info=_portfolio_project_info(project),
+            )
+            if not outcome["ok"]:
+                logger.error(
+                    "refresh: failed to upsert project %s: %s",
+                    outcome["project_id"],
+                    outcome["error"],
                 )
-                _sync_portfolio_project_info(db, cursor, project)
-                conn.commit()
 
         # Clean up stale projects whose directories no longer exist on disk.
         # Only remove projects whose path is under the local PROJECTS_BASE_DIR
@@ -984,17 +976,12 @@ async def api_health():
     }
 
     try:
-        db = DatabaseManager()
-        query_start = _time()
-        with db._get_conn() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM tasks")
-            row = cursor.fetchone()
+        snapshot = DatabaseManager().health_snapshot()
         payload["database"] = {
             "ok": True,
-            "path": str(db.db_path),
-            "task_count": int(row[0]) if row else 0,
-            "query_ms": round((_time() - query_start) * 1000, 1),
+            "path": snapshot["path"],
+            "task_count": snapshot["task_count"],
+            "query_ms": snapshot["query_ms"],
         }
     except Exception as exc:
         logger.error(f"Health check failed: {exc}")
@@ -1852,76 +1839,70 @@ async def get_loop_status():
     loops = ["janitor", "patch-bot"]
     status_data = []
 
-    with db._get_conn() as conn:
-        cursor = conn.cursor()
+    executions = db.loop_last_executions(loop_names=loops)
 
-        for loop_name in loops:
-            # Get last execution
-            cursor.execute("""
-                SELECT id, started_at, completed_at, status, cards_created, error_message
-                FROM loop_executions
-                WHERE loop_name = ?
-                ORDER BY started_at DESC
-                LIMIT 1
-            """, (loop_name,))
+    for loop_name in loops:
+        last_run = executions.get(loop_name)
 
-            last_run = cursor.fetchone()
+        if last_run:
+            started = datetime.fromisoformat(last_run["started_at"])
+            completed = (
+                datetime.fromisoformat(last_run["completed_at"])
+                if last_run["completed_at"]
+                else None
+            )
 
-            if last_run:
-                started = datetime.fromisoformat(last_run[1])
-                completed = datetime.fromisoformat(last_run[2]) if last_run[2] else None
+            # Calculate health status
+            now = datetime.now()
+            time_since_run = now - started
 
-                # Calculate health status
-                now = datetime.now()
-                time_since_run = now - started
-
-                # Expected intervals (in hours)
-                expected_intervals = {
-                    "janitor": 1,      # Hourly
-                    "patch-bot": 0.5   # Every 30 minutes
-                }
-                
-                expected_hours = expected_intervals.get(loop_name, 24)
-                expected_delta = timedelta(hours=expected_hours)
-                
-                # Determine health
-                if last_run[3] == "failed":
-                    health = "failed"
-                    health_icon = "🔴"
-                elif time_since_run > expected_delta * 2:
-                    health = "overdue"
-                    health_icon = "🔴"
-                elif time_since_run > expected_delta * 1.5:
-                    health = "warning"
-                    health_icon = "🟡"
-                else:
-                    health = "healthy"
-                    health_icon = "🟢"
-                
-                status_data.append({
-                    "loop": loop_name,
-                    "health": health,
-                    "health_icon": health_icon,
-                    "last_run": started.isoformat(),
-                    "last_run_human": format_time_ago(started.isoformat()),
-                    "status": last_run[3],
-                    "cards_created": last_run[4],
-                    "duration_seconds": (completed - started).total_seconds() if completed else None,
-                    "error": last_run[5] if last_run[5] else None
-                })
+            # Expected intervals (in hours)
+            expected_intervals = {
+                "janitor": 1,      # Hourly
+                "patch-bot": 0.5   # Every 30 minutes
+            }
+            
+            expected_hours = expected_intervals.get(loop_name, 24)
+            expected_delta = timedelta(hours=expected_hours)
+            
+            # Determine health
+            if last_run["status"] == "failed":
+                health = "failed"
+                health_icon = "🔴"
+            elif time_since_run > expected_delta * 2:
+                health = "overdue"
+                health_icon = "🔴"
+            elif time_since_run > expected_delta * 1.5:
+                health = "warning"
+                health_icon = "🟡"
             else:
-                status_data.append({
-                    "loop": loop_name,
-                    "health": "never_run",
-                    "health_icon": "⚪",
-                    "last_run": None,
-                    "last_run_human": "Never",
-                    "status": "N/A",
-                    "cards_created": 0,
-                    "duration_seconds": None,
-                    "error": None
-                })
-    
+                health = "healthy"
+                health_icon = "🟢"
+            
+            status_data.append({
+                "loop": loop_name,
+                "health": health,
+                "health_icon": health_icon,
+                "last_run": started.isoformat(),
+                "last_run_human": format_time_ago(started.isoformat()),
+                "status": last_run["status"],
+                "cards_created": last_run["cards_created"],
+                "duration_seconds": (completed - started).total_seconds() if completed else None,
+                "error": last_run["error_message"] or None
+            })
+        else:
+            status_data.append({
+                "loop": loop_name,
+                "health": "never_run",
+                "health_icon": "⚪",
+                "last_run": None,
+                "last_run_human": "Never",
+                "status": "N/A",
+                "cards_created": 0,
+                "duration_seconds": None,
+                "error": None
+            })
+
     return {"loops": status_data}
 
 
@@ -2636,41 +2617,7 @@ async def agentic_summary(days: int = 30, project_id: Optional[str] = None):
         start_date = end_date - timedelta(days=days - 1)
         start_iso = start_date.isoformat()
 
-        with db._get_conn() as conn:
-            cursor = conn.cursor()
-            if project_id:
-                cursor.execute(
-                    """
-                    SELECT
-                        DATE(timestamp) as date,
-                        SUM(CASE WHEN old_status = 'Review' AND new_status = 'In Progress' THEN 1 ELSE 0 END) as review_bounces,
-                        SUM(CASE WHEN old_status = 'Review' AND new_status = 'Done' THEN 1 ELSE 0 END) as review_promotions,
-                        SUM(CASE WHEN old_status = 'In Progress' AND new_status = 'Review' THEN 1 ELSE 0 END) as review_entries
-                    FROM task_history
-                    WHERE timestamp >= ?
-                      AND project_id = ?
-                    GROUP BY DATE(timestamp)
-                    ORDER BY date ASC
-                    """,
-                    (start_iso, project_id),
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT
-                        DATE(timestamp) as date,
-                        SUM(CASE WHEN old_status = 'Review' AND new_status = 'In Progress' THEN 1 ELSE 0 END) as review_bounces,
-                        SUM(CASE WHEN old_status = 'Review' AND new_status = 'Done' THEN 1 ELSE 0 END) as review_promotions,
-                        SUM(CASE WHEN old_status = 'In Progress' AND new_status = 'Review' THEN 1 ELSE 0 END) as review_entries
-                    FROM task_history
-                    WHERE timestamp >= ?
-                    GROUP BY DATE(timestamp)
-                    ORDER BY date ASC
-                    """,
-                    (start_iso,),
-                )
-
-            rows = cursor.fetchall()
+        rows = db.task_history_daily(start_iso=start_iso, project_id=project_id)
 
         row_map = {row["date"]: row for row in rows}
 

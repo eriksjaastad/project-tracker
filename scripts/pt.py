@@ -55,7 +55,6 @@ from discovery.backup_reader import get_backup_status
 from discovery.journal_specialist import JournalSpecialist
 from utils.validation import BlockedTaskProjectError
 from origin import resolve_created_by as _resolve_created_by
-from restore_db import BackupRestoreError, restore_database
 from skill_invocations_reader import (
     iter_invocations as _iter_skill_invocations,
     SkillInvocationsTableMissing as _SkillInvocationsTableMissing,
@@ -1557,14 +1556,57 @@ def backup_status(json_output: bool):
         click.echo(f"Rclone remotes: {', '.join(status['remotes'])}")
 
 
+@backup_group.command(name="list")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def backup_list(json_output: bool):
+    """List restorable snapshots by name."""
+    try:
+        rows = DatabaseManager().backup_list()
+    except DbmedError as err:
+        console.print(f"[red]pt backup list: {err}[/red]")
+        raise SystemExit(2)
+
+    if json_output:
+        click.echo(json.dumps(rows, indent=2))
+        return
+    if not rows:
+        click.echo("No backups found.")
+        return
+    for row in rows:
+        size_mb = row["size_bytes"] / (1024 * 1024)
+        click.echo(f"{row['modified']}  {size_mb:8.1f} MB  {row['name']}")
+
+
+@backup_group.command(name="create")
+def backup_create():
+    """Take a verified timestamped snapshot to both backup locations."""
+    try:
+        result = DatabaseManager().backup_create()
+    except DbmedError as err:
+        console.print(f"[red]pt backup create: {err}[/red]")
+        raise SystemExit(2)
+    size_mb = result["size_bytes"] / (1024 * 1024)
+    console.print(f"[green]✓ backup {Path(result['path']).name} ({size_mb:.1f} MB), verified[/green]")
+    if result["pruned"]:
+        click.echo(f"Pruned {len(result['pruned'])} snapshot(s) past the retention window.")
+
+
 @backup_group.command(name="restore")
-@click.argument("backup_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("backup_name")
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
-def backup_restore(backup_file: Path, yes: bool):
-    """Restore tracker.db from a full backup snapshot."""
+def backup_restore(backup_name: str, yes: bool):
+    """Restore tracker.db from a named snapshot.
+
+    \b
+    BREAKING CHANGE: this used to take a filesystem path and copy whatever was
+    at it over the live database — a write-anything primitive that needed no
+    SQL and no handle on tracker.db. It now takes a NAME, which the database
+    service resolves inside its own protected backup directories. Run
+    `pt backup list` to see the names.
+    """
     if not yes:
         confirm = click.confirm(
-            f"Restore tracker database from '{backup_file}'? This replaces the live DB.",
+            f"Restore the tracker database from '{backup_name}'? This replaces the live DB.",
             default=False,
         )
         if not confirm:
@@ -1572,17 +1614,19 @@ def backup_restore(backup_file: Path, yes: bool):
             return
 
     try:
-        result = restore_database(backup_file)
-    except BackupRestoreError as err:
-        console.print(f"[red]{err}[/red]")
+        result = DatabaseManager().authorize(
+            "backup_restore",
+            reason=f"pt backup restore from snapshot {backup_name}",
+            name=backup_name,
+        )
+    except DbmedError as err:
+        console.print(f"[red]pt backup restore: {err}[/red]")
         raise SystemExit(2)
 
-    console.print(f"[green]Restored database from {result['source_backup']}[/green]")
-    if result["pre_restore_backup"]:
-        click.echo(f"Pre-restore backup: {result['pre_restore_backup']}")
-    if result["removed_sidecars"]:
-        click.echo("Removed stale sidecars:")
-        for sidecar in result["removed_sidecars"]:
+    console.print(f"[green]Restored database from {result['restored_from']}[/green]")
+    if result["trashed_sidecars"]:
+        click.echo("Trashed stale sidecars:")
+        for sidecar in result["trashed_sidecars"]:
             click.echo(f"  - {sidecar}")
 
 

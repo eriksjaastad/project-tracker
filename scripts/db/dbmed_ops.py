@@ -31,6 +31,7 @@ call: whole-project deletion, the done-column sweeps, and bulk import.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -166,6 +167,23 @@ ALLOWLIST: dict[str, Kind | tuple[Kind, set[str]]] = {
     "migration_session_start": Kind.WRITE,
     "migration_session_finish": Kind.WRITE,
     "migration_session_list": Kind.READ,
+    # -- dashboard ------------------------------------------------------
+    # The dashboard used `db._get_conn()` for these four. It is an
+    # unprivileged client now, so each became a named operation. Only the SQL
+    # moved; the presentation logic stayed in the dashboard where it belongs.
+    "upsert_project_with_portfolio_info": Kind.WRITE,
+    "health_snapshot": Kind.READ,
+    "loop_last_executions": Kind.READ,
+    "task_history_daily": Kind.READ,
+    # -- backup and restore ---------------------------------------------
+    # `pt backup restore` used to take a filesystem path and copy whatever was
+    # there over the live database. That is a write-anything primitive wearing
+    # a backup's clothes: it needs no SQL and no file handle on tracker.db to
+    # replace its contents entirely. Restore now names a backup, and the
+    # daemon resolves the name inside its own protected backup directories.
+    "backup_create": Kind.WRITE,
+    "backup_list": Kind.READ,
+    "backup_restore": Kind.DESTRUCTIVE,
 }
 
 
@@ -186,6 +204,12 @@ class ProjectTrackerOps:
         self._db = DatabaseManager(self.db_path)
         self._cal = CalendarManager(self.db_path)
         self._cal.ensure_tables()
+
+        # Idempotent startup migrations. These used to run at dashboard import
+        # time, where any process that imported the module — including the test
+        # suite — wrote to the live database. Running them here means they
+        # happen once, in the one process that is supposed to write.
+        self._db.migrate_attachments_table()
 
         for name in dir(self._db):
             if not name.startswith("_") and callable(getattr(self._db, name)):
@@ -648,6 +672,273 @@ class ProjectTrackerOps:
             return [dict(r) for r in rows]
         finally:
             conn.close()
+
+    # -- dashboard ----------------------------------------------------------
+
+    def upsert_project_with_portfolio_info(
+        self, project: dict, portfolio_info: dict | None = None
+    ) -> dict:
+        """Upsert a project and its portfolio metadata, and nothing else.
+
+        Deliberately narrower than `sync_project_bundle`. The dashboard's
+        refresh only rediscovers projects — it does not rescan agents, cron
+        jobs or services. Routing it through the bundle would pass empty lists
+        to the `_sync_*_with_cursor` helpers, which replace rather than merge,
+        and silently wipe data the dashboard never intended to touch.
+        """
+        db = self._db
+        with db._get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("BEGIN")
+                db._add_project_with_cursor(
+                    cursor=cursor,
+                    project_id=project["id"],
+                    name=project["name"],
+                    path=project["path"],
+                    status=project["status"],
+                    description=project.get("description"),
+                    phase=project.get("phase"),
+                    last_modified=project["last_modified"],
+                    completion_pct=project.get("completion_pct", 0),
+                    is_infrastructure=project.get("is_infrastructure", False),
+                    has_index=project.get("has_index", False),
+                    index_is_valid=project.get("index_is_valid", False),
+                    index_updated_at=project.get("index_updated_at"),
+                    project_type=project.get("project_type", "standard"),
+                )
+                db._replace_project_info_entries_with_cursor(
+                    cursor, project["id"], portfolio_info or {}
+                )
+                conn.commit()
+            except Exception as exc:
+                conn.rollback()
+                return {"ok": False, "project_id": project["id"], "error": str(exc)}
+        return {"ok": True, "project_id": project["id"], "error": None}
+
+    def health_snapshot(self) -> dict:
+        """Task count and the database path, for /api/health.
+
+        The path is returned because the health payload has always shown it and
+        operators use it to confirm which database is live. It is a path the
+        caller cannot open, which is rather the point.
+        """
+        started = time.perf_counter()
+        conn = self._tracker_conn()
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+        finally:
+            conn.close()
+        return {
+            "task_count": int(count),
+            "path": str(self.db_path),
+            "query_ms": round((time.perf_counter() - started) * 1000, 1),
+        }
+
+    def loop_last_executions(self, loop_names: list) -> dict:
+        """Most recent execution row per loop name, or None where never run."""
+        conn = self._tracker_conn()
+        try:
+            out: dict = {}
+            for name in loop_names:
+                row = conn.execute(
+                    "SELECT id, started_at, completed_at, status, cards_created, "
+                    "error_message FROM loop_executions WHERE loop_name = ? "
+                    "ORDER BY started_at DESC LIMIT 1",
+                    (name,),
+                ).fetchone()
+                out[name] = dict(row) if row else None
+            return out
+        finally:
+            conn.close()
+
+    def task_history_daily(self, start_iso: str, project_id: str | None = None) -> list:
+        """Daily review-transition counts from task_history, oldest first.
+
+        Gap-filling across the date range stays in the dashboard: this returns
+        only the days that have rows, exactly as the original query did.
+        """
+        sql = (
+            "SELECT DATE(timestamp) as date, "
+            "SUM(CASE WHEN old_status = 'Review' AND new_status = 'In Progress' "
+            "THEN 1 ELSE 0 END) as review_bounces, "
+            "SUM(CASE WHEN old_status = 'Review' AND new_status = 'Done' "
+            "THEN 1 ELSE 0 END) as review_promotions, "
+            "SUM(CASE WHEN old_status = 'In Progress' AND new_status = 'Review' "
+            "THEN 1 ELSE 0 END) as review_entries "
+            "FROM task_history WHERE timestamp >= ?"
+        )
+        params: list = [start_iso]
+        if project_id:
+            sql += " AND project_id = ?"
+            params.append(project_id)
+        sql += " GROUP BY DATE(timestamp) ORDER BY date ASC"
+
+        conn = self._tracker_conn()
+        try:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+        finally:
+            conn.close()
+
+    # -- backup and restore -------------------------------------------------
+
+    _BACKUP_RETENTION_DAYS = 30
+
+    def _backup_dirs(self) -> list[Path]:
+        """Both DECISIONS.md backup locations, primary first."""
+        return [self.entry.backup_dir, self.entry.external_backup_dir]
+
+    def backup_create(self, retention_days: int | None = None) -> dict:
+        """Timestamped snapshot to both locations, then prune old ones.
+
+        Replaces `scripts/backup-db.sh`, which shelled out to the `sqlite3`
+        binary and built its dot-command by interpolating an environment
+        variable into a single-quoted string — so a backup path containing a
+        quote broke out of the command. There is no shell here.
+        """
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        primary = self.dbmed_backup(label=f"tracker_{stamp}")
+        if not self.dbmed_verify_backup(str(primary)):
+            raise RuntimeError(f"backup at {primary} failed verification")
+
+        pruned = self._prune_backups(
+            self._BACKUP_RETENTION_DAYS if retention_days is None else retention_days
+        )
+        return {
+            "path": str(primary),
+            "size_bytes": primary.stat().st_size,
+            "verified": True,
+            "pruned": pruned,
+        }
+
+    def _prune_backups(self, retention_days: int) -> list:
+        """Trash snapshots older than the retention window.
+
+        The shell version used `find -delete`. These are real database
+        contents, so they go to the Trash: recoverable if the retention window
+        turns out to have been wrong.
+        """
+        from send2trash import send2trash
+
+        if retention_days <= 0:
+            return []
+        cutoff = time.time() - retention_days * 86400
+        pruned: list[str] = []
+        for directory in self._backup_dirs():
+            if not directory.is_dir():
+                continue
+            for candidate in sorted(directory.glob("tracker_*.db")):
+                if candidate.stat().st_mtime < cutoff:
+                    send2trash(str(candidate))
+                    pruned.append(candidate.name)
+        return pruned
+
+    def backup_list(self) -> list:
+        """Every restorable snapshot, newest first, named not pathed.
+
+        The name is what `backup_restore` accepts. Paths are returned for
+        display only — the caller cannot open them, and cannot restore from
+        one by supplying a different one.
+        """
+        seen: dict[str, dict] = {}
+        for directory in self._backup_dirs():
+            if not directory.is_dir():
+                continue
+            for candidate in directory.glob("*.db"):
+                info = candidate.stat()
+                seen.setdefault(
+                    candidate.name,
+                    {
+                        "name": candidate.name,
+                        "size_bytes": info.st_size,
+                        "modified": time.strftime(
+                            "%Y-%m-%dT%H:%M:%S", time.localtime(info.st_mtime)
+                        ),
+                        "location": str(directory),
+                    },
+                )
+        return sorted(seen.values(), key=lambda row: row["modified"], reverse=True)
+
+    def _resolve_backup(self, name: str) -> Path:
+        """Turn a caller-supplied name into a path inside a protected dir.
+
+        The name is a bare filename and is checked as one. Anything with a
+        separator, a parent reference, or a resolved location outside the
+        backup directories is refused — that is the whole reason restore takes
+        a name instead of a path.
+        """
+        if not name or "/" in name or "\\" in name or name in (".", ".."):
+            raise ValueError(f"{name!r} is not a bare backup name")
+        for directory in self._backup_dirs():
+            candidate = directory / name
+            if not candidate.is_file() or candidate.is_symlink():
+                continue
+            resolved = candidate.resolve()
+            if resolved.parent != directory.resolve():
+                continue
+            return resolved
+        raise FileNotFoundError(
+            f"no backup named {name!r} in the protected backup directories; "
+            "list them with backup_list"
+        )
+
+    def backup_restore(self, name: str) -> dict:
+        """Replace the live database with a named, validated snapshot.
+
+        Destructive, so the daemon has already taken and verified a full
+        backup of the current state before issuing the token that reaches
+        here. The snapshot is validated again before it is swapped in, and the
+        swap is an atomic rename of a fully written temporary file, so an
+        interrupted restore cannot leave a half-written database.
+        """
+        from send2trash import send2trash
+
+        source = self._resolve_backup(name)
+        if source == self.db_path.resolve():
+            raise ValueError("refusing to restore from the live database itself")
+        if not self.dbmed_verify_backup(str(source)):
+            raise ValueError(f"backup {name!r} failed validation; refusing to restore")
+
+        import tempfile
+
+        handle, staging_name = tempfile.mkstemp(
+            dir=str(self.db_path.parent), prefix="tracker-restore-", suffix=".db"
+        )
+        os.close(handle)
+        staging = Path(staging_name)
+        try:
+            src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+            try:
+                dst = sqlite3.connect(staging)
+                try:
+                    src.backup(dst)
+                finally:
+                    dst.close()
+            finally:
+                src.close()
+            if not self.dbmed_verify_backup(str(staging)):
+                raise ValueError("the staged restore failed validation; live DB untouched")
+            os.replace(staging, self.db_path)
+        except Exception:
+            if staging.exists():
+                send2trash(str(staging))
+            raise
+
+        # The previous database's WAL and SHM describe a database that no
+        # longer exists. Left in place, SQLite would try to replay them over
+        # the restored file. They go to the Trash rather than being removed.
+        trashed: list[str] = []
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(f"{self.db_path}{suffix}")
+            if sidecar.exists():
+                send2trash(str(sidecar))
+                trashed.append(sidecar.name)
+
+        return {
+            "restored_from": name,
+            "restored_path": str(self.db_path),
+            "trashed_sidecars": trashed,
+        }
 
     # -- dbmed integration hooks -----------------------------------------
 
