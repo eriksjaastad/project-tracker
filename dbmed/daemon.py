@@ -170,7 +170,10 @@ class Service:
             except DbmedError:
                 raise
             except Exception as exc:
-                raise OperationFailed(f"{op_name} failed: {type(exc).__name__}: {exc}") from exc
+                raise OperationFailed(
+                    f"{op_name} failed: {type(exc).__name__}: {exc}",
+                    exc_type=type(exc).__name__,
+                ) from exc
 
     def _builtin(
         self, uid: int, loaded: LoadedProject, op_name: str, params: dict[str, Any]
@@ -193,6 +196,12 @@ class Service:
 
         if op_name in ("dbmed.fixture.create", "dbmed.fixture.destroy"):
             return self._fixture(loaded, params, create=op_name.endswith("create"))
+
+        if op_name == "dbmed.seed":
+            return self._seed(loaded, params)
+
+        if op_name == "dbmed.count":
+            return self._count(loaded, params)
 
         raise UnknownOperation(f"{op_name!r} is not a dbmed built-in operation")
 
@@ -276,6 +285,55 @@ class Service:
         now = time.monotonic() if now is None else now
         for token in [t for t, g in self._grants.items() if g.expired(now)]:
             del self._grants[token]
+
+    def _seed(self, loaded: LoadedProject, params: dict[str, Any]) -> Any:
+        """Set columns a normal operation deliberately cannot set.
+
+        Tests need to control timestamps — to prove that retention archives
+        the *oldest* Done cards, you must be able to make some cards older.
+        No product operation backdates a task, and none should: a completion
+        time you can rewrite is not evidence of anything.
+
+        So it lives here instead, behind a registry flag that the installer
+        never writes. A production daemon has no entry with `allow_seeding`,
+        so this refuses there, and an agent cannot add one because it cannot
+        write the root-owned registry.
+        """
+        if not loaded.entry.test_support:
+            raise NotAuthorized(
+                f"{loaded.entry.project!r} does not allow seeding. This operation "
+                "exists for test fixtures and is refused on any registry entry that "
+                "does not explicitly enable it."
+            )
+        handler = getattr(loaded.backend, "dbmed_seed", None)
+        if handler is None:
+            raise UnknownOperation(
+                f"{loaded.entry.project!r} does not implement dbmed_seed"
+            )
+        with loaded.lock:
+            return handler(**params)
+
+    def _count(self, loaded: LoadedProject, params: dict[str, Any]) -> Any:
+        """Row count for one allowlisted table. Test support only.
+
+        The regression these guard is #6870, where a retention sweep deleted
+        1,288 Done cards and cascaded into `task_history`, erasing its own
+        evidence. Proving "this deleted nothing" means counting rows,
+        including in tables no product read operation exposes.
+
+        Gated exactly like `dbmed.seed`, and read-only besides.
+        """
+        if not loaded.entry.test_support:
+            raise NotAuthorized(
+                f"{loaded.entry.project!r} does not enable test-support operations"
+            )
+        handler = getattr(loaded.backend, "dbmed_count_rows", None)
+        if handler is None:
+            raise UnknownOperation(
+                f"{loaded.entry.project!r} does not implement dbmed_count_rows"
+            )
+        with loaded.lock:
+            return handler(**params)
 
     def _fixture(self, loaded: LoadedProject, params: dict[str, Any], *, create: bool) -> Any:
         """Provision or drop a synthetic database behind the same boundary.
@@ -419,6 +477,8 @@ def serve(
     data_root: Path = DEFAULT_DATA_ROOT,
     verify_integrity: bool = True,
     ready: threading.Event | None = None,
+    control: dict | None = None,
+    poll_interval: float = 0.2,
 ) -> None:
     service = Service(
         config_dir=config_dir,
@@ -440,10 +500,22 @@ def serve(
             # Not the main thread: an embedding test harness owns shutdown.
             pass
 
+    # An embedding harness (the test suite) needs a way to stop a daemon it
+    # started on a thread, where signal handlers are unavailable. Handing back
+    # the server object is the whole mechanism: `control["server"].shutdown()`.
+    if control is not None:
+        control["server"] = server
+
+    # `poll_interval` is how long `shutdown()` can take to be noticed. The
+    # default suits a daemon that runs for weeks and should not wake 100
+    # times a second to check whether it has been asked to stop. The test
+    # suite starts and stops a daemon per test and passes something much
+    # smaller, where the tradeoff runs the other way.
+
     if ready is not None:
         ready.set()
     try:
-        server.serve_forever(poll_interval=0.2)
+        server.serve_forever(poll_interval=poll_interval)
     finally:
         server.server_close()
 

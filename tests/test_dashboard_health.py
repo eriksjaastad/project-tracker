@@ -44,7 +44,7 @@ def test_health_counts_real_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     create_database(db_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
 
-    db = DatabaseManager(db_path=db_path)
+    db = DatabaseManager()
     project_path = tmp_path / "demo"
     project_path.mkdir()
     db.add_project(project_id="demo", name="demo", path=str(project_path), status="active")

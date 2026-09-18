@@ -18,7 +18,7 @@ from db.schema import create_database
 def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, dict[str, int]]:
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = DatabaseManager(db_path=db_path)
+    db = DatabaseManager()
     task_ids: dict[str, int] = {}
 
     for project_id in ("project-tracker", "image-workflow"):

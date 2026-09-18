@@ -161,15 +161,19 @@ chown -R root:wheel "$STAGING"
 find "$STAGING" -type d -exec chmod 0755 {} +
 find "$STAGING" -type f -exec chmod 0644 {} +
 
+mkdir -p "$INSTALL_DIR"
+chown root:wheel "$INSTALL_DIR"
+chmod 0755 "$INSTALL_DIR"
+
 # Swap. The previous tree is archived, not removed: if a deploy turns out to
 # be bad, the thing that was working is still on disk to compare against.
-if [ -d "$INSTALL_DIR" ]; then
+if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR")" ]; then
   ARCHIVE="${DATA_ROOT}/attic/install-${STAMP}"
   install -d -o root -g wheel -m 0700 "${DATA_ROOT}/attic"
-  mv "$INSTALL_DIR" "$ARCHIVE"
+  mv "$INSTALL_DIR"/* "$ARCHIVE"
   ok "archived the previous install at ${ARCHIVE}"
 fi
-mv "$STAGING" "$INSTALL_DIR"
+mv "$STAGING"/* "$INSTALL_DIR"
 trap - EXIT
 chown root:wheel "$INSTALL_DIR"
 chmod 0755 "$INSTALL_DIR"

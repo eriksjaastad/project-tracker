@@ -13,7 +13,6 @@ board; the rows, their status, and their completion timestamps all survive.
 
 from __future__ import annotations
 
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -23,39 +22,38 @@ from click.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.manager import DatabaseManager  # noqa: E402
-from db.schema import create_database  # noqa: E402
 import pt as pt_cli  # noqa: E402
 
 
-def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager]:
-    db_path = tmp_path / "tracker.db"
-    create_database(db_path)
-    db = DatabaseManager(db_path=db_path)
+def _setup_db() -> DatabaseManager:
+    """The daemon-backed manager for this test's own database.
+
+    The conftest `dbmed_daemon` fixture is autouse, so by the time a test body
+    runs there is a daemon serving a fresh schema over DBMED_SOCKET. Nothing
+    here opens a file.
+    """
+    db = DatabaseManager()
     db.add_project("alpha", "Alpha", "/tmp/alpha", "active")
     db.add_project("beta", "Beta", "/tmp/beta", "active")
-    return db_path, db
+    return db
 
 
-def _add_done(db: DatabaseManager, db_path: Path, project_id: str, n: int) -> list[int]:
+def _add_done(db: DatabaseManager, project_id: str, n: int) -> list[int]:
     """Create `n` Done cards in `project_id`, oldest first, with distinct
-    completion timestamps so the retention ordering is unambiguous."""
+    completion timestamps so the retention ordering is unambiguous.
+
+    Backdating goes through `dbmed.seed`, which the daemon only honours
+    because the test registry sets `allow_seeding`. No product operation can
+    rewrite a completion time, and none should — this needs it to prove that
+    retention archives the *oldest* cards, which requires some to be old.
+    """
     ids = []
     for i in range(n):
         task = db.add_task(f"{project_id} done {i}", project_id, status="Done")
         stamp = f"2026-01-{(i % 28) + 1:02d}T{(i % 24):02d}:00:00"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?",
-                (stamp, stamp, task["id"]),
-            )
-            conn.commit()
+        db.seed(task["id"], completed_at=stamp, updated_at=stamp)
         ids.append(task["id"])
     return ids
-
-
-def _row_count(db_path: Path, table: str) -> int:
-    with sqlite3.connect(db_path) as conn:
-        return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
 
 
 # ---------------------------------------------------------------------
@@ -66,28 +64,27 @@ def _row_count(db_path: Path, table: str) -> int:
 def test_pt_tasks_done_deletes_zero_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    db_path, db = _setup_db(tmp_path)
-    monkeypatch.setenv("PT_DB_PATH", str(db_path))
+    db = _setup_db()
     monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
     monkeypatch.setattr(pt_cli, "_notify_inbox", lambda *a, **k: None)
 
     # Well past the old keep=75 portfolio cap and the new per-project cap.
-    _add_done(db, db_path, "alpha", 80)
-    _add_done(db, db_path, "beta", 5)
+    _add_done(db, "alpha", 80)
+    _add_done(db, "beta", 5)
 
     finishing = db.add_task("Finish me", "alpha", status="Review")
 
-    tasks_before = _row_count(db_path, "tasks")
-    history_before = _row_count(db_path, "task_history")
-    audit_before = _row_count(db_path, "delete_audit_log")
+    tasks_before = db.count_rows("tasks")
+    history_before = db.count_rows("task_history")
+    audit_before = db.count_rows("delete_audit_log")
 
     result = CliRunner().invoke(pt_cli.tasks_group, ["done", str(finishing["id"])])
     assert result.exit_code == 0, result.output
 
-    assert _row_count(db_path, "tasks") == tasks_before
+    assert db.count_rows("tasks") == tasks_before
     # task_history only grows — the completion event is appended, never trimmed.
-    assert _row_count(db_path, "task_history") >= history_before
-    assert _row_count(db_path, "delete_audit_log") == audit_before
+    assert db.count_rows("task_history") >= history_before
+    assert db.count_rows("delete_audit_log") == audit_before
 
     # And it archived rather than trimmed.
     assert "Archived" in result.output
@@ -100,9 +97,9 @@ def test_pt_tasks_done_deletes_zero_rows(
 
 
 def test_archiving_is_per_project(tmp_path: Path) -> None:
-    db_path, db = _setup_db(tmp_path)
-    _add_done(db, db_path, "alpha", 40)
-    beta_ids = _add_done(db, db_path, "beta", 3)
+    db = _setup_db()
+    _add_done(db, "alpha", 40)
+    beta_ids = _add_done(db, "beta", 3)
 
     archived = db.archive_done_tasks(keep_per_project=25)
     assert archived == 15  # alpha's oldest 15; beta untouched
@@ -126,8 +123,8 @@ def test_archiving_is_per_project(tmp_path: Path) -> None:
 
 
 def test_archiving_is_idempotent(tmp_path: Path) -> None:
-    db_path, db = _setup_db(tmp_path)
-    _add_done(db, db_path, "alpha", 30)
+    db = _setup_db()
+    _add_done(db, "alpha", 30)
 
     assert db.archive_done_tasks(keep_per_project=25) == 5
     # Already-archived cards don't count against the cap, so a second run
@@ -137,8 +134,8 @@ def test_archiving_is_idempotent(tmp_path: Path) -> None:
 
 
 def test_archiving_ignores_non_done_cards(tmp_path: Path) -> None:
-    db_path, db = _setup_db(tmp_path)
-    _add_done(db, db_path, "alpha", 30)
+    db = _setup_db()
+    _add_done(db, "alpha", 30)
     backlog = db.add_task("Still open", "alpha", status="Backlog")
 
     db.archive_done_tasks(keep_per_project=0)
@@ -153,8 +150,8 @@ def test_archiving_ignores_non_done_cards(tmp_path: Path) -> None:
 
 
 def test_get_tasks_hides_archived_by_default(tmp_path: Path) -> None:
-    db_path, db = _setup_db(tmp_path)
-    _add_done(db, db_path, "alpha", 30)
+    db = _setup_db()
+    _add_done(db, "alpha", 30)
 
     db.archive_done_tasks(keep_per_project=25)
 
@@ -171,11 +168,10 @@ def test_get_tasks_hides_archived_by_default(tmp_path: Path) -> None:
 def test_cli_archived_flag_shows_hidden_cards(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    db_path, db = _setup_db(tmp_path)
-    monkeypatch.setenv("PT_DB_PATH", str(db_path))
+    db = _setup_db()
     monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
 
-    ids = _add_done(db, db_path, "alpha", 30)
+    ids = _add_done(db, "alpha", 30)
     db.archive_done_tasks(keep_per_project=25)
     archived_ids = {
         t["id"]
@@ -204,13 +200,14 @@ def test_cli_archived_flag_shows_hidden_cards(
 
 
 def test_archiving_preserves_status_and_completed_at(tmp_path: Path) -> None:
-    db_path, db = _setup_db(tmp_path)
-    ids = _add_done(db, db_path, "alpha", 30)
+    db = _setup_db()
+    ids = _add_done(db, "alpha", 30)
 
     before = {
         t["id"]: (t["status"], t["completed_at"], t["updated_at"], t["text"])
         for t in db.get_tasks(project_id="alpha", include_archived=True)
     }
+    history_before = db.count_rows("task_history")
 
     db.archive_done_tasks(keep_per_project=25)
 
@@ -228,16 +225,13 @@ def test_archiving_preserves_status_and_completed_at(tmp_path: Path) -> None:
         assert task["updated_at"] == updated_at
         assert task["text"] == text
 
-    # task_history for archived cards survives too — the old trim deleted it.
-    with sqlite3.connect(db_path) as conn:
-        for task in archived:
-            assert (
-                conn.execute(
-                    "SELECT COUNT(*) FROM task_history WHERE task_id = ?",
-                    (task["id"],),
-                ).fetchone()[0]
-                > 0
-            )
+    # task_history survives too. The hard delete this replaced cascaded into
+    # that table and erased its own evidence, so the total is the assertion
+    # that matters: archiving must not remove a single history row.
+    assert db.count_rows("task_history") == history_before, (
+        "archiving changed the task_history row count; #6870 was exactly this "
+        "cascade, and it destroyed the record of what had been deleted"
+    )
 
 
 def test_reopening_an_archived_card_unarchives_it(tmp_path: Path) -> None:
@@ -249,8 +243,8 @@ def test_reopening_an_archived_card_unarchives_it(tmp_path: Path) -> None:
     default board query — gone from Done and gone from Review both. Worse
     than the bug this card fixes, because it hits live work.
     """
-    db_path, db = _setup_db(tmp_path)
-    ids = _add_done(db, db_path, "alpha", 30)
+    db = _setup_db()
+    ids = _add_done(db, "alpha", 30)
 
     db.archive_done_tasks(keep_per_project=25)
     archived = [
@@ -286,8 +280,8 @@ def test_reopening_an_archived_card_unarchives_it(tmp_path: Path) -> None:
 def test_archived_at_is_only_ever_set_on_done_cards(tmp_path: Path) -> None:
     """The invariant `archived_at IS NOT NULL` implies `status = 'Done'`,
     enforced in update_task so it holds for every reader, not just get_tasks."""
-    db_path, db = _setup_db(tmp_path)
-    _add_done(db, db_path, "alpha", 30)
+    db = _setup_db()
+    _add_done(db, "alpha", 30)
     db.archive_done_tasks(keep_per_project=25)
 
     for next_status in ("Review", "In Progress", "To Do"):
@@ -299,16 +293,19 @@ def test_archived_at_is_only_ever_set_on_done_cards(tmp_path: Path) -> None:
         assert archived, "ran out of archived cards to reopen"
         db.update_task(archived[0]["id"], status=next_status)
 
-    with sqlite3.connect(db_path) as conn:
-        offenders = conn.execute(
-            "SELECT COUNT(*) FROM tasks "
-            "WHERE archived_at IS NOT NULL AND status != 'Done'"
-        ).fetchone()[0]
-    assert offenders == 0
+    offenders = [
+        t
+        for t in db.get_tasks(include_archived=True)
+        if t["archived_at"] is not None and t["status"] != "Done"
+    ]
+    assert not offenders, (
+        f"{len(offenders)} reopened card(s) kept archived_at and vanished from "
+        f"the board: {[t['id'] for t in offenders]}"
+    )
 
 
 def test_archive_rejects_negative_cap(tmp_path: Path) -> None:
-    _, db = _setup_db(tmp_path)
+    db = _setup_db()
     with pytest.raises(ValueError):
         db.archive_done_tasks(keep_per_project=-1)
 
@@ -321,14 +318,13 @@ def test_archive_rejects_negative_cap(tmp_path: Path) -> None:
 def test_clear_done_counts_archived_cards(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    db_path, db = _setup_db(tmp_path)
-    monkeypatch.setenv("PT_DB_PATH", str(db_path))
+    db = _setup_db()
     monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
     monkeypatch.setenv("SAFE_MODE", "0")
     monkeypatch.setenv("ALLOW_BULK_DELETE", "1")
     monkeypatch.setattr(pt_cli, "_notify_inbox", lambda *a, **k: None)
 
-    _add_done(db, db_path, "alpha", 30)
+    _add_done(db, "alpha", 30)
     db.archive_done_tasks(keep_per_project=25)
 
     result = CliRunner().invoke(

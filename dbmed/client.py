@@ -173,6 +173,19 @@ class RemoteDatabaseManager:
         """Explicit form, for callers that prefer not to rely on __getattr__."""
         return self._client.call(op, params)
 
+    def seed(self, task_id: int, **columns: Any) -> Any:
+        """Test-fixture seeding. Refused unless the registry entry allows it.
+
+        Present on the client for the test suite's convenience; it is not a
+        capability the client grants. The daemon decides, from a root-owned
+        registry file, and refuses everywhere the installer put one.
+        """
+        return self._client.call("dbmed.seed", {"task_id": task_id, **columns})
+
+    def count_rows(self, table: str) -> int:
+        """Row count for an allowlisted table. Test support; see `seed`."""
+        return self._client.call("dbmed.count", {"table": table})["rows"]
+
     def authorize(self, op: str, /, *, reason: str, **params: Any) -> Any:
         """Run a destructive operation, requesting a token first.
 

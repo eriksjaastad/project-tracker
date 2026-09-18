@@ -110,9 +110,16 @@ ALLOWLIST: dict[str, Kind | tuple[Kind, set[str]]] = {
     # -- destructive: token + verified full backup required ------------
     "delete_project": Kind.DESTRUCTIVE,
     "delete_done_tasks": Kind.DESTRUCTIVE,
-    "archive_done_tasks": Kind.DESTRUCTIVE,
     "trim_done_tasks": Kind.DESTRUCTIVE,
     "raw_import_tasks": Kind.DESTRUCTIVE,
+    # NOT destructive, despite the name and despite sitting next to two that
+    # are. `archive_done_tasks` sets `archived_at` and never deletes a row,
+    # never touches `status`, and is reversible. It also runs automatically on
+    # every `pt tasks done`, so requiring a token and a full backup would mean
+    # backing up the whole database every time somebody finishes a card —
+    # friction with no safety bought. It exists precisely because the hard
+    # delete it replaced destroyed 1,288 Done cards (#6870).
+    "archive_done_tasks": Kind.WRITE,
     # -- calendar ------------------------------------------------------
     # Namespaced because `get_cron_jobs` and `add_cron_job` exist on both
     # managers and would otherwise collide into one wire name.
@@ -939,6 +946,71 @@ class ProjectTrackerOps:
             "restored_path": str(self.db_path),
             "trashed_sidecars": trashed,
         }
+
+    # -- test-fixture seeding ----------------------------------------------
+
+    # Only these columns, and only on `tasks`. Wide enough for the ordering
+    # and staleness scenarios the suite needs to build, narrow enough that it
+    # cannot be turned into a general "write anything" primitive if the
+    # registry flag were ever enabled somewhere it should not be.
+    _SEEDABLE_TASK_COLUMNS = frozenset(
+        {"created_at", "updated_at", "completed_at", "archived_at"}
+    )
+
+    def dbmed_seed(self, task_id: int, **columns: Any) -> dict:
+        """Backdate or adjust timestamp columns on one task. Tests only.
+
+        Reached exclusively through `dbmed.seed`, which the daemon refuses
+        unless the registry entry sets `allow_seeding`. `install.sh` never
+        writes that flag.
+        """
+        unknown = set(columns) - self._SEEDABLE_TASK_COLUMNS
+        if unknown:
+            raise ValueError(
+                f"dbmed_seed does not set {sorted(unknown)}; "
+                f"seedable columns are {sorted(self._SEEDABLE_TASK_COLUMNS)}"
+            )
+        if not columns:
+            return {"task_id": task_id, "updated": 0}
+
+        assignments = ", ".join(f"{name} = ?" for name in columns)
+        values = [*columns.values(), task_id]
+        conn = self._tracker_conn()
+        try:
+            cursor = conn.execute(
+                f"UPDATE tasks SET {assignments} WHERE id = ?", values
+            )
+            conn.commit()
+            return {"task_id": task_id, "updated": cursor.rowcount}
+        finally:
+            conn.close()
+
+    _COUNTABLE_TABLES = frozenset(
+        {
+            "tasks", "projects", "task_history", "delete_audit_log", "handoffs",
+            "migrations", "calendar_events", "ai_agents", "cron_jobs",
+            "services", "ideas", "project_info", "attachments",
+        }
+    )
+
+    def dbmed_count_rows(self, table: str) -> dict:
+        """Count rows in one allowlisted table. Tests only.
+
+        The table name is interpolated into the SQL because a table name
+        cannot be a bound parameter, which is exactly why it is checked
+        against a frozen allowlist first rather than escaped.
+        """
+        if table not in self._COUNTABLE_TABLES:
+            raise ValueError(
+                f"{table!r} is not countable; allowed: {sorted(self._COUNTABLE_TABLES)}"
+            )
+        conn = self._tracker_conn()
+        try:
+            return {"table": table, "rows": conn.execute(
+                f"SELECT COUNT(*) FROM {table}"  # noqa: S608 - allowlisted above
+            ).fetchone()[0]}
+        finally:
+            conn.close()
 
     # -- dbmed integration hooks -----------------------------------------
 

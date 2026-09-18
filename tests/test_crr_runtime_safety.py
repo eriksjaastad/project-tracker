@@ -18,7 +18,7 @@ from db.schema import create_database  # noqa: E402
 def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, CalendarManager]:
     db_path = tmp_path / "tracker.db"
     create_database(db_path)
-    return db_path, DatabaseManager(db_path=db_path), CalendarManager(db_path=db_path)
+    return db_path, DatabaseManager(), CalendarManager(db_path=db_path)
 
 
 def _count(conn: sqlite3.Connection, table: str) -> int:

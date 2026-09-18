@@ -32,7 +32,7 @@ PROJECT_ID = "project-tracker"
 def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManager:
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    manager = DatabaseManager(db_path=db_path)
+    manager = DatabaseManager()
     manager.add_project(
         project_id=PROJECT_ID,
         name="Project Tracker",

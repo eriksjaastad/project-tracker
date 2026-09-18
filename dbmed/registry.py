@@ -49,6 +49,15 @@ class RegistryEntry:
     allowed_uids: frozenset[int]
     hosts: frozenset[str]
     fixture_root: Path | None = None
+    test_support: bool = False
+    """Whether this entry may accept the test-support operations.
+
+    Off unless a registry file says otherwise, and `install.sh` never writes
+    it — only the test suite's generated registry does. The reason this is
+    safe to have at all is the same reason everything else here is: the
+    registry directory is root-owned, the daemon refuses to parse it if it is
+    not, and an agent cannot add a flag to a file it cannot write.
+    """
 
     def permits(self, uid: int) -> bool:
         return uid in self.allowed_uids
@@ -156,6 +165,7 @@ def _parse_entry(path: Path, raw: dict) -> RegistryEntry:
         allowed_uids=allowed_uids,
         hosts=frozenset(raw.get("hosts", [])),
         fixture_root=Path(raw["fixture_root"]) if "fixture_root" in raw else None,
+        test_support=bool(raw.get("test_support", False)),
     )
 
 
