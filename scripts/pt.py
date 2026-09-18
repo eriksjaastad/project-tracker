@@ -1801,7 +1801,7 @@ def tasks_create(text, project, status, priority, prompt, category, description,
     blocked_by_json = None
     if blocked_by:
         blocked_by_json = _parse_blocked_by(db, blocked_by)
-    WORKFLOW_FOOTER = "\n---\n\n## Workflow Protocol\n- [ ] Start: `./pt tasks start <id>`\n- [ ] Complete work\n- [ ] Report: \"Work complete. Awaiting Conductor sign-off.\"\n- [ ] FORBIDDEN: `./pt tasks done` (Conductor only)"
+    WORKFLOW_FOOTER = "\n---\n\n## Workflow Protocol\n- [ ] Start: `pt tasks start <id>`\n- [ ] Complete work\n- [ ] Open PR: `pt tasks review <id>`\n- [ ] PR merges: `pt tasks done <id>`"
     try:
         final_prompt = prompt
         if prompt: final_prompt = prompt.rstrip() + WORKFLOW_FOOTER
