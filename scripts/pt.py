@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from scripts.config import PROJECTS_BASE_DIR
 from db.schema import init_db, get_db_path
 from db.manager import DatabaseManager, _USE_TURSO
+from dbmed.errors import DbmedError, OperationFailed
 from discovery.project_scanner import (
     PORTFOLIO_ROOTS,
     discover_projects,
@@ -77,17 +78,18 @@ EXIT_AUTH = 5
 EXIT_HYGIENE_FINDING = 6
 
 
-def _sync_portfolio_project_info(db: DatabaseManager, cursor: sqlite3.Cursor, project: dict) -> None:
-    """Persist tracker-owned portfolio metadata for scanned projects."""
-    db._replace_project_info_entries_with_cursor(
-        cursor,
-        project["id"],
-        {
-            "portfolio_group": project.get("portfolio_group"),
-            "portfolio_label": project.get("portfolio_label"),
-            "portfolio_parent": project.get("portfolio_parent"),
-        },
-    )
+def _portfolio_project_info(project: dict) -> dict:
+    """Tracker-owned portfolio metadata for a scanned project.
+
+    Used to be a cursor-taking write inside the caller's transaction. It is
+    now just the data, handed to `sync_project_bundle`, which owns the
+    transaction on the privileged side of the dbmed boundary.
+    """
+    return {
+        "portfolio_group": project.get("portfolio_group"),
+        "portfolio_label": project.get("portfolio_label"),
+        "portfolio_parent": project.get("portfolio_parent"),
+    }
 
 
 def _resolve_project_directory(project_name: str) -> Optional[Path]:
@@ -243,22 +245,10 @@ def _warn_unapplied_migrations() -> None:
     if _USE_TURSO:
         return
     try:
-        from db.migration_runner import discover_migrations, unapplied_migrations
-        migrations_dir = Path(__file__).parent / "db" / "migrations"
-        if not migrations_dir.is_dir():
-            return
-        db_path = get_db_path()
-        if not db_path.exists():
-            return
-        migrations = discover_migrations(migrations_dir, verbose=False)
-        conn = sqlite3.connect(db_path)
-        try:
-            pending = unapplied_migrations(conn, migrations)
-        finally:
-            conn.close()
+        pending = DatabaseManager().migrations_pending()
         if not pending:
             return
-        names = ", ".join(f"{m.version:03d}_{m.name}" for m in pending)
+        names = ", ".join(f"{m['version']:03d}_{m['name']}" for m in pending)
         click.echo(
             f"⚠ pending migration(s): {names}. Run `pt db migrate` to apply.",
             err=True,
@@ -342,35 +332,21 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
     console.print(f"\n[bold blue]Loading services from EXTERNAL_RESOURCES.md...[/bold blue]")
     services_by_project = parse_external_resources()
     for project in projects:
-        with db._get_conn() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("BEGIN")
-                db._add_project_with_cursor(
-                    cursor=cursor, project_id=project["id"], name=project["name"],
-                    path=project["path"], status=project["status"],
-                    description=project.get("description"), phase=project.get("phase"),
-                    last_modified=project["last_modified"],
-                    completion_pct=project.get("completion_pct", 0),
-                    is_infrastructure=project.get("is_infrastructure", False),
-                    has_index=project.get("has_index", False),
-                    index_is_valid=project.get("index_is_valid", False),
-                    index_updated_at=project.get("index_updated_at"),
-                    project_type=project.get("project_type", "standard"),
-                )
-                _sync_portfolio_project_info(db, cursor, project)
-                db._sync_ai_agents_with_cursor(cursor=cursor, project_id=project["id"], agents=project.get("ai_agents", []))
-                db._sync_cron_jobs_with_cursor(cursor=cursor, project_id=project["id"], cron_jobs=project.get("cron_jobs", []))
-                db._sync_services_with_cursor(cursor=cursor, project_id=project["id"], services=services_by_project.get(project["id"], []))
-                health = health_results.get(project["id"])
-                if health:
-                    db._update_health_with_cursor(cursor=cursor, project_id=project["id"], score=health["score"], grade=health["grade"])
-                conn.commit()
-                console.print(f"  ✓ {project['name']}")
-            except Exception as e:
-                conn.rollback()
-                console.print(f"  [red]✗ Failed to update {project['name']}: {e}[/red]")
-                continue
+        result = db.sync_project_bundle(
+            project=project,
+            agents=project.get("ai_agents", []),
+            cron_jobs=project.get("cron_jobs", []),
+            services=services_by_project.get(project["id"], []),
+            portfolio_info=_portfolio_project_info(project),
+            health=health_results.get(project["id"]),
+        )
+        if result["ok"]:
+            console.print(f"  ✓ {project['name']}")
+        else:
+            console.print(
+                f"  [red]✗ Failed to update {project['name']}: {result['error']}[/red]"
+            )
+            continue
     services_skipped = 0
     known_project_ids = {p["id"] for p in db.get_all_projects()}
     for project_id in services_by_project.keys():
@@ -719,51 +695,19 @@ def sync_project(project_name, no_graph):
 
     # 4. Upsert to database
     db = DatabaseManager()
-    with db._get_conn() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute("BEGIN")
-            db._add_project_with_cursor(
-                cursor=cursor,
-                project_id=project["id"],
-                name=project["name"],
-                path=project["path"],
-                status=project["status"],
-                description=project.get("description"),
-                phase=project.get("phase"),
-                last_modified=project["last_modified"],
-                completion_pct=project.get("completion_pct", 0),
-                is_infrastructure=project.get("is_infrastructure", False),
-                has_index=project.get("has_index", False),
-                index_is_valid=project.get("index_is_valid", False),
-                index_updated_at=project.get("index_updated_at"),
-                project_type=project.get("project_type", "standard"),
-            )
-            _sync_portfolio_project_info(db, cursor, project)
-            db._sync_ai_agents_with_cursor(
-                cursor=cursor, project_id=project["id"],
-                agents=project.get("ai_agents", []),
-            )
-            db._sync_cron_jobs_with_cursor(
-                cursor=cursor, project_id=project["id"],
-                cron_jobs=project.get("cron_jobs", []),
-            )
-            db._sync_services_with_cursor(
-                cursor=cursor, project_id=project["id"],
-                services=services_by_project.get(project["id"], []),
-            )
-            health = health_results.get(project["id"])
-            if health:
-                db._update_health_with_cursor(
-                    cursor=cursor, project_id=project["id"],
-                    score=health["score"], grade=health["grade"],
-                )
-            conn.commit()
-            console.print(f"  [green]✓ {project['name']}[/green]")
-        except Exception as e:
-            conn.rollback()
-            console.print(f"  [red]✗ Failed to sync {project['name']}: {e}[/red]")
-            raise SystemExit(1)
+    result = db.sync_project_bundle(
+        project=project,
+        agents=project.get("ai_agents", []),
+        cron_jobs=project.get("cron_jobs", []),
+        services=services_by_project.get(project["id"], []),
+        portfolio_info=_portfolio_project_info(project),
+        health=health_results.get(project["id"]),
+    )
+    if result["ok"]:
+        console.print(f"  [green]✓ {project['name']}[/green]")
+    else:
+        console.print(f"  [red]✗ Failed to sync {project['name']}: {result['error']}[/red]")
+        raise SystemExit(1)
 
     # 5. Optionally rebuild project graph
     if not no_graph:
@@ -2880,6 +2824,10 @@ def _open_memory_db_readonly() -> sqlite3.Connection:
             f"memory database not found at {db_path}",
             EXIT_BACKEND_UNAVAILABLE,
         )
+    # NOT YET BEHIND dbmed. This opens ai-memory's brain.db, which belongs to
+    # that project and is card #7220's scope, not #7219's. It is read-only and
+    # it is the last direct database connection left in pt. When #7220 lands,
+    # this becomes a call to ai-memory's own sanctioned tool.
     try:
         uri = f"file:{db_path}?mode=ro"
         conn = sqlite3.connect(uri, uri=True)
@@ -4593,56 +4541,27 @@ def db_migrate():
         )
         sys.exit(2)
 
-    from db.migration_runner import MigrationError, apply_all
+    db = DatabaseManager()
 
-    db_path = get_db_path()
-    migrations_dir = Path(__file__).parent / "db" / "migrations"
-    if not migrations_dir.is_dir():
-        console.print(f"[red]no migrations directory at {migrations_dir}[/red]")
+    # Schema migration is a destructive operation: it runs ALTERs, and for CRR
+    # tables the runner brackets them with crsql_begin_alter/crsql_commit_alter.
+    # `authorize` makes the daemon take and verify a full timestamped backup
+    # before it will issue the single-use token this call needs.
+    result = db.authorize(
+        "migrations_apply", reason="pt db migrate: apply pending schema migrations"
+    )
+    if not result["ok"]:
+        console.print(f"[red]pt db migrate: {result['error']}[/red]")
         sys.exit(2)
 
-    # isolation_level=None puts the driver into manual-commit mode, so
-    # the runner's explicit BEGIN/COMMIT/ROLLBACK statements are the
-    # only transaction boundaries. Without this, Python's sqlite3
-    # auto-inserts a BEGIN before DML and we'd have nested transactions.
-    conn = sqlite3.connect(db_path, isolation_level=None)
-    # Load cr-sqlite so the runner's crsql_begin_alter/crsql_commit_alter
-    # bracketing actually fires for migrations that declare CRR_TABLES.
-    # Without it the runner probes crsql_db_version(), finds nothing, and
-    # silently skips the bracket — which is correct only until a table has
-    # been through crsql_as_crr(). apply_migration() refuses in that case,
-    # so a missing dylib surfaces as a clear error rather than a bad alter.
-    try:
-        from db.pt_id import _find_crsqlite_dylib
-        _dylib = _find_crsqlite_dylib()
-        if _dylib:
-            conn.enable_load_extension(True)
-            conn.load_extension(str(_dylib), entrypoint="sqlite3_crsqlite_init")
-            conn.enable_load_extension(False)
-    except Exception as crsql_err:
-        console.print(f"[yellow]cr-sqlite not loaded for migration: {crsql_err}[/yellow]")
-
-    # A MigrationError is an operator-facing condition (a bad migration
-    # module, a CRR alter without cr-sqlite loaded, a checksum mismatch) —
-    # report it the way `pt sync` reports DB failures rather than dumping a
-    # traceback. Anything else is a real bug and still tracebacks.
-    try:
-        applied = apply_all(conn, migrations_dir)
-    except MigrationError as err:
-        console.print(f"[red]pt db migrate: {err}[/red]")
-        sys.exit(2)
-    finally:
-        conn.close()
-
+    applied = result["applied"]
     if not applied:
         console.print("[green]✓ no pending migrations[/green]")
         return
 
-    console.print(
-        f"[green]✓ applied {len(applied)} migration(s):[/green]"
-    )
+    console.print(f"[green]✓ applied {len(applied)} migration(s):[/green]")
     for m in applied:
-        console.print(f"  • {m.version:03d}_{m.name}")
+        console.print(f"  • {m['version']:03d}_{m['name']}")
 
 
 # =============================================================================
@@ -4675,19 +4594,18 @@ def sync_group(ctx):
         click.echo(ctx.get_help())
 
 
-def _sync_conn() -> sqlite3.Connection:
+def _sync_conn() -> DatabaseManager:
     """Open a sqlite connection to the tracker DB for sync-state reads/writes.
 
-    ``isolation_level=None`` so the sync_state module's implicit
-    commits (``INSERT OR REPLACE`` / ``DELETE``) take effect without
-    a second transaction wrapping them.
+    The sync subcommands used to open the tracker database directly. Each
+    command's database body is now one dbmed operation, so this returns the
+    client rather than a connection.
 
-    A ``sqlite3.Error`` here (corrupt file, permissions, stale path)
-    is translated into a ``click.UsageError`` by the callers so the
-    operator gets "pt sync status: <reason>" instead of a raw Python
-    traceback. Keeps error output consistent with the rest of pt.
+    A ``DbmedError`` here (daemon down, operation refused) is turned into
+    "pt sync <cmd>: <reason>" by ``_handle_sync_db_error``, so the operator
+    still gets one line instead of a traceback.
     """
-    return sqlite3.connect(get_db_path(), isolation_level=None)
+    return DatabaseManager()
 
 
 def _handle_sync_db_error(cmd: str, err: Exception) -> None:
@@ -4699,35 +4617,21 @@ def _handle_sync_db_error(cmd: str, err: Exception) -> None:
     console.print(f"[red]pt sync {cmd}: {err}[/red]")
     sys.exit(2)
 
-
-def _sync_engine_active(conn: sqlite3.Connection) -> bool:
-    """True when cr-sqlite is loaded — shipping sync is gated on this."""
-    try:
-        conn.execute("SELECT crsql_db_version()")
-        return True
-    except sqlite3.OperationalError:
-        return False
-
-
 @sync_group.command(name="status")
 def sync_status():
     """Show pause state, last successful sync, and engine availability."""
     if _USE_TURSO:
         console.print("[yellow]sync engine: Turso (replication handled upstream)[/yellow]")
         return
-    from db.sync_state import is_paused, pause_scope, last_sync
     try:
-        conn = _sync_conn()
-    except sqlite3.Error as err:
+        state = _sync_conn().sync_status()
+    except DbmedError as err:
         _handle_sync_db_error("status", err)
         return  # pragma: no cover — _handle_sync_db_error raises SystemExit
-    try:
-        paused = is_paused(conn)
-        scope = pause_scope(conn)
-        last = last_sync(conn)
-        engine_on = _sync_engine_active(conn)
-    finally:
-        conn.close()
+    paused = state["paused"]
+    scope = state["scope"]
+    last = state["last_sync"]
+    engine_on = state["engine_active"]
 
     engine_line = (
         "[green]engine: cr-sqlite loaded[/green]"
@@ -4751,27 +4655,18 @@ def sync_check():
     if _USE_TURSO:
         console.print("[yellow]pt sync check: Turso mode — local SQLite readiness does not apply.[/yellow]")
         return
-    from db.sync_checks import local_sync_readiness
-
     try:
-        conn = _sync_conn()
-    except sqlite3.Error as err:
+        checks = _sync_conn().sync_check()
+    except DbmedError as err:
         _handle_sync_db_error("check", err)
         return  # pragma: no cover
-    try:
-        checks = local_sync_readiness(conn)
-    except sqlite3.Error as err:
-        _handle_sync_db_error("check", err)
-        return  # pragma: no cover
-    finally:
-        conn.close()
 
     all_ok = True
     for check in checks:
-        label = "[green]ok[/green]" if check.ok else "[red]fail[/red]"
-        if not check.ok:
+        label = "[green]ok[/green]" if check["ok"] else "[red]fail[/red]"
+        if not check["ok"]:
             all_ok = False
-        console.print(f"{label} {check.name}: {check.detail}")
+        console.print(f"{label} {check['name']}: {check['detail']}")
 
     if not all_ok:
         sys.exit(3)
@@ -4785,23 +4680,16 @@ def sync_set_machine_id(machine_id: int):
         console.print("[red]pt sync set-machine-id: Turso mode — local SQLite metadata is not active.[/red]")
         sys.exit(2)
 
-    from db.sync_checks import set_explicit_machine_id
-
     try:
-        conn = _sync_conn()
-    except sqlite3.Error as err:
-        _handle_sync_db_error("set-machine-id", err)
-        return  # pragma: no cover
-    try:
-        set_explicit_machine_id(conn, machine_id)
-    except ValueError as err:
+        _sync_conn().sync_set_machine_id(machine_id=machine_id)
+    except OperationFailed as err:
+        # The backend raises ValueError for an out-of-range id; the daemon
+        # wraps it. Either way the operator wants one line, not a traceback.
         console.print(f"[red]pt sync set-machine-id: {err}[/red]")
         sys.exit(2)
-    except sqlite3.Error as err:
+    except DbmedError as err:
         _handle_sync_db_error("set-machine-id", err)
         return  # pragma: no cover
-    finally:
-        conn.close()
 
     console.print(f"[green]✓ pt.machine_id set to {machine_id}.[/green]")
 
@@ -4816,20 +4704,12 @@ def sync_pause(all_scope: bool):
     if _USE_TURSO:
         console.print("[red]pt sync pause: Turso mode — nothing to pause locally.[/red]")
         sys.exit(2)
-    from db.sync_state import set_paused
     scope = "all" if all_scope else "data_plane"
     try:
-        conn = _sync_conn()
-    except sqlite3.Error as err:
+        _sync_conn().sync_pause(scope=scope)
+    except DbmedError as err:
         _handle_sync_db_error("pause", err)
         return  # pragma: no cover
-    try:
-        set_paused(conn, scope=scope)  # type: ignore[arg-type]
-    except sqlite3.Error as err:
-        _handle_sync_db_error("pause", err)
-        return  # pragma: no cover
-    finally:
-        conn.close()
     console.print(f"[yellow]✓ sync paused ({scope}).[/yellow]")
     if scope == "all":
         console.print(
@@ -4861,15 +4741,10 @@ def sync_resume(force: bool):
     if _USE_TURSO:
         console.print("[red]pt sync resume: Turso mode — nothing to resume locally.[/red]")
         sys.exit(2)
-    from db.sync_state import clear_paused, is_paused
-    try:
-        conn = _sync_conn()
-    except sqlite3.Error as err:
-        _handle_sync_db_error("resume", err)
-        return  # pragma: no cover
+    db = _sync_conn()
     try:
         if not force:
-            blocked = _sync_resume_blocked_versions(conn)
+            blocked = db.sync_resume_blocked_versions()
             if blocked:
                 versions = ", ".join(f"{v:03d}" for v in blocked)
                 console.print(
@@ -4885,51 +4760,14 @@ def sync_resume(force: bool):
                     "Use [cyan]--force[/cyan] to override this gate."
                 )
                 sys.exit(3)
-        was_paused = is_paused(conn)
-        clear_paused(conn)
-    except sqlite3.Error as err:
+        was_paused = db.sync_resume()["was_paused"]
+    except DbmedError as err:
         _handle_sync_db_error("resume", err)
         return  # pragma: no cover
-    finally:
-        conn.close()
     if was_paused:
         console.print("[green]✓ sync resumed.[/green]")
     else:
         console.print("[dim]sync was not paused.[/dim]")
-
-
-def _sync_resume_blocked_versions(conn: sqlite3.Connection) -> list[int]:
-    """Migration versions applied locally but not yet announced by the peer.
-
-    Returns an empty list when the gate can't meaningfully run (no
-    cr-sqlite ⇒ no site_id ⇒ peer rows can't replicate in anyway, so
-    blocking on "peer hasn't announced" would be blocking forever).
-    This mirrors the guard in ``sync_daemon._outstanding_peer_announcements``
-    and keeps the CLI's logic in sync with the daemon's.
-    """
-    try:
-        site_row = conn.execute("SELECT crsql_site_id()").fetchone()
-    except sqlite3.OperationalError:
-        return []  # cr-sqlite not loaded — nothing to gate on
-    # `not site_row[0]` catches both None and empty-string site ids.
-    # An empty site id would match WHERE machine_id = '' and silently
-    # return zero rows, making the gate a no-op with misleading logs.
-    if not site_row or not site_row[0]:
-        return []
-    site_id = site_row[0]
-    try:
-        rows = conn.execute(
-            "SELECT version FROM schema_migration_announcements "
-            "WHERE machine_id = ? "
-            "EXCEPT "
-            "SELECT version FROM schema_migration_announcements "
-            "WHERE machine_id != ?",
-            (site_id, site_id),
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return []  # table missing — gate is moot
-    return sorted(r[0] for r in rows)
-
 
 # =============================================================================
 # Handoff group — structured unfinished-work / non-PR records (Phase D)
@@ -4938,26 +4776,25 @@ def _sync_resume_blocked_versions(conn: sqlite3.Connection) -> list[int]:
 PT_HANDOFF_SCHEMA_VERSION = "pt.handoff.v1"
 
 
-def _get_tracker_db() -> sqlite3.Connection:
-    """Open the tracker DB read-write; raise PtJsonError if unavailable."""
-    db_path = get_db_path()
-    if not db_path.exists():
-        raise PtJsonError(
-            "backend_unavailable",
-            f"tracker database not found at {db_path}",
-            EXIT_BACKEND_UNAVAILABLE,
-        )
+def _get_tracker_db() -> DatabaseManager:
+    """Return a dbmed client, or raise PtJsonError if the service is down.
+
+    Used to open the tracker database directly. The handoff and migration
+    commands now call named operations; the only thing that can fail here is
+    reaching the daemon, and that is still `backend_unavailable` with the same
+    exit code, so the `pt.handoff.v1` and `pt.migration.v1` envelopes are
+    unchanged.
+    """
+    db = DatabaseManager()
     try:
-        conn = sqlite3.connect(str(db_path))
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
-    except sqlite3.Error as exc:
+        db.call("dbmed.ping")
+    except DbmedError as exc:
         raise PtJsonError(
             "backend_unavailable",
-            f"could not open tracker database: {exc}",
+            f"tracker database service unavailable: {exc}",
             EXIT_BACKEND_UNAVAILABLE,
         ) from exc
+    return db
 
 
 _HANDOFF_FILE_CLASSIFICATIONS = frozenset(
@@ -5017,29 +4854,6 @@ def _validate_files_array(parsed_files: list) -> None:
                 f"--files element {i} path must stay inside the repository, got {path!r}",
                 EXIT_VALIDATION,
             )
-
-
-def _handoff_row_to_dict(row: sqlite3.Row) -> dict:
-    return {
-        "id": row["id"],
-        "card_id": row["card_id"],
-        "project": row["project"],
-        "branch": row["branch"],
-        "file_list": json.loads(row["file_list"] or "[]"),
-        "intent": row["intent"],
-        "current_status": row["current_status"],
-        "next_command": row["next_command"],
-        "discard_or_preserve_guidance": row["discard_or_preserve_guidance"],
-        "record_type": row["record_type"],
-        "pr_exempt_reason": row["pr_exempt_reason"],
-        "pr_exempt_disposition": row["pr_exempt_disposition"],
-        "pr_exempt_approver": row["pr_exempt_approver"],
-        "created_at": row["created_at"],
-        "created_by": row["created_by"],
-        "resolved_at": row["resolved_at"],
-        "resolved_note": row["resolved_note"],
-    }
-
 
 def _auto_classify_files() -> list[dict]:
     """Run `git status --porcelain` in cwd and return classified file list.
@@ -5208,70 +5022,37 @@ def handoff_create(
     now = datetime.now(_timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     try:
-        conn = _get_tracker_db()
+        db = _get_tracker_db()
     except PtJsonError as exc:
         _emit_json_error(exc, "handoff.create")
 
     try:
-        # Validate card_id exists
-        row = conn.execute("SELECT id FROM tasks WHERE id = ?", (card_id,)).fetchone()
-        if row is None:
-            _emit_json_error(
-                PtJsonError("validation", f"card {card_id} does not exist", EXIT_VALIDATION),
-                "handoff.create",
-            )
-
-        conn.execute(
-            """
-            INSERT INTO handoffs
-                (card_id, project, branch, file_list, intent, current_status,
-                 next_command, discard_or_preserve_guidance, record_type,
-                 pr_exempt_reason, pr_exempt_disposition, pr_exempt_approver,
-                 created_at, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                card_id,
-                None,  # project resolved below
-                resolved_branch,
-                json.dumps(parsed_files),
-                intent,
-                current_status,
-                next_command,
-                discard_or_preserve_guidance,
-                record_type,
-                reason,
-                disposition,
-                approver,
-                now,
-                resolved_created_by,
-            ),
+        outcome = db.handoff_create(
+            card_id=card_id,
+            branch=resolved_branch,
+            file_list=json.dumps(parsed_files),
+            intent=intent,
+            current_status=current_status,
+            next_command=next_command,
+            discard_or_preserve_guidance=discard_or_preserve_guidance,
+            record_type=record_type,
+            pr_exempt_reason=reason,
+            pr_exempt_disposition=disposition,
+            pr_exempt_approver=approver,
+            created_at=now,
+            created_by=resolved_created_by,
         )
-        handoff_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-
-        # Resolve project from task
-        task_row = conn.execute(
-            "SELECT project_id FROM tasks WHERE id = ?", (card_id,)
-        ).fetchone()
-        project = task_row["project_id"] if task_row else None
-        conn.execute(
-            "UPDATE handoffs SET project = ? WHERE id = ?", (project, handoff_id)
-        )
-        conn.commit()
-
-        record = conn.execute(
-            "SELECT * FROM handoffs WHERE id = ?", (handoff_id,)
-        ).fetchone()
-        record_dict = _handoff_row_to_dict(record)
-    except PtJsonError:
-        raise
-    except sqlite3.Error as exc:
+    except DbmedError as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff create failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.create",
         )
-    finally:
-        conn.close()
+    if not outcome["ok"]:
+        _emit_json_error(
+            PtJsonError("validation", outcome["error"], EXIT_VALIDATION),
+            "handoff.create",
+        )
+    record_dict = outcome["record"]
 
     if json_output:
         _emit_json({
@@ -5300,37 +5081,19 @@ def handoff_list(
 ) -> None:
     """List handoff records with optional filters."""
     try:
-        conn = _get_tracker_db()
+        db = _get_tracker_db()
     except PtJsonError as exc:
         _emit_json_error(exc, "handoff.list")
 
     try:
-        clauses: list[str] = []
-        params: list[object] = []
-        if card_id is not None:
-            clauses.append("card_id = ?")
-            params.append(card_id)
-        if project:
-            clauses.append("project = ?")
-            params.append(project)
-        if unresolved_only:
-            clauses.append("resolved_at IS NULL")
-
-        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        rows = conn.execute(
-            f"SELECT * FROM handoffs {where_sql} ORDER BY created_at DESC",
-            params,
-        ).fetchall()
-        records = [_handoff_row_to_dict(r) for r in rows]
-    except PtJsonError:
-        raise
-    except sqlite3.Error as exc:
+        records = db.handoff_list(
+            card_id=card_id, project=project, unresolved_only=unresolved_only
+        )
+    except DbmedError as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff list failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.list",
         )
-    finally:
-        conn.close()
 
     if json_output:
         _emit_json({
@@ -5359,29 +5122,23 @@ def handoff_list(
 def handoff_show(handoff_id: int, json_output: bool) -> None:
     """Show a single handoff record by ID."""
     try:
-        conn = _get_tracker_db()
+        db = _get_tracker_db()
     except PtJsonError as exc:
         _emit_json_error(exc, "handoff.show")
 
     try:
-        row = conn.execute(
-            "SELECT * FROM handoffs WHERE id = ?", (handoff_id,)
-        ).fetchone()
-    except sqlite3.Error as exc:
+        record = db.handoff_show(handoff_id=handoff_id)
+    except DbmedError as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff show failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.show",
         )
-    finally:
-        conn.close()
 
-    if row is None:
+    if record is None:
         _emit_json_error(
             PtJsonError("validation", f"handoff {handoff_id} does not exist", EXIT_VALIDATION),
             "handoff.show",
         )
-
-    record = _handoff_row_to_dict(row)
     if json_output:
         _emit_json({
             "schema_version": PT_HANDOFF_SCHEMA_VERSION,
@@ -5421,48 +5178,23 @@ def handoff_resolve(handoff_id: int, note: Optional[str], json_output: bool) -> 
     now = datetime.now(_timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     try:
-        conn = _get_tracker_db()
+        db = _get_tracker_db()
     except PtJsonError as exc:
         _emit_json_error(exc, "handoff.resolve")
 
     try:
-        existing = conn.execute(
-            "SELECT id, resolved_at FROM handoffs WHERE id = ?", (handoff_id,)
-        ).fetchone()
-        if existing is None:
-            _emit_json_error(
-                PtJsonError("validation", f"handoff {handoff_id} does not exist", EXIT_VALIDATION),
-                "handoff.resolve",
-            )
-        if existing["resolved_at"] is not None:
-            _emit_json_error(
-                PtJsonError(
-                    "validation",
-                    f"handoff {handoff_id} is already resolved at "
-                    f"{existing['resolved_at']}; refusing to overwrite",
-                    EXIT_VALIDATION,
-                ),
-                "handoff.resolve",
-            )
-
-        conn.execute(
-            "UPDATE handoffs SET resolved_at = ?, resolved_note = ? WHERE id = ?",
-            (now, note, handoff_id),
-        )
-        conn.commit()
-        row = conn.execute(
-            "SELECT * FROM handoffs WHERE id = ?", (handoff_id,)
-        ).fetchone()
-        record = _handoff_row_to_dict(row)
-    except PtJsonError:
-        raise
-    except sqlite3.Error as exc:
+        outcome = db.handoff_resolve(handoff_id=handoff_id, resolved_at=now, note=note)
+    except DbmedError as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff resolve failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.resolve",
         )
-    finally:
-        conn.close()
+    if not outcome["ok"]:
+        _emit_json_error(
+            PtJsonError("validation", outcome["error"], EXIT_VALIDATION),
+            "handoff.resolve",
+        )
+    record = outcome["record"]
 
     if json_output:
         _emit_json({
@@ -5696,25 +5428,25 @@ def migration_start(name: str, force: bool, json_output: bool) -> None:
     # the state file is the source of truth for revert).
     db_id: Optional[int] = None
     try:
-        conn = _get_tracker_db()
-    except PtJsonError:
-        conn = None
-    if conn is not None:
-        try:
-            conn.execute(
-                """
-                INSERT INTO migrations
-                    (name, project_id, started_at, status, baseline_head, created_by)
-                VALUES (?, ?, ?, 'recording', ?, ?)
-                """,
-                (name, None, now, head_sha, resolved_created_by),
+        outcome = _get_tracker_db().migration_session_start(
+            name=name,
+            started_at=now,
+            baseline_head=head_sha,
+            created_by=resolved_created_by,
+        )
+        if outcome["ok"]:
+            db_id = outcome["id"]
+        else:
+            # Best-effort by design: the state file is the source of truth for
+            # revert, so a database failure must not abort the command. It used
+            # to be `except sqlite3.Error: pass`, which meant the row could
+            # vanish with nothing said. Say it.
+            click.echo(
+                f"⚠ migration session not recorded in the tracker DB: {outcome['error']}",
+                err=True,
             )
-            db_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            conn.commit()
-        except sqlite3.Error:
-            pass
-        finally:
-            conn.close()
+    except (PtJsonError, DbmedError) as exc:
+        click.echo(f"⚠ migration session not recorded in the tracker DB: {exc}", err=True)
 
     if json_output:
         _emit_json({
@@ -6091,30 +5823,26 @@ def migration_finish(
     )
 
     # Update DB row if present.
+    status_value = {
+        "manifest-only": "finished",
+        "committed": "committed",
+        "reverted": "reverted",
+    }[action]
     try:
-        conn = _get_tracker_db()
-    except PtJsonError:
-        conn = None
-    if conn is not None:
-        try:
-            status_value = {
-                "manifest-only": "finished",
-                "committed": "committed",
-                "reverted": "reverted",
-            }[action]
-            conn.execute(
-                """
-                UPDATE migrations
-                SET finished_at = ?, status = ?, manifest_path = ?
-                WHERE name = ? AND status = 'recording'
-                """,
-                (finished_at, status_value, str(manifest_path), name),
+        outcome = _get_tracker_db().migration_session_finish(
+            name=name,
+            finished_at=finished_at,
+            status=status_value,
+            manifest_path=str(manifest_path),
+        )
+        if not outcome["ok"]:
+            # Best-effort, but not silent — see migration start.
+            click.echo(
+                f"⚠ migration session not closed in the tracker DB: {outcome['error']}",
+                err=True,
             )
-            conn.commit()
-        except sqlite3.Error:
-            pass
-        finally:
-            conn.close()
+    except (PtJsonError, DbmedError) as exc:
+        click.echo(f"⚠ migration session not closed in the tracker DB: {exc}", err=True)
 
     # Remove the state file so the name is reusable.
     try:
@@ -6160,25 +5888,17 @@ def migration_finish(
 def migration_list(json_output: bool) -> None:
     """List migration sessions recorded in the tracker DB."""
     try:
-        conn = _get_tracker_db()
+        db = _get_tracker_db()
     except PtJsonError as exc:
         _emit_json_error(exc, "migration.list")
 
     try:
-        rows = conn.execute(
-            "SELECT id, name, project_id, started_at, finished_at, status, "
-            "baseline_head, manifest_path, created_by FROM migrations "
-            "ORDER BY started_at DESC"
-        ).fetchall()
-    except sqlite3.Error as exc:
+        records = db.migration_session_list()
+    except DbmedError as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"migration list failed: {exc}", EXIT_QUERY_FAILURE),
             "migration.list",
         )
-    finally:
-        conn.close()
-
-    records = [dict(r) for r in rows]
 
     if json_output:
         _emit_json({
