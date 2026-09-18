@@ -287,8 +287,43 @@ move_tree "${REAL_HOME}/.project-tracker/backups" \
 # --------------------------------------------------------------------------
 say "6. LaunchDaemon"
 
-PYTHON_BIN="${DBMED_PYTHON:-$(command -v python3.13 || command -v python3)}"
-[ -x "$PYTHON_BIN" ] || die "no python3 found; set DBMED_PYTHON to an interpreter path"
+# Pick the interpreter carefully, and verify it rather than trusting a name.
+#
+# `command -v python3` under sudo resolves in *root's* PATH, which on macOS
+# does not include Homebrew. The obvious one-liner therefore selects the
+# system python3, which is 3.9, has no tomllib, and cannot run the daemon —
+# the install would succeed and the service would fail to start, with the
+# cause several layers away from the symptom.
+#
+# So: ask the invoking user's environment, and ask Homebrew for its own prefix
+# instead of guessing it (Apple Silicon and Intel differ). Then run the
+# candidate and make it prove it can import tomllib at 3.13+, because that is
+# the actual requirement. This project is pinned to 3.13; a Homebrew 3.14
+# upgrade previously broke libsql.
+pick_python() {
+  local brew_prefix candidate
+  brew_prefix="$(sudo -u "$REAL_USER" brew --prefix 2>/dev/null || true)"
+
+  for candidate in \
+      "${DBMED_PYTHON:-}" \
+      "$(sudo -u "$REAL_USER" command -v python3.13 2>/dev/null || true)" \
+      "$(command -v python3.13 2>/dev/null || true)" \
+      "${brew_prefix:+${brew_prefix}/bin/python3.13}" \
+      "${REAL_HOME}/.local/bin/python3.13"; do
+    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+    if "$candidate" -c 'import sys, tomllib; sys.exit(0 if sys.version_info[:2] >= (3, 13) else 1)' 2>/dev/null; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+PYTHON_BIN="$(pick_python)" || die "no Python 3.13+ with tomllib was found.
+Tried DBMED_PYTHON, ${REAL_USER}'s PATH, root's PATH, the Homebrew prefix and
+~/.local/bin. The system python3 on macOS is 3.9 and cannot run the daemon.
+Re-run with DBMED_PYTHON=<path to python3.13>."
+ok "interpreter: ${PYTHON_BIN} ($("$PYTHON_BIN" -V 2>&1))"
 
 cat > "$PLIST" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
