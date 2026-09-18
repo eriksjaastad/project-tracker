@@ -59,6 +59,38 @@ os.environ.setdefault("PT_ALLOW_FRESH_DB", "1")
 
 _SOCKET_DIRS: list[Path] = []
 
+# The developer's cr-sqlite build. In production the installer vendors this
+# root-owned and registers that copy; there is no install here, so the test
+# daemon is pointed at wherever the developer's is. That is not a weakening:
+# the registry is how the path is chosen either way, and this registry is one
+# the test wrote for a daemon serving a throwaway database.
+_CRSQLITE = next(
+    (
+        candidate
+        for candidate in (
+            Path.home() / ".local" / "lib" / "crsqlite" / "crsqlite.dylib",
+            Path("/usr/local/lib/crsqlite/crsqlite.dylib"),
+        )
+        if candidate.exists()
+    ),
+    None,
+)
+
+
+@pytest.fixture(scope="session")
+def _dbmed_base_template(tmp_path_factory) -> Path:
+    """Base schema only, with the numbered migrations deliberately NOT applied.
+
+    `pt db migrate` and the pending-migration warning can only be tested
+    against a database that actually has something pending. Opt in with
+    `@pytest.mark.unmigrated_db`.
+    """
+    from db.schema import create_database
+
+    template = tmp_path_factory.mktemp("dbmed-base-template") / "tracker.db"
+    create_database(template)
+    return template
+
 
 @pytest.fixture(scope="session")
 def _dbmed_template(tmp_path_factory) -> Path:
@@ -94,9 +126,15 @@ def _dbmed_template(tmp_path_factory) -> Path:
 
 
 @pytest.fixture
-def dbmed_daemon(tmp_path, _dbmed_template):
+def dbmed_daemon(request, tmp_path, _dbmed_template, _dbmed_base_template):
     """An isolated dbmed daemon for one test. Yields its socket path."""
     from dbmed import daemon as dbmed_daemon_module
+
+    template = (
+        _dbmed_base_template
+        if request.node.get_closest_marker("unmigrated_db")
+        else _dbmed_template
+    )
 
     root = tmp_path / "_dbmed"
     config = root / "etc"
@@ -110,7 +148,7 @@ def dbmed_daemon(tmp_path, _dbmed_template):
         (project_data / sub).mkdir(parents=True)
     (data / "external" / "project-tracker").mkdir(parents=True)
 
-    shutil.copy(_dbmed_template, project_data / "tracker.db")
+    shutil.copy(template, project_data / "tracker.db")
 
     (config / "registry.d" / "project-tracker.toml").write_text(
         f'project = "project-tracker"\n'
@@ -120,7 +158,8 @@ def dbmed_daemon(tmp_path, _dbmed_template):
         f'external_backup_dir = "{data}/external/project-tracker"\n'
         f'fixture_root = "{project_data}/fixtures"\n'
         f'ops_module = "db.dbmed_ops"\n'
-        f"allowed_users = [{os.getuid()}]\n"
+        + (f'crsqlite_path = "{_CRSQLITE}"\n' if _CRSQLITE else "")
+        + f"allowed_users = [{os.getuid()}]\n"
         # Enables dbmed.seed and dbmed.count, which exist only for fixtures.
         # install.sh never writes this flag, so a real daemon refuses both.
         f"test_support = true\n"
@@ -200,6 +239,11 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "no_dbmed: test needs no database; skip starting a dbmed daemon for it",
+    )
+    config.addinivalue_line(
+        "markers",
+        "unmigrated_db: serve a base-schema database with migrations unapplied, "
+        "for tests that exercise the migration runner itself",
     )
 
 

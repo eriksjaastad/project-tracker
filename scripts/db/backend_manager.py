@@ -397,34 +397,15 @@ class DatabaseManager:
 
     @classmethod
     def _delete_attachment_files(cls, attachments: List[Dict[str, Any]]) -> None:
-        """Best-effort cleanup for attachment files after DB rows are deleted."""
-        for attachment in attachments:
-            task_id = attachment.get("task_id")
-            stored_name = attachment.get("stored_name")
-            if task_id is None or not stored_name:
-                continue
+        """Trash each attachment's file. See `db.attachment_paths`.
 
-            attachment_dir = cls._attachments_dir(int(task_id), create=False)
-            file_path = attachment_dir / str(stored_name)
-            try:
-                if file_path.exists():
-                    # User-uploaded content: it goes to the Trash, recoverable,
-                    # not unlink()'d out of existence. `send2trash` is the only
-                    # sanctioned removal path in this codebase (#6905, #6899).
-                    from send2trash import send2trash
-                    send2trash(str(file_path))
-                # The now-empty per-task directory is our own bookkeeping, not
-                # user content, so removing it outright is fine — but only when
-                # it is genuinely empty.
-                if attachment_dir.exists() and not any(attachment_dir.iterdir()):
-                    attachment_dir.rmdir()  # governance: allow-delete DS001: our own bookkeeping dir, proven empty by the guard above; the user content in it went to the Trash via send2trash
-            except OSError as exc:
-                logger.warning(
-                    "Failed to clean attachment file for task %s (%s): %s",
-                    task_id,
-                    stored_name,
-                    exc,
-                )
+        The implementation moved there when the manager became an RPC proxy:
+        it is file work, not row work, and the dashboard needs it too. This
+        stays as a thin delegate so existing backend call sites read the same.
+        """
+        from .attachment_paths import delete_attachment_files
+
+        delete_attachment_files(list(attachments or []))
 
     def migrate_attachments_table(self) -> None:
         """Idempotent migration — create task_attachments table if not present."""

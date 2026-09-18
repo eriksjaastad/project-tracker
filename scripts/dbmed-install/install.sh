@@ -193,6 +193,9 @@ backup_dir = "${PROJECT_DATA}/backups"
 external_backup_dir = "${DATA_ROOT}/external/${PROJECT}"
 fixture_root = "${PROJECT_DATA}/fixtures"
 ops_module = "db.dbmed_ops"
+# The vendored, root-owned copy. A SQLite extension is native code inside the
+# daemon, so this must never point anywhere an agent can write.
+crsqlite_path = "${INSTALL_DIR}/lib/crsqlite.dylib"
 allowed_users = ["${REAL_USER}"]
 REGEOF
 chown root:wheel "${CONFIG_DIR}/registry.d/${PROJECT}.toml"

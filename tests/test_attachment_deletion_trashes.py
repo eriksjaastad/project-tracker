@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from dashboard.app import app  # noqa: E402
+from db.attachment_paths import delete_attachment_files  # noqa: E402
 from db.manager import DatabaseManager  # noqa: E402
 
 client = TestClient(app)
@@ -34,16 +35,26 @@ def test_bulk_cleanup_trashes_files_rather_than_unlinking(tmp_path, monkeypatch)
     stored = attach_dir / "invoice.pdf"
     stored.write_bytes(b"user content")
 
+    # `attachments_dir` moved out of DatabaseManager into
+    # db.attachment_paths when the manager became an RPC proxy. Both the
+    # backend and the dashboard import it by name, so both bindings are
+    # patched — patching only the module would leave dashboard.app holding
+    # the original and the test would silently stop testing anything.
     monkeypatch.setattr(
-        DatabaseManager, "_attachments_dir",
-        classmethod(lambda cls, task_id, create=True: attach_dir),
+        "db.attachment_paths.attachments_dir",
+        lambda task_id, create=True: attach_dir,
+    )
+    monkeypatch.setattr(
+        "dashboard.app.attachments_dir",
+        lambda task_id, create=True: attach_dir,
+        raising=False,
     )
 
     with patch("send2trash.send2trash") as trash:
         with patch.object(Path, "unlink", side_effect=AssertionError(
             "attachment was unlinked instead of trashed — user data destroyed"
         )):
-            DatabaseManager._delete_attachment_files(
+            delete_attachment_files(
                 [{"task_id": 7, "stored_name": "invoice.pdf"}]
             )
 
@@ -57,9 +68,19 @@ def test_bulk_cleanup_survives_a_trash_failure(tmp_path, monkeypatch):
     (attach_dir / "a.pdf").write_bytes(b"a")
     (attach_dir / "b.pdf").write_bytes(b"b")
 
+    # `attachments_dir` moved out of DatabaseManager into
+    # db.attachment_paths when the manager became an RPC proxy. Both the
+    # backend and the dashboard import it by name, so both bindings are
+    # patched — patching only the module would leave dashboard.app holding
+    # the original and the test would silently stop testing anything.
     monkeypatch.setattr(
-        DatabaseManager, "_attachments_dir",
-        classmethod(lambda cls, task_id, create=True: attach_dir),
+        "db.attachment_paths.attachments_dir",
+        lambda task_id, create=True: attach_dir,
+    )
+    monkeypatch.setattr(
+        "dashboard.app.attachments_dir",
+        lambda task_id, create=True: attach_dir,
+        raising=False,
     )
 
     calls = []
@@ -70,7 +91,7 @@ def test_bulk_cleanup_survives_a_trash_failure(tmp_path, monkeypatch):
             raise OSError("trash unavailable")
 
     with patch("send2trash.send2trash", side_effect=flaky):
-        DatabaseManager._delete_attachment_files([
+        delete_attachment_files([
             {"task_id": 7, "stored_name": "a.pdf"},
             {"task_id": 7, "stored_name": "b.pdf"},
         ])
@@ -86,12 +107,22 @@ def test_delete_endpoint_trashes_rather_than_unlinking(tmp_path, monkeypatch):
     stored = attach_dir / "receipt.png"
     stored.write_bytes(b"user content")
 
+    # `attachments_dir` moved out of DatabaseManager into
+    # db.attachment_paths when the manager became an RPC proxy. Both the
+    # backend and the dashboard import it by name, so both bindings are
+    # patched — patching only the module would leave dashboard.app holding
+    # the original and the test would silently stop testing anything.
     monkeypatch.setattr(
-        DatabaseManager, "_attachments_dir",
-        classmethod(lambda cls, task_id, create=True: attach_dir),
+        "db.attachment_paths.attachments_dir",
+        lambda task_id, create=True: attach_dir,
     )
     monkeypatch.setattr(
-        DatabaseManager, "delete_attachment",
+        "dashboard.app.attachments_dir",
+        lambda task_id, create=True: attach_dir,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        DatabaseManager, "delete_attachment", raising=False, value=
         lambda self, attachment_id, task_id: {"stored_name": "receipt.png"},
     )
 
@@ -112,12 +143,22 @@ def test_delete_endpoint_reports_an_orphan_instead_of_500ing(tmp_path, monkeypat
     attach_dir.mkdir(parents=True)
     (attach_dir / "receipt.png").write_bytes(b"user content")
 
+    # `attachments_dir` moved out of DatabaseManager into
+    # db.attachment_paths when the manager became an RPC proxy. Both the
+    # backend and the dashboard import it by name, so both bindings are
+    # patched — patching only the module would leave dashboard.app holding
+    # the original and the test would silently stop testing anything.
     monkeypatch.setattr(
-        DatabaseManager, "_attachments_dir",
-        classmethod(lambda cls, task_id, create=True: attach_dir),
+        "db.attachment_paths.attachments_dir",
+        lambda task_id, create=True: attach_dir,
     )
     monkeypatch.setattr(
-        DatabaseManager, "delete_attachment",
+        "dashboard.app.attachments_dir",
+        lambda task_id, create=True: attach_dir,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        DatabaseManager, "delete_attachment", raising=False, value=
         lambda self, attachment_id, task_id: {"stored_name": "receipt.png"},
     )
 
@@ -132,7 +173,7 @@ def test_delete_endpoint_reports_an_orphan_instead_of_500ing(tmp_path, monkeypat
 
 def test_missing_attachment_still_404s(monkeypatch):
     monkeypatch.setattr(
-        DatabaseManager, "delete_attachment",
+        DatabaseManager, "delete_attachment", raising=False, value=
         lambda self, attachment_id, task_id: None,
     )
     assert client.delete("/api/tasks/42/attachments/999").status_code == 404

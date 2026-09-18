@@ -428,8 +428,7 @@ class ProjectTrackerOps:
             "applied": [{"version": m.version, "name": m.name} for m in applied],
         }
 
-    @staticmethod
-    def _load_crsqlite(conn: sqlite3.Connection) -> None:
+    def _load_crsqlite(self, conn: sqlite3.Connection) -> None:
         """Load cr-sqlite from the vendored, root-owned copy only.
 
         The dylib used to be read from ~/.local/lib/crsqlite/, which is owned
@@ -440,11 +439,18 @@ class ProjectTrackerOps:
         vendors it root-owned beside the daemon and this refuses to look
         anywhere else.
         """
-        dylib = Path(__file__).resolve().parent.parent / "lib" / "crsqlite.dylib"
+        configured = getattr(self.entry, "crsqlite_path", None)
+        if configured is None:
+            raise FileNotFoundError(
+                "no crsqlite_path in this project's registry entry; migrations that "
+                "bracket CRR tables cannot run safely without the extension. Add "
+                "crsqlite_path to the registry and redeploy."
+            )
+        dylib = Path(configured)
         if not dylib.exists():
             raise FileNotFoundError(
-                f"cr-sqlite is not installed at {dylib}; migrations that bracket CRR "
-                "tables cannot run safely without it"
+                f"cr-sqlite is not at the registered path {dylib}; migrations that "
+                "bracket CRR tables cannot run safely without it"
             )
         conn.enable_load_extension(True)
         try:
