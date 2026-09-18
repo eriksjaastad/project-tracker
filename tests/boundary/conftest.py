@@ -72,90 +72,26 @@ requires_real_install = pytest.mark.skipif(
 )
 
 
-@pytest.fixture(scope="session")
-def boundary_tree(tmp_path_factory) -> dict:
-    """A temporary install/config/data layout for the in-process daemon."""
-    root = tmp_path_factory.mktemp("dbmed-boundary")
-    install = root / "libexec"
-    config = root / "etc"
-    data = root / "var"
-    project_data = data / "project-tracker"
+@pytest.fixture
+def daemon(dbmed_daemon, tmp_path):
+    """The per-test dbmed daemon from the root conftest, described for this suite.
 
-    (config / "registry.d").mkdir(parents=True)
-    install.mkdir()
-    for sub in ("backups", "fixtures", "attic"):
-        (project_data / sub).mkdir(parents=True)
-    (data / "external" / "project-tracker").mkdir(parents=True)
-
-    (config / "registry.d" / "project-tracker.toml").write_text(
-        "\n".join(
-            [
-                'project = "project-tracker"',
-                f'db_path = "{project_data}/tracker.db"',
-                f'data_root = "{data}"',
-                f'backup_dir = "{project_data}/backups"',
-                f'external_backup_dir = "{data}/external/project-tracker"',
-                f'fixture_root = "{project_data}/fixtures"',
-                'ops_module = "db.dbmed_ops"',
-                f"allowed_users = [{os.getuid()}]",
-                "",
-            ]
-        )
-    )
-    # The socket lives in /tmp rather than under tmp_path. sun_path is capped
-    # at 104 bytes on macOS and pytest's temp roots
-    # (/private/var/folders/xx/.../pytest-of-user/pytest-N/...) blow straight
-    # through it — the failure is a bare "AF_UNIX path too long" at bind time.
-    socket_dir = Path(tempfile.mkdtemp(prefix="dbmed-t", dir="/tmp"))
-
-    return {
-        "root": root,
-        "install": install,
-        "config": config,
-        "data": data,
-        "project_data": project_data,
-        "socket": socket_dir / "d.sock",
-    }
-
-
-@pytest.fixture(scope="session")
-def daemon(boundary_tree) -> dict:
-    """An in-process dbmed daemon on a temporary tree.
-
-    `verify_integrity=False` because pytest cannot create root-owned files.
-    The daemon refuses that flag when running as root, so this relaxation is
-    unavailable to the real service — see `Service.__init__`.
+    There used to be a second, session-scoped daemon here. That made these
+    tests share one database, and state from the destructive-gate tests leaked
+    into the surface tests — `get_all_projects()` stopped being empty and a
+    baseline assertion failed for a reason that had nothing to do with the
+    boundary. One isolated daemon per test, defined in one place.
     """
-    # The tracker schema refuses to initialise on an unexpectedly empty
-    # database; here an empty database is exactly what we want.
-    os.environ.setdefault("PT_ALLOW_FRESH_DB", "1")
-
-    from dbmed import daemon as dbmed_daemon
-
-    ready = threading.Event()
-    thread = threading.Thread(
-        target=dbmed_daemon.serve,
-        kwargs={
-            "socket_path": boundary_tree["socket"],
-            "config_dir": boundary_tree["config"],
-            "install_dir": boundary_tree["install"],
-            "data_root": boundary_tree["data"],
-            "verify_integrity": False,
-            "ready": ready,
-        },
-        daemon=True,
-    )
-    thread.start()
-    assert ready.wait(30), "the in-process dbmed daemon never became ready"
-
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        if boundary_tree["socket"].exists():
-            break
-        time.sleep(0.05)
-    assert boundary_tree["socket"].exists(), "the daemon never created its socket"
-
-    return {**boundary_tree, "thread": thread}
+    root = tmp_path / "_dbmed"
+    data = root / "var"
+    return {
+        "socket": dbmed_daemon,
+        "root": root,
+        "config": root / "etc",
+        "install": root / "libexec",
+        "data": data,
+        "project_data": data / "project-tracker",
+    }
 
 
 @pytest.fixture

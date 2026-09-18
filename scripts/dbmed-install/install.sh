@@ -47,7 +47,30 @@ PROJECT_DATA="${DATA_ROOT}/${PROJECT}"
 
 STAMP="$(date +%Y%m%dT%H%M%S)"
 
-say()  { printf '\033[0;34m==>\033[0m %s\n' "$1"; }
+STEP="startup"
+STAGING=""
+
+# One EXIT handler for both jobs: discard the /tmp staging tree, and say which
+# step failed. They are combined because they used to be two traps, and the
+# second replaced the first — so during step 3, the only step that has a
+# staging tree, the failure reporting was the thing that got overwritten. The
+# first run of this script died there with a bare "No such file or directory"
+# from `mv`, leaving the service account and data directories created and
+# nothing else, and it took filesystem archaeology to work out where it had
+# stopped.
+cleanup() {
+  local rc=$?
+  if [ -n "$STAGING" ] && [ -d "$STAGING" ]; then
+    rm -rf "$STAGING"
+  fi
+  if [ "$rc" -ne 0 ]; then
+    printf '\033[0;31mFAILED during: %s (exit %d)\033[0m\n' "$STEP" "$rc" >&2
+    printf 'Nothing was deleted. Fix the cause and re-run — this installer is idempotent.\n' >&2
+  fi
+}
+trap cleanup EXIT
+
+say()  { STEP="$1"; printf '\033[0;34m==>\033[0m %s\n' "$1"; }
 ok()   { printf '\033[0;32m  ✓\033[0m %s\n' "$1"; }
 warn() { printf '\033[0;33m  !\033[0m %s\n' "$1"; }
 die()  { printf '\033[0;31mERROR:\033[0m %s\n' "$1" >&2; exit 1; }
@@ -94,9 +117,15 @@ fi
 # --------------------------------------------------------------------------
 say "2. Directory tree"
 
+# `$(dirname "$INSTALL_DIR")` matters: step 3 stages the backend in /tmp and
+# moves it into place, and a move cannot create its destination's parent.
+# /usr/local/libexec does not exist on a stock macOS install, so leaving it
+# out aborted the installer at step 3 with a bare "No such file or directory"
+# after the service account and data directories had already been created.
 install -d -o root -g wheel -m 0755 \
-  "$CONFIG_DIR" "$CONFIG_DIR/registry.d" "$DATA_ROOT" "$RUN_DIR"
-ok "root-owned: ${CONFIG_DIR}, ${DATA_ROOT}"
+  "$CONFIG_DIR" "$CONFIG_DIR/registry.d" "$DATA_ROOT" "$RUN_DIR" \
+  "$(dirname "$INSTALL_DIR")"
+ok "root-owned: ${CONFIG_DIR}, ${DATA_ROOT}, $(dirname "$INSTALL_DIR")"
 
 # 0700 on the project data dir is the boundary. An agent running as the
 # invoking user cannot traverse this directory, so it cannot open, stat, copy,
@@ -114,7 +143,6 @@ say "3. Backend code"
 # the daemon loads. /tmp is on the same volume as /usr/local, so the move is a
 # rename rather than a copy.
 STAGING="$(mktemp -d /tmp/dbmed-install.XXXXXX)"
-trap 'rm -rf "$STAGING"' EXIT
 
 mkdir -p "$STAGING/dbmed" "$STAGING/scripts/utils" "$STAGING/lib"
 cp "$REPO_DIR"/dbmed/*.py         "$STAGING/dbmed/"
@@ -174,7 +202,6 @@ if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR")" ]; then
   ok "archived the previous install at ${ARCHIVE}"
 fi
 mv "$STAGING"/* "$INSTALL_DIR"
-trap - EXIT
 chown root:wheel "$INSTALL_DIR"
 chmod 0755 "$INSTALL_DIR"
 ok "installed root-owned backend at ${INSTALL_DIR}"
