@@ -180,7 +180,11 @@ class Service:
 
         if op_name == "dbmed.ops":
             return {
-                name: {"kind": spec.kind.value, "params": sorted(spec.params)}
+                name: {
+                    "kind": spec.kind.value,
+                    "order": spec.order,
+                    "extra": sorted(spec.accepts_extra),
+                }
                 for name, spec in sorted(loaded.ops.items())
             }
 

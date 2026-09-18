@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from . import protocol
-from .errors import DbUnavailable, DbmedError, from_wire
+from .errors import DbUnavailable, DbmedError, UnknownOperation, from_wire
 from .registry import DEFAULT_SOCKET
 
 CONNECT_TIMEOUT_SECONDS = 5.0
@@ -105,10 +105,12 @@ class RemoteDatabaseManager:
     difference is that the call now crosses the boundary and is checked against
     the operation allowlist on the far side.
 
-    Arguments must be passed by keyword. The wire protocol names parameters, so
-    positional arguments cannot be mapped reliably onto a signature the client
-    no longer has a copy of — and guessing would be a correctness bug waiting
-    for someone to reorder a backend parameter.
+    Positional arguments still work. The client does not hold a copy of the
+    backend signature — it asks the daemon, once per process, for each
+    operation's real parameter order and maps positionals onto that. Keeping
+    the authoritative order on the side that owns the code means a caller
+    cannot drift out of sync with it; if someone reorders a backend parameter,
+    the published order moves with it and existing call sites stay correct.
     """
 
     _PROJECT = "project-tracker"
@@ -122,20 +124,50 @@ class RemoteDatabaseManager:
                 "For tests, provision a fixture through the daemon."
             )
         self._client = client or DbmedClient(self._PROJECT)
+        self._ops_cache: dict[str, Any] | None = None
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(
                 f"{name!r} is private to the dbmed backend and is not reachable from a "
-                "client. If you need a connection, you need a named operation instead: "
-                "add one to the allowlist and deploy it."
+                "client. A cursor or a connection cannot cross the socket. If you need "
+                "a multi-step transaction, it becomes one named operation: add it to "
+                "the allowlist and deploy it."
             )
 
-        def _invoke(**params: Any) -> Any:
+        def _invoke(*args: Any, **params: Any) -> Any:
+            if args:
+                order = self._order(name)
+                if len(args) > len(order):
+                    raise DbmedError(
+                        f"{name}() takes at most {len(order)} positional arguments "
+                        f"({', '.join(order) or 'none'}), got {len(args)}"
+                    )
+                for key, value in zip(order, args):
+                    if key in params:
+                        raise DbmedError(f"{name}() got multiple values for {key!r}")
+                    params[key] = value
             return self._client.call(name, params)
 
         _invoke.__name__ = name
         return _invoke
+
+    def _order(self, op: str) -> list[str]:
+        """Positional parameter order for `op`, cached per process.
+
+        One extra round trip the first time any positional call is made, then
+        never again. Cached on the instance rather than globally so a test
+        harness pointing at a different daemon cannot inherit another
+        daemon's answer.
+        """
+        if self._ops_cache is None:
+            self._ops_cache = self._client.call("dbmed.ops")
+        spec = self._ops_cache.get(op)
+        if spec is None:
+            raise UnknownOperation(
+                f"{op!r} is not an allowlisted operation on {self._PROJECT!r}"
+            )
+        return list(spec.get("order", []))
 
     def call(self, op: str, /, **params: Any) -> Any:
         """Explicit form, for callers that prefer not to rely on __getattr__."""

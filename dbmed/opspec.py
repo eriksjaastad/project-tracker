@@ -57,6 +57,19 @@ class OpSpec:
     params: dict[str, ParamSpec]
     accepts_extra: frozenset[str] = field(default_factory=frozenset)
 
+    @property
+    def order(self) -> list[str]:
+        """Positional parameter names, in the backend's own declaration order.
+
+        The daemon publishes this so a client can map positional arguments
+        without holding its own copy of the signature. Introspecting the real
+        method is the authoritative answer; a client-side copy would be a
+        second source of truth that goes stale the moment someone reorders a
+        backend parameter, and the failure would be silent — arguments landing
+        in the wrong fields rather than an error.
+        """
+        return list(self.params)
+
     def validate(self, raw: dict[str, Any]) -> dict[str, Any]:
         """Return kwargs safe to splat into the backend method.
 

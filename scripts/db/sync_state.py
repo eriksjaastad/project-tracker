@@ -127,3 +127,38 @@ def record_last_sync(conn: sqlite3.Connection) -> None:
         _KEY_LAST_SYNC,
         datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
+
+
+def resume_blocked_versions(conn: sqlite3.Connection) -> list[int]:
+    """Migration versions applied locally but not yet announced by the peer.
+
+    Returns an empty list when the gate can't meaningfully run (no
+    cr-sqlite => no site_id => peer rows can't replicate in anyway, so
+    blocking on "peer hasn't announced" would be blocking forever).
+    This mirrors the guard in ``sync_daemon._outstanding_peer_announcements``.
+
+    Moved here from ``scripts/pt.py`` when database access went behind dbmed:
+    it is sync-state logic, and the daemon cannot import the CLI.
+    """
+    try:
+        site_row = conn.execute("SELECT crsql_site_id()").fetchone()
+    except sqlite3.OperationalError:
+        return []  # cr-sqlite not loaded - nothing to gate on
+    # `not site_row[0]` catches both None and empty-string site ids.
+    # An empty site id would match WHERE machine_id = '' and silently
+    # return zero rows, making the gate a no-op with misleading logs.
+    if not site_row or not site_row[0]:
+        return []
+    site_id = site_row[0]
+    try:
+        rows = conn.execute(
+            "SELECT version FROM schema_migration_announcements "
+            "WHERE machine_id = ? "
+            "EXCEPT "
+            "SELECT version FROM schema_migration_announcements "
+            "WHERE machine_id != ?",
+            (site_id, site_id),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []  # table missing - gate is moot
+    return sorted(r[0] for r in rows)
