@@ -49,6 +49,15 @@ class RegistryEntry:
     allowed_uids: frozenset[int]
     hosts: frozenset[str]
     fixture_root: Path | None = None
+    crsqlite_path: Path | None = None
+    """Where to load the cr-sqlite SQLite extension from, if at all.
+
+    A SQLite extension is native code executing inside the process that loads
+    it, so whoever picks this path picks what the privileged daemon runs. It
+    is named in the root-owned registry rather than discovered at runtime,
+    and `install.sh` points it at the vendored root-owned copy. The old code
+    searched ~/.local/lib, which the agent's own user owns at mode 755.
+    """
     test_support: bool = False
     """Whether this entry may accept the test-support operations.
 
@@ -165,6 +174,9 @@ def _parse_entry(path: Path, raw: dict) -> RegistryEntry:
         allowed_uids=allowed_uids,
         hosts=frozenset(raw.get("hosts", [])),
         fixture_root=Path(raw["fixture_root"]) if "fixture_root" in raw else None,
+        crsqlite_path=(
+            Path(raw["crsqlite_path"]) if raw.get("crsqlite_path") else None
+        ),
         test_support=bool(raw.get("test_support", False)),
     )
 

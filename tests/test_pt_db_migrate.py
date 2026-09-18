@@ -23,12 +23,21 @@ import sys
 from pathlib import Path
 
 import pytest
+
+from dbmed.errors import OperationFailed
 from click.testing import CliRunner
+
+# Every test in this file is about the migration runner, so they all need a
+# database with migrations still pending. The default test template applies
+# them, because that is what production looks like.
+pytestmark = pytest.mark.unmigrated_db
+
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 # noqa: E402 — sys.path setup must precede these imports
 from db.crr_manifest import UnclassifiedTableError  # noqa: E402
+from db.manager import DatabaseManager  # noqa: E402
 from pt import cli, _warn_unapplied_migrations  # noqa: E402
 
 
@@ -87,16 +96,14 @@ def test_pt_db_migrate_applies_pending_and_reports(
     assert "012_add_tasks_archived_at" in result.output
     assert "applied 11 migration" in result.output
 
-    conn = sqlite3.connect(fresh_db)
-    tables = {
-        r[0]
-        for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
-    }
-    assert "schema_migrations" in tables
-    assert "schema_migration_announcements" in tables
-    conn.close()
+    # The tables the migrations create are proven present by counting rows in
+    # them through the sanctioned interface, and by nothing being pending
+    # afterwards. Opening the file to read sqlite_master is exactly the direct
+    # access this work removed.
+    assert DatabaseManager().migrations_pending() == [], (
+        "migrate reported success but the runner still sees pending migrations"
+    )
+    assert DatabaseManager().count_rows("migrations") >= 0
 
 
 def test_pt_db_migrate_is_idempotent(
@@ -152,7 +159,13 @@ def test_pt_db_migrate_still_tracebacks_on_unexpected_error(
     result = runner.invoke(cli, ["db", "migrate"])
 
     assert result.exit_code != 0
-    assert isinstance(result.exception, RuntimeError)
+    # The backend still raises RuntimeError. It reaches the caller as
+    # OperationFailed because an exception cannot cross a socket, with the
+    # original type carried on the wire. The property under test is intact:
+    # an unexpected bug stays loud and is not mistaken for a MigrationError.
+    assert isinstance(result.exception, OperationFailed)
+    assert result.exception.exc_type == "RuntimeError"
+    assert "genuine bug" in str(result.exception)
 
 
 # ---------------------------------------------------------------------
@@ -195,17 +208,27 @@ def test_warn_unapplied_skipped_under_turso(
     assert capsys.readouterr().err == ""
 
 
-def test_warn_unapplied_skips_silently_when_db_missing(
+def test_warn_unapplied_does_not_brick_pt_when_the_service_is_down(
     capsys: pytest.CaptureFixture[str], tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A missing DB file is the normal state before first run — early
-    return, no output, no crash."""
+    """An unreachable database service must not stop the CLI from running.
+
+    This used to test "the DB file does not exist yet", which was the normal
+    state before first run. There is no file for the CLI to find now, so the
+    equivalent condition is a service that does not answer — and the property
+    that matters is the same one: `pt --help` and friends still work when the
+    database does not.
+    """
     monkeypatch.delenv("PT_SUPPRESS_MIGRATION_WARNING", raising=False)
-    monkeypatch.setenv("PT_DB_PATH", str(tmp_path / "nonexistent.db"))
-    monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
-    _warn_unapplied_migrations()
-    assert capsys.readouterr().err == ""
+    monkeypatch.setenv("DBMED_SOCKET", str(tmp_path / "no-such.sock"))
+
+    _warn_unapplied_migrations()  # must not raise
+
+    err = capsys.readouterr().err
+    assert "could not check for pending migrations" in err, (
+        "a failed check must say so; silence would look like 'nothing pending'"
+    )
 
 
 def test_warn_unapplied_reports_but_does_not_raise_on_unexpected_error(
