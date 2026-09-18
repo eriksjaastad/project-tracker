@@ -5,7 +5,7 @@ import sqlite3
 
 import pytest
 
-from scripts.restore_db import BackupRestoreError, restore_database, validate_backup_file
+from scripts.db.backend_restore_db import BackupRestoreError, restore_database, validate_backup_file
 
 
 def _make_tracker_db(path: Path, task_text: str) -> None:

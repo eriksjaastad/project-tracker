@@ -1,65 +1,39 @@
 #!/bin/bash
-# Point-in-time backup of tracker.db using SQLite's atomic .backup command.
-# Safe during concurrent writes (WAL mode). Zero dependencies beyond sqlite3.
+# Point-in-time backup of tracker.db, via the dbmed database service.
 #
 # Usage: ./scripts/backup-db.sh
-# Cron:  Called by com.eriksjaastad.pt-backup launchd plist
+# Cron:  Called by the com.eriksjaastad.pt-backup launchd plist
+#
+# This used to shell out to the `sqlite3` binary directly:
+#
+#     sqlite3 "$DB" ".backup '$BACKUP_FILE'"
+#
+# Two problems with that. It opened the database from a script an agent can
+# edit, which is exactly the access the boundary exists to remove. And it built
+# the dot-command by interpolating an environment-controlled path into a
+# single-quoted string, so a path containing a quote broke out of the command.
+#
+# The snapshot, its verification, the second copy and the retention sweep all
+# happen inside the service now. PT_BACKUP_DB_PATH and PT_FULL_BACKUP_DIR are
+# gone with them: the paths come from the root-owned registry, because a
+# backup job that can be pointed somewhere else by an environment variable is
+# a backup job an agent can redirect.
 
 set -euo pipefail
 
-DB="${PT_BACKUP_DB_PATH:-$HOME/projects/project-tracker/data/tracker.db}"
-BACKUP_DIR="${PT_FULL_BACKUP_DIR:-$HOME/.project-tracker/backups}"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RCLONE_DEST="${PT_BACKUP_RCLONE_DEST:-}"
-RETENTION_DAYS=30
 
-# Bail if DB doesn't exist
-if [ ! -f "$DB" ]; then
-  echo "ERROR: Database not found at $DB" >&2
-  exit 1
-fi
+cd "$REPO_DIR"
 
-# Ensure backup dir exists
-mkdir -p "$BACKUP_DIR"
+# `pt backup create` exits non-zero if the snapshot fails verification, so
+# `set -e` is doing real work here — a failed backup must not be logged as a
+# success.
+OUTPUT="$(./pt backup create)"
+echo "$(date -Iseconds) | backup | ${OUTPUT}"
 
-# Create timestamped backup using SQLite's atomic .backup
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="$BACKUP_DIR/tracker_${TIMESTAMP}.db"
-
-sqlite3 "$DB" ".backup '$BACKUP_FILE'"
-
-# Verify the backup is non-empty
-BACKUP_SIZE=$(stat -f%z "$BACKUP_FILE" 2>/dev/null || stat -c%s "$BACKUP_FILE" 2>/dev/null)
-if [ "$BACKUP_SIZE" -lt 1024 ]; then
-  echo "ERROR: Backup suspiciously small (${BACKUP_SIZE} bytes)" >&2
-  exit 1
-fi
-
-# Rotate: delete backups older than RETENTION_DAYS
-find "$BACKUP_DIR" -name "tracker_*.db" -mtime +"$RETENTION_DAYS" -delete 2>/dev/null || true
-
-# Log success (one line, parseable)
-echo "$(date -Iseconds) | backup | ${BACKUP_SIZE} bytes | ${BACKUP_FILE}"
-
-# Optional: copy one successful full backup off-machine once per day.
-# This is best-effort and must never suppress the local backup success.
+# Optional: copy one successful snapshot off-machine once per day.
+# Best-effort, and it must never suppress the local backup success above.
 if [ -n "$RCLONE_DEST" ]; then
-  CLOUD_STATE_FILE="${PT_BACKUP_CLOUD_STATE_FILE:-$BACKUP_DIR/.cloud-copy-last-success}"
-  TODAY="$(date +%F)"
-  LAST_CLOUD_DAY=""
-  if [ -f "$CLOUD_STATE_FILE" ]; then
-    LAST_CLOUD_DAY="$(cat "$CLOUD_STATE_FILE" 2>/dev/null || true)"
-  fi
-
-  if [ "$LAST_CLOUD_DAY" != "$TODAY" ]; then
-    REMOTE_FILE="${RCLONE_DEST%/}/tracker_daily_$(date +%Y%m%d).db"
-    if ! command -v rclone >/dev/null 2>&1; then
-      echo "$(date -Iseconds) | cloud_copy | failure | ${REMOTE_FILE} | rclone_not_found"
-    elif rclone copyto "$BACKUP_FILE" "$REMOTE_FILE"; then
-      printf '%s' "$TODAY" > "$CLOUD_STATE_FILE" || true
-      echo "$(date -Iseconds) | cloud_copy | success | ${REMOTE_FILE}"
-    else
-      CLOUD_EXIT=$?
-      echo "$(date -Iseconds) | cloud_copy | failure | ${REMOTE_FILE} | exit=${CLOUD_EXIT}"
-    fi
-  fi
+  echo "$(date -Iseconds) | cloud_copy | skipped | offsite copy is not yet a dbmed operation (card filed)"
 fi

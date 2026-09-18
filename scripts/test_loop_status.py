@@ -17,68 +17,62 @@ def get_loop_status():
     loops = ["janitor", "patch-bot"]
     status_data = []
     
-    with db._get_conn() as conn:
-        cursor = conn.cursor()
-        
-        for loop_name in loops:
-            # Get last execution
-            cursor.execute("""
-                SELECT id, started_at, completed_at, status, cards_created, error_message
-                FROM loop_executions
-                WHERE loop_name = ?
-                ORDER BY started_at DESC
-                LIMIT 1
-            """, (loop_name,))
+    executions = db.loop_last_executions(loop_names=loops)
+
+    for loop_name in loops:
+        last_run = executions.get(loop_name)
+
+        if last_run:
+            started = datetime.fromisoformat(last_run["started_at"])
+            completed = (
+                datetime.fromisoformat(last_run["completed_at"])
+                if last_run["completed_at"]
+                else None
+            )
             
-            last_run = cursor.fetchone()
+            # Calculate health status
+            now = datetime.now()
+            time_since_run = now - started
             
-            if last_run:
-                started = datetime.fromisoformat(last_run[1])
-                completed = datetime.fromisoformat(last_run[2]) if last_run[2] else None
-                
-                # Calculate health status
-                now = datetime.now()
-                time_since_run = now - started
-                
-                # Expected intervals (in hours)
-                expected_intervals = {
-                    "janitor": 1,      # Hourly
-                    "patch-bot": 0.5   # Every 30 minutes
-                }
-                
-                expected_hours = expected_intervals.get(loop_name, 24)
-                expected_delta = timedelta(hours=expected_hours)
-                
-                # Determine health
-                if last_run[3] == "failed":
-                    health = "🔴 Failed"
-                elif time_since_run > expected_delta * 2:
-                    health = "🔴 Overdue"
-                elif time_since_run > expected_delta * 1.5:
-                    health = "🟡 Warning"
-                else:
-                    health = "🟢 Healthy"
-                
-                status_data.append({
-                    "loop": loop_name,
-                    "health": health,
-                    "last_run": started.strftime("%Y-%m-%d %H:%M:%S"),
-                    "status": last_run[3],
-                    "cards_created": last_run[4],
-                    "duration": f"{(completed - started).total_seconds():.2f}s" if completed else "running",
-                    "error": last_run[5] if last_run[5] else None
-                })
+            # Expected intervals (in hours)
+            expected_intervals = {
+                "janitor": 1,      # Hourly
+                "patch-bot": 0.5   # Every 30 minutes
+            }
+            
+            expected_hours = expected_intervals.get(loop_name, 24)
+            expected_delta = timedelta(hours=expected_hours)
+            
+            # Determine health
+            if last_run["status"] == "failed":
+                health = "🔴 Failed"
+            elif time_since_run > expected_delta * 2:
+                health = "🔴 Overdue"
+            elif time_since_run > expected_delta * 1.5:
+                health = "🟡 Warning"
             else:
-                status_data.append({
-                    "loop": loop_name,
-                    "health": "⚪ Never Run",
-                    "last_run": "N/A",
-                    "status": "N/A",
-                    "cards_created": 0,
-                    "duration": "N/A",
-                    "error": None
-                })
-    
+                health = "🟢 Healthy"
+            
+            status_data.append({
+                "loop": loop_name,
+                "health": health,
+                "last_run": started.strftime("%Y-%m-%d %H:%M:%S"),
+                "status": last_run["status"],
+                "cards_created": last_run["cards_created"],
+                "duration": f"{(completed - started).total_seconds():.2f}s" if completed else "running",
+                "error": last_run["error_message"] or None
+            })
+        else:
+            status_data.append({
+                "loop": loop_name,
+                "health": "⚪ Never Run",
+                "last_run": "N/A",
+                "status": "N/A",
+                "cards_created": 0,
+                "duration": "N/A",
+                "error": None
+            })
+
     return status_data
 
 
