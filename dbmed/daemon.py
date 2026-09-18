@@ -56,6 +56,7 @@ from .registry import (
     current_host,
     load_registry,
     resolve,
+    verify_interpreter,
     verify_tree,
 )
 
@@ -105,6 +106,9 @@ class Service:
         self.data_root = data_root
 
         if verify_integrity:
+            # Order matters: if the interpreter itself is compromised, nothing
+            # the rest of these checks report can be trusted.
+            verify_interpreter()
             verify_tree(install_dir, label="installed backend")
             verify_tree(config_dir, label="registry config")
         elif os.geteuid() == 0:

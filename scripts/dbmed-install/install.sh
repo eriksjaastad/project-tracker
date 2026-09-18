@@ -13,6 +13,10 @@
 #   1. Creates the `_dbmed` service account, which will own the data.
 #   2. Creates the install, config and data trees with root ownership.
 #   3. Copies the backend code and vendors cr-sqlite root-owned.
+#  3b. Installs a standalone, root-owned CPython for the daemon to run on.
+#      Homebrew's Python is owned by the user the agent runs as and writable,
+#      so running the daemon on it would let an agent patch the standard
+#      library and execute code inside a privileged process.
 #   4. Writes the registry entry for project-tracker.
 #   5. MOVES the live database and every real-data copy behind the boundary.
 #   6. Installs and starts the LaunchDaemon.
@@ -36,6 +40,9 @@ SERVICE_GROUP="_dbmed"
 CLIENT_GROUP="staff"
 
 INSTALL_DIR="/usr/local/libexec/dbmed"
+# The interpreter lives beside the code, not inside it: `verify_tree` walks
+# the code tree and rejects symlinks, and a virtualenv is made of symlinks.
+RUNTIME_DIR="/usr/local/libexec/dbmed-runtime"
 CONFIG_DIR="/usr/local/etc/dbmed"
 DATA_ROOT="/usr/local/var/dbmed"
 RUN_DIR="/usr/local/var/run"
@@ -207,6 +214,65 @@ chmod 0755 "$INSTALL_DIR"
 ok "installed root-owned backend at ${INSTALL_DIR}"
 
 # --------------------------------------------------------------------------
+say "3b. Private interpreter"
+
+# The daemon must not run Homebrew's Python.
+#
+# On this machine that entire installation — the `python3.13` binary, the
+# standard library, and site-packages — is owned by the user the agent runs
+# as, and writable. Patching `json.py`, or dropping any module where it would
+# be imported, would execute arbitrary code inside the privileged process with
+# full database access. Root-owning the daemon's *code* does not help if the
+# interpreter running it can be rewritten, and a virtualenv does not help
+# either, because it reuses the base interpreter and its standard library.
+#
+# So the daemon gets a standalone CPython of its own, installed under root
+# ownership. `dbmed.registry.verify_interpreter` checks this at every startup
+# and refuses to serve if sys.executable or any sys.path entry is writable by
+# anyone but root — so a broken install fails loudly rather than quietly
+# serving from a compromised runtime.
+
+UV_BIN="$(sudo -u "$REAL_USER" command -v uv 2>/dev/null || true)"
+[ -n "$UV_BIN" ] || UV_BIN="${REAL_HOME}/.local/bin/uv"
+[ -x "$UV_BIN" ] || die "uv not found; it is needed to fetch a standalone CPython.
+Install it, or pre-create a root-owned Python 3.13 venv at ${RUNTIME_DIR}/venv."
+
+if [ -x "${RUNTIME_DIR}/venv/bin/python" ]; then
+  ok "private interpreter already present"
+else
+  install -d -o root -g wheel -m 0755 "$RUNTIME_DIR"
+  UV_TMP="$(mktemp -d /tmp/dbmed-uv.XXXXXX)"
+
+  # A standalone build, not a link to the system or Homebrew one.
+  UV_CACHE_DIR="$UV_TMP" UV_PYTHON_INSTALL_DIR="${RUNTIME_DIR}/python"     "$UV_BIN" python install 3.13 --install-dir "${RUNTIME_DIR}/python"     || die "could not fetch a standalone CPython 3.13"
+
+  MANAGED="$(find "${RUNTIME_DIR}/python" -maxdepth 3 -type f -perm -u+x -name 'python3.13' | head -1)"
+  [ -n "$MANAGED" ] || die "uv reported success but no python3.13 landed in ${RUNTIME_DIR}/python"
+
+  UV_CACHE_DIR="$UV_TMP" "$UV_BIN" venv "${RUNTIME_DIR}/venv" --python "$MANAGED"     || die "could not create the daemon virtualenv"
+
+  # send2trash is the one third-party import on the privileged path. It is
+  # there because deletions in this codebase go to the Trash rather than
+  # being unlinked, which is a safety property worth a dependency.
+  UV_CACHE_DIR="$UV_TMP" "$UV_BIN" pip install --python "${RUNTIME_DIR}/venv/bin/python" send2trash     || die "could not install send2trash into the daemon virtualenv"
+
+  rm -rf "$UV_TMP"
+  ok "standalone CPython installed at ${RUNTIME_DIR}"
+fi
+
+# Root-own everything the daemon will import, including the venv's symlink
+# targets. Without this the runtime is owned by whoever ran sudo's $HOME
+# tooling, and verify_interpreter will refuse to start.
+chown -R root:wheel "$RUNTIME_DIR"
+find "$RUNTIME_DIR" -type d -exec chmod go-w {} +
+find "$RUNTIME_DIR" -type f -exec chmod go-w {} +
+ok "runtime is root-owned and not group-writable"
+
+"${RUNTIME_DIR}/venv/bin/python" -c 'import sys, tomllib, sqlite3, send2trash
+assert sys.version_info[:2] >= (3, 13), sys.version
+print(f"  runtime: {sys.version.split()[0]} at {sys.executable}")'   || die "the private interpreter cannot import what the daemon needs"
+
+# --------------------------------------------------------------------------
 say "4. Registry"
 
 cat > "${CONFIG_DIR}/registry.d/${PROJECT}.toml" <<REGEOF
@@ -287,43 +353,8 @@ move_tree "${REAL_HOME}/.project-tracker/backups" \
 # --------------------------------------------------------------------------
 say "6. LaunchDaemon"
 
-# Pick the interpreter carefully, and verify it rather than trusting a name.
-#
-# `command -v python3` under sudo resolves in *root's* PATH, which on macOS
-# does not include Homebrew. The obvious one-liner therefore selects the
-# system python3, which is 3.9, has no tomllib, and cannot run the daemon —
-# the install would succeed and the service would fail to start, with the
-# cause several layers away from the symptom.
-#
-# So: ask the invoking user's environment, and ask Homebrew for its own prefix
-# instead of guessing it (Apple Silicon and Intel differ). Then run the
-# candidate and make it prove it can import tomllib at 3.13+, because that is
-# the actual requirement. This project is pinned to 3.13; a Homebrew 3.14
-# upgrade previously broke libsql.
-pick_python() {
-  local brew_prefix candidate
-  brew_prefix="$(sudo -u "$REAL_USER" brew --prefix 2>/dev/null || true)"
-
-  for candidate in \
-      "${DBMED_PYTHON:-}" \
-      "$(sudo -u "$REAL_USER" command -v python3.13 2>/dev/null || true)" \
-      "$(command -v python3.13 2>/dev/null || true)" \
-      "${brew_prefix:+${brew_prefix}/bin/python3.13}" \
-      "${REAL_HOME}/.local/bin/python3.13"; do
-    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
-    if "$candidate" -c 'import sys, tomllib; sys.exit(0 if sys.version_info[:2] >= (3, 13) else 1)' 2>/dev/null; then
-      printf '%s' "$candidate"
-      return 0
-    fi
-  done
-  return 1
-}
-
-PYTHON_BIN="$(pick_python)" || die "no Python 3.13+ with tomllib was found.
-Tried DBMED_PYTHON, ${REAL_USER}'s PATH, root's PATH, the Homebrew prefix and
-~/.local/bin. The system python3 on macOS is 3.9 and cannot run the daemon.
-Re-run with DBMED_PYTHON=<path to python3.13>."
-ok "interpreter: ${PYTHON_BIN} ($("$PYTHON_BIN" -V 2>&1))"
+PYTHON_BIN="${RUNTIME_DIR}/venv/bin/python"
+[ -x "$PYTHON_BIN" ] || die "the private interpreter is missing; step 3b did not complete"
 
 cat > "$PLIST" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>

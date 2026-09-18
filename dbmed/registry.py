@@ -23,6 +23,7 @@ import grp
 import os
 import pwd
 import stat
+import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -99,6 +100,65 @@ def verify_tree(root: Path, *, label: str) -> None:
             raise IntegrityError(
                 f"{label}: {path} is group- or world-writable (mode {info.st_mode & 0o7777:04o})"
             )
+
+
+def verify_interpreter() -> None:
+    """Refuse to run on a Python that an agent could modify.
+
+    This is the hole that a root-owned install directory does NOT close, and
+    it is easy to miss. The daemon's own code being root-owned means nothing
+    if the interpreter executing it is not: on this machine Homebrew's
+    CPython — the binary, the standard library and site-packages — is owned
+    by the user the agent runs as, and writable. Patching `json.py`, or
+    dropping any module onto `sys.path`, would execute arbitrary code inside
+    the privileged process with full database access.
+
+    A virtualenv does not help by itself, because it reuses the base
+    interpreter and its standard library.
+
+    Checking `sys.path` and `sys.executable` at startup is better than
+    checking a directory listing, because it validates what will actually be
+    imported rather than what someone intended to install.
+    """
+    suspect: list[str] = []
+
+    executable = Path(sys.executable).resolve()
+    for candidate in (executable, *executable.parents):
+        if candidate == candidate.parent:
+            break
+        if not _root_owned(candidate):
+            suspect.append(f"interpreter path {candidate}")
+            break
+
+    for entry in sys.path:
+        if not entry:
+            continue
+        path = Path(entry)
+        if not path.is_dir():
+            continue
+        if not _root_owned(path):
+            suspect.append(f"sys.path entry {path}")
+
+    if suspect:
+        raise IntegrityError(
+            "the daemon is running on a Python that is not root-owned, so an "
+            "agent could inject code into a privileged process:\n  "
+            + "\n  ".join(suspect)
+            + "\n\nInstall the private interpreter with "
+            "scripts/dbmed-install/install.sh, which places a standalone "
+            "CPython under root ownership."
+        )
+
+
+def _root_owned(path: Path) -> bool:
+    """True when `path` is owned by root and not group- or world-writable."""
+    try:
+        info = path.lstat()
+    except OSError:
+        return True  # cannot stat it, so nothing can import through it either
+    if info.st_uid != 0:
+        return False
+    return not info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
 
 
 def load_registry(
