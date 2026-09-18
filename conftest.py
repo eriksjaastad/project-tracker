@@ -29,6 +29,21 @@ _TEST_DESTRUCTIVE_LOG = (
 )
 os.environ.setdefault("PT_DESTRUCTIVE_LOG_PATH", str(_TEST_DESTRUCTIVE_LOG))
 
+# Keep migration backups out of the REAL external backup directory.
+#
+# `scripts/config.py` resolves EXTERNAL_BACKUP_DIR at import to
+# ~/.project-tracker/backups — the second location DECISIONS.md requires so
+# that losing the project directory does not lose the data. Migrations write a
+# pre-flight backup to it, and the test suite runs migrations, so every run
+# has been dropping 135KB snapshots into the disaster-recovery directory since
+# April. 9,641 files were found there on 2026-09-17, effectively burying the
+# real backups in test chaff.
+#
+# Set before anything imports scripts.config, because it is read once at
+# import and cached in a module constant.
+_TEST_EXTERNAL_BACKUPS = Path(tempfile.gettempdir()) / f"pt-test-backups-{os.getpid()}"
+os.environ.setdefault("PT_EXTERNAL_BACKUP_DIR", str(_TEST_EXTERNAL_BACKUPS))
+
 # The schema layer refuses to initialise a database that is unexpectedly
 # empty — a guard against the 2026-01-27 incident, where an empty database
 # meant the real one had been destroyed. Every test database starts empty on

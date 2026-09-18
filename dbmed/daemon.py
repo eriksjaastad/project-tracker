@@ -159,10 +159,15 @@ class Service:
             return self._builtin(uid, loaded, op_name, params)
 
         spec = opspec.resolve(loaded.ops, op_name)
-        checked = spec.validate(params)
 
+        # Authorization before validation, deliberately. An unauthorized
+        # caller should get no work done on its behalf at all, and the refusal
+        # for a destructive operation should not depend on whether the caller
+        # happened to spell its arguments correctly.
         if spec.kind is Kind.DESTRUCTIVE:
             self._consume_grant(uid, project_name, op_name, token)
+
+        checked = spec.validate(params)
 
         with loaded.lock:
             try:
