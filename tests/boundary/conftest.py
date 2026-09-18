@@ -67,7 +67,7 @@ requires_real_install = pytest.mark.skipif(
     reason=(
         "the dbmed root install is not present on this host, so kernel-level "
         "denial cannot be observed. This is UNVERIFIED, not passing — run "
-        "sudo scripts/dbmed/install.sh and re-run."
+        "sudo scripts/dbmed-install/install.sh and re-run."
     ),
 )
 

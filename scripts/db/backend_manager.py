@@ -385,11 +385,15 @@ class DatabaseManager:
 
     @staticmethod
     def _attachments_dir(task_id: int, *, create: bool = True) -> Path:
-        """Return (and create) the storage directory for a task's attachments."""
-        base = Path.home() / ".project-tracker" / "attachments" / str(task_id)
-        if create:
-            base.mkdir(parents=True, exist_ok=True)
-        return base
+        """Return (and create) the storage directory for a task's attachments.
+
+        Delegates to `db.attachment_paths`, which the dashboard also imports.
+        Two copies of this path would eventually disagree, and the symptom
+        would be attachments that upload fine and cannot be found again.
+        """
+        from .attachment_paths import attachments_dir
+
+        return attachments_dir(task_id, create=create)
 
     @classmethod
     def _delete_attachment_files(cls, attachments: List[Dict[str, Any]]) -> None:

@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from scripts.config import PROJECTS_BASE_DIR
 from db.schema import init_db, get_db_path
 from db.manager import DatabaseManager, _USE_TURSO
-from dbmed.errors import DbmedError, OperationFailed
+from dbmed.errors import DbmedError, DbUnavailable, OperationFailed
 from discovery.project_scanner import (
     PORTFOLIO_ROOTS,
     discover_projects,
@@ -289,20 +289,30 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
     if not base_path.exists() or not base_path.is_dir():
         console.print("[red]PROJECTS_BASE_DIR is invalid or missing. Aborting scan.[/red]")
         return
-    db_path = get_db_path()
-    db_exists = db_path.exists()
-    if not db_exists and not dry_run:
-        console.print("[red]Database not initialized. Run './pt init' first.[/red]")
-        return
-    if not db_exists and dry_run:
-        console.print("[yellow]Database not initialized. Dry-run will skip DB comparison.[/yellow]")
-    db = DatabaseManager() if db_exists else None
+    # "Does the database exist" used to be `get_db_path().exists()`. The client
+    # cannot see that path any more — that is the point — so the question is
+    # now "does the service answer", which is the thing we actually needed to
+    # know. A reachable service always has an initialised database, because
+    # the daemon creates the schema when it loads the project.
+    db = DatabaseManager()
+    try:
+        db.call("dbmed.ping")
+        db_reachable = True
+    except DbmedError as exc:
+        db_reachable = False
+        if not dry_run:
+            console.print(f"[red]Database service unavailable: {exc}[/red]")
+            return
+        console.print(
+            f"[yellow]Database service unavailable; dry-run will skip DB comparison.[/yellow]\n"
+            f"[dim]{exc}[/dim]"
+        )
     with Progress() as progress:
         task = progress.add_task("[cyan]Discovering projects...", total=None)
         projects = discover_projects(PROJECTS_BASE_DIR)
         progress.update(task, completed=True)
     console.print(f"\n[green]Found {len(projects)} projects[/green]\n")
-    existing_projects = db.get_all_projects() if db_exists else []
+    existing_projects = db.get_all_projects() if db_reachable else []
     existing_count = len(existing_projects)
     if not force:
         if len(projects) == 0:
@@ -330,6 +340,16 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
         console.print(f"  [dim]ℹ {len(stale_ids)} projects not found in scan (preserved in DB)[/dim]")
     console.print(f"\n[bold blue]Loading services from EXTERNAL_RESOURCES.md...[/bold blue]")
     services_by_project = parse_external_resources()
+    if not db_reachable:
+        # Dry run with no service: everything above this point was discovery,
+        # which is filesystem work and still worth showing. Writing is not
+        # possible and must not be silently skipped as if it had happened.
+        console.print(
+            "\n[yellow]Dry run complete. No projects were written — the database "
+            "service is unavailable.[/yellow]"
+        )
+        return
+
     for project in projects:
         result = db.sync_project_bundle(
             project=project,
@@ -5106,7 +5126,7 @@ def handoff_create(
             "result": record_dict,
         })
     else:
-        click.echo(f"✓ Handoff #{handoff_id} created for card #{card_id} ({record_type})")
+        click.echo(f"✓ Handoff #{record_dict['id']} created for card #{card_id} ({record_type})")
         click.echo(f"  branch: {resolved_branch or '(none)'}")
         click.echo(f"  intent: {intent[:80]}{'...' if len(intent) > 80 else ''}")
         click.echo(f"  next:   {next_command[:80]}{'...' if len(next_command) > 80 else ''}")
@@ -5984,5 +6004,32 @@ cli.add_command(sync_group)
 cli.add_command(handoff_group)
 cli.add_command(migration_group)
 
+def main() -> NoReturn:
+    """Run the CLI, turning a missing database service into one clear line.
+
+    `DbUnavailable` is the single most likely failure in normal operation —
+    the daemon is restarting, or has not been installed on this host yet — and
+    it was surfacing as a Python traceback from whatever call site happened to
+    touch the database first. A traceback tells the operator where we were,
+    not what to do.
+
+    The exit code is EXIT_BACKEND_UNAVAILABLE, the same code the handoff and
+    migration commands already use for this condition, so scripts can tell
+    "the service is down" apart from "your arguments were wrong".
+    """
+    try:
+        cli(standalone_mode=False)
+    except DbUnavailable as exc:
+        click.echo(f"pt: {exc}", err=True)
+        sys.exit(EXIT_BACKEND_UNAVAILABLE)
+    except click.ClickException as exc:
+        exc.show()
+        sys.exit(exc.exit_code)
+    except click.exceptions.Abort:
+        click.echo("Aborted.", err=True)
+        sys.exit(1)
+    sys.exit(0)
+
+
 if __name__ == "__main__":
-    cli()
+    main()

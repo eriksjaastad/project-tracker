@@ -32,6 +32,7 @@ from scripts.logger import get_logger
 # Add scripts directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+from db.attachment_paths import attachments_dir
 from db.manager import DatabaseManager
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
@@ -2512,7 +2513,7 @@ async def upload_attachment(task_id: int, file: UploadFile = File(...)):
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
     # Stream to a temp file so we never hold >ATTACHMENT_MAX_BYTES in RAM
-    dest_dir = DatabaseManager._attachments_dir(task_id)
+    dest_dir = attachments_dir(task_id)
     ext = Path(file.filename or "upload").suffix
     stored_name = f"{uuid.uuid4()}{ext}"
     dest_path = dest_dir / stored_name
@@ -2554,7 +2555,7 @@ async def delete_attachment(task_id: int, attachment_id: int):
     record = db.delete_attachment(attachment_id=attachment_id, task_id=task_id)
     if not record:
         raise HTTPException(status_code=404, detail="Attachment not found")
-    file_path = DatabaseManager._attachments_dir(task_id, create=False) / record["stored_name"]
+    file_path = attachments_dir(task_id, create=False) / record["stored_name"]
     if file_path.exists():
         # User-uploaded content goes to the Trash, recoverable. A misclick in
         # the UI should not destroy a file outright (#6905, #6899).
@@ -2589,7 +2590,7 @@ async def serve_attachment(task_id: int, stored_name: str):
     attachment = db.get_attachment(task_id, stored_name)
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
-    attach_dir = DatabaseManager._attachments_dir(task_id, create=False)
+    attach_dir = attachments_dir(task_id, create=False)
     file_path = (attach_dir / stored_name).resolve()
     # Path traversal guard: resolved path must stay inside the task's attachment dir
     if not file_path.is_relative_to(attach_dir.resolve()):
