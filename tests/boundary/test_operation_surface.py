@@ -8,6 +8,8 @@ asserts the refusal.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from dbmed.errors import (
@@ -138,14 +140,45 @@ def test_the_published_operation_list_has_no_surprises(client):
     fails and someone has to justify it in review rather than discovering it
     in production.
     """
+    # Matched on whole name segments, not substrings. A substring check reads
+    # "exec" inside `loop_last_executions` and cries wolf, and a guard that
+    # cries wolf gets weakened until it catches nothing.
+    banned = {
+        "sql", "exec", "execute", "eval", "shell", "connect", "conn",
+        "cursor", "raw", "query",
+    }
+
+    # Named exemptions, each with its reason. Weakening the rule would be the
+    # easy fix and the wrong one: the guard's value is that adding a
+    # raw-sounding operation costs an argument in review. Adding a line here
+    # is that argument, in writing, next to the name it excuses.
+    justified = {
+        # Bulk task import. "raw" describes the shape of the input — a list of
+        # already-formed task dicts, bypassing per-field defaulting — not raw
+        # SQL. It takes no SQL and no path, and it is classified DESTRUCTIVE
+        # so it cannot run without a token and a verified backup.
+        "raw_import_tasks",
+    }
+
     ops = client.call("dbmed.ops")
     assert ops, "the allowlist is empty, which means nothing was bound"
     for name in ops:
         assert not name.startswith("_")
-        assert not any(
-            token in name.lower()
-            for token in ("sql", "exec", "eval", "shell", "connect", "conn", "raw_sql")
-        ), f"{name!r} reads like a raw-access operation"
+        if name in justified:
+            continue
+        segments = set(re.split(r"[._]", name.lower()))
+        offending = segments & banned
+        assert not offending, f"{name!r} reads like a raw-access operation ({offending})"
+
+
+def test_the_justified_exemptions_still_exist(client):
+    """Guard the guard.
+
+    If `raw_import_tasks` is ever renamed or removed, the exemption above
+    becomes dead weight that silently excuses a future operation that happens
+    to reuse the name.
+    """
+    assert "raw_import_tasks" in client.call("dbmed.ops")
 
 
 def test_every_operation_declares_a_kind(client):

@@ -49,4 +49,4 @@ Cards #7228 (mechanism) and #7219 (project-tracker reference). Umbrella acceptan
 - `uv run pytest tests/boundary/ -v` — the full matrix, self-contained against a daemon-provisioned fixture
 - `make test` — suite green, `git status` on `data/` clean
 - `sudo launchctl bootout system/com.dbmed` → `./pt tasks` → expect non-zero → `sudo launchctl bootstrap` → expect recovery
-- `sudo scripts/dbmed/rollback.sh` then `sudo scripts/dbmed/install.sh` — round-trips the cutover
+- `sudo scripts/dbmed-install/rollback.sh` then `sudo scripts/dbmed-install/install.sh` — round-trips the cutover

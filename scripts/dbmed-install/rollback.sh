@@ -2,7 +2,7 @@
 #
 # dbmed rollback — puts the database back in the repo and stops the daemon.
 #
-#     sudo ./scripts/dbmed/rollback.sh
+#     sudo ./scripts/dbmed-install/rollback.sh
 #
 # This is the "the boundary is in the way and I need to work right now" escape
 # hatch, and it is Erik's, not an agent's. It moves the data back to where the
@@ -101,6 +101,6 @@ printf 'The code still expects it: scripts/db/manager.py is the dbmed client,\n'
 printf 'so `pt` will now report the service as unavailable rather than opening\n'
 printf 'the file. That is the fail-closed behaviour working as designed.\n\n'
 printf 'To get a working `pt` back, either:\n'
-printf '  - re-run  sudo %s/scripts/dbmed/install.sh\n' "$REPO_DIR"
+printf '  - re-run  sudo %s/scripts/dbmed-install/install.sh\n' "$REPO_DIR"
 printf '  - or check out a commit from before the dbmed branch landed.\n\n'
 printf 'Nothing was deleted. The install tree, registry and %s account remain.\n\n' "$SERVICE_USER"

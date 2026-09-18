@@ -2,7 +2,7 @@
 #
 # dbmed installer — creates the database boundary. RUN BY A HUMAN, WITH sudo.
 #
-#     sudo ./scripts/dbmed/install.sh
+#     sudo ./scripts/dbmed-install/install.sh
 #
 # No agent can run this: `sudo` is denied in the agent runtimes, and that
 # denial is load-bearing. If an agent could run this script it could also
