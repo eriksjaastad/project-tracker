@@ -32,6 +32,7 @@ def test_navigation_api_returns_shared_contract():
         "kanban",
         "agentic",
         "calendar",
+        "agent-chat",
         "graph",
         "memory",
     ]
@@ -58,6 +59,7 @@ def test_graph_view_renders_shared_shell_navigation():
     assert "Kanban" in body
     assert "Agentic" in body
     assert "Calendar" in body
+    assert "Agent Chat" in body
     assert "Graph" in body
     assert "Memory" in body
     assert "Project Graph" in body
@@ -72,3 +74,8 @@ def test_build_spa_shell_html_bootstraps_backend_navigation_payload():
     assert '"title": "Project Tracker"' in rendered
     assert '"href": "/agentic"' in rendered
     assert '"active": true' in rendered
+
+def test_agent_chat_spa_route_is_served():
+    response = client.get("/agent-chat")
+    assert response.status_code == 200
+    assert "window.__PT_NAVIGATION__" in response.text
