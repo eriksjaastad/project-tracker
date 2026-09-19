@@ -18,11 +18,14 @@ from datetime import datetime
 
 from hypothesis import given, strategies as st, assume, settings
 
+# These property tests use isolated temp databases
+pytestmark = pytest.mark.no_dbmed
+
 # Add scripts to path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from db.manager import DatabaseManager
+from db.backend_manager import DatabaseManager as BackendDatabaseManager
 from db.schema import create_database
 
 
@@ -104,7 +107,7 @@ def _setup_fresh_database():
     conn.close()
     
     # Create DatabaseManager instance
-    db_manager = DatabaseManager()
+    db_manager = BackendDatabaseManager(db_path)
     
     # Create test projects
     projects = [
@@ -282,7 +285,7 @@ def test_property_2_query_filtering_accuracy(num_tasks, filter_project_id, filte
 def test_add_task_inherits_portfolio_label_from_project_info(tmp_path):
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = DatabaseManager()
+    db = BackendDatabaseManager(db_path)
     db.add_project(
         project_id="smart-invoice-workflow",
         name="Smart Invoice Workflow",
@@ -303,7 +306,7 @@ def test_add_task_inherits_portfolio_label_from_project_info(tmp_path):
 def test_add_task_explicit_category_overrides_portfolio_label(tmp_path):
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = DatabaseManager()
+    db = BackendDatabaseManager(db_path)
     db.add_project(
         project_id="smart-invoice-workflow",
         name="Smart Invoice Workflow",
