@@ -112,6 +112,29 @@ describe('DashboardPage — summary cards as anchors', () => {
     expect(within(section).getByText(/failure · 1 run/)).toBeInTheDocument();
   });
 
+  it('lists every failing run the card counted, past the old cap of ten', async () => {
+    // The Stale Branches cap and this one were the same defect: a section
+    // quietly showing fewer rows than the number that links to it.
+    const runs = Array.from({ length: 12 }, (_, i) => ({
+      repo: `repo-${i}`,
+      name: 'pytest',
+      status: 'completed',
+      conclusion: 'failure',
+      branch: 'main',
+      created_at: NOW,
+      url: `https://github.com/x/repo-${i}/actions/${i}`,
+    }));
+    mockApi({ ...PAYLOAD, workflow_runs: runs, summary: { ...PAYLOAD.summary, failing_ci: 12, repos_with_ci: 12 } });
+    const { container } = renderPage();
+
+    await screen.findByText('Failing CI (12)');
+    const section = container.querySelector('#failing-ci') as HTMLElement;
+    expect(within(section).getAllByRole('link')).toHaveLength(12);
+    // The section heading and the card that links to it must agree.
+    const card = container.querySelector('a.summary-card[href="#failing-ci"]');
+    expect(card).toHaveAttribute('aria-label', '12 Failing CI');
+  });
+
   it('adds the failed-fetch card only with its section', async () => {
     mockApi({ ...PAYLOAD, fetch_errors: ['repos: HTTP 502'], summary: { ...PAYLOAD.summary, fetch_errors: 1 } });
     const { container } = renderPage();
