@@ -386,6 +386,37 @@ def _has_complete_prompt(prompt):
     return "## overview" in prompt_lower and "## execution" in prompt_lower and "## done criteria" in prompt_lower
 
 
+
+def _coerce_display_map(display_map) -> dict:
+    """JSON-RPC may stringify snowflake dict keys; coerce to int."""
+    if not display_map:
+        return {}
+    return {int(k): v for k, v in display_map.items()}
+
+
+def _display_id_map(db, task_ids) -> dict:
+    """{snowflake_pk: display_id} for the given ids (empty if no db/ids)."""
+    ids = [i for i in task_ids if i is not None]
+    if not db or not ids:
+        return {}
+    return _coerce_display_map(db.get_task_display_id_map(ids))
+
+
+def _format_task_ref(task_id, display_map=None, db=None) -> str:
+    """Human card number: prefer 4-digit display_id over snowflake pk."""
+    if display_map is None and db is not None:
+        display_map = _display_id_map(db, [task_id])
+    display_map = display_map or {}
+    label = display_map.get(int(task_id), task_id) if task_id is not None else task_id
+    return f"#{label}"
+
+
+def _format_task_refs(task_ids, db=None) -> str:
+    """Comma-separated human card refs for a list of snowflake pks."""
+    ids = list(task_ids or [])
+    display_map = _display_id_map(db, ids)
+    return ", ".join(_format_task_ref(i, display_map=display_map) for i in ids)
+
 def _display_tasks(task_list, project=None, json_output=False, db=None):
     import json as json_lib
     if json_output:
@@ -399,16 +430,24 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
     backend_tag = "turso" if _USE_TURSO else "local"
     title = f"Tasks - {project}" if project else "Tasks - all projects"
     print(f"{title} [{backend_tag}]\n")
-    display_map = db.get_task_display_id_map([t["id"] for t in task_list]) if db else {}
-    # dbmed JSON-RPC stringifies snowflake dict keys; coerce so int task ids hit.
-    if display_map:
-        display_map = {int(k): v for k, v in display_map.items()}
+    # Include blocker ids in the display map so [B:…] stays four-digit friendly.
+    map_ids = [t["id"] for t in task_list]
+    if db:
+        for task in task_list:
+            if task.get("blocked_by"):
+                try:
+                    is_blocked, blocking_ids = db.is_blocked(task["id"])
+                except Exception:
+                    is_blocked, blocking_ids = False, []
+                if is_blocked:
+                    map_ids.extend(blocking_ids)
+    display_map = _display_id_map(db, map_ids)
     for task in task_list:
         priority = task.get("priority") or "-"
         status = task["status"]
         task_id = task["id"]
         task_text = task["text"]
-        label = display_map.get(task_id, task_id)
+        label = display_map.get(int(task_id), task_id)
         if _has_complete_prompt(task.get("prompt")): prompt_marker = ""
         elif task.get("prompt"): prompt_marker = "[~P] "
         else: prompt_marker = "[!P] "
@@ -416,7 +455,10 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
         if db and task.get("blocked_by"):
             is_blocked, blocking_ids = db.is_blocked(task_id)
             if is_blocked:
-                blocked_marker = f"[B:{','.join(str(i) for i in blocking_ids)}] "
+                b_labels = ",".join(
+                    str(display_map.get(int(i), i)) for i in blocking_ids
+                )
+                blocked_marker = f"[B:{b_labels}] "
         if project:
             print(f"#{label} {prompt_marker}{blocked_marker}| {status} | {priority} | {task_text}")
         else:
@@ -1952,8 +1994,10 @@ def tasks_start(task_ids):
                 console.print(f"[yellow]Starting agent task #{task_id} without a prompt[/yellow]")
             is_blocked, blocking_ids = db.is_blocked(task_id)
             if is_blocked:
-                blocking_str = ", ".join([f"#{bid}" for bid in blocking_ids])
-                console.print(f"[red]Cannot start #{task_id} - blocked by: {blocking_str}[/red]")
+                blocking_str = _format_task_refs(blocking_ids, db=db)
+                console.print(
+                    f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked by: {blocking_str}[/red]"
+                )
                 continue
             db.update_task(task_id, status="In Progress")
             print(f"Started: #{task_id} - {task['text'][:50]}")
@@ -2186,9 +2230,9 @@ def tasks_tree(task_id):
         emoji = status_emoji.get(subtask["status"], "?")
         is_blocked, blocking_ids = db.is_blocked(subtask["id"])
         block_str = ""
-        if is_blocked: block_str = f" 🔒 (blocked by {', '.join([f'#{bid}' for bid in blocking_ids])})"
+        if is_blocked: block_str = f" 🔒 (blocked by {_format_task_refs(blocking_ids, db=db)})"
         elif subtask["status"] not in ["Done", "In Progress"]: block_str = " ← READY NOW"
-        print(f"{prefix} {emoji} #{subtask['id']} | {subtask['status']:12} | {subtask['text']}{block_str}")
+        print(f"{prefix} {emoji} {_format_task_ref(subtask['id'], db=db)} | {subtask['status']:12} | {subtask['text']}{block_str}")
     print("\nUse 'pt tasks next' to see what you can start immediately\n")
 
 
