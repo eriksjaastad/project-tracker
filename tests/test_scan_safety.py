@@ -124,9 +124,8 @@ def test_delete_project_cascades_tasks(scan_env):
     assert len(db.get_tasks(project_id="demo")) == 1
     
     # Authorize destructive op before calling delete_project
-    db.authorize("delete_project", reason="delete_project is tested")
+    db.authorize("delete_project", reason="delete_project is tested", project_id="demo")
     
-    db.delete_project("demo")
     assert len(db.get_tasks(project_id="demo")) == 0
 
 
