@@ -59,6 +59,16 @@ class RegistryEntry:
     and `install.sh` points it at the vendored root-owned copy. The old code
     searched ~/.local/lib, which the agent's own user owns at mode 755.
     """
+    offsite_rclone_dest: str | None = None
+    """rclone destination for off-machine copies (e.g. gbackup:project-tracker/db-backups).
+
+    Root-owned registry value — agents cannot redirect copies via env vars.
+    None means offsite is not configured.
+    """
+    offsite_rclone_config: Path | None = None
+    """Root-owned rclone config path the daemon may read."""
+    offsite_rclone_bin: Path | None = None
+    """Optional absolute path to rclone if it is not on the daemon PATH."""
     test_support: bool = False
     """Whether this entry may accept the test-support operations.
 
@@ -236,6 +246,19 @@ def _parse_entry(path: Path, raw: dict) -> RegistryEntry:
         fixture_root=Path(raw["fixture_root"]) if "fixture_root" in raw else None,
         crsqlite_path=(
             Path(raw["crsqlite_path"]) if raw.get("crsqlite_path") else None
+        ),
+        offsite_rclone_dest=(
+            str(raw["offsite_rclone_dest"]).strip() or None
+            if raw.get("offsite_rclone_dest") is not None
+            else None
+        ),
+        offsite_rclone_config=(
+            Path(raw["offsite_rclone_config"])
+            if raw.get("offsite_rclone_config")
+            else Path("/usr/local/etc/dbmed/rclone.conf")
+        ),
+        offsite_rclone_bin=(
+            Path(raw["offsite_rclone_bin"]) if raw.get("offsite_rclone_bin") else None
         ),
         test_support=bool(raw.get("test_support", False)),
     )

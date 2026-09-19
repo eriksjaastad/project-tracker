@@ -1656,6 +1656,26 @@ def backup_create():
         click.echo(f"Pruned {len(result['pruned'])} snapshot(s) past the retention window.")
 
 
+@backup_group.command(name="offsite")
+@click.argument("backup_name", required=False)
+def backup_offsite(backup_name):
+    """Copy a verified snapshot off-machine via the dbmed rclone operation.
+
+    With no name, copies the newest local snapshot. Destination is the
+    root-owned registry value offsite_rclone_dest (not PT_BACKUP_RCLONE_DEST).
+    """
+    try:
+        db = DatabaseManager()
+        result = db.backup_offsite_copy(name=backup_name) if backup_name else db.backup_offsite_copy()
+    except (DbmedError, RuntimeError, FileNotFoundError, ValueError) as err:
+        console.print(f"[red]pt backup offsite: {err}[/red]")
+        raise SystemExit(2)
+    size_mb = result["size_bytes"] / (1024 * 1024)
+    console.print(
+        f"[green]✓ offsite {result['name']} ({size_mb:.1f} MB) → {result['dest']}[/green]"
+    )
+
+
 @backup_group.command(name="restore")
 @click.argument("backup_name")
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
