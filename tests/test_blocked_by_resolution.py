@@ -21,6 +21,7 @@ from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+from db.backend_manager import DatabaseManager as BackendDatabaseManager  # noqa: E402
 from db.manager import DatabaseManager  # noqa: E402
 from db.schema import create_database  # noqa: E402
 from pt import tasks_group  # noqa: E402
@@ -29,10 +30,11 @@ PROJECT_ID = "project-tracker"
 
 
 @pytest.fixture
-def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManager:
+def backend_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> BackendDatabaseManager:
+    """Backend manager for test setup that needs direct DB access."""
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    manager = DatabaseManager()
+    manager = BackendDatabaseManager(db_path)
     manager.add_project(
         project_id=PROJECT_ID,
         name="Project Tracker",
@@ -48,11 +50,11 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-def _find(db: DatabaseManager, text: str):
+def _find(db: BackendDatabaseManager, text: str):
     return next(t for t in db.get_tasks(project_id=PROJECT_ID) if t["text"] == text)
 
 
-def _unused_display_id(db: DatabaseManager) -> int:
+def _unused_display_id(db: BackendDatabaseManager) -> int:
     """A small integer that resolves to no task at all."""
     candidate = 999999
     assert db.resolve_task_id(candidate) is None
@@ -185,10 +187,10 @@ def _force_blocked_by(db: DatabaseManager, task_id: int, value: str) -> None:
         conn.commit()
 
 
-def test_show_flags_stored_ids_that_resolve_to_nothing(db, runner):
+def test_show_flags_stored_ids_that_resolve_to_nothing(db, backend_db, runner):
     target = db.add_task(text="Target", project_id=PROJECT_ID)
     bogus = _unused_display_id(db)
-    _force_blocked_by(db, target["id"], json.dumps([bogus]))
+    _force_blocked_by(backend_db, target["id"], json.dumps([bogus]))
 
     result = runner.invoke(
         tasks_group, ["show", str(db.get_task_display_id(target["id"]))]

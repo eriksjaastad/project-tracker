@@ -11,15 +11,16 @@ from click.testing import CliRunner
 # Add scripts to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+from db.backend_manager import DatabaseManager as BackendDatabaseManager
 from db.manager import DatabaseManager
 from db.schema import create_database
 from pt import tasks_group
 
 
-def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, str]:
+def _setup_db(tmp_path: Path) -> tuple[Path, BackendDatabaseManager, str]:
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = DatabaseManager()
+    db = BackendDatabaseManager(db_path)
     db.add_project(
         project_id="smart-invoice-workflow",
         name="Smart Invoice Workflow",
@@ -156,7 +157,7 @@ def test_api_subtasks_and_blocking(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 # ---------------------------------------------------------------------
 
 
-def _archive(db: DatabaseManager, task_id: int) -> None:
+def _archive(db: BackendDatabaseManager, task_id: int) -> None:
     """Mark one card archived, the way trim_done_tasks does."""
     from datetime import datetime, timezone
     with db._get_conn() as conn:
