@@ -2657,7 +2657,7 @@ def calendar_remind(within_minutes, dry_run, json_output):
     \b
     Run every 15 min:
         */15 * * * * cd ~/projects/project-tracker && \\
-          doppler run -- ./pt calendar remind --json
+          ./pt calendar remind --json
     """
     import json as json_lib
     cm = _get_calendar_manager()
