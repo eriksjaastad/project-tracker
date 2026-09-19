@@ -239,11 +239,13 @@ projects:
         type: local
         cost: 0
 
-  3d-pose-factory:
+  3d-pose-factory:  # ARCHIVED tree ~/projects/_archive/3d-pose-factory; Doppler project DELETED 2026-09-19
     monthly_cost: 7
     account: spudlogic
-    credential_file: ".env"
+    credential_file: ".env (legacy local only — Doppler project 3d-pose-factory deleted 2026-09-19; do not doppler setup)"
     aliases: ["Image Generation", "Fat AI", "3D Renders", "Mission Control"]
+    status: archived
+    doppler: deleted
     services:
       - name: Cloudflare R2
         purpose: "S3-compatible storage for pose outputs"
@@ -982,7 +984,7 @@ action_items:
   
   this_week:
     - "Migrate individual project keys to their respective .env files"
-    - "Audit 3d-pose-factory resources"
+    - "Audit 3d-pose-factory resources (Doppler project deleted 2026-09-19; tree in _archive)"
     - "Audit Hypocrisy Now resources"
   
   ongoing:
@@ -1225,3 +1227,5 @@ recent_changes:
     change: "Converted to YAML format for better parsing"
 
 # 2026-09-19: project-scaffolding archived to ~/projects/_archive/project-scaffolding (Phase 7). Local path no longer ~/projects/project-scaffolding. model-bench seats validator still reads scaffold/seats.py from the archive tree.
+
+# 2026-09-19: Doppler project 3d-pose-factory deleted by Erik. No live doppler.yaml pinned it. Registry entry marked archived/doppler:deleted. Secrets were last fetched ~2026-04; do not recreate unless resurrecting.
