@@ -305,7 +305,7 @@ def _check_fresh_database(db_path: Path) -> None:
                     f"   Fingerprint file exists - we expected existing data.\n"
                     f"   This suggests the database file was replaced.\n"
                     f"\n"
-                    f"   To proceed anyway: PT_ALLOW_FRESH_DB=1 ./pt <command>\n"
+                    f"   To proceed anyway: PT_ALLOW_FRESH_DB=1 pt <command>\n"
                     f"   To restore: check data/backups/ or ~/.project-tracker/backups/\n"
                     f"\n"
                     f"   If this IS intentional (first run after clean install):\n"
@@ -323,7 +323,7 @@ def _check_fresh_database(db_path: Path) -> None:
                     f"   Prior task activity exists without a matching delete trail.\n"
                     f"   This suggests tasks may have been wiped while project metadata survived.\n"
                     f"\n"
-                    f"   To proceed anyway: PT_ALLOW_FRESH_DB=1 ./pt <command>\n"
+                    f"   To proceed anyway: PT_ALLOW_FRESH_DB=1 pt <command>\n"
                     f"   To restore: check data/backups/ or ~/.project-tracker/backups/"
                 )
     except FreshDatabaseError:
@@ -533,7 +533,7 @@ def ensure_schema(cursor: Any) -> None:
                 print(f"    Tasks table has TEXT id (old schema) with {task_count} tasks.")
                 print(f"    REFUSING to drop table with data.")
                 print(f"    To migrate manually:")
-                print(f"    1. Export: ./pt tasks export")
+                print(f"    1. Export: pt tasks export")
                 print(f"    2. Backup: cp data/tracker.db data/tracker.db.backup")
                 print(f"    3. Run dedicated migration script")
                 print(f"    4. Restore from export if needed")

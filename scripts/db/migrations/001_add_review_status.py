@@ -8,7 +8,7 @@ included in the base schema. This file is kept for historical reference only.
 DO NOT RUN THIS SCRIPT - it contains destructive operations.
 
 If you need to add 'Review' status to an old database:
-1. Export tasks: ./pt tasks export
+1. Export tasks: pt tasks export
 2. Backup database: cp data/tracker.db data/tracker.db.backup
 3. The schema.py will handle additive migrations safely
 """
@@ -31,9 +31,9 @@ def migrate_add_review_status():
     print("   The 'Review' status is now part of the base schema.")
     print("")
     print("   If you need to migrate an old database:")
-    print("   1. Export: ./pt tasks export")
+    print("   1. Export: pt tasks export")
     print("   2. Backup: cp data/tracker.db data/tracker.db.backup")
-    print("   3. Run: ./pt scan (schema.py handles safe migrations)")
+    print("   3. Run: pt scan (schema.py handles safe migrations)")
     print("")
     print("   To force run this (DANGEROUS), edit this file and remove the safety block.")
     sys.exit(1)

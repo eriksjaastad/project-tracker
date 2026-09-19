@@ -2,7 +2,7 @@
 cron_installer.py — Install / remove the calendar_poller cron job.
 
 Usage (via pt CLI):
-    ./pt calendar install-poll-cron [--machine MacBook] [--interval 10] [--remove]
+    pt calendar install-poll-cron [--machine MacBook] [--interval 10] [--remove]
 
 What it does
 ------------

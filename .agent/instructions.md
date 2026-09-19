@@ -78,9 +78,9 @@ This section details the AI agents currently employed within the `project-tracke
 
 ## 🚀 Execution Commands
 - Environment: `source .venv/bin/activate`
-- Run Dashboard: `./pt launch`
-- CLI Scan: `./pt scan`
-- CLI List: `./pt list`
+- Run Dashboard: `pt launch`
+- CLI Scan: `pt scan`
+- CLI List: `pt list`
 - Test: `pytest tests/`
 
 ## ⚠️ Critical Constraints

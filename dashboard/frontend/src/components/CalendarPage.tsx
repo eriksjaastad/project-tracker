@@ -408,7 +408,7 @@ export function CalendarPage() {
                   Jobs without a machine set show <code>?</code>.
                 </p>
                 {crons.length === 0 ? (
-                  <div className="cal-crons-empty">No cron jobs found. Add one via <code>./pt calendar add-cron</code></div>
+                  <div className="cal-crons-empty">No cron jobs found. Add one via <code>pt calendar add-cron</code></div>
                 ) : (
                   <table className="cal-cron-table" aria-label="Cron jobs">
                     <thead>
