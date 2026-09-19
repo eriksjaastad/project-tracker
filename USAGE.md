@@ -67,7 +67,7 @@ The dashboard shows all your projects sorted by **last modified** (newest work f
 - **Status badges:** Active, Development, Paused, Stalled, Complete
 - **AI agents:** Which AI is helping with what
 - **Cron jobs:** ⏰ indicator if scheduled automation exists
-- **Services:** External services used (from EXTERNAL_RESOURCES.md)
+- **Services:** External services used (from EXTERNAL_RESOURCES.yaml)
 
 ### Project Details
 
