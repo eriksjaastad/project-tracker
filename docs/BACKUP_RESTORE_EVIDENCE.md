@@ -10,7 +10,7 @@
 | Local full backups | Present under `~/.project-tracker/backups/tracker_*.db` (102 files; retention 30 days via `scripts/backup-db.sh`) |
 | LaunchAgent | `com.eriksjaastad.pt-backup` installed, `StartInterval` 21600 (every 6h) |
 | Fresh backup | `./scripts/backup-db.sh` succeeded → `tracker_20260919_081953.db` (11 628 544 bytes) |
-| Off-machine copy | **Not configured** (`PT_BACKUP_RCLONE_DEST` empty). Tracked separately as #7231 |
+| Off-machine copy | dbmed `backup_offsite_copy` (#7231); dest in root-owned registry `offsite_rclone_dest` |
 | Task safety JSON backups | Stale (last ~147d); not the primary recovery path |
 
 ## Restore exercise (isolated)
@@ -24,7 +24,7 @@
 ## Gaps / decisions
 
 - **No additional Turso destination needed** for recovery: local SQLite atomic `.backup` + 6h LaunchAgent is sufficient for on-machine restore.
-- **Off-machine** remains the material gap; do not invent a second cloud path here — use #7231 (rclone → dbmed) once dbmed is healthy.
+- **Off-machine** uses dbmed `backup_offsite_copy` once `offsite_rclone_dest` + `/usr/local/etc/dbmed/rclone.conf` are installed (see `scripts/dbmed-install/README-offsite.md`).
 - **`~/.project-tracker/backups` file sprawl** (~9.9k files, only ~102 `tracker_*.db`) is test junk, not retention failure on `tracker_*.db` (zero `tracker_*.db` older than 30 days). Handled under #7230.
 
 ## Conclusion

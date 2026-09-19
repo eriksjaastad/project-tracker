@@ -192,6 +192,7 @@ ALLOWLIST: dict[str, Kind | tuple[Kind, set[str]]] = {
     "backup_create": Kind.WRITE,
     "backup_list": Kind.READ,
     "backup_restore": Kind.DESTRUCTIVE,
+    "backup_offsite_copy": Kind.WRITE,
 }
 
 
@@ -824,6 +825,92 @@ class ProjectTrackerOps:
             "size_bytes": primary.stat().st_size,
             "verified": True,
             "pruned": pruned,
+        }
+
+
+    def backup_offsite_copy(self, name: str | None = None) -> dict:
+        """Copy a verified snapshot to the registry rclone destination.
+
+        Runs rclone inside the daemon so the protected backup file never has to
+        be world-readable for an agent-owned LaunchAgent script. Destination and
+        config path come from the root-owned registry — not PT_BACKUP_RCLONE_DEST.
+        """
+        import shutil
+        import subprocess
+
+        dest = getattr(self.entry, "offsite_rclone_dest", None)
+        if not dest:
+            raise RuntimeError(
+                "offsite rclone is not configured in the dbmed registry "
+                "(offsite_rclone_dest). Set it in /usr/local/etc/dbmed/registry.d/"
+                "project-tracker.toml and restart com.dbmed."
+            )
+        config = getattr(self.entry, "offsite_rclone_config", None)
+        config_path = Path(config) if config else Path("/usr/local/etc/dbmed/rclone.conf")
+        if not config_path.is_file():
+            raise FileNotFoundError(
+                f"rclone config not found at {config_path}; install a root-owned "
+                "config containing only the offsite remote (see scripts/dbmed-install/"
+                "README-offsite.md)"
+            )
+
+        if name:
+            source = self._resolve_backup(name)
+        else:
+            listed = self.backup_list()
+            if not listed:
+                raise FileNotFoundError("no local backups available to copy offsite")
+            source = self._resolve_backup(listed[0]["name"])
+
+        if not self.dbmed_verify_backup(str(source)):
+            raise RuntimeError(f"backup {source.name} failed verification; refusing offsite copy")
+
+        # Binary path comes from the registry when set; otherwise PATH lookup.
+        # Do not hardcode Homebrew prefixes — the LaunchDaemon PATH (or
+        # offsite_rclone_bin) must include rclone for the service account.
+        bin_setting = getattr(self.entry, "offsite_rclone_bin", None)
+        if bin_setting:
+            rclone = Path(bin_setting)
+            if not rclone.is_file():
+                raise FileNotFoundError(f"rclone binary not found at registered path {rclone}")
+        else:
+            rclone_bin = shutil.which("rclone")
+            if not rclone_bin:
+                raise FileNotFoundError(
+                    "rclone binary not found on PATH for the dbmed service; "
+                    "set offsite_rclone_bin in the registry or add rclone to "
+                    "com.dbmed's PATH"
+                )
+            rclone = Path(rclone_bin)
+
+        remote_path = f"{dest.rstrip('/')}/{source.name}"
+        cmd = [
+            str(rclone),
+            "copyto",
+            str(source),
+            remote_path,
+            "--config",
+            str(config_path),
+            "--checksum",
+            "--retries",
+            "3",
+        ]
+        completed = subprocess.run(
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if completed.returncode != 0:
+            err = (completed.stderr or completed.stdout or "").strip()
+            raise RuntimeError(f"rclone offsite copy failed: {err[:500]}")
+
+        return {
+            "name": source.name,
+            "dest": remote_path,
+            "size_bytes": source.stat().st_size,
+            "verified": True,
         }
 
     def _prune_backups(self, retention_days: int) -> list:
