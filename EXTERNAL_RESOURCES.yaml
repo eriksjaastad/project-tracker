@@ -81,7 +81,7 @@ multi_account_vendors:
 # PROJECT SERVICE USAGE
 # This is the main data structure - parsed by project-tracker dashboard
 projects:
-  project-scaffolding:
+  project-scaffolding:  # ARCHIVED 2026-09-19 → ~/projects/_archive/project-scaffolding
     monthly_cost: 5
     account: spudlogic
     credential_file: ".env"
@@ -715,7 +715,7 @@ api_key_pattern:
   template: "{PROJECTS_ROOT}/.env.project-template"
   naming_rule: "Provider API keys use canonical provider names inside each project scope; project prefixes are legacy."
   examples:
-    - "DEEPSEEK_API_KEY → project-scaffolding/.env or project-scaffolding Doppler config"
+    - "DEEPSEEK_API_KEY → _archive/project-scaffolding/.env or Doppler project project-scaffolding (archived)"
     - "OPENAI_API_KEY → cortana-personal-ai/.env or cortana-personal-ai Doppler config"
     - "OPENAI_API_KEY → trading-copilot Doppler config"
   why:
@@ -1223,3 +1223,5 @@ recent_changes:
     change: "Implemented decentralized environment variable system with global template"
   - date: "2025-12-31"
     change: "Converted to YAML format for better parsing"
+
+# 2026-09-19: project-scaffolding archived to ~/projects/_archive/project-scaffolding (Phase 7). Local path no longer ~/projects/project-scaffolding. model-bench seats validator still reads scaffold/seats.py from the archive tree.
