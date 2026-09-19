@@ -2417,3 +2417,19 @@ class DatabaseManager:
                 )
             conn.commit()
             return True
+
+    def health_snapshot(self) -> dict:
+        """Task count and the database path, for /api/health.
+
+        The path is returned because the health payload has always shown it and
+        operators use it to confirm which database is live.
+        """
+        import time
+        started = time.perf_counter()
+        with self._get_conn() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+        return {
+            "task_count": int(count),
+            "path": str(self.db_path),
+            "query_ms": round((time.perf_counter() - started) * 1000, 1),
+        }
