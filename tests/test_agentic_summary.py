@@ -132,13 +132,11 @@ def test_agentic_summary_filters_by_project(tmp_path: Path, monkeypatch: pytest.
     db_path, db, task_ids = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
     
-    # Patch db.manager.DatabaseManager to return backend instances (no daemon needed)
-    from db import manager, backend_manager
-    def patched_init(self, *args, **kwargs):
-        backend = backend_manager.DatabaseManager(db_path)
-        self.__dict__.update(backend.__dict__)
-        self.__class__ = backend_manager.DatabaseManager
-    monkeypatch.setattr(manager.DatabaseManager, "__init__", patched_init)
+    # Patch DatabaseManager() to return backend instance when called (no daemon needed)
+    from db import backend_manager
+    def mock_db_manager():
+        return backend_manager.DatabaseManager(db_path)
+    monkeypatch.setattr("dashboard.app.DatabaseManager", mock_db_manager)
     
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, None)
@@ -166,13 +164,11 @@ def test_agentic_summary_handles_invalid_days_and_malformed_markers(tmp_path: Pa
     db_path, _, _ = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
     
-    # Patch db.manager.DatabaseManager to return backend instances (no daemon needed)
-    from db import manager, backend_manager
-    def patched_init(self, *args, **kwargs):
-        backend = backend_manager.DatabaseManager(db_path)
-        self.__dict__.update(backend.__dict__)
-        self.__class__ = backend_manager.DatabaseManager
-    monkeypatch.setattr(manager.DatabaseManager, "__init__", patched_init)
+    # Patch DatabaseManager() to return backend instance when called (no daemon needed)
+    from db import backend_manager
+    def mock_db_manager():
+        return backend_manager.DatabaseManager(db_path)
+    monkeypatch.setattr("dashboard.app.DatabaseManager", mock_db_manager)
     
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, "{not-json")
