@@ -400,6 +400,9 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
     title = f"Tasks - {project}" if project else "Tasks - all projects"
     print(f"{title} [{backend_tag}]\n")
     display_map = db.get_task_display_id_map([t["id"] for t in task_list]) if db else {}
+    # dbmed JSON-RPC stringifies snowflake dict keys; coerce so int task ids hit.
+    if display_map:
+        display_map = {int(k): v for k, v in display_map.items()}
     for task in task_list:
         priority = task.get("priority") or "-"
         status = task["status"]

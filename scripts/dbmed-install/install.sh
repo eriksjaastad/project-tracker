@@ -129,10 +129,16 @@ say "2. Directory tree"
 # /usr/local/libexec does not exist on a stock macOS install, so leaving it
 # out aborted the installer at step 3 with a bare "No such file or directory"
 # after the service account and data directories had already been created.
+# Config/data parents stay root:wheel. The socket run dir must be writable by
+# _dbmed (or bind fails with PermissionError) and traversable by $CLIENT_GROUP
+# (or pt/clients get Permission denied on the socket path). Stock root:wheel
+# 0755 satisfied neither — cutover 2026-09-19.
 install -d -o root -g wheel -m 0755 \
-  "$CONFIG_DIR" "$CONFIG_DIR/registry.d" "$DATA_ROOT" "$RUN_DIR" \
+  "$CONFIG_DIR" "$CONFIG_DIR/registry.d" "$DATA_ROOT" \
   "$(dirname "$INSTALL_DIR")"
+install -d -o "$SERVICE_USER" -g "$CLIENT_GROUP" -m 0775 "$RUN_DIR"
 ok "root-owned: ${CONFIG_DIR}, ${DATA_ROOT}, $(dirname "$INSTALL_DIR")"
+ok "socket run dir: ${RUN_DIR} (${SERVICE_USER}:${CLIENT_GROUP} 0775)"
 
 # 0700 on the project data dir is the boundary. An agent running as the
 # invoking user cannot traverse this directory, so it cannot open, stat, copy,
@@ -142,6 +148,9 @@ install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 \
   "$PROJECT_DATA/fixtures" "${DATA_ROOT}/external/${PROJECT}"
 install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "${DATA_ROOT}/audit"
 ok "service-owned at 0700: ${PROJECT_DATA}"
+
+# Daemon may open $INSTALL_DIR/logs after step 3; create the data-root logs dir now.
+install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "${DATA_ROOT}/logs"
 
 # --------------------------------------------------------------------------
 say "3. Backend code"
@@ -212,6 +221,8 @@ mv "$STAGING"/* "$INSTALL_DIR"
 chown root:wheel "$INSTALL_DIR"
 chmod 0755 "$INSTALL_DIR"
 ok "installed root-owned backend at ${INSTALL_DIR}"
+install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "${INSTALL_DIR}/logs"
+ok "daemon logs dir at ${INSTALL_DIR}/logs"
 
 # --------------------------------------------------------------------------
 say "3b. Private interpreter"
@@ -433,9 +444,12 @@ for _ in $(seq 1 40); do
 done
 [ -S "$SOCKET" ] || die "daemon did not create ${SOCKET}; see ${DATA_ROOT}/audit/dbmedd.stderr.log"
 
-chgrp "$CLIENT_GROUP" "$SOCKET"
+chown "$SERVICE_USER:$CLIENT_GROUP" "$SOCKET"
 chmod 0660 "$SOCKET"
-ok "socket ready at ${SOCKET}"
+# Re-assert run dir in case an earlier partial install left root:wheel 0755.
+chown "$SERVICE_USER:$CLIENT_GROUP" "$RUN_DIR"
+chmod 0775 "$RUN_DIR"
+ok "socket ready at ${SOCKET} (${SERVICE_USER}:${CLIENT_GROUP} 0660)"
 
 printf '\n\033[0;32mInstalled.\033[0m Verify with:\n\n'
 printf '    cd %s && ./pt tasks | head\n' "$REPO_DIR"
