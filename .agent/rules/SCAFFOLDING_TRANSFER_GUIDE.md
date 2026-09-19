@@ -20,7 +20,7 @@ Based on `project-scaffolding/README.md` "Quick Start" section:
 | 4 | Copy templates (.cursorrules, CLAUDE.md, etc.) | ✅ Done | Templates applied + safety injection |
 | 5 | Plan using [TIERED_AI_SPRINT_PLANNING](../../ai-usage-billing-tracker/docs/TIERED_AI_SPRINT_PLANNING.md) | ✅ Done | Phase 4 prompts use tiered approach |
 | 6 | Execute with appropriate models | 🔄 In Progress | Today's work uses local models |
-| 7 | Track external resources in [EXTERNAL_RESOURCES](../../project-scaffolding/EXTERNAL_RESOURCES.yaml) | ✅ Done | Listed: SQLite, FastAPI ($0/mo) |
+| 7 | Track external resources in [EXTERNAL_RESOURCES](../../EXTERNAL_RESOURCES.yaml) | ✅ Done | Listed: SQLite, FastAPI ($0/mo) |
 
 ### README Items Not Mentioned But Now Critical
 

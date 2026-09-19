@@ -67,7 +67,7 @@ The dashboard shows all your projects sorted by **last modified** (newest work f
 - **Status badges:** Active, Development, Paused, Stalled, Complete
 - **AI agents:** Which AI is helping with what
 - **Cron jobs:** ⏰ indicator if scheduled automation exists
-- **Services:** External services used (from EXTERNAL_RESOURCES.md)
+- **Services:** External services used (from EXTERNAL_RESOURCES.yaml)
 
 ### Project Details
 
@@ -209,7 +209,7 @@ For each project found:
 **From README.md:**
 - First paragraph as description
 
-**From EXTERNAL_RESOURCES.md (in project-scaffolding):**
+**From EXTERNAL_RESOURCES.yaml (portfolio registry):**
 - External services used
 - Monthly costs
 
@@ -228,7 +228,7 @@ Supported statuses:
 
 ### 3. Track External Services
 
-List services in EXTERNAL_RESOURCES.md to track costs.
+Update the portfolio-wide EXTERNAL_RESOURCES.yaml to track costs across all projects.
 
 ---
 
