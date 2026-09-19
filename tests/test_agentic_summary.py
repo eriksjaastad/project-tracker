@@ -62,9 +62,9 @@ def _freeze_now(monkeypatch: pytest.MonkeyPatch, dashboard_app_module, frozen_no
     monkeypatch.setattr(dashboard_app_module, "datetime", FrozenDateTime)
 
 
-def _patch_markers(monkeypatch: pytest.MonkeyPatch, content: str | None) -> None:
-    real_exists = dashboard_app.Path.exists
-    real_read_text = dashboard_app.Path.read_text
+def _patch_markers(monkeypatch: pytest.MonkeyPatch, dashboard_app_module, content: str | None) -> None:
+    real_exists = dashboard_app_module.Path.exists
+    real_read_text = dashboard_app_module.Path.read_text
 
     def fake_exists(self: Path) -> bool:
         if self.name == "agentic_markers.json":
@@ -76,8 +76,8 @@ def _patch_markers(monkeypatch: pytest.MonkeyPatch, content: str | None) -> None
             return content or ""
         return real_read_text(self, *args, **kwargs)
 
-    monkeypatch.setattr(dashboard_app.Path, "exists", fake_exists)
-    monkeypatch.setattr(dashboard_app.Path, "read_text", fake_read_text)
+    monkeypatch.setattr(dashboard_app_module.Path, "exists", fake_exists)
+    monkeypatch.setattr(dashboard_app_module.Path, "read_text", fake_read_text)
 
 
 def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
