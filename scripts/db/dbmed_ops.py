@@ -206,7 +206,7 @@ class ProjectTrackerOps:
 
     def __init__(self, entry: Any) -> None:
         from db.backend_manager import DatabaseManager
-        from db.calendar_manager import CalendarManager
+        from db.backend_calendar_manager import CalendarManager
 
         self.entry = entry
         self.db_path = Path(entry.db_path)
