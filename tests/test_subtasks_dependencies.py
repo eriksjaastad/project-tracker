@@ -8,6 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 from click.testing import CliRunner
 
+# This module uses direct database access for complex test setup
+pytestmark = pytest.mark.no_dbmed
+
 # Add scripts to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
