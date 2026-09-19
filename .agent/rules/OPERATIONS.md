@@ -15,7 +15,7 @@ cd ~/projects/project-tracker
 source .venv/bin/activate
 
 # Launch dashboard (this also performs an initial scan)
-./pt launch
+pt launch
 ```
 
 ---
@@ -24,11 +24,11 @@ source .venv/bin/activate
 
 | Command | Description |
 |---------|-------------|
-| `./pt launch` | Start the dashboard (opens browser) |
-| `./pt launch --no-scan` | Start dashboard without performing a new project scan |
-| `./pt scan` | Perform a full scan of all projects in the workspace |
-| `./pt list` | List all tracked projects with their status |
-| `./pt init` | Initialize the SQLite database and create schemas |
+| `pt launch` | Start the dashboard (opens browser) |
+| `pt launch --no-scan` | Start dashboard without performing a new project scan |
+| `pt scan` | Perform a full scan of all projects in the workspace |
+| `pt list` | List all tracked projects with their status |
+| `pt init` | Initialize the SQLite database and create schemas |
 
 ---
 

@@ -9,7 +9,7 @@ created: 2025-12-30
 
 # project-tracker - Usage Guide
 
-> **Quick Start:** `./pt launch` to open the dashboard
+> **Quick Start:** `pt launch` to open the dashboard
 **Index:** `00_Index_*.md`
 
 ---
@@ -47,7 +47,7 @@ You can configure the behavior of Project Tracker using these environment variab
 2. **Launch the dashboard:**
    ```bash
    cd $PROJECTS_ROOT/project-tracker
-   ./pt launch
+   pt launch
    ```
 
 3. That's it! The dashboard will:
@@ -86,78 +86,78 @@ Click **"Details"** to see:
 
 ```bash
 # Launch web dashboard (recommended)
-./pt launch
+pt launch
 
 # Backup health / recovery
-./pt backup status
-./pt backup restore ~/.project-tracker/backups/tracker_20260423_141355.db
+pt backup status
+pt backup restore ~/.project-tracker/backups/tracker_20260423_141355.db
 
 # Initialize database
-./pt init
+pt init
 
 # Scan all projects
-./pt scan
+pt scan
 
 # List all projects (table view)
-./pt list
+pt list
 
 # Show project details
-./pt status "project-name"
+pt status "project-name"
 
 # Refresh all data
-./pt refresh
+pt refresh
 
 # Sync one project only (faster than a full scan)
-./pt sync-project "project-name"
+pt sync-project "project-name"
 ```
 
 ### Managing AI Agents
 
 ```bash
 # Add an AI agent to a project
-./pt add-agent "project-name" "Claude Sonnet 4.5" "Implementation"
+pt add-agent "project-name" "Claude Sonnet 4.5" "Implementation"
 
 # Examples:
-./pt add-agent "image-workflow" "Claude Opus 4" "Architecture review"
-./pt add-agent "trading-copilot" "Cursor" "Code refactoring"
+pt add-agent "image-workflow" "Claude Opus 4" "Architecture review"
+pt add-agent "trading-copilot" "Cursor" "Code refactoring"
 ```
 
 ### Managing Cron Jobs
 
 ```bash
 # Add a cron job to a project
-./pt add-cron "project-name" "0 14 * * *" "python scripts/daily.py" "Daily processing"
+pt add-cron "project-name" "0 14 * * *" "python scripts/daily.py" "Daily processing"
 
 # Examples:
-./pt add-cron "image-workflow" "10 2 * * *" "python scripts/backup/daily_backup.py" "Daily backup"
-./pt add-cron "trading-copilot" "0 6,12,18 * * *" "python scripts/fetch_signals.py" "Fetch trading signals"
+pt add-cron "image-workflow" "10 2 * * *" "python scripts/backup/daily_backup.py" "Daily backup"
+pt add-cron "trading-copilot" "0 6,12,18 * * *" "python scripts/fetch_signals.py" "Fetch trading signals"
 ```
 
 ### Managing Services
 
 ```bash
 # Add a service dependency to a project
-./pt add-service "project-name" "Service Name" --cost 5.00 --purpose "Purpose description"
+pt add-service "project-name" "Service Name" --cost 5.00 --purpose "Purpose description"
 
 # Examples:
-./pt add-service "trading-copilot" "Railway" --cost 5.00 --purpose "Hosting + Postgres"
-./pt add-service "image-workflow" "OpenAI" --cost 15.00 --purpose "AI processing"
+pt add-service "trading-copilot" "Railway" --cost 5.00 --purpose "Hosting + Postgres"
+pt add-service "image-workflow" "OpenAI" --cost 15.00 --purpose "AI processing"
 ```
 
 ### Sync Controls
 
 ```bash
 # Show replication state
-./pt sync status
+pt sync status
 
 # Pause data-plane replication
-./pt sync pause
+pt sync pause
 
 # Resume data-plane replication
-./pt sync resume
+pt sync resume
 
 # Rare: pause everything, including control-plane announcements
-./pt sync pause --all
+pt sync pause --all
 ```
 
 ### Read-Only Memory Automation
@@ -166,15 +166,15 @@ Use these commands from SSH `BatchMode` sessions, cron jobs, or service users th
 
 ```bash
 cd $PROJECTS_ROOT/project-tracker
-PT_SKIP_DOPPLER=1 ./pt memory search --query "LoopLens" --since 7d --limit 50 --json
-PT_SKIP_DOPPLER=1 ./pt memory recent --since 7d --project project-tracker --limit 50 --json
-PT_SKIP_DOPPLER=1 ./pt memory stats --json
-PT_SKIP_DOPPLER=1 ./pt memory export --format ndjson --since 7d --limit 500
-PT_SKIP_DOPPLER=1 ./pt config show --effective --json
-PT_SKIP_DOPPLER=1 ./pt doctor --json
-PT_SKIP_DOPPLER=1 ./pt hygiene --json                         # portfolio-wide git hygiene scan
-PT_SKIP_DOPPLER=1 ./pt hygiene --json --project my-project   # single repo
-PT_SKIP_DOPPLER=1 ./pt hygiene --quiet                        # human output, findings only
+PT_SKIP_DOPPLER=1 pt memory search --query "LoopLens" --since 7d --limit 50 --json
+PT_SKIP_DOPPLER=1 pt memory recent --since 7d --project project-tracker --limit 50 --json
+PT_SKIP_DOPPLER=1 pt memory stats --json
+PT_SKIP_DOPPLER=1 pt memory export --format ndjson --since 7d --limit 500
+PT_SKIP_DOPPLER=1 pt config show --effective --json
+PT_SKIP_DOPPLER=1 pt doctor --json
+PT_SKIP_DOPPLER=1 pt hygiene --json                         # portfolio-wide git hygiene scan
+PT_SKIP_DOPPLER=1 pt hygiene --json --project my-project   # single repo
+PT_SKIP_DOPPLER=1 pt hygiene --quiet                        # human output, findings only
 ```
 
 JSON responses include a `schema_version`, `ok`, `read_only`, backend metadata, filters, pagination, and result rows. JSON mode does not mix prose into the payload. Validation errors exit `2`; backend/readiness failures exit `3`; query failures exit `4`.
