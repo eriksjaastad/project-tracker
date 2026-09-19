@@ -31,6 +31,16 @@ GLOBAL_KEYS = {
     "db_backend": "local SQLite at data/tracker.db (controlled by ~/projects/.turso-config.json)",
     "default_doppler_config": "dev",
     "mac_mini_ssh": "eriksjaastad@Eriks-Mac-mini.local",
+    "git_identity": (
+        "Use bare git for add/commit/push/fetch/pull/status/log/diff/branch/checkout/restore — "
+        "each repo already has bot user.name + credential.helper; do not wrap git with gh-agent. "
+        "For GitHub CLI attributed ops (pr, issue, api, label, run, release) use gha instead of gh "
+        "(no --): gha pr create ..., gha api .... gha picks architect at ~/projects, manager inside a project "
+        "(run ~/projects/_tools/set-repo-bot-identity.sh manager first in-repo). "
+        "Carve-out: gh repo create uses plain gh (App tokens cannot create personal repos). "
+        "Sanity: git config --local user.name should end in [bot]. "
+        "Source of truth: ~/projects/CLAUDE.md (Which wrapper section). Related: pt info get pr_merge_policy."
+    ),
 }
 
 # ── Manual overrides for projects where auto-detection is wrong/incomplete ───
