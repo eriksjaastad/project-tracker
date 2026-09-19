@@ -16,6 +16,7 @@ unaffected — the regex only patches the specific NOT NULL / no-DEFAULT pattern
 
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
 import sys
@@ -77,9 +78,11 @@ def _backup(conn: sqlite3.Connection, migration_num: str) -> None:
     db_path = Path(db_path_str)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     name = f"pre_{migration_num}_crr_fix_defaults_{ts}.db"
+    # Respect PT_EXTERNAL_BACKUP_DIR for test isolation (conftest sets this).
+    external_backup_dir = Path(os.getenv("PT_EXTERNAL_BACKUP_DIR", Path.home() / ".project-tracker" / "backups"))
     for dest in [
         db_path.parent / "backups" / name,
-        Path.home() / ".project-tracker" / "backups" / name,
+        external_backup_dir / name,
     ]:
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
