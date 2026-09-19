@@ -28,6 +28,7 @@ CLIENT_MODULES = [
     REPO_ROOT / "dbmed" / "protocol.py",
     REPO_ROOT / "dbmed" / "errors.py",
     REPO_ROOT / "scripts" / "db" / "manager.py",
+    REPO_ROOT / "scripts" / "db" / "calendar_manager.py",
 ]
 
 DRIVERS = {"sqlite3", "libsql", "libsql_client", "psycopg", "psycopg2", "sqlalchemy", "duckdb"}

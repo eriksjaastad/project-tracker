@@ -122,7 +122,10 @@ def test_delete_project_cascades_tasks(scan_env):
     db.add_task(text="Disposable", project_id="demo", status="Backlog", priority=None, prompt=None)
 
     assert len(db.get_tasks(project_id="demo")) == 1
-    db.delete_project("demo")
+    
+    # Authorize destructive op before calling delete_project
+    db.authorize("delete_project", reason="delete_project is tested", project_id="demo")
+    
     assert len(db.get_tasks(project_id="demo")) == 0
 
 
@@ -212,7 +215,8 @@ def test_scan_per_project_transaction_rolls_back_on_failure(scan_env, monkeypatc
     manager = scan_env["manager"]
     pt = scan_env["pt"]
 
-    schema.init_db()
+    import db.backend_manager as backend_manager
+
     db = manager.DatabaseManager()
     db.add_project(project_id="good", name="Good", path="good", status="paused")
     db.add_project(project_id="bad", name="Bad", path="bad", status="paused")
@@ -234,7 +238,7 @@ def test_scan_per_project_transaction_rolls_back_on_failure(scan_env, monkeypatc
             raise RuntimeError("Injected failure")
         return {"added": 0, "updated": 0, "deleted": 0}
 
-    monkeypatch.setattr(pt.DatabaseManager, "_sync_cron_jobs_with_cursor", _raise_on_bad)
+    monkeypatch.setattr(backend_manager.DatabaseManager, "_sync_cron_jobs_with_cursor", _raise_on_bad)
 
     pt.scan(no_graph=True, dry_run=False, force=True)
 

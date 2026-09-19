@@ -25,6 +25,7 @@ from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+from db.backend_manager import DatabaseManager as BackendDatabaseManager
 from db.manager import DatabaseManager
 from db.schema import create_database
 from pt import tasks_group
@@ -54,7 +55,8 @@ PROJECT_ID = "project-tracker"
 def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager]:
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = DatabaseManager(db_path=db_path)
+    # Use Remote manager so CLI subprocess can reach same DB through daemon
+    db = DatabaseManager()
     db.add_project(
         project_id=PROJECT_ID,
         name="Project Tracker",

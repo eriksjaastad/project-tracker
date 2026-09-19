@@ -27,7 +27,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from db.manager import DatabaseManager  # noqa: E402
+from db.backend_manager import DatabaseManager  # noqa: E402
 from db.pt_id import _find_crsqlite_dylib  # noqa: E402
 from db.schema import create_database  # noqa: E402
 
@@ -65,7 +65,7 @@ def _open_handles(db_path: Path) -> int:
 def test_repeated_connections_do_not_leak_descriptors(tmp_path: Path) -> None:
     db_path = tmp_path / "tracker.db"
     create_database(db_path)
-    db = DatabaseManager()
+    db = DatabaseManager(db_path, crsqlite_path=_find_crsqlite_dylib())
 
     # Warm up so one-off setup handles aren't counted as growth.
     with db._get_conn() as conn:
@@ -93,7 +93,7 @@ def test_connection_still_usable_and_closed_cleanly(tmp_path: Path) -> None:
     """The finalize call must not break normal use or leave the conn open."""
     db_path = tmp_path / "tracker.db"
     create_database(db_path)
-    db = DatabaseManager()
+    db = DatabaseManager(db_path)
 
     with db._get_conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
@@ -137,7 +137,7 @@ def test_writes_survive_finalize_on_a_real_crr_table(tmp_path: Path) -> None:
     conn.close()
 
     # Every write below goes through _get_conn, so each one finalizes on exit.
-    db = DatabaseManager()
+    db = DatabaseManager(db_path, crsqlite_path=Path(dylib))
     db.add_project("alpha", "Alpha", str(tmp_path / "alpha"), "active")
     assert db.add_task("first task", "alpha")
     assert db.add_task("second task", "alpha")

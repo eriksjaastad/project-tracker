@@ -24,7 +24,7 @@ from hypothesis import given, strategies as st, assume, settings
 from fastapi.testclient import TestClient
 from fastapi import FastAPI, HTTPException
 
-from scripts.db.manager import DatabaseManager
+from scripts.db.backend_manager import DatabaseManager as BackendDatabaseManager
 from scripts.db.schema import create_database
 from scripts.utils.validation import (
     get_blocked_card_project_ids,
@@ -116,7 +116,7 @@ def _setup_fresh_database():
     conn.close()
     
     # Create DatabaseManager instance
-    db_manager = DatabaseManager()
+    db_manager = BackendDatabaseManager(db_path)
     
     # Create test projects
     projects = [
@@ -140,7 +140,7 @@ def _setup_fresh_database():
     return db_path, db_manager, project_ids
 
 
-def _create_test_app(db_manager: DatabaseManager) -> FastAPI:
+def _create_test_app(db_manager: BackendDatabaseManager) -> FastAPI:
     """Create a FastAPI app with task routes for testing."""
     app = FastAPI()
     
@@ -338,6 +338,7 @@ def test_property_8_task_edit_persistence(initial_text, new_text, project_id, st
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
 @settings(max_examples=50)
+@pytest.mark.no_dbmed
 def test_property_18_transaction_rollback_on_api_error(text, project_id, status, priority):
     """
     Feature: kanban-board, Property 18: Transaction Rollback on API Error
@@ -441,7 +442,7 @@ def test_property_18_transaction_rollback_on_api_error(text, project_id, status,
                 conn.close()
         
         # Patch the connection method to simulate failure
-        db_manager._get_conn = failing_get_conn.__get__(db_manager, DatabaseManager)
+        db_manager._get_conn = failing_get_conn.__get__(db_manager, BackendDatabaseManager)
         
         # Attempt to update task via API - should fail
         update_response = client.patch(f"/api/tasks/{task_id}", json={
@@ -487,6 +488,7 @@ def test_property_18_transaction_rollback_on_api_error(text, project_id, status,
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
 @settings(max_examples=1)
+@pytest.mark.no_dbmed
 def test_property_19_database_lock_retry(text, project_id, status, priority):
     """
     Feature: kanban-board, Property 19: Database Lock Retry
@@ -568,7 +570,7 @@ def test_property_19_database_lock_retry(text, project_id, status, priority):
                     conn.close()
             
             # Patch connection to use timeout=0 to force lock errors and time.sleep to track backoff
-            db_manager._get_conn = get_conn_with_zero_timeout.__get__(db_manager, DatabaseManager)
+            db_manager._get_conn = get_conn_with_zero_timeout.__get__(db_manager, BackendDatabaseManager)
             
             with patch('time.sleep', side_effect=mock_sleep):
                 # Attempt to update task via API - should retry and eventually succeed

@@ -50,6 +50,11 @@ os.environ.setdefault("PT_EXTERNAL_BACKUP_DIR", str(_TEST_EXTERNAL_BACKUPS))
 # purpose, so the guard is off for the suite and only for the suite.
 os.environ.setdefault("PT_ALLOW_FRESH_DB", "1")
 
+# Collection and no_dbmed tests must never inherit the installed service.
+# Database fixtures replace this with their temporary socket for each test.
+_TEST_SOCKET_ROOT = Path(tempfile.mkdtemp(prefix="pt-test-offline-"))
+os.environ["DBMED_SOCKET"] = str(_TEST_SOCKET_ROOT / "unavailable.sock")
+
 
 # ---------------------------------------------------------------------------
 # dbmed: every test gets its own database, behind the same boundary as prod
@@ -248,6 +253,18 @@ def db(dbmed_daemon):
     from db.manager import DatabaseManager
 
     return DatabaseManager()
+
+
+@pytest.fixture
+def dbmed_backend(dbmed_daemon, tmp_path):
+    """Seed unusual historical states in the daemon's synthetic DB only.
+
+    Application requests still use the RPC client. This fixture is a backend
+    test harness, never a caller-selectable production database path.
+    """
+    from db.backend_manager import DatabaseManager
+
+    return DatabaseManager(tmp_path / "_dbmed/var/project-tracker/tracker.db")
 
 
 def pytest_configure(config):

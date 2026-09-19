@@ -159,12 +159,7 @@ def test_api_subtasks_and_blocking(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 def _archive(db: DatabaseManager, task_id: int) -> None:
     """Mark one card archived, the way trim_done_tasks does."""
     from datetime import datetime, timezone
-    with db._get_conn() as conn:
-        conn.execute(
-            "UPDATE tasks SET archived_at = ? WHERE id = ?",
-            (datetime.now(timezone.utc).isoformat(), task_id),
-        )
-        conn.commit()
+    db.seed(task_id, archived_at=datetime.now(timezone.utc).isoformat())
 
 
 def test_get_subtasks_excludes_archived_by_default(tmp_path: Path):
