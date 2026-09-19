@@ -88,9 +88,17 @@ def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, mon
     from db import manager
     monkeypatch.setattr(manager, "DatabaseManager", lambda: BackendDatabaseManager(db_path))
     
-    # NOW import dashboard.app - it will capture our patched DatabaseManager
+    # Force reload dashboard.app so it picks up our patched DatabaseManager
+    import importlib
+    import sys
+    if 'dashboard.app' in sys.modules:
+        import dashboard.app
+        importlib.reload(dashboard.app)
+        dashboard_app = sys.modules['dashboard.app']
+    else:
+        import dashboard.app as dashboard_app
+    
     from fastapi.testclient import TestClient
-    import dashboard.app as dashboard_app
     
     _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(
@@ -139,9 +147,17 @@ def test_agentic_summary_filters_by_project(tmp_path: Path, monkeypatch: pytest.
     from db import manager
     monkeypatch.setattr(manager, "DatabaseManager", lambda: BackendDatabaseManager(db_path))
     
-    # NOW import dashboard.app - it will capture our patched DatabaseManager
+    # Force reload dashboard.app so it picks up our patched DatabaseManager
+    import importlib
+    import sys
+    if 'dashboard.app' in sys.modules:
+        import dashboard.app
+        importlib.reload(dashboard.app)
+        dashboard_app = sys.modules['dashboard.app']
+    else:
+        import dashboard.app as dashboard_app
+    
     from fastapi.testclient import TestClient
-    import dashboard.app as dashboard_app
     
     _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, dashboard_app, None)
@@ -173,9 +189,17 @@ def test_agentic_summary_handles_invalid_days_and_malformed_markers(tmp_path: Pa
     from db import manager
     monkeypatch.setattr(manager, "DatabaseManager", lambda: BackendDatabaseManager(db_path))
     
-    # NOW import dashboard.app - it will capture our patched DatabaseManager
+    # Force reload dashboard.app so it picks up our patched DatabaseManager
+    import importlib
+    import sys
+    if 'dashboard.app' in sys.modules:
+        import dashboard.app
+        importlib.reload(dashboard.app)
+        dashboard_app = sys.modules['dashboard.app']
+    else:
+        import dashboard.app as dashboard_app
+    
     from fastapi.testclient import TestClient
-    import dashboard.app as dashboard_app
     
     _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, dashboard_app, "{not-json")
