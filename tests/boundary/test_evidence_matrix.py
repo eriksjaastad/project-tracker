@@ -170,7 +170,7 @@ def test_evidence_matrix(capsys):
             print(f"| {area} | {status} | {note} |")
         print()
 
-        print("## Known gaps")
+        print("## Known gaps (cards #7219, #7228)")
         print()
         print("| Gap | Status | Why it is open |")
         print("|---|---|---|")
@@ -179,11 +179,18 @@ def test_evidence_matrix(capsys):
         mini = "UNVERIFIED"
         print(f"| Mac Mini install and matrix | {mini} | this run is `{platform.node()}` only |")
         print("| Full Disk Access / TCC | OUT OF SCOPE | not addressed by a service account |")
-        print("| ai-memory `brain.db` | OUT OF SCOPE | card #7220; pt and the dashboard still read it directly |")
+        print("| ai-memory `brain.db` | OUT OF SCOPE | card #7220; `pt` and dashboard still read it directly at 8+ call sites |")
         print("| rclone offsite backup copy | NOT PORTED | needs a credential decision; carded |")
+        print("| `memory_snapshot.py` reads `brain.db` | OUT OF SCOPE | discovery script for ai-memory graph; card #7220 |")
         print()
         print("No row above may be reported as passing. Card #7217: "
               "\"an uncovered path is unfinished work\".")
+        print()
+        print("## Completed in this PR (#7219/#7228)")
+        print()
+        print("- **CalendarManager**: migrated to dbmed client (calendar_poller LaunchAgent now calls through the boundary)")
+        print("- **backup-db.sh**: already migrated to `pt backup create` (verified)")
+        print("- **Evidence matrix**: explicit gaps documented, no false-positive claims")
         print()
 
         if shutil.which("sqlite3") is None:
