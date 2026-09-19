@@ -21,9 +21,9 @@ from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from backend_db.backend_manager import DatabaseManager as BackendDatabaseManager  # noqa: E402
-from backend_db.manager import DatabaseManager  # noqa: E402
-from backend_db.schema import create_database  # noqa: E402
+from db.backend_manager import DatabaseManager as BackendDatabaseManager  # noqa: E402
+from db.manager import DatabaseManager  # noqa: E402
+from db.schema import create_database  # noqa: E402
 from pt import tasks_group  # noqa: E402
 
 PROJECT_ID = "project-tracker"

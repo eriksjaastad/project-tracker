@@ -140,7 +140,7 @@ def _setup_fresh_database():
     return db_path, db_manager, project_ids
 
 
-def _create_test_app(db_manager: DatabaseManager) -> FastAPI:
+def _create_test_app(db_manager: BackendDatabaseManager) -> FastAPI:
     """Create a FastAPI app with task routes for testing."""
     app = FastAPI()
     
