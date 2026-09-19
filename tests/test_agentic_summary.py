@@ -84,11 +84,12 @@ def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, mon
     db_path, db, task_ids = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
     
-    # Patch DatabaseManager() to return backend instance when called (no daemon needed)
-    from db import backend_manager
-    def mock_db_manager():
-        return backend_manager.DatabaseManager(db_path)
-    monkeypatch.setattr("dashboard.app.DatabaseManager", mock_db_manager)
+    # Patch db.manager.DatabaseManager class to be a factory returning backend instances
+    from db import manager, backend_manager
+    class MockDatabaseManagerFactory:
+        def __call__(self):
+            return backend_manager.DatabaseManager(db_path)
+    monkeypatch.setattr(manager, "DatabaseManager", MockDatabaseManagerFactory())
     
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(
