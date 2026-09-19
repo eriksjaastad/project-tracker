@@ -213,6 +213,21 @@ def _parse_launch_agent() -> dict[str, Any]:
     return info
 
 
+def append_cloud_copy_log(*, ok: bool, detail: str = "") -> Path:
+    """Append a cloud_copy line so `pt backup status` sees manual offsite runs."""
+    log_path = _backup_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    outcome = "ok" if ok else "failed"
+    # Keep detail to one line; strip CR / newlines from CLI output.
+    clean = " ".join(detail.replace(chr(13), " ").split())
+    line = f"{datetime.now().astimezone().isoformat(timespec='seconds')} | cloud_copy | {outcome}"
+    if clean:
+        line = f"{line} | {clean}"
+    with log_path.open("a", encoding="utf-8") as fh:
+        fh.write(line + "\n")
+    return log_path
+
+
 def _parse_backup_log() -> dict[str, Any]:
     log_path = _backup_log_path()
     summary: dict[str, Any] = {
