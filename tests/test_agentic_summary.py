@@ -92,7 +92,7 @@ def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, mon
     from fastapi.testclient import TestClient
     import dashboard.app as dashboard_app
     
-    _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
+    _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(
         monkeypatch,
         dashboard_app,
@@ -143,11 +143,8 @@ def test_agentic_summary_filters_by_project(tmp_path: Path, monkeypatch: pytest.
     from fastapi.testclient import TestClient
     import dashboard.app as dashboard_app
     
-    _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
-    _patch_markers(monkeypatch, None)
-    
-    _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
-    _patch_markers(monkeypatch, None)
+    _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
+    _patch_markers(monkeypatch, dashboard_app, None)
 
     _insert_history(db, task_ids["project-tracker"], "project-tracker", [
         ("2026-03-10 09:00:00", "Review", "In Progress"),
@@ -180,11 +177,8 @@ def test_agentic_summary_handles_invalid_days_and_malformed_markers(tmp_path: Pa
     from fastapi.testclient import TestClient
     import dashboard.app as dashboard_app
     
-    _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
-    _patch_markers(monkeypatch, "{not-json")
-    
-    _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
-    _patch_markers(monkeypatch, "{not-json")
+    _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
+    _patch_markers(monkeypatch, dashboard_app, "{not-json")
 
     response = TestClient(dashboard_app.app).get("/api/agentic/summary?days=0")
 
