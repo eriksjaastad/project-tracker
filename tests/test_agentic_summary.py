@@ -53,13 +53,13 @@ def _insert_history(
         conn.commit()
 
 
-def _freeze_now(monkeypatch: pytest.MonkeyPatch, frozen_now: datetime) -> None:
+def _freeze_now(monkeypatch: pytest.MonkeyPatch, dashboard_app_module, frozen_now: datetime) -> None:
     class FrozenDateTime:
         @classmethod
         def now(cls) -> datetime:
             return frozen_now
 
-    monkeypatch.setattr(dashboard_app, "datetime", FrozenDateTime)
+    monkeypatch.setattr(dashboard_app_module, "datetime", FrozenDateTime)
 
 
 def _patch_markers(monkeypatch: pytest.MonkeyPatch, content: str | None) -> None:
@@ -95,6 +95,7 @@ def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, mon
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(
         monkeypatch,
+        dashboard_app,
         json.dumps([
             {"date": "2026-03-08", "label": "Workflow change"},
             {"date": "2026-02-20", "label": "Out of range"},
