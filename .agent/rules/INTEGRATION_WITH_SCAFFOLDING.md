@@ -106,7 +106,7 @@ PROJECT LIFECYCLE
 ```
 1. Project needs OpenAI
    ↓
-2. Update project-scaffolding/EXTERNAL_RESOURCES.yaml
+2. Update project-tracker/EXTERNAL_RESOURCES.yaml
    (per Cursor user rule)
    ↓
 3. Project-tracker reads EXTERNAL_RESOURCES.yaml
@@ -213,9 +213,9 @@ resources = parse_external_resources_md()
 # project-tracker/src/integrations/scaffolding.py
 
 def get_service_dependencies(project_name: str) -> list[str]:
-    """Read EXTERNAL_RESOURCES.yaml from scaffolding."""
+    """Read EXTERNAL_RESOURCES.yaml from project-tracker (portfolio registry)."""
     projects_root = Path(os.getenv("PROJECTS_ROOT", Path.home() / "projects"))
-    path = projects_root / "project-scaffolding" / "EXTERNAL_RESOURCES.yaml"
+    path = projects_root / "project-tracker" / "EXTERNAL_RESOURCES.yaml"
     resources = parse_resources(path.read_text())
     return resources.get(project_name, [])
 ```
@@ -306,7 +306,7 @@ Documents/ Structure:
 2. See: "3d-pose-factory - Cloudflare R2 ($0/mo)"
 3. Done.
 
-**Which tool answers it?** Tracker (reading scaffolding's EXTERNAL_RESOURCES.yaml)
+**Which tool answers it?** Tracker (reading its own EXTERNAL_RESOURCES.yaml)
 
 ---
 
