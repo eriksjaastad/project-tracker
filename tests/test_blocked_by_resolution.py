@@ -21,9 +21,9 @@ from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from db.backend_manager import DatabaseManager as BackendDatabaseManager  # noqa: E402
-from db.manager import DatabaseManager  # noqa: E402
-from db.schema import create_database  # noqa: E402
+from backend_db.backend_manager import DatabaseManager as BackendDatabaseManager  # noqa: E402
+from backend_db.manager import DatabaseManager  # noqa: E402
+from backend_db.schema import create_database  # noqa: E402
 from pt import tasks_group  # noqa: E402
 
 PROJECT_ID = "project-tracker"
@@ -51,13 +51,13 @@ def runner() -> CliRunner:
 
 
 def _find(db: BackendDatabaseManager, text: str):
-    return next(t for t in db.get_tasks(project_id=PROJECT_ID) if t["text"] == text)
+    return next(t for t in backend_db.get_tasks(project_id=PROJECT_ID) if t["text"] == text)
 
 
 def _unused_display_id(db: BackendDatabaseManager) -> int:
     """A small integer that resolves to no task at all."""
     candidate = 999999
-    assert db.resolve_task_id(candidate) is None
+    assert backend_db.resolve_task_id(candidate) is None
     return candidate
 
 
@@ -66,9 +66,9 @@ def _unused_display_id(db: BackendDatabaseManager) -> int:
 # ---------------------------------------------------------------------
 
 
-def test_create_resolves_display_id_to_canonical_pk(db, runner):
-    blocker = db.add_task(text="Blocker", project_id=PROJECT_ID)
-    display_id = db.get_task_display_id(blocker["id"])
+def test_create_resolves_display_id_to_canonical_pk(backend_db, runner):
+    blocker = backend_db.add_task(text="Blocker", project_id=PROJECT_ID)
+    display_id = backend_db.get_task_display_id(blocker["id"])
     assert display_id is not None and display_id != blocker["id"]
 
     result = runner.invoke(
@@ -77,15 +77,15 @@ def test_create_resolves_display_id_to_canonical_pk(db, runner):
     )
     assert result.exit_code == 0, result.output
 
-    created = _find(db, "Blocked card")
+    created = _find(backend_db, "Blocked card")
     # The PK is stored, not the display ID the operator typed.
     assert json.loads(created["blocked_by"]) == [blocker["id"]]
     # And the dependency is actually live.
-    assert db.is_blocked(created["id"]) == (True, [blocker["id"]])
+    assert backend_db.is_blocked(created["id"]) == (True, [blocker["id"]])
 
 
-def test_create_refuses_unknown_blocked_by_id(db, runner):
-    bogus = _unused_display_id(db)
+def test_create_refuses_unknown_blocked_by_id(backend_db, runner):
+    bogus = _unused_display_id(backend_db)
     result = runner.invoke(
         tasks_group,
         ["create", "Never created", "-p", PROJECT_ID, "--blocked-by", str(bogus)],
@@ -94,18 +94,18 @@ def test_create_refuses_unknown_blocked_by_id(db, runner):
     assert result.exit_code != 0
     assert f"#{bogus}" in result.output
     assert not [
-        t for t in db.get_tasks(project_id=PROJECT_ID) if t["text"] == "Never created"
+        t for t in backend_db.get_tasks(project_id=PROJECT_ID) if t["text"] == "Never created"
     ]
 
 
-def test_create_refuses_when_only_one_of_several_ids_is_bad(db, runner):
-    blocker = db.add_task(text="Blocker", project_id=PROJECT_ID)
-    bogus = _unused_display_id(db)
+def test_create_refuses_when_only_one_of_several_ids_is_bad(backend_db, runner):
+    blocker = backend_db.add_task(text="Blocker", project_id=PROJECT_ID)
+    bogus = _unused_display_id(backend_db)
     result = runner.invoke(
         tasks_group,
         [
             "create", "Never created", "-p", PROJECT_ID,
-            "--blocked-by", f"{db.get_task_display_id(blocker['id'])},{bogus}",
+            "--blocked-by", f"{backend_db.get_task_display_id(blocker['id'])},{bogus}",
         ],
     )
 
@@ -113,7 +113,7 @@ def test_create_refuses_when_only_one_of_several_ids_is_bad(db, runner):
     assert f"#{bogus}" in result.output
 
 
-def test_create_rejects_non_numeric_token(db, runner):
+def test_create_rejects_non_numeric_token(backend_db, runner):
     result = runner.invoke(
         tasks_group,
         ["create", "Never created", "-p", PROJECT_ID, "--blocked-by", "abc"],
@@ -127,11 +127,11 @@ def test_create_rejects_non_numeric_token(db, runner):
 # ---------------------------------------------------------------------
 
 
-def test_update_resolves_display_id_to_canonical_pk(db, runner):
-    blocker = db.add_task(text="Blocker", project_id=PROJECT_ID)
-    target = db.add_task(text="Target", project_id=PROJECT_ID)
-    blocker_display = db.get_task_display_id(blocker["id"])
-    target_display = db.get_task_display_id(target["id"])
+def test_update_resolves_display_id_to_canonical_pk(backend_db, runner):
+    blocker = backend_db.add_task(text="Blocker", project_id=PROJECT_ID)
+    target = backend_db.add_task(text="Target", project_id=PROJECT_ID)
+    blocker_display = backend_db.get_task_display_id(blocker["id"])
+    target_display = backend_db.get_task_display_id(target["id"])
 
     result = runner.invoke(
         tasks_group,
@@ -139,38 +139,38 @@ def test_update_resolves_display_id_to_canonical_pk(db, runner):
     )
     assert result.exit_code == 0, result.output
 
-    stored = db.get_task(target["id"])
+    stored = backend_db.get_task(target["id"])
     assert json.loads(stored["blocked_by"]) == [blocker["id"]]
-    assert db.is_blocked(target["id"]) == (True, [blocker["id"]])
+    assert backend_db.is_blocked(target["id"]) == (True, [blocker["id"]])
 
 
-def test_update_refuses_unknown_blocked_by_id(db, runner):
-    target = db.add_task(text="Target", project_id=PROJECT_ID)
-    bogus = _unused_display_id(db)
+def test_update_refuses_unknown_blocked_by_id(backend_db, runner):
+    target = backend_db.add_task(text="Target", project_id=PROJECT_ID)
+    bogus = _unused_display_id(backend_db)
 
     result = runner.invoke(
         tasks_group,
-        ["update", str(db.get_task_display_id(target["id"])),
+        ["update", str(backend_db.get_task_display_id(target["id"])),
          "--blocked-by", str(bogus)],
     )
 
     assert result.exit_code != 0
     assert f"#{bogus}" in result.output
-    assert db.get_task(target["id"])["blocked_by"] is None
+    assert backend_db.get_task(target["id"])["blocked_by"] is None
 
 
-def test_update_can_still_clear_blocked_by(db, runner):
-    blocker = db.add_task(text="Blocker", project_id=PROJECT_ID)
-    target = db.add_task(
+def test_update_can_still_clear_blocked_by(backend_db, runner):
+    blocker = backend_db.add_task(text="Blocker", project_id=PROJECT_ID)
+    target = backend_db.add_task(
         text="Target", project_id=PROJECT_ID, blocked_by=[blocker["id"]]
     )
 
     result = runner.invoke(
         tasks_group,
-        ["update", str(db.get_task_display_id(target["id"])), "--blocked-by", ""],
+        ["update", str(backend_db.get_task_display_id(target["id"])), "--blocked-by", ""],
     )
     assert result.exit_code == 0, result.output
-    assert db.get_task(target["id"])["blocked_by"] is None
+    assert backend_db.get_task(target["id"])["blocked_by"] is None
 
 
 # ---------------------------------------------------------------------
@@ -180,7 +180,7 @@ def test_update_can_still_clear_blocked_by(db, runner):
 
 def _force_blocked_by(db: DatabaseManager, task_id: int, value: str) -> None:
     """Write blocked_by past the CLI, simulating pre-fix rows in the DB."""
-    with db._get_conn() as conn:
+    with backend_db._get_conn() as conn:
         conn.execute(
             "UPDATE tasks SET blocked_by = ? WHERE id = ?", (value, task_id)
         )
@@ -188,12 +188,12 @@ def _force_blocked_by(db: DatabaseManager, task_id: int, value: str) -> None:
 
 
 def test_show_flags_stored_ids_that_resolve_to_nothing(db, backend_db, runner):
-    target = db.add_task(text="Target", project_id=PROJECT_ID)
-    bogus = _unused_display_id(db)
+    target = backend_db.add_task(text="Target", project_id=PROJECT_ID)
+    bogus = _unused_display_id(backend_db)
     _force_blocked_by(backend_db, target["id"], json.dumps([bogus]))
 
     result = runner.invoke(
-        tasks_group, ["show", str(db.get_task_display_id(target["id"]))]
+        tasks_group, ["show", str(backend_db.get_task_display_id(target["id"]))]
     )
     assert result.exit_code == 0, result.output
     assert "UNRESOLVED" in result.output
@@ -201,27 +201,27 @@ def test_show_flags_stored_ids_that_resolve_to_nothing(db, backend_db, runner):
     assert "all resolved" not in result.output
 
 
-def test_show_says_all_resolved_only_when_blockers_are_really_done(db, runner):
-    blocker = db.add_task(text="Blocker", project_id=PROJECT_ID, status="Done")
-    target = db.add_task(
+def test_show_says_all_resolved_only_when_blockers_are_really_done(backend_db, runner):
+    blocker = backend_db.add_task(text="Blocker", project_id=PROJECT_ID, status="Done")
+    target = backend_db.add_task(
         text="Target", project_id=PROJECT_ID, blocked_by=[blocker["id"]]
     )
 
     result = runner.invoke(
-        tasks_group, ["show", str(db.get_task_display_id(target["id"]))]
+        tasks_group, ["show", str(backend_db.get_task_display_id(target["id"]))]
     )
     assert result.exit_code == 0, result.output
     assert "Blocked by: (all resolved)" in result.output
 
 
-def test_show_reports_incomplete_blockers(db, runner):
-    blocker = db.add_task(text="Blocker", project_id=PROJECT_ID, status="Backlog")
-    target = db.add_task(
+def test_show_reports_incomplete_blockers(backend_db, runner):
+    blocker = backend_db.add_task(text="Blocker", project_id=PROJECT_ID, status="Backlog")
+    target = backend_db.add_task(
         text="Target", project_id=PROJECT_ID, blocked_by=[blocker["id"]]
     )
 
     result = runner.invoke(
-        tasks_group, ["show", str(db.get_task_display_id(target["id"]))]
+        tasks_group, ["show", str(backend_db.get_task_display_id(target["id"]))]
     )
     assert result.exit_code == 0, result.output
     assert "(incomplete)" in result.output
@@ -233,10 +233,10 @@ def test_show_reports_incomplete_blockers(db, runner):
 # ---------------------------------------------------------------------
 
 
-def test_tree_accepts_a_display_id(db, runner):
-    parent = db.add_task(text="Parent", project_id=PROJECT_ID)
-    db.add_task(text="Child", project_id=PROJECT_ID, parent_id=parent["id"])
-    display_id = db.get_task_display_id(parent["id"])
+def test_tree_accepts_a_display_id(backend_db, runner):
+    parent = backend_db.add_task(text="Parent", project_id=PROJECT_ID)
+    backend_db.add_task(text="Child", project_id=PROJECT_ID, parent_id=parent["id"])
+    display_id = backend_db.get_task_display_id(parent["id"])
     assert display_id != parent["id"]
 
     result = runner.invoke(tasks_group, ["tree", str(display_id)])
