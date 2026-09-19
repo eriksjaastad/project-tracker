@@ -83,6 +83,11 @@ def _patch_markers(monkeypatch: pytest.MonkeyPatch, content: str | None) -> None
 def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path, db, task_ids = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
+    
+    # Patch dashboard's DatabaseManager to use the backend directly (no daemon)
+    from db import backend_manager
+    monkeypatch.setattr(dashboard_app, "DatabaseManager", lambda: backend_manager.DatabaseManager(db_path))
+    
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(
         monkeypatch,
