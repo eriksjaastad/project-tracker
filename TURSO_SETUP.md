@@ -74,10 +74,10 @@ uv add libsql
 
 ```bash
 cd ~/projects/project-tracker
-doppler run -- ./pt tasks list
+pt tasks list
 # Should show tasks from Turso cloud
 
-doppler run -- ./pt tasks show 5232
+pt tasks show 5232
 # Verify specific card readable from cloud
 ```
 

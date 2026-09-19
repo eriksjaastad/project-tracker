@@ -18,7 +18,7 @@ Replace scattered `TODO.md` files with a centralized Kanban system that becomes 
 1. **Single source of truth** - Kanban DB replaces all TODO.md files
 2. **Visual management** - Drag-and-drop status changes across 5 columns (Backlog, To Do, In Progress, Review, Done)
 3. **Filtering and sorting** - By project, alphabetically, or by task count
-4. **Programmatic access** - CLI (`./pt tasks`) and API for AI agents to create/update tasks from any context
+4. **Programmatic access** - CLI (`pt tasks`) and API for AI agents to create/update tasks from any context
 5. **Dashboard integration** - Main dashboard reads from Kanban data
 6. **Productivity insights** - Track completion trends over time (graphs showing "you got shit done this month" or "you bought a video game and nothing got done")
 7. **Agent governance** - Review column as quality gate (agents move to Review, humans promote to Done)
@@ -59,7 +59,7 @@ With 20+ active projects, tasks are scattered across individual `TODO.md` files.
 
 ## Integration Context
 
-**Reference:** `project-scaffolding/EXTERNAL_RESOURCES.yaml` - project-tracker entry
+**Reference:** `EXTERNAL_RESOURCES.yaml` - project-tracker entry (portfolio registry)
 
 - **Existing infrastructure:** project-tracker already has SQLite (`tracker.db`) and FastAPI - Kanban extends these
 - **External services needed:** None - 100% local (consistent with existing project-tracker)
@@ -72,7 +72,7 @@ With 20+ active projects, tasks are scattered across individual `TODO.md` files.
 
 This is a direct-manipulation tool. The human (Erik) interacts with the board constantly:
 
-- **Create tasks** - Via "Add Task" button on the board or CLI (`./pt tasks create`)
+- **Create tasks** - Via "Add Task" button on the board or CLI (`pt tasks create`)
 - **Move tasks** - Drag-and-drop between columns (Backlog ↔ To Do ↔ In Progress ↔ Review ↔ Done). Tasks can move forward or backward (e.g., Review → To Do for rejected work)
 - **Edit tasks** - Click to expand, edit text inline
 - **Filter view** - Toggle projects on/off via sidebar checkboxes
@@ -132,7 +132,7 @@ Available as CLI command, Python function, or MCP tool for AI agents.
 - Query by project, status, priority
 
 ### FR2: Task Management Interface
-- **CLI:** `./pt tasks` - list, create, update, start, done commands (primary for AI agents)
+- **CLI:** `pt tasks` - list, create, update, start, done commands (primary for AI agents)
 - **REST API:** Full CRUD at `/api/tasks` endpoints
 - **Dashboard UI:** "Add Task" button for manual entry from the board
 - **Python function:** `DatabaseManager.add_task()` for internal use
@@ -322,7 +322,7 @@ Inherit the established design system from `image-workflow/Documents/reference/W
 
 ### Phase 2 - Task Management ✅
 - [x] "Add Task" button in dashboard UI
-- [x] CLI: `./pt tasks` with create, update, start, done, show commands
+- [x] CLI: `pt tasks` with create, update, start, done, show commands
 - [x] REST API: Full CRUD at `/api/tasks`
 - [x] Auto-detect project from current directory
 - [ ] Migration tool to import from TODO.md files
@@ -384,7 +384,7 @@ Inherit the established design system from `image-workflow/Documents/reference/W
 2. **Drag-and-drop:** @dnd-kit/core - modern, accessible, well-maintained
 3. **5 columns:** Added Review column as agent governance gate (Jan 27, 2026)
 4. **Delete Done:** Manual cleanup button to remove completed tasks (Jan 27, 2026)
-5. **CLI-first for agents:** `./pt tasks` over MCP for simplicity and discoverability
+5. **CLI-first for agents:** `pt tasks` over MCP for simplicity and discoverability
 
 ---
 

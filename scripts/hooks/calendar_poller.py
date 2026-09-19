@@ -7,7 +7,7 @@ Run modes
    uv run scripts/hooks/calendar_poller.py [--machine MacBook] [--within 60] [--dry-run]
 
 2. Via pt CLI:
-   ./pt calendar poll [--machine MacBook] [--within 60] [--dry-run]
+   pt calendar poll [--machine MacBook] [--within 60] [--dry-run]
 
 What it does each run
 ---------------------

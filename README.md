@@ -5,15 +5,15 @@ The central nervous system for Erik's multi-project portfolio. A CLI (`pt`) and 
 ## Quick Start
 
 ```bash
-./pt launch        # Dashboard at localhost:8000
-./pt tasks         # View Kanban board
-./pt info          # Reference data (credentials, infrastructure)
-./pt backup status # Full backup + off-machine backup health
-./pt memory search "query"  # Cross-agent shared memory
-PT_SKIP_DOPPLER=1 ./pt memory recent --since 7d --json  # Read-only cron/SSH memory query
-./pt sync status   # Replication status / pause / resume controls
-./pt sync check    # Mini-local sync rollout readiness check
-./pt sync set-machine-id 883  # Persist explicit machine identity for sync
+pt launch        # Dashboard at localhost:8000
+pt tasks         # View Kanban board
+pt info          # Reference data (credentials, infrastructure)
+pt backup status # Full backup + off-machine backup health
+pt memory search "query"  # Cross-agent shared memory
+PT_SKIP_DOPPLER=1 pt memory recent --since 7d --json  # Read-only cron/SSH memory query
+pt sync status   # Replication status / pause / resume controls
+pt sync check    # Mini-local sync rollout readiness check
+pt sync set-machine-id 883  # Persist explicit machine identity for sync
 ```
 
 ## What It Does
@@ -54,8 +54,8 @@ project-tracker/
 ```bash
 uv run pytest tests/                    # Run tests
 cd dashboard/frontend && npm run build  # Rebuild React frontend
-./pt scan                               # Rescan projects directory
-./pt sync-project project-tracker       # Refresh one project only
+pt scan                               # Rescan projects directory
+pt sync-project project-tracker       # Refresh one project only
 ```
 
 ## CI

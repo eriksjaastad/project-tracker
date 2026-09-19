@@ -22,6 +22,15 @@ path-derived identity works on one machine and breaks when the Mini rejoins.
 Machine qualifier is email-style and optional: `ai-memory@mini` addresses one
 specific floor manager when two machines work the same project. A bare
 `ai-memory` reaches whoever is on it. Qualify only when it matters.
+
+Agent qualifier (#7146) disambiguates concurrent agents in the SAME directory:
+`ai-memory+hermes` vs bare `ai-memory`. Set `AGENT_CHAT_AGENT` (a short slug:
+letters, digits, `.`, `_`, `-`) at session launch. Legacy sessions that omit it
+keep the bare project address, so the existing corpus still delivers. When two
+agents launch at `~/projects` without `AGENT_CHAT_AGENT`, both still resolve to
+`claude-architect` — that collision is the bug this env var exists to prevent;
+set e.g. `AGENT_CHAT_AGENT=codex` / `claude` so addresses become
+`claude-architect+codex` and `claude-architect+claude`.
 """
 
 from __future__ import annotations
@@ -44,7 +53,9 @@ ARCHITECT_ADDRESS = "claude-architect"
 HUMAN_ADDRESS = "erik"
 
 # Addresses are used in URLs and jq comparisons; keep them boring.
+# Local part may include a single `+agent` qualifier (#7146).
 _VALID_ADDRESS = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
+_VALID_AGENT = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 
 
 def projects_root() -> Path:
@@ -78,6 +89,41 @@ def machine_name() -> str:
     # Unknown machine: use the hostname itself rather than guessing, so the
     # qualifier is still unique and debuggable.
     return re.sub(r"[^a-z0-9-]", "-", host) or "unknown"
+
+
+def agent_name() -> str | None:
+    """Optional agent slug from AGENT_CHAT_AGENT (or AGENT_CHAT_AGENT_NAME).
+
+    Empty/unset means legacy bare project addressing. Invalid values are ignored
+    rather than poisoning the address.
+    """
+    raw = (
+        os.environ.get("AGENT_CHAT_AGENT")
+        or os.environ.get("AGENT_CHAT_AGENT_NAME")
+        or ""
+    ).strip().lower()
+    if not raw:
+        return None
+    if not _VALID_AGENT.match(raw):
+        return None
+    if raw == HUMAN_ADDRESS:
+        return None
+    return raw
+
+
+def with_agent(project: str, agent: str | None = None) -> str:
+    """Attach an agent qualifier: `ai-memory` + `hermes` -> `ai-memory+hermes`."""
+    if not agent:
+        return project
+    return f"{project}+{agent}"
+
+
+def split_local(local: str) -> tuple[str, str | None]:
+    """Split `ai-memory+hermes` into ("ai-memory", "hermes")."""
+    if "+" in local:
+        project, _, agent = local.partition("+")
+        return project, (agent or None)
+    return local, None
 
 
 def find_project_root(start: Path) -> Path | None:
@@ -147,14 +193,16 @@ def qualify(address: str, machine: str | None = None) -> str:
 
 
 def split_address(address: str) -> tuple[str, str | None]:
-    """Split `ai-memory@mini` into ("ai-memory", "mini").
+    """Split `ai-memory+hermes@mini` into ("ai-memory+hermes", "mini").
 
-    A bare `ai-memory` returns ("ai-memory", None), meaning "whoever is on
-    that project", which is the default and the common case.
+    The local part may itself contain a `+agent` qualifier; use `split_local`
+    to peel that off. A bare `ai-memory` returns ("ai-memory", None), meaning
+    "whoever bound that bare project address", which is the default and the
+    common case.
     """
     if "@" in address:
-        project, _, machine = address.partition("@")
-        return project, (machine or None)
+        local, _, machine = address.partition("@")
+        return local, (machine or None)
     return address, None
 
 
@@ -220,7 +268,9 @@ def read_identity(session_id: str | None = None) -> str | None:
     # project_name_for() left AGENT_CHAT_SENDER=erik as an unguarded way for an
     # agent to speak as the human — and the env fallback is the path every
     # session uses before hooks are installed.
-    if fallback.split("@", 1)[0] == HUMAN_ADDRESS:
+    local = fallback.split("@", 1)[0]
+    project, _agent = split_local(local)
+    if project == HUMAN_ADDRESS:
         return None
     return fallback
 
@@ -243,5 +293,6 @@ def resolve_for_session(session_id: str, cwd: str | Path) -> str | None:
     name = project_name_for(cwd)
     if name is None:
         return None
-    write_identity(session_id, name)
-    return name
+    address = with_agent(name, agent_name())
+    write_identity(session_id, address)
+    return address

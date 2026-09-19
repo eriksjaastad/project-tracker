@@ -4,7 +4,7 @@ import sys
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Optional, List, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import shutil
 import subprocess
@@ -53,6 +53,11 @@ from scripts.utils.validation import get_blocked_card_reason, get_blocked_card_p
 from scripts.pt import rebuild_project_graph
 
 logger = get_logger(__name__)
+
+# The open columns of the Kanban board, in board order. Done and Cancelled are
+# deliberately absent: these drive the dashboard breakdown of work still in
+# flight, not an archive count.
+BOARD_COLUMNS = ("Backlog", "To Do", "In Progress", "Review")
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
@@ -140,6 +145,13 @@ NAVIGATION_ITEMS = [
         "label": "Calendar",
         "href": "/calendar",
         "match_prefixes": ["/calendar"],
+        "navigation_type": "spa",
+    },
+    {
+        "id": "agent-chat",
+        "label": "Agent Chat",
+        "href": "/agent-chat",
+        "match_prefixes": ["/agent-chat"],
         "navigation_type": "spa",
     },
     {
@@ -249,6 +261,7 @@ async def serve_spa_shell(request: Request):
 @app.get("/kanban/{project}", response_class=HTMLResponse)
 @app.get("/agentic", response_class=HTMLResponse)
 @app.get("/calendar", response_class=HTMLResponse)
+@app.get("/agent-chat", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
     return await serve_spa_shell(request)
@@ -744,6 +757,63 @@ async def project_detail(request: Request, project_id: str):
     )
 
 
+
+@app.get("/api/agent-chat/messages")
+async def api_agent_chat_messages(limit: int = 100):
+    """Read-only Agent Chat board — ALL traffic, newest first (#7145).
+
+    Deliberately does not default to inbox filtering. The CLI trap of a
+    complete-looking subset is exactly what this page exists to avoid.
+    """
+    import json as json_mod
+    from urllib.error import HTTPError, URLError
+    from urllib.parse import urlencode
+    from urllib.request import Request, urlopen
+
+    limit = max(1, min(int(limit or 100), 500))
+    config = {"url": os.environ.get("AGENT_CHAT_URL", ""), "key": os.environ.get("AGENT_CHAT_API_KEY", "")}
+    env_file = Path.home() / ".claude" / "agent-chat.env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k, v = k.strip(), v.strip()
+            if k == "AGENT_CHAT_URL":
+                config["url"] = v
+            elif k == "AGENT_CHAT_API_KEY":
+                config["key"] = v
+    if not config["url"] or not config["key"]:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Agent Chat not configured (AGENT_CHAT_URL / AGENT_CHAT_API_KEY)",
+        )
+
+    params = urlencode({"limit": str(limit), "order": "desc"})
+    url = config["url"].rstrip("/") + "/messages?" + params
+    req = Request(url, headers={"X-API-Key": config["key"]}, method="GET")
+    try:
+        with urlopen(req, timeout=15) as resp:
+            payload = json_mod.loads(resp.read())
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(status_code=502, detail=f"Agent Chat API error {exc.code}: {body}") from exc
+    except (URLError, OSError, TimeoutError) as exc:
+        raise HTTPException(status_code=502, detail=f"Agent Chat API unreachable: {exc}") from exc
+
+    messages = list(payload.get("messages") or [])
+    # Newest first for the board (server desc returns newest page; reverse if ASC)
+    if payload.get("order") != "desc":
+        messages = list(reversed(messages))
+    # Index by id for reply threading on the client
+    by_id = {m.get("id"): m for m in messages if m.get("id") is not None}
+    for m in messages:
+        parent_id = m.get("reply_to")
+        m["reply_to_message"] = by_id.get(parent_id) if parent_id else None
+    return {"messages": messages, "count": len(messages), "scope": "all"}
+
+
 @app.get("/api/navigation")
 async def api_navigation():
     """Return shared top-level navigation metadata for all app shells."""
@@ -1041,6 +1111,58 @@ async def api_stats():
         "projects_with_ai": projects_with_ai,
         "alerts": alert_counts
     }
+
+
+@app.get("/api/kanban/breakdown")
+async def api_kanban_breakdown():
+    """Per-project card counts for the open Kanban columns.
+
+    Feeds the dashboard's board breakdown. Deliberately an aggregate rather
+    than a client-side count over /api/tasks: that endpoint enriches and
+    returns every one of the ~2,400 live rows, which is a lot of payload to
+    produce four columns of integers.
+    """
+    try:
+        db = DatabaseManager()
+        rows = db.get_task_counts_by_project(statuses=list(BOARD_COLUMNS))
+        # A card cannot be created for an unregistered project and deleting a
+        # project takes its cards with it, so the id fallback should never
+        # fire — it is here so a name lookup miss degrades to the id rather
+        # than 500-ing the whole section.
+        project_names = {
+            project["id"]: project.get("name") or project["id"]
+            for project in db.get_all_projects()
+        }
+
+        columns: Dict[str, List[Dict[str, object]]] = {column: [] for column in BOARD_COLUMNS}
+        for row in rows:
+            project_id = row["project_id"]
+            columns[row["status"]].append({
+                "project_id": project_id,
+                "project": project_names.get(project_id, project_id),
+                "count": row["count"],
+            })
+
+        # Ranked by card count, heaviest first; name breaks ties so the order
+        # is stable between polls instead of following SQLite's grouping.
+        for entries in columns.values():
+            entries.sort(key=lambda entry: (-entry["count"], str(entry["project"]).lower()))
+
+        return {
+            "statuses": list(BOARD_COLUMNS),
+            "columns": columns,
+            "totals": {
+                column: sum(entry["count"] for entry in columns[column])
+                for column in BOARD_COLUMNS
+            },
+            "generated_at": datetime.now().isoformat(),
+        }
+    except Exception as exc:
+        logger.error(f"Error building Kanban breakdown: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to build the Kanban breakdown"
+        )
 
 
 @app.get("/api/learning")
@@ -3746,7 +3868,10 @@ def _fetch_github_data() -> Dict:
         all_prs.extend(prs)
 
     # 4. Recent commits (last 7 days) — only from tracked repos
-    seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat() + "Z"
+    # Use timezone-aware UTC and a Zulu timestamp GitHub accepts. Avoid
+    # datetime.utcnow().isoformat()+"Z" (naive + micros) which made string
+    # comparisons against GitHub's pushedAt brittle.
+    seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     recent_commits: List[Dict] = []
     for repo in repos:
         pushed = repo.get("pushedAt", "")

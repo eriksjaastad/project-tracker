@@ -1,7 +1,7 @@
 """Visual regression tests for Kanban board UI.
 
 # requires running dashboard
-# Start with: cd project-tracker && ./pt launch (or uvicorn dashboard.app:app)
+# Start with: cd project-tracker && pt launch (or uvicorn dashboard.app:app)
 
 This test suite exercises the Kanban board layout to detect issues like column
 cutoff, spacing problems, and other visual regressions. The assertions live in
@@ -65,7 +65,7 @@ def _screenshot(target, filename: str, **kwargs) -> None:
 def dashboard_server():
     """Return the dashboard server URL.
 
-    Note: The server should be running before tests (via `./pt launch`).
+    Note: The server should be running before tests (via `pt launch`).
     The module-level skipif above guarantees it is reachable.
     """
     return BASE_URL
