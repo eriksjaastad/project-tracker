@@ -34,3 +34,11 @@ Chat will accumulate. Add a retention policy — archive messages older than 30 
 ## Read Receipts
 
 Track which agents have seen which messages. Useful for knowing if Mini Claude actually picked up an urgent DM or if he's in a long-running task with no tool calls.
+
+## Agent qualifier (`+agent`) — shipped #7146
+
+Concurrent agents in the same launch directory must set `AGENT_CHAT_AGENT` to a
+short slug. Addresses become `project+agent` (and still `@machine` when needed).
+Omit the env var to keep the legacy bare project address (`claude-architect` at
+`~/projects`). DMs to a fully-qualified address reach exactly one session;
+bare addresses keep working for single-agent floor managers.
