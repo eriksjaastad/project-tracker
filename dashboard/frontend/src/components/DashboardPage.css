@@ -225,3 +225,72 @@
 }
 .dashboard-section h2 .github-fetching { margin-left: 0.5rem; }
 .dashboard-summary > .github-fetching { flex-basis: 100%; }
+
+/* Summary cards are links into the section that lists what they counted.
+   scroll-margin keeps the heading clear of the top edge on arrival. */
+.dashboard-section,
+.dashboard-summary {
+  scroll-margin-top: 1rem;
+}
+
+a.summary-card {
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+a.summary-card:hover,
+a.summary-card:focus-visible {
+  border-color: var(--accent, #4f9dff);
+  background: var(--surface-alt, #1f1f2c);
+}
+
+a.summary-card:focus-visible {
+  outline: 2px solid var(--accent, #4f9dff);
+  outline-offset: 2px;
+}
+
+/* The section just jumped to, so the landing is visible rather than guessed. */
+.dashboard-section:target {
+  border-color: var(--accent, #4f9dff);
+}
+
+.repo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.repo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.repo-meta {
+  margin-left: auto;
+  color: var(--text-secondary, #888);
+  font-size: 0.8125rem;
+}
+
+.repo-badge {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #888);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 10px;
+  padding: 0 0.5rem;
+}
+
+.repo-badge.archived {
+  color: var(--warning, #ffd43b);
+  border-color: var(--warning, #ffd43b);
+}
+
+.section-empty {
+  color: var(--text-secondary, #888);
+  font-size: 0.875rem;
+  margin: 0;
+}

@@ -48,6 +48,14 @@ body {
   min-height: 100vh;
 }
 
+/* In-page anchors (the dashboard's summary cards) glide rather than jump,
+   unless the viewer asked for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 /* Typography */
 h1, h2, h3, h4, h5, h6 {
   font-weight: 600;

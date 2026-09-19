@@ -93,15 +93,34 @@ function timeAgo(dateStr: string): string {
 
 const ACTIVITY_LIMIT = 10;
 
+// Each summary number is a link to the section that lists what it counted, so
+// "3 failing CI" is one click from knowing which three. Every anchor here must
+// have a section rendered below — including when the count is zero, or the
+// link lands nowhere.
+function SummaryCard({ anchor, value, label, bad }: {
+  anchor: string;
+  value: number | undefined;
+  label: string;
+  bad?: boolean;
+}) {
+  return (
+    <a className={`summary-card${bad ? ' highlight-bad' : ''}`} href={`#${anchor}`}>
+      <span className="summary-number">{value}</span>
+      <span className="summary-label">{label}</span>
+    </a>
+  );
+}
+
 function GitHubClock({ fetching }: { fetching: boolean }) {
   if (!fetching) return null;
   return <span className="github-fetching"><span aria-hidden="true">◷</span> Fetching GitHub…</span>;
 }
 
-function RecentActivity({ repos, commitsByRepo, fetching }: {
+function RecentActivity({ repos, commitsByRepo, commitCount, fetching }: {
   fetching: boolean;
   repos: GitHubData['repos'] & Array<{ pushedAt: string }>;
   commitsByRepo: Record<string, GitHubData['recent_commits']>;
+  commitCount: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const toggle = useCallback(() => setExpanded(e => !e), []);
@@ -109,8 +128,8 @@ function RecentActivity({ repos, commitsByRepo, fetching }: {
   const hasMore = repos.length > ACTIVITY_LIMIT;
 
   return (
-    <div className="dashboard-section">
-      <h2>Recent Activity (7 days) <GitHubClock fetching={fetching} /></h2>
+    <section className="dashboard-section" id="recent-activity">
+      <h2>Recent Activity — {commitCount} commits (7 days) <GitHubClock fetching={fetching} /></h2>
       <div className="activity-list">
         {visible.map((repo, i) => (
           <div key={i} className="activity-item">
@@ -122,12 +141,13 @@ function RecentActivity({ repos, commitsByRepo, fetching }: {
           </div>
         ))}
       </div>
+      {repos.length === 0 && <p className="section-empty">No repository activity in the last 7 days.</p>}
       {hasMore && (
         <button className="expand-button" onClick={toggle}>
           {expanded ? 'Show less' : `Show all ${repos.length} repos`}
         </button>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -191,6 +211,14 @@ export function DashboardPage() {
     commitsByRepo[c.repo]!.push(c);
   }
 
+  // Every repo the "Repos" count counted, newest push first. Archived repos are
+  // included because summary.total_repos includes them — a section that
+  // filtered them would disagree with the number that links to it.
+  const allRepos = [...(repos || [])].sort(
+    (a, b) => new Date(b.pushedAt || 0).getTime() - new Date(a.pushedAt || 0).getTime()
+  );
+  const openPrs = open_pull_requests || [];
+
   // Active repos (pushed in last 7 days, not archived)
   const activeRepos = (repos || [])
     .filter(r => !r.isArchived && r.pushedAt)
@@ -213,6 +241,28 @@ export function DashboardPage() {
   // Stale branches (non-main, non-protected)
   const staleBranches = (branches || [])
     .filter(b => !b.protected && b.name !== 'main' && b.name !== 'master');
+
+  // Repos that reported a workflow run, which is what summary.repos_with_ci
+  // counts, each with its most recent run.
+  const runsByRepo: Record<string, NonNullable<GitHubData['workflow_runs']>> = {};
+  for (const run of workflow_runs || []) {
+    if (!runsByRepo[run.repo]) runsByRepo[run.repo] = [];
+    runsByRepo[run.repo].push(run);
+  }
+  const ciRepos = Object.entries(runsByRepo)
+    .map(([repo, runs]) => ({
+      repo,
+      runs: runs.length,
+      latest: [...runs].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )[0],
+    }))
+    .sort((a, b) => {
+      const aFailed = a.latest?.conclusion === 'failure';
+      const bFailed = b.latest?.conclusion === 'failure';
+      if (aFailed !== bFailed) return aFailed ? -1 : 1;
+      return a.repo.localeCompare(b.repo);
+    });
 
   // Group stale branches by repo
   const branchesByRepo: Record<string, string[]> = {};
@@ -243,7 +293,7 @@ export function DashboardPage() {
         {error && <div className="dashboard-error" role="alert">{error}{data ? ' Showing the last available results.' : ''}</div>}
         {!data && (
           <>
-            {['GitHub Summary', 'Open Pull Requests', 'Recent Activity', 'Failing CI', 'Stale Branches'].map(title => (
+            {['GitHub Summary', 'Repositories', 'Open Pull Requests', 'Recent Activity', 'Repos with CI', 'Failing CI', 'Stale Branches'].map(title => (
               <section className="dashboard-section" key={title}>
                 <h2>{title} <GitHubClock fetching={fetching} /></h2>
                 <p>{fetching ? 'Waiting for GitHub information…' : 'GitHub information is unavailable.'}</p>
@@ -255,35 +305,18 @@ export function DashboardPage() {
         {/* Summary Cards */}
         <div className="dashboard-summary" aria-label="GitHub summary">
           <GitHubClock fetching={fetching} />
-          <div className="summary-card">
-            <span className="summary-number">{summary?.total_repos}</span>
-            <span className="summary-label">Repos</span>
-          </div>
-          <div className="summary-card">
-            <span className="summary-number">{summary?.open_prs}</span>
-            <span className="summary-label">Open PRs</span>
-          </div>
-          <div className="summary-card">
-            <span className="summary-number">{summary?.recent_commit_count}</span>
-            <span className="summary-label">Commits (7d)</span>
-          </div>
-          <div className="summary-card">
-            <span className="summary-number">{summary?.repos_with_ci}</span>
-            <span className="summary-label">Repos w/ CI</span>
-          </div>
-          <div className="summary-card highlight-bad">
-            <span className="summary-number">{summary?.failing_ci}</span>
-            <span className="summary-label">Failing CI</span>
-          </div>
-          <div className="summary-card">
-            <span className="summary-number">{Object.keys(branchesByRepo).length}</span>
-            <span className="summary-label">Repos w/ stale branches</span>
-          </div>
+          <SummaryCard anchor="repos" value={summary?.total_repos} label="Repos" />
+          <SummaryCard anchor="open-prs" value={summary?.open_prs} label="Open PRs" />
+          <SummaryCard anchor="recent-activity" value={summary?.recent_commit_count} label="Commits (7d)" />
+          <SummaryCard anchor="repos-with-ci" value={summary?.repos_with_ci} label="Repos w/ CI" />
+          <SummaryCard anchor="failing-ci" value={summary?.failing_ci} label="Failing CI" bad />
+          <SummaryCard
+            anchor="stale-branches"
+            value={Object.keys(branchesByRepo).length}
+            label="Repos w/ stale branches"
+          />
           {fetchErrors.length > 0 && (
-            <div className="summary-card highlight-bad">
-              <span className="summary-number">{fetchErrors.length}</span>
-              <span className="summary-label">Failed fetches</span>
-            </div>
+            <SummaryCard anchor="incomplete-data" value={fetchErrors.length} label="Failed fetches" bad />
           )}
 
         </div>
@@ -293,7 +326,7 @@ export function DashboardPage() {
             as if they were complete, which is the same silent degradation as
             the bug that made this list necessary (#6749). */}
         {fetchErrors.length > 0 && (
-          <div className="dashboard-section" role="alert">
+          <section className="dashboard-section" id="incomplete-data" role="alert">
             <h2>Incomplete data</h2>
             <p className="fetch-errors-note">
               GitHub data could not be retrieved for the following. Counts above exclude them,
@@ -304,69 +337,110 @@ export function DashboardPage() {
                 <li key={i}>{err}</li>
               ))}
             </ul>
-          </div>
+          </section>
         )}
+
+        {/* Repos — what the "Repos" count is counting */}
+        <section className="dashboard-section" id="repos">
+          <h2>Repositories ({allRepos.length}) <GitHubClock fetching={fetching} /></h2>
+          <div className="repo-list">
+            {allRepos.map(repo => (
+              <div key={repo.name} className="repo-item">
+                <a href={repo.url} target="_blank" rel="noopener noreferrer">{repo.name}</a>
+                {repo.isPrivate && <span className="repo-badge">private</span>}
+                {repo.isArchived && <span className="repo-badge archived">archived</span>}
+                <span className="repo-meta">
+                  {repo.pushedAt ? `pushed ${timeAgo(repo.pushedAt)}` : 'never pushed'}
+                </span>
+              </div>
+            ))}
+          </div>
+          {allRepos.length === 0 && <p className="section-empty">No repositories returned.</p>}
+        </section>
 
         {/* Open PRs */}
-        {open_pull_requests && open_pull_requests.length > 0 && (
-          <div className="dashboard-section">
-            <h2>Open Pull Requests <GitHubClock fetching={fetching} /></h2>
-            <div className="pr-list">
-              {open_pull_requests.map((pr, i) => (
-                <div key={i} className="pr-item">
-                  <a href={pr.url} target="_blank" rel="noopener noreferrer">
-                    {pr.repository?.name}#{pr.number}
-                  </a>
-                  <span className="pr-title">{pr.title}</span>
-                  <span className={`pr-badge ${pr.isDraft ? 'draft' : pr.reviewDecision?.toLowerCase() || 'pending'}`}>
-                    {pr.isDraft ? 'Draft' : pr.reviewDecision || 'Pending'}
-                  </span>
-                  <span className="pr-meta">{timeAgo(pr.createdAt)}</span>
-                </div>
-              ))}
-            </div>
+        <section className="dashboard-section" id="open-prs">
+          <h2>Open Pull Requests ({openPrs.length}) <GitHubClock fetching={fetching} /></h2>
+          <div className="pr-list">
+            {openPrs.map((pr, i) => (
+              <div key={i} className="pr-item">
+                <a href={pr.url} target="_blank" rel="noopener noreferrer">
+                  {pr.repository?.name}#{pr.number}
+                </a>
+                <span className="pr-title">{pr.title}</span>
+                <span className={`pr-badge ${pr.isDraft ? 'draft' : pr.reviewDecision?.toLowerCase() || 'pending'}`}>
+                  {pr.isDraft ? 'Draft' : pr.reviewDecision || 'Pending'}
+                </span>
+                <span className="pr-meta">{timeAgo(pr.createdAt)}</span>
+              </div>
+            ))}
           </div>
-        )}
+          {openPrs.length === 0 && <p className="section-empty">No open pull requests.</p>}
+        </section>
 
         {/* Recent Activity */}
-        <RecentActivity repos={activeRepos} commitsByRepo={commitsByRepo} fetching={fetching} />
+        <RecentActivity
+          repos={activeRepos}
+          commitsByRepo={commitsByRepo}
+          commitCount={summary?.recent_commit_count ?? 0}
+          fetching={fetching}
+        />
+
+        {/* Repos with CI — the repos that reported workflow runs */}
+        <section className="dashboard-section" id="repos-with-ci">
+          <h2>Repos with CI ({ciRepos.length}) <GitHubClock fetching={fetching} /></h2>
+          <div className="ci-list">
+            {ciRepos.map(({ repo, runs, latest }) => (
+              <div key={repo} className={`ci-item${latest?.conclusion === 'failure' ? ' failing' : ''}`}>
+                {latest ? (
+                  <a href={latest.url} target="_blank" rel="noopener noreferrer">{repo}</a>
+                ) : (
+                  <span>{repo}</span>
+                )}
+                <span className="ci-name">{latest?.name}</span>
+                <span className="ci-branch">{latest?.branch}</span>
+                <span className="ci-meta">
+                  {latest?.conclusion || latest?.status || 'unknown'} · {runs} run{runs === 1 ? '' : 's'}
+                </span>
+              </div>
+            ))}
+          </div>
+          {ciRepos.length === 0 && <p className="section-empty">No repository reported a workflow run.</p>}
+        </section>
 
         {/* Failing CI */}
-        {failingRuns.length > 0 && (
-          <div className="dashboard-section">
-            <h2>Failing CI <GitHubClock fetching={fetching} /></h2>
-            <div className="ci-list">
-              {failingRuns.map((run, i) => (
-                <div key={i} className="ci-item failing">
-                  <a href={run.url} target="_blank" rel="noopener noreferrer">
-                    {run.repo}
-                  </a>
-                  <span className="ci-name">{run.name}</span>
-                  <span className="ci-branch">{run.branch}</span>
-                  <span className="ci-meta">{timeAgo(run.created_at)}</span>
+        <section className="dashboard-section" id="failing-ci">
+          <h2>Failing CI ({failingRuns.length}) <GitHubClock fetching={fetching} /></h2>
+          <div className="ci-list">
+            {failingRuns.map((run, i) => (
+              <div key={i} className="ci-item failing">
+                <a href={run.url} target="_blank" rel="noopener noreferrer">
+                  {run.repo}
+                </a>
+                <span className="ci-name">{run.name}</span>
+                <span className="ci-branch">{run.branch}</span>
+                <span className="ci-meta">{timeAgo(run.created_at)}</span>
+              </div>
+            ))}
+          </div>
+          {failingRuns.length === 0 && <p className="section-empty">No failing runs on a default branch or an open PR.</p>}
+        </section>
+
+        {/* Stale Branches — every repo the count above claims, not a top slice */}
+        <section className="dashboard-section" id="stale-branches">
+          <h2>Stale Branches ({staleBranches.length} across {Object.keys(branchesByRepo).length} repos) <GitHubClock fetching={fetching} /></h2>
+          <div className="branch-list">
+            {Object.entries(branchesByRepo)
+              .sort((a, b) => b[1].length - a[1].length)
+              .map(([repo, branchNames]) => (
+                <div key={repo} className="branch-item">
+                  <span className="branch-repo">{repo}</span>
+                  <span className="branch-names">{branchNames.join(', ')}</span>
                 </div>
               ))}
-            </div>
           </div>
-        )}
-
-        {/* Stale Branches */}
-        {Object.keys(branchesByRepo).length > 0 && (
-          <div className="dashboard-section">
-            <h2>Stale Branches ({staleBranches.length} across {Object.keys(branchesByRepo).length} repos) <GitHubClock fetching={fetching} /></h2>
-            <div className="branch-list">
-              {Object.entries(branchesByRepo)
-                .sort((a, b) => b[1].length - a[1].length)
-                .slice(0, 15)
-                .map(([repo, branchNames]) => (
-                  <div key={repo} className="branch-item">
-                    <span className="branch-repo">{repo}</span>
-                    <span className="branch-names">{branchNames.join(', ')}</span>
-                  </div>
-                ))}
-            </div>
-          </div>
-        )}
+          {staleBranches.length === 0 && <p className="section-empty">No stale branches.</p>}
+        </section>
 
         {/* Raw data dump for exploration */}
         <details className="dashboard-section raw-data">
