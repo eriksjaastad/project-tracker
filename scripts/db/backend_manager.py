@@ -199,10 +199,20 @@ def _get_backup_dir(db_path: Path) -> Path:
 class DatabaseManager:
     """Manage all database operations."""
 
-    def __init__(self, db_path: Optional[Path] = None):
-        """Initialize database manager."""
+    def __init__(
+        self,
+        db_path: Optional[Path] = None,
+        crsqlite_path: Optional[Path] = None,
+    ):
+        """Initialize database manager.
+
+        crsqlite_path: absolute path to a root-owned crsqlite dylib (dbmed
+        registry). When set, connections load that file instead of searching
+        ~/.local/lib/crsqlite — which is invisible to the _dbmed service account.
+        """
         global _schema_ensured
         self.db_path = db_path or get_db_path()
+        self.crsqlite_path = Path(crsqlite_path) if crsqlite_path else None
         if _USE_TURSO:
             # Only run schema migrations once per process, not per instantiation
             if not _schema_ensured:
@@ -289,13 +299,17 @@ class DatabaseManager:
         # with a clear "no such function" error rather than a silent bad state.
         crsql_loaded = False
         try:
-            from db.pt_id import _find_crsqlite_dylib
-            _dylib = _find_crsqlite_dylib()
-            if _dylib:
+            _dylib = self.crsqlite_path
+            if _dylib is None:
+                from db.pt_id import _find_crsqlite_dylib
+                _dylib = _find_crsqlite_dylib()
+            if _dylib and Path(_dylib).exists():
                 conn.enable_load_extension(True)
                 conn.load_extension(str(_dylib), entrypoint="sqlite3_crsqlite_init")
                 conn.enable_load_extension(False)
                 crsql_loaded = True
+            elif self.crsqlite_path is not None:
+                logger.warning("crsqlite missing at registered path: %s", self.crsqlite_path)
         except Exception as _crsql_err:
             logger.warning("crsqlite load skipped: %s", _crsql_err)
         conn.execute("PRAGMA foreign_keys = ON")
