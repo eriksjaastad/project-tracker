@@ -15,20 +15,17 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-# This module uses direct database access for complex test setup
-pytestmark = pytest.mark.no_dbmed
-
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import dashboard.app as dashboard_app
-from db.backend_manager import DatabaseManager as BackendDatabaseManager
+from db.manager import DatabaseManager
 from db.schema import create_database
 
 
-def _setup_db(tmp_path: Path) -> tuple[Path, BackendDatabaseManager]:
+def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager]:
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = BackendDatabaseManager(db_path)
+    db = DatabaseManager()
     db.add_project(
         project_id="project-tracker",
         name="Project Tracker",

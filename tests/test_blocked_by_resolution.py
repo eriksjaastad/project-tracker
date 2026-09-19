@@ -30,7 +30,7 @@ PROJECT_ID = "project-tracker"
 
 
 @pytest.fixture
-def backend_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManager:
+def backend_db(dbmed_backend, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManager:
     """Database manager that CLI subprocess can reach through daemon."""
     db_path = tmp_path / "test.db"
     create_database(db_path)
@@ -44,7 +44,7 @@ def backend_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManag
         status="active",
     )
     # Attach backend for _get_conn access in helpers
-    manager._backend = BackendDatabaseManager(db_path)
+    manager._backend = dbmed_backend
     return manager
 
 

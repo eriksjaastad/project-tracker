@@ -13,7 +13,7 @@ the root install is absent.
 So: run `pytest tests/boundary/ -s` and this prints what was actually proven
 on this host, with the gaps named. Generate the file for a PR with
 
-    uv run pytest tests/boundary/ -s -k evidence_matrix > EVIDENCE.md
+    uv run pytest tests/boundary/ -s -ra --junitxml=boundary-results.xml > EVIDENCE.md
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def _runtime_sudo_posture() -> list[tuple[str, str, str]]:
 
             deny = json.loads(settings.read_text()).get("permissions", {}).get("deny", [])
             sudo_denied = any("sudo" in str(rule).lower() for rule in deny)
-            verdict = "VERIFIED" if sudo_denied else "FAIL"
+            verdict = "CONFIGURED; UNVERIFIED" if sudo_denied else "UNVERIFIED"
             detail = f"permissions.deny = {deny}"
         except (OSError, ValueError) as exc:
             detail = f"unreadable: {exc}"
@@ -129,19 +129,20 @@ def test_evidence_matrix(capsys):
                   f"({'DIFFERENT — good' if info.st_uid != os.getuid() else 'SAME — the owner can undo the mode'})")
             print()
 
-        print("## What this run proved")
+        print("## How to read this inventory")
         print()
+        print("This matrix inspects installation/configuration only. It does not "
+              "collect test outcomes, and may run before the probes or by itself. "
+              "Retain the full pytest output and JUnit report; only passing probes "
+              "establish coverage. Errors, skips and deselected tests are UNVERIFIED.")
         if installed:
-            print("The root install is present, so the POSIX denial probes ran. "
-                  "Their results are the pass/fail lines in this pytest run.")
+            print("The installed socket is reachable. This does not establish "
+                  "that the denial probes ran or passed.")
         else:
             print("**The root install is NOT present on this host.**")
             print()
-            print("Everything about the protocol, the operation allowlist, the")
-            print("destructive gate and the fail-closed path was exercised and is")
-            print("reported by this run. None of it demonstrates that a process")
-            print("cannot open the database file, because on this host nothing")
-            print("stops one. Those probes skipped.")
+            print("The protocol tests can run on temporary fixtures, but this")
+            print("inventory alone proves neither protocol behavior nor kernel denial.")
             print()
             print("Per card #7217 this is **UNVERIFIED, not passing**. Install with")
             print("`sudo scripts/dbmed-install/install.sh` and re-run to close it.")
@@ -151,13 +152,13 @@ def test_evidence_matrix(capsys):
         print()
         print("| Area | Status | Note |")
         print("|---|---|---|")
-        proven = "VERIFIED" if installed else "UNVERIFIED"
+        proven = "SEE PROBE RESULTS" if installed else "UNVERIFIED"
         for area, status, note in [
-            ("Operation allowlist / no SQL surface", "VERIFIED",
+            ("Operation allowlist / no SQL surface", "SEE TEST RESULTS",
              "test_operation_surface.py, runs without an install"),
-            ("Destructive gate, token, verified backup", "VERIFIED",
+            ("Destructive gate, token, verified backup", "SEE TEST RESULTS",
              "test_destructive_gate.py, runs without an install"),
-            ("Fail-closed when the service is down", "VERIFIED",
+            ("Fail-closed when the service is down", "SEE TEST RESULTS",
              "test_fail_closed.py; the client imports no driver"),
             ("Kernel denial: SQL clients", proven, "test_posix_denial.py"),
             ("Kernel denial: language drivers", proven, "test_posix_denial.py"),
@@ -180,7 +181,7 @@ def test_evidence_matrix(capsys):
         print(f"| Mac Mini install and matrix | {mini} | this run is `{platform.node()}` only |")
         print("| Full Disk Access / TCC | OUT OF SCOPE | not addressed by a service account |")
         print("| ai-memory `brain.db` | OUT OF SCOPE | card #7220; `pt` and dashboard still read it directly at 8+ call sites |")
-        print("| rclone offsite backup copy | NOT PORTED | needs a credential decision; carded |")
+        print("| rclone offsite backup copy | UNVERIFIED | operation exists; deployed credentials and copy not exercised here |")
         print("| `memory_snapshot.py` reads `brain.db` | OUT OF SCOPE | discovery script for ai-memory graph; card #7220 |")
         print()
         print("No row above may be reported as passing. Card #7217: "
@@ -189,7 +190,7 @@ def test_evidence_matrix(capsys):
         print("## Completed in this PR (#7219/#7228)")
         print()
         print("- **CalendarManager**: migrated to dbmed client (calendar_poller LaunchAgent now calls through the boundary)")
-        print("- **backup-db.sh**: already migrated to `pt backup create` (verified)")
+        print("- **backup-db.sh**: calls `pt backup create`; execution not verified by this inventory")
         print("- **Evidence matrix**: explicit gaps documented, no false-positive claims")
         print()
 

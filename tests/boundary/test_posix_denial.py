@@ -24,13 +24,14 @@ import os
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
 
 from dbmed.registry import DEFAULT_CONFIG_DIR, DEFAULT_INSTALL_DIR
 
-from .conftest import INSTALLED_DATA, requires_real_install
+from .conftest import INSTALLED_DATA, INSTALLED_SOCKET, requires_real_install
 
 pytestmark = requires_real_install
 
@@ -38,7 +39,7 @@ pytestmark = requires_real_install
 LAUNCH_DAEMON_PLIST = "/Library/LaunchDaemons/com.dbmed.plist"
 
 PROTECTED_DIR = INSTALLED_DATA / "project-tracker"
-FIXTURE_NAME = "boundary_probe"
+FIXTURE_NAME = f"boundary_{uuid.uuid4().hex}"
 
 
 @pytest.fixture(scope="module")
@@ -46,7 +47,7 @@ def fixture_db():
     """A disposable synthetic database inside the protected directory."""
     from dbmed.client import DbmedClient
 
-    client = DbmedClient("project-tracker")
+    client = DbmedClient("project-tracker", path=INSTALLED_SOCKET)
     created = client.call("dbmed.fixture.create", {"name": FIXTURE_NAME})
     path = Path(created["path"])
     try:

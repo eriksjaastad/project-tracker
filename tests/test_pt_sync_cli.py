@@ -341,7 +341,7 @@ def test_pause_reports_clean_error_on_db_open_failure(
     result = runner.invoke(cli, ["sync", "pause"])
     assert result.exit_code == 2
     assert "pt sync pause" in result.output
-    assert "unable to open database file" in result.output
+    assert "unable to open database file" in " ".join(result.output.split())
     # No traceback surfaced to the operator.
     assert "Traceback" not in result.output
 
@@ -403,11 +403,6 @@ def test_set_machine_id_persists_value(
     assert result.exit_code == 0, result.output
     assert "42" in result.output
 
-    conn = sqlite3.connect(cli_env, isolation_level=None)
-    try:
-        row = conn.execute(
-            "SELECT value FROM _metadata WHERE key = 'pt.machine_id'"
-        ).fetchone()
-        assert row == ("42",)
-    finally:
-        conn.close()
+    from db.manager import DatabaseManager
+    checks = DatabaseManager().sync_check()
+    assert any(row["name"] == "machine_id" and row["ok"] and "42" in row["detail"] for row in checks)

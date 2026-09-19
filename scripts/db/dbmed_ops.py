@@ -1216,8 +1216,9 @@ class ProjectTrackerOps:
         try:
             ensure_schema(conn.cursor())
             conn.execute(
-                "INSERT INTO projects (id, name, path, status) VALUES (?,?,?,?)",
-                (f"fixture-{name}", f"fixture {name}", f"/nonexistent/{name}", "active"),
+                "INSERT INTO projects (id, name, path, status, created_at) VALUES (?,?,?,?,?)",
+                (f"fixture-{name}", f"fixture {name}", f"/nonexistent/{name}", "active",
+                 time.strftime("%Y-%m-%dT%H:%M:%S")),
             )
             conn.commit()
         finally:

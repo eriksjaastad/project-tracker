@@ -56,6 +56,22 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def plain_sqlite_migration_fixture(monkeypatch):
+    """Test CLI/runner wiring on synthetic tables that are not CRRs.
+
+    CI has no native cr-sqlite extension. Production must still require the
+    registered extension; only this test daemon's loader is replaced.
+    """
+    from db.dbmed_ops import ProjectTrackerOps
+
+    def load_fixture(self, conn):
+        assert self.entry.test_support
+        assert not self._engine_active(conn)
+
+    monkeypatch.setattr(ProjectTrackerOps, "_load_crsqlite", load_fixture)
+
+
 @pytest.fixture
 def fresh_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """An empty sqlite file at a tmp path, pointed at via PT_DB_PATH.

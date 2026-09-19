@@ -79,3 +79,37 @@ Append-only log of `pt migration` sessions. Each section records the paths touch
 
 ---
 
+## pr189-test-boundary-repair — 2026-09-19T22:57:07Z
+
+- started_at:  `2026-09-19T22:36:05Z`
+- finished_at: `2026-09-19T22:57:07Z`
+- baseline_head: `d9d3254f133881d52bea55fe795a26f1bd0c014b`
+- action: `manifest-only`
+
+### New paths (introduced during session)
+- `[dirty]` `conftest.py`
+- `[dirty]` `scripts/db/dbmed_ops.py`
+- `[dirty]` `scripts/pt.py`
+- `[dirty]` `tests/boundary/README.md`
+- `[dirty]` `tests/boundary/test_evidence_matrix.py`
+- `[dirty]` `tests/boundary/test_posix_denial.py`
+- `[dirty]` `tests/test_agentic_summary.py`
+- `[dirty]` `tests/test_backup_reader.py`
+- `[dirty]` `tests/test_blocked_by_resolution.py`
+- `[dirty]` `tests/test_dashboard_health.py`
+- `[dirty]` `tests/test_db_connection_leak.py`
+- `[dirty]` `tests/test_kanban_breakdown_api.py`
+- `[dirty]` `tests/test_pt_db_migrate.py`
+- `[dirty]` `tests/test_pt_sync_cli.py`
+- `[dirty]` `tests/test_retire_project.py`
+- `[dirty]` `tests/test_scan_safety.py`
+- `[dirty]` `tests/test_schema_backup_safety.py`
+- `[dirty]` `tests/test_subtasks_dependencies.py`
+- `[untracked]` `tests/boundary/test_calendar_client.py`
+- `[untracked]` `tests/boundary/test_fixture_provisioning.py`
+
+### Modified paths (status changed during session)
+- _(none)_
+
+---
+

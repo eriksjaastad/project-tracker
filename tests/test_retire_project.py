@@ -28,9 +28,8 @@ def fabricated_project(monkeypatch):
         monkeypatch.setenv("PT_DB_PATH", str(db_path))
         monkeypatch.setenv("PROJECTS_ROOT", str(projects_root))
 
-        # Re-import pt inside the patched env so PROJECTS_BASE_DIR + DB point at temp
-        for mod in ("scripts.pt", "scripts.config", "db.manager"):
-            sys.modules.pop(mod, None)
+        import scripts.pt as pt_module
+        monkeypatch.setattr(pt_module, "PROJECTS_BASE_DIR", projects_root)
 
         from db.manager import DatabaseManager as DM
         db = DM()
@@ -41,20 +40,8 @@ def fabricated_project(monkeypatch):
             status="active",
         )
 
-        import sqlite3
-        with sqlite3.connect(db_path) as conn:
-            conn.execute("UPDATE _delete_permissions SET enabled = 1 WHERE id = 1")
-            conn.execute(
-                "INSERT INTO tasks (text, status, project_id, priority, created_at, updated_at) "
-                "VALUES (?, 'Backlog', 'humpty-dumpty', 'Medium', datetime('now'), datetime('now'))",
-                ("First shell crack",),
-            )
-            conn.execute(
-                "INSERT INTO tasks (text, status, project_id, priority, created_at, updated_at) "
-                "VALUES (?, 'Backlog', 'humpty-dumpty', 'Medium', datetime('now'), datetime('now'))",
-                ("Put him back together",),
-            )
-            conn.execute("UPDATE _delete_permissions SET enabled = 0 WHERE id = 1")
+        db.add_task("First shell crack", "humpty-dumpty", priority="Medium")
+        db.add_task("Put him back together", "humpty-dumpty", priority="Medium")
 
         db.add_cron_job("humpty-dumpty", "0 * * * *", "echo wall", "hourly wall check")
         db.add_ai_agent("humpty-dumpty", "king-horse", "attempts reconstruction")
@@ -131,6 +118,33 @@ def test_keep_files_skips_trash_but_cleans_db(fabricated_project):
     db = fabricated_project["db"]
     assert db.get_project("humpty-dumpty") is None
     assert len(db.get_tasks(project_id="humpty-dumpty")) == 0
+
+
+def test_retire_backup_failure_leaves_files_and_rows(fabricated_project, monkeypatch):
+    from db.dbmed_ops import ProjectTrackerOps
+
+    monkeypatch.setattr(ProjectTrackerOps, "dbmed_verify_backup", lambda self, path: False)
+    with patch("send2trash.send2trash") as trash_mock:
+        result = CliRunner().invoke(
+            _get_cli(), ["retire-project", "humpty-dumpty", "--execute", "-y"]
+        )
+
+    assert result.exit_code != 0
+    trash_mock.assert_not_called()
+    assert fabricated_project["project_dir"].exists()
+    assert len(fabricated_project["db"].get_tasks(project_id="humpty-dumpty")) == 2
+
+
+def test_retire_trash_failure_preserves_rows(fabricated_project):
+    with patch("send2trash.send2trash", side_effect=OSError("trash unavailable")):
+        result = CliRunner().invoke(
+            _get_cli(), ["retire-project", "humpty-dumpty", "--execute", "-y"]
+        )
+
+    assert result.exit_code != 0
+    assert "Aborting before DB delete" in result.output
+    assert fabricated_project["project_dir"].exists()
+    assert len(fabricated_project["db"].get_tasks(project_id="humpty-dumpty")) == 2
 
 
 def test_unknown_project_exits_nonzero_and_touches_nothing(fabricated_project):
