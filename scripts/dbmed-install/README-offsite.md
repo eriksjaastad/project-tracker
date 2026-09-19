@@ -38,3 +38,5 @@ The installer:
 Portfolio convention: `gbackup:db-backups/<project-name>/` (same remote and tree for every
 project). Override `OFFSITE_DEST` only if you must; override `REMOTE_SECTION`
 (default `gbackup`) if the rclone remote name differs.
+
+See also: [Portfolio offsite DB backups](../../docs/PORTFOLIO_OFFSITE_DB_BACKUPS.md).
