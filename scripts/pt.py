@@ -1668,9 +1668,23 @@ def backup_offsite(backup_name):
         db = DatabaseManager()
         result = db.backup_offsite_copy(name=backup_name) if backup_name else db.backup_offsite_copy()
     except (DbmedError, RuntimeError, FileNotFoundError, ValueError) as err:
+        try:
+            from scripts.discovery.backup_reader import append_cloud_copy_log
+
+            append_cloud_copy_log(ok=False, detail=str(err))
+        except Exception:
+            pass
         console.print(f"[red]pt backup offsite: {err}[/red]")
         raise SystemExit(2)
     size_mb = result["size_bytes"] / (1024 * 1024)
+    detail = f"{result['name']} → {result['dest']}"
+    try:
+        from scripts.discovery.backup_reader import append_cloud_copy_log
+
+        append_cloud_copy_log(ok=True, detail=detail)
+    except Exception:
+        # Status log is best-effort; never hide a successful copy.
+        pass
     console.print(
         f"[green]✓ offsite {result['name']} ({size_mb:.1f} MB) → {result['dest']}[/green]"
     )
