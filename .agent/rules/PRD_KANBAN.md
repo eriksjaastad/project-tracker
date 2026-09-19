@@ -59,7 +59,7 @@ With 20+ active projects, tasks are scattered across individual `TODO.md` files.
 
 ## Integration Context
 
-**Reference:** `project-scaffolding/EXTERNAL_RESOURCES.yaml` - project-tracker entry
+**Reference:** `EXTERNAL_RESOURCES.yaml` - project-tracker entry (portfolio registry)
 
 - **Existing infrastructure:** project-tracker already has SQLite (`tracker.db`) and FastAPI - Kanban extends these
 - **External services needed:** None - 100% local (consistent with existing project-tracker)
