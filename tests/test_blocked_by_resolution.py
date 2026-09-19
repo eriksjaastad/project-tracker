@@ -30,18 +30,21 @@ PROJECT_ID = "project-tracker"
 
 
 @pytest.fixture
-def backend_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> BackendDatabaseManager:
-    """Backend manager for test setup that needs direct DB access."""
+def backend_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManager:
+    """Database manager that CLI subprocess can reach through daemon."""
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    manager = BackendDatabaseManager(db_path)
+    monkeypatch.setenv("PT_DB_PATH", str(db_path))
+    # Use Remote manager so both test and CLI subprocess use daemon
+    manager = DatabaseManager()
     manager.add_project(
         project_id=PROJECT_ID,
         name="Project Tracker",
         path="/tmp/project-tracker",
         status="active",
     )
-    monkeypatch.setenv("PT_DB_PATH", str(db_path))
+    # Attach backend for _get_conn access in helpers
+    manager._backend = BackendDatabaseManager(db_path)
     return manager
 
 
@@ -50,11 +53,11 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-def _find(db: BackendDatabaseManager, text: str):
+def _find(db: DatabaseManager, text: str):
     return next(t for t in db.get_tasks(project_id=PROJECT_ID) if t["text"] == text)
 
 
-def _unused_display_id(db: BackendDatabaseManager) -> int:
+def _unused_display_id(db: DatabaseManager) -> int:
     """A small integer that resolves to no task at all."""
     candidate = 999999
     assert db.resolve_task_id(candidate) is None
@@ -178,9 +181,9 @@ def test_update_can_still_clear_blocked_by(backend_db, runner):
 # ---------------------------------------------------------------------
 
 
-def _force_blocked_by(db: BackendDatabaseManager, task_id: int, value: str) -> None:
+def _force_blocked_by(db: DatabaseManager, task_id: int, value: str) -> None:
     """Write blocked_by past the CLI, simulating pre-fix rows in the DB."""
-    with db._get_conn() as conn:
+    with db._backend._get_conn() as conn:
         conn.execute(
             "UPDATE tasks SET blocked_by = ? WHERE id = ?", (value, task_id)
         )
