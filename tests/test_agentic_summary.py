@@ -7,22 +7,15 @@ from pathlib import Path
 
 import pytest
 
-# This module uses direct database access for complex test setup
-pytestmark = pytest.mark.no_dbmed
-
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-# DO NOT import dashboard.app here - it will capture DatabaseManager before we can patch it
-# Import it inside each test after patching db.manager.DatabaseManager
+import dashboard.app as dashboard_app
+from fastapi.testclient import TestClient
 
 from db.backend_manager import DatabaseManager as BackendDatabaseManager
-from db.schema import create_database
 
 
-def _setup_db(tmp_path: Path) -> tuple[Path, BackendDatabaseManager, dict[str, int]]:
-    db_path = tmp_path / "test.db"
-    create_database(db_path)
-    db = BackendDatabaseManager(db_path)
+def _setup_db(db: BackendDatabaseManager) -> dict[str, int]:
     task_ids: dict[str, int] = {}
 
     for project_id in ("project-tracker", "image-workflow"):
@@ -35,7 +28,7 @@ def _setup_db(tmp_path: Path) -> tuple[Path, BackendDatabaseManager, dict[str, i
         task = db.add_task(text=f"{project_id} task", project_id=project_id, status="Review")
         task_ids[project_id] = task["id"]
 
-    return db_path, db, task_ids
+    return task_ids
 
 
 def _insert_history(
@@ -80,26 +73,9 @@ def _patch_markers(monkeypatch: pytest.MonkeyPatch, dashboard_app_module, conten
     monkeypatch.setattr(dashboard_app_module.Path, "read_text", fake_read_text)
 
 
-def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    db_path, db, task_ids = _setup_db(tmp_path)
-    monkeypatch.setenv("PT_DB_PATH", str(db_path))
-    
-    # Patch db.manager.DatabaseManager BEFORE importing dashboard.app
-    from db import manager
-    monkeypatch.setattr(manager, "DatabaseManager", lambda: BackendDatabaseManager(db_path))
-    
-    # Force reload dashboard.app so it picks up our patched DatabaseManager
-    import importlib
-    import sys
-    if 'dashboard.app' in sys.modules:
-        import dashboard.app
-        importlib.reload(dashboard.app)
-        dashboard_app = sys.modules['dashboard.app']
-    else:
-        import dashboard.app as dashboard_app
-    
-    from fastapi.testclient import TestClient
-    
+def test_agentic_summary_aggregates_rates_series_and_markers(dbmed_backend, monkeypatch: pytest.MonkeyPatch):
+    db = dbmed_backend
+    task_ids = _setup_db(db)
     _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(
         monkeypatch,
@@ -139,26 +115,9 @@ def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, mon
     assert payload["date_range"] == {"start": "2026-03-08", "end": "2026-03-10"}
 
 
-def test_agentic_summary_filters_by_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    db_path, db, task_ids = _setup_db(tmp_path)
-    monkeypatch.setenv("PT_DB_PATH", str(db_path))
-    
-    # Patch db.manager.DatabaseManager BEFORE importing dashboard.app
-    from db import manager
-    monkeypatch.setattr(manager, "DatabaseManager", lambda: BackendDatabaseManager(db_path))
-    
-    # Force reload dashboard.app so it picks up our patched DatabaseManager
-    import importlib
-    import sys
-    if 'dashboard.app' in sys.modules:
-        import dashboard.app
-        importlib.reload(dashboard.app)
-        dashboard_app = sys.modules['dashboard.app']
-    else:
-        import dashboard.app as dashboard_app
-    
-    from fastapi.testclient import TestClient
-    
+def test_agentic_summary_filters_by_project(dbmed_backend, monkeypatch: pytest.MonkeyPatch):
+    db = dbmed_backend
+    task_ids = _setup_db(db)
     _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, dashboard_app, None)
 
@@ -181,26 +140,8 @@ def test_agentic_summary_filters_by_project(tmp_path: Path, monkeypatch: pytest.
     assert payload["summary"]["review_entries"] == 0
 
 
-def test_agentic_summary_handles_invalid_days_and_malformed_markers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    db_path, _, _ = _setup_db(tmp_path)
-    monkeypatch.setenv("PT_DB_PATH", str(db_path))
-    
-    # Patch db.manager.DatabaseManager BEFORE importing dashboard.app
-    from db import manager
-    monkeypatch.setattr(manager, "DatabaseManager", lambda: BackendDatabaseManager(db_path))
-    
-    # Force reload dashboard.app so it picks up our patched DatabaseManager
-    import importlib
-    import sys
-    if 'dashboard.app' in sys.modules:
-        import dashboard.app
-        importlib.reload(dashboard.app)
-        dashboard_app = sys.modules['dashboard.app']
-    else:
-        import dashboard.app as dashboard_app
-    
-    from fastapi.testclient import TestClient
-    
+def test_agentic_summary_handles_invalid_days_and_malformed_markers(dbmed_backend, monkeypatch: pytest.MonkeyPatch):
+    _setup_db(dbmed_backend)
     _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, dashboard_app, "{not-json")
 

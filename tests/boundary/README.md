@@ -48,10 +48,10 @@ sudo scripts/dbmed-install/install.sh
 uv run pytest tests/boundary/ -v
 
 # Generate verified evidence
-uv run pytest tests/boundary/ -s -k evidence_matrix > /tmp/evidence-$(date +%Y%m%d).md
+uv run pytest tests/boundary/ -s -ra --junitxml=boundary-results.xml > /tmp/evidence-$(date +%Y%m%d).md
 ```
 
-**Expected result:** Green, and the evidence matrix shows `VERIFIED` for POSIX denials. The matrix explicitly names the gaps (Mac Mini, non-Claude runtimes) and states them as unfinished work.
+**Expected result:** Passing POSIX probes in pytest and the JUnit report. The inventory says `SEE PROBE RESULTS`; installation presence alone never proves enforcement. The matrix explicitly names the gaps (Mac Mini, non-Claude runtimes) and states them as unfinished work.
 
 ---
 
@@ -59,13 +59,13 @@ uv run pytest tests/boundary/ -s -k evidence_matrix > /tmp/evidence-$(date +%Y%m
 
 ### test_evidence_matrix.py
 
-**Always passes.** It reports; it does not judge. Its output is the authoritative statement of what this run proved.
+**Always passes.** It reports; it does not judge. It reports installation and configuration only. The full pytest output and JUnit report establish which probes actually ran and passed.
 
 Key sections:
 
 - **Installation** — whether the root install components exist at their expected paths
-- **What this run proved** — plain-language summary (install present or not)
-- **Coverage** — which areas are VERIFIED vs UNVERIFIED on this host/runtime
+- **How to read this inventory** — installation presence is not a test result
+- **Coverage** — links to probe results, with unavailable areas marked UNVERIFIED
 - **Known gaps** — explicit enumeration of what is NOT covered (Mac Mini, Codex, Cursor, Grok sudo posture)
 
 **Rule:** If a row in "Known gaps" says UNVERIFIED or OUT OF SCOPE, you may not claim it is proven. Card #7217: "an uncovered path is unfinished work".
@@ -138,11 +138,11 @@ The evidence matrix is designed to be captured and committed:
 
 ```bash
 # On Erik's MacBook, after install
-uv run pytest tests/boundary/ -s -k evidence_matrix > docs/BOUNDARY_EVIDENCE_$(date +%Y%m%d).md
+uv run pytest tests/boundary/ -s -ra --junitxml=boundary-results.xml > docs/BOUNDARY_EVIDENCE_$(date +%Y%m%d).md
 git add docs/BOUNDARY_EVIDENCE_*.md
 ```
 
-This creates a dated, host-specific record of what was proven. The PRD (dbmed/PRD.md) requires this as part of the Phase 1 release contract.
+Retain both files. Selecting only `-k evidence_matrix` runs no denial probes and cannot establish coverage; errors, skips, and deselections are unverified. The PRD (dbmed/PRD.md) requires this as part of the Phase 1 release contract.
 
 ---
 

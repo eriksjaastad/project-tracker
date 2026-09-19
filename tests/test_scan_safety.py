@@ -209,20 +209,15 @@ def test_scan_integrity_check_force_allows(scan_env, monkeypatch):
     assert proj["status"] == "active"
 
 
-@pytest.mark.no_dbmed
 def test_scan_per_project_transaction_rolls_back_on_failure(scan_env, monkeypatch):
     # Prevents partial updates when a project sync fails mid-transaction
     schema = scan_env["schema"]
     manager = scan_env["manager"]
     pt = scan_env["pt"]
 
-    # For no_dbmed test, reload manager to get BackendDatabaseManager
-    import scripts.db.backend_manager as backend_manager
-    import importlib
-    importlib.reload(backend_manager)
-    
-    schema.init_db()
-    db = backend_manager.DatabaseManager(scan_env["db_path"])
+    import db.backend_manager as backend_manager
+
+    db = manager.DatabaseManager()
     db.add_project(project_id="good", name="Good", path="good", status="paused")
     db.add_project(project_id="bad", name="Bad", path="bad", status="paused")
 

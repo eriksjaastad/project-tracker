@@ -20,20 +20,15 @@ from db.manager import DatabaseManager
 from db.schema import create_database
 
 
-def test_health_returns_200_when_db_is_reachable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    db_path = tmp_path / "tracker.db"
-    create_database(db_path)
-    monkeypatch.setenv("PT_DB_PATH", str(db_path))
-
+def test_health_returns_200_when_db_is_reachable(tmp_path: Path, dbmed_backend):
     response = TestClient(dashboard_app.app).get("/api/health")
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["status"] == "ok"
     assert body["database"]["ok"] is True
-    # With dbmed registry, the path may be from shared daemon registry
-    assert ".db" in body["database"]["path"]
-    assert isinstance(body["database"]["task_count"], int)
+    assert body["database"]["path"] == str(dbmed_backend.db_path)
+    assert body["database"]["task_count"] == 0
     assert isinstance(body["uptime_seconds"], int)
     assert "started_at" in body
     assert "dashboard_cache_age_seconds" in body
@@ -54,8 +49,7 @@ def test_health_counts_real_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     response = TestClient(dashboard_app.app).get("/api/health")
 
     assert response.status_code == 200, response.text
-    # With shared dbmed registry, may see tasks from other tests; verify >= 1
-    assert response.json()["database"]["task_count"] >= 1
+    assert response.json()["database"]["task_count"] == 1
 
 
 def test_health_returns_503_when_db_is_unreachable(monkeypatch: pytest.MonkeyPatch):
@@ -79,21 +73,24 @@ def test_health_returns_503_when_db_is_unreachable(monkeypatch: pytest.MonkeyPat
     assert "unable to open database file" in body["database"]["error"]
 
 
-def test_health_returns_503_when_db_path_is_bad(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Same failure via the real code path: a DB file that cannot be opened."""
+def test_health_ignores_caller_db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The protected registry owns the path, so PT_DB_PATH cannot redirect it."""
     blocker = tmp_path / "not-a-directory"
     blocker.write_text("")
     monkeypatch.setenv("PT_DB_PATH", str(blocker / "tracker.db"))
 
     response = TestClient(dashboard_app.app).get("/api/health")
 
-    # With dbmed, a bad PT_DB_PATH doesn't matter - the daemon manages the real DB.
-    # This test originally expected 503, but with dbmed the health check succeeds.
-    # The DB path is registry-managed, not caller-provided, so a bad PT_DB_PATH
-    # is ignored. Skip or accept 200.
-    assert response.status_code in [200, 503], response.text
-    if response.status_code == 503:
-        assert response.json()["database"]["ok"] is False
+    assert response.status_code == 200, response.text
+    assert response.json()["database"]["ok"] is True
+
+
+def test_health_returns_503_when_daemon_is_unreachable(tmp_path, monkeypatch):
+    monkeypatch.setenv("DBMED_SOCKET", str(tmp_path / "absent.sock"))
+    response = TestClient(dashboard_app.app).get("/api/health")
+    assert response.status_code == 503, response.text
+    assert response.json()["database"]["ok"] is False
+    assert "not reachable" in response.json()["database"]["error"]
 
 
 def test_watchdog_probes_health_endpoint():

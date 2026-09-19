@@ -1519,6 +1519,16 @@ def retire_project(project, execute, keep_files, yes):
             console.print("[yellow]Cancelled. Project name did not match.[/yellow]")
             sys.exit(1)
 
+    # Verify the database backup and obtain authorization BEFORE moving files.
+    # A rejected grant must leave both the project directory and its rows intact.
+    from dbmed.client import DbmedClient
+
+    retirement_client = DbmedClient("project-tracker")
+    grant = retirement_client.call(
+        "dbmed.authorize",
+        {"op": "delete_project", "reason": f"Confirmed retire-project {project_id}"},
+    )
+
     # 1. Send directory to Trash (unless --keep-files)
     if not keep_files and path_ok:
         try:
@@ -1536,7 +1546,7 @@ def retire_project(project, execute, keep_files, yes):
         console.print(f"[dim]✓ directory already missing, nothing to trash[/dim]")
 
     # 2. Cascade-delete DB rows
-    db.delete_project(project_id)
+    retirement_client.call("delete_project", {"project_id": project_id}, token=grant["token"])
     console.print(f"[green]✓[/green] deleted project '{project_name}' and cascaded rows from the database")
 
     console.print(f"\n[bold green]✅ Retired '{project_name}'.[/bold green]")

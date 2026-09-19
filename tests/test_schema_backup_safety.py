@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 import scripts.db.schema as schema
-from scripts.db.manager import DatabaseManager
+from scripts.db.backend_manager import DatabaseManager
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
@@ -27,7 +27,7 @@ def test_safety_backup_rotation_sends_old_backups_to_trash(tmp_path, monkeypatch
     trash_dir.mkdir()
 
     schema.create_database(db_path)
-    db = DatabaseManager()
+    db = DatabaseManager(db_path)
     db.add_project(project_id="demo", name="Demo", path="./demo", status="active")
     db.add_task(text="Keep me safe", project_id="demo", status="Backlog")
 
@@ -66,7 +66,7 @@ def test_current_schema_startup_does_not_create_safety_backup(tmp_path, monkeypa
     monkeypatch.setattr(schema, "EXTERNAL_BACKUP_DIR", external_backup_dir)
 
     schema.create_database(db_path)
-    db = DatabaseManager()
+    db = DatabaseManager(db_path)
     db.add_project(project_id="demo", name="Demo", path="./demo", status="active")
     db.add_task(text="Do not back up on read-only startup", project_id="demo", status="Backlog")
 
