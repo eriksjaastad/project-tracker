@@ -869,7 +869,7 @@ api_key_inventory:
       notes: "Arena-related AI keys remain in Doppler but current code no longer uses them; cleanup pending."
 
   legacy_or_local_key_references:
-    project-scaffolding:
+    project-scaffolding:  # ARCHIVED 2026-09-19
       storage: ".env (legacy/local)"
       key_names:
         - SCAFFOLDING_ANTHROPIC_KEY
