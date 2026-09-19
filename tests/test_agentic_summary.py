@@ -6,16 +6,16 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 # This module uses direct database access for complex test setup
 pytestmark = pytest.mark.no_dbmed
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-import dashboard.app as dashboard_app
+# DO NOT import dashboard.app here - it will capture DatabaseManager before we can patch it
+# Import it inside each test after patching db.manager.DatabaseManager
+
 from db.backend_manager import DatabaseManager as BackendDatabaseManager
-from db.manager import DatabaseManager
 from db.schema import create_database
 
 
@@ -133,11 +133,15 @@ def test_agentic_summary_filters_by_project(tmp_path: Path, monkeypatch: pytest.
     db_path, db, task_ids = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
     
-    # Patch DatabaseManager() to return backend instance when called (no daemon needed)
-    from db import backend_manager
-    def mock_db_manager():
-        return backend_manager.DatabaseManager(db_path)
-    monkeypatch.setattr("dashboard.app.DatabaseManager", mock_db_manager)
+    # Patch db.manager.DatabaseManager class to be a factory returning backend instances
+    from db import manager, backend_manager
+    class MockDatabaseManagerFactory:
+        def __call__(self):
+            return backend_manager.DatabaseManager(db_path)
+    monkeypatch.setattr(manager, "DatabaseManager", MockDatabaseManagerFactory())
+    
+    _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
+    _patch_markers(monkeypatch, None)
     
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, None)
@@ -165,11 +169,15 @@ def test_agentic_summary_handles_invalid_days_and_malformed_markers(tmp_path: Pa
     db_path, _, _ = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
     
-    # Patch DatabaseManager() to return backend instance when called (no daemon needed)
-    from db import backend_manager
-    def mock_db_manager():
-        return backend_manager.DatabaseManager(db_path)
-    monkeypatch.setattr("dashboard.app.DatabaseManager", mock_db_manager)
+    # Patch db.manager.DatabaseManager class to be a factory returning backend instances
+    from db import manager, backend_manager
+    class MockDatabaseManagerFactory:
+        def __call__(self):
+            return backend_manager.DatabaseManager(db_path)
+    monkeypatch.setattr(manager, "DatabaseManager", MockDatabaseManagerFactory())
+    
+    _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
+    _patch_markers(monkeypatch, "{not-json")
     
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, "{not-json")
