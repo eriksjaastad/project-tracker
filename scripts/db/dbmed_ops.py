@@ -209,7 +209,8 @@ class ProjectTrackerOps:
 
         self.entry = entry
         self.db_path = Path(entry.db_path)
-        self._db = DatabaseManager(self.db_path)
+        crsqlite = getattr(entry, "crsqlite_path", None)
+        self._db = DatabaseManager(self.db_path, crsqlite_path=crsqlite)
         self._cal = CalendarManager(self.db_path)
         self._cal.ensure_tables()
 
