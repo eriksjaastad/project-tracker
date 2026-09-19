@@ -56,7 +56,7 @@ Uses SQLite for persistent storage of project metadata, cron job information, AI
 
 ## Data Flow
 
-1. User runs `./pt scan` or dashboard triggers a scan.
+1. User runs `pt scan` or dashboard triggers a scan.
 2. Discovery engine scans the `projects/` root for project directories.
 3. Parsers extract metadata from `CLAUDE.md`, `README.md`, and git history.
 4. Extracted data is stored or updated in the SQLite database.
