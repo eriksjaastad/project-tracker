@@ -202,3 +202,36 @@ class TestReservedHumanAddressEnforcement:
     def test_other_env_addresses_still_work(self, projects, monkeypatch):
         monkeypatch.setenv("AGENT_CHAT_SENDER", "claude-architect")
         assert identity.read_identity("no-such-session") == "claude-architect"
+
+
+class TestAgentQualifier:
+    """#7146 — concurrent agents in one directory need distinct addresses."""
+
+    def test_agent_env_qualifies_project_address(self, projects, monkeypatch):
+        monkeypatch.setenv("AGENT_CHAT_AGENT", "hermes")
+        assert identity.resolve_for_session("sess-h", projects / "ai-memory") == "ai-memory+hermes"
+
+    def test_two_agents_same_cwd_get_distinct_addresses(self, projects, monkeypatch):
+        monkeypatch.setenv("AGENT_CHAT_AGENT", "claude")
+        a = identity.resolve_for_session("sess-claude", projects / "ai-memory")
+        monkeypatch.setenv("AGENT_CHAT_AGENT", "hermes")
+        b = identity.resolve_for_session("sess-hermes", projects / "ai-memory")
+        assert a == "ai-memory+claude"
+        assert b == "ai-memory+hermes"
+        assert a != b
+
+    def test_architect_with_agent_qualifier(self, projects, monkeypatch):
+        monkeypatch.setenv("AGENT_CHAT_AGENT", "codex")
+        assert identity.resolve_for_session("sess-codex", projects) == "claude-architect+codex"
+
+    def test_legacy_without_agent_env_stays_bare(self, projects, monkeypatch):
+        monkeypatch.delenv("AGENT_CHAT_AGENT", raising=False)
+        assert identity.resolve_for_session("sess-legacy", projects / "ai-memory") == "ai-memory"
+
+    def test_split_local_peels_agent(self):
+        assert identity.split_local("ai-memory+hermes") == ("ai-memory", "hermes")
+        assert identity.split_local("ai-memory") == ("ai-memory", None)
+
+    def test_invalid_agent_env_ignored(self, projects, monkeypatch):
+        monkeypatch.setenv("AGENT_CHAT_AGENT", "bad agent!")
+        assert identity.resolve_for_session("sess-bad", projects / "ai-memory") == "ai-memory"
