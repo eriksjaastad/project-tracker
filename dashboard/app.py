@@ -146,6 +146,13 @@ NAVIGATION_ITEMS = [
         "navigation_type": "spa",
     },
     {
+        "id": "agent-chat",
+        "label": "Agent Chat",
+        "href": "/agent-chat",
+        "match_prefixes": ["/agent-chat"],
+        "navigation_type": "spa",
+    },
+    {
         "id": "graph",
         "label": "Graph",
         "href": "/graph",
@@ -252,6 +259,7 @@ async def serve_spa_shell(request: Request):
 @app.get("/kanban/{project}", response_class=HTMLResponse)
 @app.get("/agentic", response_class=HTMLResponse)
 @app.get("/calendar", response_class=HTMLResponse)
+@app.get("/agent-chat", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
     return await serve_spa_shell(request)
@@ -743,6 +751,63 @@ async def project_detail(request: Request, project_id: str):
         "project_detail.html",
         build_template_context(request, project=project),
     )
+
+
+
+@app.get("/api/agent-chat/messages")
+async def api_agent_chat_messages(limit: int = 100):
+    """Read-only Agent Chat board — ALL traffic, newest first (#7145).
+
+    Deliberately does not default to inbox filtering. The CLI trap of a
+    complete-looking subset is exactly what this page exists to avoid.
+    """
+    import json as json_mod
+    from urllib.error import HTTPError, URLError
+    from urllib.parse import urlencode
+    from urllib.request import Request, urlopen
+
+    limit = max(1, min(int(limit or 100), 500))
+    config = {"url": os.environ.get("AGENT_CHAT_URL", ""), "key": os.environ.get("AGENT_CHAT_API_KEY", "")}
+    env_file = Path.home() / ".claude" / "agent-chat.env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k, v = k.strip(), v.strip()
+            if k == "AGENT_CHAT_URL":
+                config["url"] = v
+            elif k == "AGENT_CHAT_API_KEY":
+                config["key"] = v
+    if not config["url"] or not config["key"]:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Agent Chat not configured (AGENT_CHAT_URL / AGENT_CHAT_API_KEY)",
+        )
+
+    params = urlencode({"limit": str(limit), "order": "desc"})
+    url = config["url"].rstrip("/") + "/messages?" + params
+    req = Request(url, headers={"X-API-Key": config["key"]}, method="GET")
+    try:
+        with urlopen(req, timeout=15) as resp:
+            payload = json_mod.loads(resp.read())
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(status_code=502, detail=f"Agent Chat API error {exc.code}: {body}") from exc
+    except (URLError, OSError, TimeoutError) as exc:
+        raise HTTPException(status_code=502, detail=f"Agent Chat API unreachable: {exc}") from exc
+
+    messages = list(payload.get("messages") or [])
+    # Newest first for the board (server desc returns newest page; reverse if ASC)
+    if payload.get("order") != "desc":
+        messages = list(reversed(messages))
+    # Index by id for reply threading on the client
+    by_id = {m.get("id"): m for m in messages if m.get("id") is not None}
+    for m in messages:
+        parent_id = m.get("reply_to")
+        m["reply_to_message"] = by_id.get(parent_id) if parent_id else None
+    return {"messages": messages, "count": len(messages), "scope": "all"}
 
 
 @app.get("/api/navigation")
