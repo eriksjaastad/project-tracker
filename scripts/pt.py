@@ -5,16 +5,16 @@ Project Tracker CLI - Track all your projects in one place.
 How to Use:
 -----------
 1. Run with Launcher (easiest):
-   ./pt [command]
+   pt [command]
 
 2. Run with Python directly:
    python scripts/pt.py [command]
 
 Common Commands:
-- ./pt scan      # Scan for new projects and rebuild graph
-- ./pt launch    # Start the web dashboard
-- ./pt list      # List all projects in terminal
-- ./pt help      # Show help
+- pt scan      # Scan for new projects and rebuild graph
+- pt launch    # Start the web dashboard
+- pt list      # List all projects in terminal
+- pt help      # Show help
 """
 
 import os
@@ -303,7 +303,7 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
     db_path = get_db_path()
     db_exists = db_path.exists()
     if not db_exists and not dry_run:
-        console.print("[red]Database not initialized. Run './pt init' first.[/red]")
+        console.print("[red]Database not initialized. Run 'pt init' first.[/red]")
         return
     if not db_exists and dry_run:
         console.print("[yellow]Database not initialized. Dry-run will skip DB comparison.[/yellow]")
@@ -642,7 +642,7 @@ def orphans(project, json_output):
     import json
     graph_path = Path(__file__).parent.parent / "data" / "graph.json"
     if not graph_path.exists():
-        console.print("[red]Graph data not found. Run './pt scan' first.[/red]")
+        console.print("[red]Graph data not found. Run 'pt scan' first.[/red]")
         return
     with open(graph_path) as f:
         graph_data = json.load(f)
@@ -700,7 +700,7 @@ def sync_project(project_name, no_graph):
 
     db_path = get_db_path()
     if not db_path.exists():
-        console.print("[red]Database not initialized. Run './pt init' first.[/red]")
+        console.print("[red]Database not initialized. Run 'pt init' first.[/red]")
         raise SystemExit(1)
 
     console.print(f"[bold blue]Syncing project: {project_name}...[/bold blue]")
@@ -1661,13 +1661,13 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
 
     \b
     Examples:
-        ./pt tasks                       # Show open tasks (all projects)
-        ./pt tasks -p project-tracker    # Tasks for a specific project
-        ./pt tasks -s "In Progress"      # Filter by status
-        ./pt tasks --all                 # Include completed tasks
-        ./pt tasks --archived            # Show archived Done cards
-        ./pt tasks --proposals           # Show only proposals
-        ./pt tasks create "Fix bug" -p myproject
+        pt tasks                       # Show open tasks (all projects)
+        pt tasks -p project-tracker    # Tasks for a specific project
+        pt tasks -s "In Progress"      # Filter by status
+        pt tasks --all                 # Include completed tasks
+        pt tasks --archived            # Show archived Done cards
+        pt tasks --proposals           # Show only proposals
+        pt tasks create "Fix bug" -p myproject
 
     """
     if ctx.invoked_subcommand is not None: return
@@ -2372,12 +2372,12 @@ def calendar_group(ctx, days, project, event_type, show_all, json_output):
 
     \b
     Examples:
-        ./pt calendar                        # Upcoming 7 days
-        ./pt calendar --days 30              # Next 30 days
-        ./pt calendar -p ai-memory-replay    # Filter by project
-        ./pt calendar add "Sprint review" --date 2026-03-28
-        ./pt calendar show 1
-        ./pt calendar remind --json          # For cron agent polling
+        pt calendar                        # Upcoming 7 days
+        pt calendar --days 30              # Next 30 days
+        pt calendar -p ai-memory-replay    # Filter by project
+        pt calendar add "Sprint review" --date 2026-03-28
+        pt calendar show 1
+        pt calendar remind --json          # For cron agent polling
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -2422,8 +2422,8 @@ def calendar_crons(project, show_all, json_output):
 
     \b
     Examples:
-        ./pt calendar crons
-        ./pt calendar crons -p project-tracker --json
+        pt calendar crons
+        pt calendar crons -p project-tracker --json
     """
     import json as json_lib
     db = DatabaseManager()
@@ -2457,9 +2457,9 @@ def calendar_add_cron(project, schedule, command, description):
 
     \b
     Examples:
-        ./pt calendar add-cron project-tracker "*/15 * * * *" "./pt calendar remind --json" \\
+        pt calendar add-cron project-tracker "*/15 * * * *" "pt calendar remind --json" \\
             --description "Agent reminder poller"
-        ./pt calendar add-cron ai-memory-replay "0 9 * * 1" "bash scripts/render_replay.sh" \\
+        pt calendar add-cron ai-memory-replay "0 9 * * 1" "bash scripts/render_replay.sh" \\
             --description "Weekly brain replay render"
     """
     db = DatabaseManager()
@@ -2497,9 +2497,9 @@ def calendar_add(title, event_date, event_time, event_type, project,
 
     \b
     Examples:
-        ./pt calendar add "Ship v2" --date 2026-03-28 --type milestone
-        ./pt calendar add "Weekly review" --date 2026-03-25 --time 10:00 --recurrence weekly
-        ./pt calendar add "Check cards" --date 2026-03-24 --prompt "Review all In Progress cards"
+        pt calendar add "Ship v2" --date 2026-03-28 --type milestone
+        pt calendar add "Weekly review" --date 2026-03-25 --time 10:00 --recurrence weekly
+        pt calendar add "Check cards" --date 2026-03-24 --prompt "Review all In Progress cards"
     """
     import json as json_lib
     db = DatabaseManager()
@@ -2657,7 +2657,7 @@ def calendar_remind(within_minutes, dry_run, json_output):
     \b
     Run every 15 min:
         */15 * * * * cd ~/projects/project-tracker && \\
-          ./pt calendar remind --json
+          pt calendar remind --json
     """
     import json as json_lib
     cm = _get_calendar_manager()
@@ -2722,9 +2722,9 @@ def calendar_poll(within_minutes, dry_run, quiet, as_json):
 
     \b
     Examples:
-        ./pt calendar poll                          # 60 min window
-        ./pt calendar poll --within 15 --dry-run    # preview without side effects
-        ./pt calendar poll --json                   # structured output for agents
+        pt calendar poll                          # 60 min window
+        pt calendar poll --within 15 --dry-run    # preview without side effects
+        pt calendar poll --json                   # structured output for agents
     """
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -2754,10 +2754,10 @@ def calendar_install_poll_cron(interval, within_minutes, remove, dry_run):
 
     \b
     Examples:
-        ./pt calendar install-poll-cron                          # every 10 min
-        ./pt calendar install-poll-cron --interval 5 --within 15
-        ./pt calendar install-poll-cron --remove                 # uninstall
-        ./pt calendar install-poll-cron --dry-run                # preview
+        pt calendar install-poll-cron                          # every 10 min
+        pt calendar install-poll-cron --interval 5 --within 15
+        pt calendar install-poll-cron --remove                 # uninstall
+        pt calendar install-poll-cron --dry-run                # preview
     """
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -3974,7 +3974,7 @@ def doctor(json_output: bool) -> None:
         "checks": checks,
         "cron_setup": {
             "recommended_path": f"{project_root / 'pt'}",
-            "example": f"cd {project_root} && PT_SKIP_DOPPLER=1 ./pt memory recent --since 7d --json",
+            "example": f"cd {project_root} && PT_SKIP_DOPPLER=1 pt memory recent --since 7d --json",
         },
     }
     if json_output:

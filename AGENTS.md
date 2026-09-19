@@ -72,13 +72,13 @@ This repo runs **self-contained** through Doppler. There is no `.env`, no export
 
 **Deviations in the `pt` launcher — read these before debugging an auth failure:**
 
-- **`./pt` wraps itself.** The launcher runs `doppler run --project ... --config ... -- uv run scripts/pt.py`. Never prefix `./pt` with `doppler run --`; double-wrapping is the bug, not the fix.
-- **`PT_SKIP_DOPPLER=1`** skips the wrap entirely. Used for read-only cron/SSH paths (`PT_SKIP_DOPPLER=1 ./pt memory recent --since 7d --json`), where the local SQLite backend needs no secret and paying Doppler's startup cost is waste. `--help`/`help` skip it automatically for the same reason.
+- **`pt` wraps itself.** The launcher runs `doppler run --project ... --config ... -- uv run scripts/pt.py`. Never prefix `pt` with `doppler run --`; double-wrapping is the bug, not the fix.
+- **`PT_SKIP_DOPPLER=1`** skips the wrap entirely. Used for read-only cron/SSH paths (`PT_SKIP_DOPPLER=1 pt memory recent --since 7d --json`), where the local SQLite backend needs no secret and paying Doppler's startup cost is waste. `--help`/`help` skip it automatically for the same reason.
 - **`PT_DOPPLER_PROJECT` / `PT_DOPPLER_CONFIG`** override the project/config the launcher passes (defaults `project-tracker` / `dev`). Use for testing against another config; empty values are rejected.
-- **The Turso switch skips Doppler.** If `~/projects/.turso-config.json` has `turso_enabled: false` — which is the **current, deliberate state** (local SQLite since 2026-04-05; Turso added ~2.5s latency per query for no benefit) — the launcher skips `doppler run` completely and execs `uv run scripts/pt.py` bare. That means: **on this machine today, a normal `./pt` invocation gets NO Doppler secrets injected**, and it does not need any. If you are debugging a missing env var in `pt`, check that file before you conclude Doppler is broken. Scripts that need secrets regardless (the digest, the dashboard) do their own explicit `doppler run` and are unaffected by this switch.
+- **The Turso switch skips Doppler.** If `~/projects/.turso-config.json` has `turso_enabled: false` — which is the **current, deliberate state** (local SQLite since 2026-04-05; Turso added ~2.5s latency per query for no benefit) — the launcher skips `doppler run` completely and execs `uv run scripts/pt.py` bare. That means: **on this machine today, a normal `pt` invocation gets NO Doppler secrets injected**, and it does not need any. If you are debugging a missing env var in `pt`, check that file before you conclude Doppler is broken. Scripts that need secrets regardless (the digest, the dashboard) do their own explicit `doppler run` and are unaffected by this switch.
 
 **If a command fails with auth/credential errors:**
-1. Confirm you ran it through `doppler run --` — or, for `./pt`, that you did **not** (the launcher self-wraps).
+1. Confirm you ran it through `doppler run --` — or, for `pt`, that you did **not** (the launcher self-wraps).
 2. Confirm you are pointed at the right Doppler project. Most auth failures here are the second table above: the secret exists, just not in `project-tracker/dev`.
 3. Confirm `doppler.yaml` is intact (`cat doppler.yaml` → `project: project-tracker`, `config: dev`), then check the token exists: `make doppler-check`, or `doppler secrets --project <proj> --config <cfg> --only-names`. **Names only — never print values.**
 4. If the token is genuinely missing, surface it to Erik — don't add tokens to Doppler silently.
