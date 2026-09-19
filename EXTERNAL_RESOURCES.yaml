@@ -1,21 +1,1231 @@
----
-# External Resources — project-tracker
-# Updated: 2026-03-22
-# Purpose: Track all external services this project depends on.
-# ALWAYS update this file when adding/removing external service dependencies.
----
+# External Resources & Services
+# Purpose: Track which external services, APIs, and resources are used across all projects
+# Last Updated: 2026-09-05
+#
+# NOTE: Moved from project-scaffolding to project-tracker on 2026-09-18
+#       (project-tracker is now the canonical home for portfolio-wide resource registry)
 
-services:
-  - name: Turso (open-kanban)
-    url: https://turso.tech
-    purpose: >
-      Cloud-hosted libsql database replacing local tracker.db for cross-machine
-      shared Kanban state. Used by manager.py when TURSO_KANBAN_URL +
-      TURSO_KANBAN_TOKEN env vars are set.
-    env_vars:
-      - TURSO_KANBAN_URL
-      - TURSO_KANBAN_TOKEN
-    doppler_project: project-tracker
-    cost: Free tier (5 databases, 500MB total)
-    added: 2026-03-22
-    card: "#5231"
+metadata:
+  purpose: "Track external services and costs across all projects"
+  last_updated: "2026-09-05"
+  why_exists: "When you get a bill or notification, you need to know which project uses that service"
+
+# MARKET DATA POLICY
+# Exchanges (NYSE, Nasdaq, CME) charge "professional subscribers" 10-30× the non-professional rate.
+# Business entities, LLCs, and anyone deriving trading revenue are classified as professional.
+# Always sign up for market data subscriptions (Tradier, Alpaca, Polygon, Databento, IBKR, etc.)
+# under the PERSONAL account (spudlogic, spudlogic@gmail.com) to retain non-pro status.
+# Re-evaluate carefully if/when SIL incorporates — incorrect re-certification can be expensive.
+market_data_policy:
+  rule: "All market data subscriptions under spudlogic (personal) account, never under synthinsightlabs"
+  reason: "Exchange 'professional subscriber' fees are 10-30× higher for entities"
+  applies_to: ["Tradier", "Alpaca", "Polygon", "Databento", "IBKR", "TradingView", "any exchange-feed vendor"]
+
+# ACCOUNT REGISTRY
+# Two accounts: personal (spudlogic) and business (synthinsightlabs)
+# When ready to formalize SIL as a business: new bank account → Stripe under SIL → migrate customer-facing services
+accounts:
+  spudlogic:
+    type: personal
+    email: "spudlogic@gmail.com"
+    github: "eriksjaastad"
+    notes: "Personal account. Most services default here (legacy). GitHub, personal bank."
+  synthinsightlabs:
+    type: business
+    email: "admin@synthinsightlabs.com"
+    domain: "synthinsightlabs.com"
+    github: "10 GitHub Apps managed under synth-insight-labs Doppler (architect, manager, claude, ai-memory, hypocrisynow, muffinpanrecipes, tax-organizer, synthinsightlabs, tools, auxesis-coder)"
+    bank: "confirm — not yet documented"
+    llc: true  # Confirmed by Erik 2026-06-29: SIL is a real LLC.
+    ein: "Obtained (confirmed 2026-06-29). Value stored in Doppler as SYNTH_INSIGHT_LABS_LLC_EIN (synth-insight-labs + auxesis configs); not inlined here per the no-secret-values policy."
+    notes: "Real business entity (LLC + EIN). Also the company identity/infra hub — see the synth-insight-labs project entry below (GitHub App creds, Google OAuth, Resend, Bluesky, Paddle). Re-check market_data_policy now that SIL is incorporated: keep market-data subscriptions under the personal (spudlogic) account to avoid 'professional subscriber' fees."
+
+# VENDORS WITH AN ACCOUNT ON BOTH IDENTITIES
+# A vendor listed here has TWO separate accounts, one per identity. Logging in shows
+# you ONE of them. A dashboard that says "free plan, no usage" is not proof that the
+# vendor is not billing you — check the other identity, or probe the API key.
+multi_account_vendors:
+  firecrawl:
+    accounts:
+      spudlogic:
+        email: "spudlogic@gmail.com"
+        plan: "Free"
+        api_key: "Doppler data-vault-factory + auxesis (same key)"
+        history: >
+          Was the paid Standard account Mar-May 2026 on REI Mastercard ...7084
+          ($19 Mar 6, $51.47 Mar 17, $99 Apr 6, $99 May 6). Refunded +$99 on
+          2026-05-07 and downgraded to free. Stripe receipts for this account
+          did arrive at spudlogic@gmail.com (invoice series MW2CW9YV).
+      synthinsightlabs:
+        email: "admin@synthinsightlabs.com"
+        plan: "Free as of 2026-09-05 (downgrade effective at period end 2026-09-06T03:55Z)"
+        api_key: "Doppler hypocrisynow (dev + prd)"
+        history: >
+          The $99/mo Standard subscription that ran unnoticed. Charged to Visa ...9311
+          on Apr 15 ($19), then $99 on May 6, Jun 7, Jul 6, Aug 6 2026 -- about $415.
+          It NEVER sent a Stripe receipt to any inbox Erik reads, and logging in landed
+          on the spudlogic account, which correctly showed "free plan, no usage". Found
+          2026-09-05 by probing the API key: planCredits 100000 / maxConcurrency 50
+          identifies Standard without needing a login. Total usage over its life was
+          404 credits of 400,000 paid for.
+    verify: >
+      Confirm no $99 FIRECRAWL.DEV charge lands on Visa ...9311 on or after 2026-09-06.
+      A downgrade takes effect at period end, so the API still reports Standard until
+      then -- that is expected, not a failed cancellation. Do not mark this closed until
+      the September statement is clean. (Precedent: the Vercel v0 subscription was
+      refunded but never actually cancelled and leaked ~$133.)
+    lesson: >
+      When a charge exists but the vendor dashboard shows nothing, assume a second
+      account before assuming a vendor billing bug.
+
+# PROJECT SERVICE USAGE
+# This is the main data structure - parsed by project-tracker dashboard
+projects:
+  project-scaffolding:  # ARCHIVED 2026-09-19 → ~/projects/_archive/project-scaffolding
+    monthly_cost: 5
+    account: spudlogic
+    credential_file: ".env"
+    services:
+      - name: DeepSeek
+        purpose: "Logic drafting"
+        type: ai
+        env_var: "SCAFFOLDING_DEEPSEEK_KEY"
+        cost: 0.27
+      - name: Discord
+        purpose: "Governance alerts"
+        type: notifications
+        env_var: "SCAFFOLDING_DISCORD_WEBHOOK_URL"
+        cost: 0
+      - name: OpenAI
+        purpose: "Model comparisons"
+        type: ai
+        env_var: "SCAFFOLDING_OPENAI_KEY"
+        cost: 4
+      - name: Anthropic
+        purpose: "Architectural reviews"
+        type: ai
+        env_var: "SCAFFOLDING_ANTHROPIC_KEY"
+        cost: 2
+
+  data-vault-factory:
+    monthly_cost: "Variable"
+    account: spudlogic
+    credential_file: "Doppler"
+    services:
+      - name: Doppler
+        purpose: "Secrets management"
+        type: security
+        cost: 0
+      - name: Firecrawl
+        purpose: "Web scraping API"
+        type: data
+        env_var: "DVF_FIRECRAWL_KEY"
+        cost: 0  # spudlogic account, free tier
+      - name: Gumroad
+        purpose: "Sales infrastructure"
+        type: payments
+        env_var: "DVF_GUMROAD_TOKEN"
+        cost: 0
+      - name: Ghost
+        purpose: "Marketing/pSEO infrastructure"
+        type: cms
+        env_var: "DVF_GHOST_ADMIN_KEY"
+        cost: 0
+      - name: OpenAI
+        purpose: "gpt-4o-mini for production"
+        type: ai
+        env_var: "DVF_OPENAI_KEY"
+        cost: "Variable"
+      - name: Anthropic
+        purpose: "claude-3-5-haiku for production"
+        type: ai
+        env_var: "DVF_ANTHROPIC_KEY"
+        cost: "Variable"
+
+  holoscape:
+    monthly_cost: 0
+    account: spudlogic
+    credential_file: ".env"
+    services:
+      - name: OpenAI
+        purpose: "LLM Provider"
+        type: ai
+        env_var: "HOLOSCAPE_OPENAI_KEY"
+        cost: 0
+      - name: Anthropic
+        purpose: "LLM Provider"
+        type: ai
+        env_var: "HOLOSCAPE_ANTHROPIC_KEY"
+        cost: 0
+    notes: "Removed from Doppler March 2026"
+
+  trading-copilot:
+    monthly_cost: 1
+    account: spudlogic
+    credential_file: "Doppler (trading-copilot/dev)"
+    services:
+      - name: Anthropic
+        purpose: "Claude Haiku 4.5 for Alpha Report signal extraction (scripts/alpha_audit.py)"
+        type: ai
+        env_var: "ANTHROPIC_API_KEY"
+        cost: "<$1"
+      - name: Finnhub
+        purpose: "Free-tier market data (evaluation)"
+        type: data
+        env_var: "FINNHUB_API_KEY"
+        cost: 0
+      - name: Tradier
+        purpose: "Paper trading + free real-time US equity data"
+        type: broker
+        env_var: "TRADIER_API_KEY"  # plus TRADIER_ACCOUNT_NUMBER for account-scoped calls
+        cost: 0
+        account: spudlogic
+        status: active
+        notes: |
+          Approved 2026-04-20. Sandbox account VA61078727 (margin, individual, non-pro).
+          MCP: https://mcp.tradier.com/mcp registered at user scope with PAPER_TRADING: true.
+          REST sandbox: https://sandbox.tradier.com (confirmed real-time quotes, not 15-min delayed).
+          Live trading blocked until #5968 risk gates are filled in.
+    notes: |
+      Model Arena ecosystem (Railway + Postgres + Discord + arena scripts) removed 2026-04-17.
+      Project is now local-only: macOS LaunchAgent watches Alfa reports/, converts PDFs to JSON,
+      and scripts/alpha_audit.py analyzes them. Archive of 4 months of arena data preserved at
+      data/arena_archive/arena_snapshot.json. OpenAI, xAI, Google AI keys remain in Doppler but
+      are not used by current code — safe to delete on next Doppler audit if still unused.
+
+  cortana-personal-ai:
+    monthly_cost: 0.60
+    account: spudlogic
+    credential_file: ".env"
+    services:
+      - name: OpenAI
+        purpose: "gpt-4o-mini"
+        type: ai
+        env_var: "CORTANA_OPENAI_API_KEY"
+        cost: 0.60
+      - name: Discord
+        purpose: "Daily update notifications"
+        type: notifications
+        env_var: "DISCORD_WEBHOOK_URL"
+        cost: 0
+        added: "2026-01-10"
+        notes: "Added after 22-day silent failure incident"
+      - name: SuperWhisper
+        purpose: "Voice-to-text (one-time purchase)"
+        type: local
+        cost: 0
+      - name: Wispr Flow
+        purpose: "Voice dictation (one-time purchase)"
+        type: local
+        cost: 0
+
+  image-workflow:
+    monthly_cost: 10
+    account: spudlogic
+    credential_file: ".env"
+    services:
+      - name: OpenAI
+        purpose: "Batch processing, quality filtering"
+        type: ai
+        env_var: "IMAGE_WORKFLOW_OPENAI_API_KEY"
+        cost: 10
+      - name: Google Drive
+        purpose: "Offsite backups via rclone"
+        type: storage
+        env_var: "IMAGE_WORKFLOW_RCLONE_CONFIG"
+        cost: 0
+      - name: rclone
+        purpose: "Backup tool"
+        type: local
+        cost: 0
+
+  3d-pose-factory:  # ARCHIVED tree ~/projects/_archive/3d-pose-factory; Doppler project DELETED 2026-09-19
+    monthly_cost: 7
+    account: spudlogic
+    credential_file: ".env (legacy local only — Doppler project 3d-pose-factory deleted 2026-09-19; do not doppler setup)"
+    aliases: ["Image Generation", "Fat AI", "3D Renders", "Mission Control"]
+    status: archived
+    doppler: deleted
+    services:
+      - name: Cloudflare R2
+        purpose: "S3-compatible storage for pose outputs"
+        type: storage
+        env_var: "POSE_FACTORY_CLOUDFLARE_R2_KEY"
+        cost: 7
+      - name: rclone
+        purpose: "Sync tool for R2"
+        type: local
+        cost: 0
+      - name: RunPod
+        purpose: "GPU Hosting for high-volume image generation"
+        type: hosting
+        env_var: "POSE_FACTORY_RUNPOD_API_KEY"
+        cost: "Pay-per-use"
+
+  project-tracker:
+    monthly_cost: 0
+    account: spudlogic
+    services:
+      - name: SQLite
+        purpose: "Local database"
+        type: database
+        cost: 0
+      - name: FastAPI
+        purpose: "Local web server"
+        type: local
+        cost: 0
+    notes: "100% local, no external services"
+
+  muffinpanrecipes:
+    monthly_cost: 12
+    account: spudlogic
+    credential_file: ".env"
+    services:
+      - name: Vercel
+        purpose: "Site hosting"
+        type: hosting
+        env_var: "MUFFIN_VERCEL_TOKEN"
+        cost: 0
+      - name: Stability AI
+        purpose: "High-end photography generation"
+        type: ai
+        env_var: "MUFFIN_STABILITY_API_KEY"
+        cost: "Pay-per-use + $12/mo sub"
+      - name: RunPod
+        purpose: "GPU processing"
+        type: hosting
+        env_var: "MUFFIN_RUNPOD_API_KEY"
+        cost: "Pay-per-use"
+
+  ai-memory:
+    monthly_cost: 0
+    account: synthinsightlabs
+    credential_file: "Doppler"
+    services:
+      - name: Cloudflare R2
+        purpose: "Backup storage for brain.db (ai-memory cross-agent memory)"
+        type: storage
+        env_var: "R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT, R2_BUCKET"
+        cost: 0
+        plan: "Free tier (10GB)"
+        bucket: "open-brain-backups"
+        notes: "S3-compatible keys + CF_API_TOKEN. Created 2026-03-20 under SIL Cloudflare account."
+      - name: Anthropic
+        purpose: "Haiku 3.5 for scope classification (shared vs agent-scoped)"
+        type: ai
+        env_var: "ANTHROPIC_API_KEY"
+        cost: "<$0.01"
+        notes: "Extremely low usage — classifies ~10 words per memory entry"
+      - name: Ollama
+        purpose: "Local embeddings (nomic-embed-text-v2-moe)"
+        type: ai
+        cost: 0
+        notes: "Runs locally on both laptop and Mac Mini. No API key needed."
+      - name: Doppler
+        purpose: "Secrets management"
+        type: security
+        cost: 0
+
+  # --- Added 2026-06-29 reconciliation: projects with live Doppler configs that were missing from this registry. ---
+  # Services inferred from Doppler secret NAMES (not values). Costs marked "audit" where not yet confirmed.
+  synth-insight-labs:
+    monthly_cost: "audit"
+    account: synthinsightlabs
+    credential_file: "Doppler (synth-insight-labs/prd)"
+    services:
+      - name: GitHub Apps (identity hub)
+        purpose: "Bot identities for 10 apps (architect, manager, claude, ai-memory, hypocrisynow, muffinpanrecipes, tax-organizer, synthinsightlabs, tools, auxesis-coder)"
+        type: identity
+        env_var: "GITHUB_APP_ID_*, GITHUB_APP_INSTALLATION_ID_*, GITHUB_APP_PRIVATE_KEY_*"
+        cost: 0
+      - name: Google OAuth + Ads
+        purpose: "OAuth client + Google Ads developer token"
+        type: cloud
+        env_var: "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_API_KEY, GOOGLE_ADS_DEVELOPER_TOKEN"
+        cost: 0
+      - name: Resend
+        purpose: "Transactional email — portfolio-wide verified send domain send.synthinsightlabs.com"
+        type: email
+        env_var: "RESEND_API_KEY"
+        cost: 0
+      - name: Bluesky
+        purpose: "Social posting"
+        type: social
+        env_var: "BLUESKY_HANDLE, BLUESKY_APP_PASSWORD"
+        cost: 0
+      - name: Paddle
+        purpose: "Payments/subscriptions"
+        type: payments
+        env_var: "PADDLE_API_KEY"
+        cost: "per-transaction"
+      - name: Qodo
+        purpose: "Code review/quality tooling"
+        type: dev
+        env_var: "QODO_API_KEY"
+        cost: "audit"
+    notes: |
+      COMPANY IDENTITY/INFRA HUB (not the near-empty entity the accounts block implied). Central GitHub App
+      credential store + Google OAuth + Resend send domain. Holds SYNTH_INSIGHT_LABS_LLC_EIN (verify LLC status).
+      Natural home for the portfolio alert-email digest (RESEND_API_KEY lives here).
+
+  auxesis:
+    monthly_cost: "audit"
+    account: synthinsightlabs
+    credential_file: "Doppler (auxesis/dev)"
+    services:
+      - name: Anthropic / OpenAI / xAI / DeepSeek / InceptionLabs
+        purpose: "Multi-model autonomous venture runtime (forge/scout/publisher roles)"
+        type: ai
+        env_var: "ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY, INCEPTIONLABS_API_KEY"
+        cost: "Variable (capped by MAX_PIPELINE_BUDGET_USD)"
+      - name: Stripe / Paddle / Gumroad
+        purpose: "Sales platforms for autonomous ventures"
+        type: payments
+        env_var: "STRIPE_SECRET_KEY, PADDLE_API_KEY, GUMROAD_ACCESS_TOKEN"
+        cost: "per-transaction"
+      - name: Cloudflare
+        purpose: "DNS/zone management for venture domains"
+        type: cloud
+        env_var: "CLOUDFLARE_API_KEY, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID"
+        cost: "audit"
+      - name: Firecrawl
+        purpose: "Web scraping"
+        type: data
+        env_var: "FIRECRAWL_API_KEY"
+        cost: 0  # spudlogic account, free tier (audited 2026-09-05)
+      - name: Turso
+        purpose: "Kanban DB (shared with project-tracker)"
+        type: database
+        env_var: "TURSO_KANBAN_TOKEN, TURSO_KANBAN_URL"
+        cost: "audit"
+      - name: Resend
+        purpose: "Transactional email"
+        type: email
+        env_var: "RESEND_API_KEY"
+        cost: 0
+    notes: "Auxesis = autonomous venture control plane (Mac Mini). Holds its own GitHub Apps (auxesis, auxesis_caretaker_mini), SYNTH_INSIGHT_LABS_LLC_EIN, encryption/JWT keys, RAILWAY_API_TOKEN."
+
+  auxesis-research-labs:
+    monthly_cost: "audit"
+    account: synthinsightlabs
+    credential_file: "Doppler (auxesis-research-labs/dev)"
+    services:
+      - name: Anthropic / OpenAI / xAI / DeepSeek / Google
+        purpose: "Multi-model research agents"
+        type: ai
+        env_var: "ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY, GOOGLE_API_KEY"
+        cost: "Variable"
+      - name: Firecrawl
+        purpose: "Web scraping"
+        type: data
+        env_var: "FIRECRAWL_API_KEY"
+        cost: 0  # spudlogic account, free tier (audited 2026-09-05)
+      - name: Cost Tracker
+        purpose: "Internal spend tracking API"
+        type: monitoring
+        env_var: "COST_TRACKER_API_KEY, COST_TRACKER_URL"
+        cost: 0
+    notes: "Research arm of Auxesis (Mac Mini)."
+
+  flo-fi:
+    monthly_cost: "Pay-per-use"
+    account: spudlogic
+    credential_file: "Doppler (flo-fi/dev, flo-fi/prd)"
+    services:
+      - name: ElevenLabs
+        purpose: "Voice/audio generation"
+        type: ai
+        env_var: "ELEVEN_LABS_API_KEY"
+        cost: "Pay-per-use"
+      - name: Fal.ai
+        purpose: "Image/video generation"
+        type: ai
+        env_var: "FAL_AI_API_KEY"
+        cost: "Pay-per-use"
+      - name: Leonardo
+        purpose: "Image generation"
+        type: ai
+        env_var: "LEONARDO_API_KEY"
+        cost: "Pay-per-use"
+      - name: Meshy
+        purpose: "Image-to-3D generation"
+        type: ai
+        env_var: "MESHY_API_KEY"
+        cost: "Pay-per-use"
+      - name: Cloudflare R2
+        purpose: "Asset storage"
+        type: storage
+        env_var: "R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT, R2_BUCKET, R2_ACCOUNT_ID"
+        cost: "Free tier"
+      - name: Vercel
+        purpose: "Hosting (flo-fi.vercel.app)"
+        type: hosting
+        cost: 0
+        plan: "Hobby"
+    notes: "Character-consistency LoRA / creative pipeline (Mac Mini). Has a live Vercel project."
+
+  openclaw:
+    monthly_cost: "audit"
+    account: spudlogic
+    credential_file: "Doppler (openclaw/dev)"
+    services:
+      - name: Discord (gateway bot)
+        purpose: "Agent comms"
+        type: communications
+        env_var: "DISCORD_BOT_TOKEN, DISCORD_APPLICATION_ID, DISCORD_PUBLIC_KEY, DISCORD_SERVER_ID, DISCORD_USER_ID, GATEWAY_TOKEN"
+        cost: 0
+      - name: OpenRouter / OpenAI / xAI / DeepSeek / Google
+        purpose: "Multi-model agent backends"
+        type: ai
+        env_var: "OPENROUTER_API_KEY, OPENAI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY, GOOGLE_API_KEY"
+        cost: "Variable"
+    notes: "OpenClaw agent gateway (Mac Mini). Launches under doppler run --project openclaw --config dev."
+
+  hermes:
+    monthly_cost: "audit"
+    account: spudlogic
+    credential_file: "Doppler (hermes/dev)"
+    services:
+      - name: OpenRouter / DeepSeek
+        purpose: "Agent model backends"
+        type: ai
+        env_var: "OPEN_ROUTER_API_KEY, DEEPSEEK_API_KEY"
+        cost: "Variable"
+      - name: Discord
+        purpose: "Agent comms"
+        type: communications
+        env_var: "DISCORD_TOKEN"
+        cost: 0
+    notes: "Hermes agent (github-repos/hermes-agent)."
+
+  land-tracker:
+    monthly_cost: "audit"
+    account: spudlogic
+    credential_file: "Doppler (land-tracker/dev)"
+    services:
+      - name: Discord
+        purpose: "Posts new high-interest parcel alerts — the ONLY active send channel (notify.py)"
+        type: notifications
+        env_var: "DISCORD_WEBHOOK_URL"
+        cost: 0
+      - name: Gmail SMTP
+        purpose: "STAGED, NOT WIRED — creds provisioned for a future email channel notify.py does not yet use"
+        type: email
+        env_var: "GMAIL_ADDRESS, GMAIL_APP_PASSWORD"
+        cost: 0
+        notes: "Corrected 2026-06-29: land-tracker does NOT send email yet — notify.py only posts to Discord; email is a carded-but-unbuilt channel."
+    notes: "Active daily cron (per-state land-deal sourcing). Real feature momentum as of June 2026."
+
+  agent-runtime-config:
+    monthly_cost: "Variable"
+    account: spudlogic
+    credential_file: "Doppler (agent-runtime-config/dev)"
+    services:
+      - name: DeepSeek / OpenAI
+        purpose: "Rewriter+verifier in the runtime-config translation gate"
+        type: ai
+        env_var: "DEEPSEEK_API_KEY, OPENAI_API_KEY"
+        cost: "Variable"
+    notes: "Cross-provider agent runtime-config drift detection/translation."
+
+  agent-chat:
+    monthly_cost: "audit"
+    account: spudlogic
+    credential_file: "Doppler (agent-chat/dev)"
+    services:
+      - name: Agent Chat API
+        purpose: "Cross-agent messaging (Cloud Run) — backs pt message"
+        type: api
+        env_var: "AGENT_CHAT_API_KEY, AGENT_CHAT_DATABASE_URL"
+        cost: "audit"
+    notes: "Cloud Run Agent Chat API."
+
+  ai-memory-replay:
+    monthly_cost: "Pay-per-use"
+    account: synthinsightlabs
+    credential_file: "Doppler (ai-memory-replay/dev)"
+    services:
+      - name: Anthropic
+        purpose: "Memory replay analysis"
+        type: ai
+        env_var: "ANTHROPIC_API_KEY"
+        cost: "Variable"
+      - name: ElevenLabs
+        purpose: "Audio narration (dream/replay)"
+        type: ai
+        env_var: "ELEVENLABS_API_KEY"
+        cost: "Pay-per-use"
+    notes: "Companion to ai-memory."
+
+  analyze-youtube-videos:
+    monthly_cost: 0
+    account: spudlogic
+    credential_file: "Doppler (analyze-youtube-videos/dev)"
+    services:
+      - name: Ollama
+        purpose: "Local transcript synthesis — no paid API"
+        type: ai
+        cost: 0
+        notes: "Doppler holds only dir/model config (LIBRARY_DIR, OLLAMA_MODEL, SKILLS_LIBRARY_PATH, etc.) — no API keys."
+    notes: "Local YouTube channel analysis."
+
+  # Projects needing audit for service usage
+  hypocrisynow:
+    account: synthinsightlabs
+    resources:
+      - name: Firecrawl
+        purpose: "Web scraping for funding-source research (scripts/funding/fetch_firecrawl.py)"
+        type: data
+        env_var: "FIRECRAWL_API_KEY"
+        cost: 0  # Free tier as of 2026-09-05; was $99/mo Standard, see multi_account_vendors
+    notes: >
+      Account ownership confirmed 2026-09-05: the FIRECRAWL_API_KEY in this project's
+      Doppler config belongs to the synthinsightlabs (admin@) Firecrawl account, NOT
+      spudlogic. This entry sat as "account: TODO" while that account billed $99/mo --
+      see multi_account_vendors.firecrawl. Firecrawl is invoked manually only; nothing
+      in crontab or launchd calls it.
+  
+  tax-organizer:
+    account: spudlogic
+    services:
+      - name: SQLite
+        type: database
+        cost: 0
+    notes: "Local project. Audit for any OCR or LLM API usage."
+
+  prospector:
+    account: TODO
+    notes: "Audit needed: check for web scraping or search API usage."
+
+  # Services signed up under synthinsightlabs but not yet assigned to a project
+  unassigned-synthinsightlabs:
+    account: synthinsightlabs
+    monthly_cost: 0
+    notes: "Services discovered in admin@synthinsightlabs.com inbox. Assign to projects as needed."
+    services:
+      - name: Twilio
+        purpose: "SMS/Voice API (possibly for WhatsApp experiment)"
+        type: communications
+        cost: 0
+        plan: "Free trial ($15 credit)"
+        signed_up: "2026-02-20"
+        notes: "Not currently used by any project. Evaluate or cancel."
+      - name: RSS.app
+        purpose: "RSS feed generation from websites"
+        type: data
+        cost: 0
+        signed_up: "2026-02-23"
+        notes: "Not currently used by any project. May be for market-research or news agent."
+      - name: Brave Search API
+        purpose: "Web search API"
+        type: data
+        cost: 0
+        signed_up: "2026-03-04"
+        notes: "Not currently used by any project. May be for data-vault-factory."
+      - name: Reddit
+        purpose: "Social media account"
+        type: social
+        cost: 0
+        signed_up: "2025-08-29"
+        notes: "SIL Reddit account. Not actively used."
+      - name: Paddle
+        purpose: "Payment processing / subscriptions"
+        type: payments
+        cost: 0
+        signed_up: "2026-03-12"
+        notes: "Not yet assigned to a project. Evaluate vs Stripe for SIL products."
+
+# SERVICES BY FUNCTION
+# Purpose: Prevent signing up for duplicate services
+services_by_function:
+  ai_apis:
+    - OpenAI (GPT-4o, 4o-mini, o1)
+    - Stability AI (SDXL, SD 1.6)
+    - Anthropic (Claude Opus 4, Sonnet 4, Haiku 3.5)
+    - Google AI (Gemini 2.0/2.5 Flash)
+    - xAI (Grok-3)
+  
+  search:
+    - Brave Search API (web search)
+
+  scraping:
+    - Firecrawl (AI-native scraping) — TWO accounts, both free; see multi_account_vendors
+    - RSS.app (RSS feed generation)
+
+  ecommerce:
+    - Gumroad (programmatic product sales)
+    - Paddle (payments/subscriptions — synthinsightlabs)
+
+  cms:
+    - Ghost (Admin API for pSEO)
+
+  security:
+    - Doppler (secrets management — paid plan as of 2026-03-12, was free tier 10-project limit)
+  
+  hosting:
+    - Railway (Python cron jobs + Postgres)
+    - Vercel (serverless, static sites)
+
+  auth:
+    - Auth0 (standard for SaaS — email/password, magic link, OAuth)
+
+  automation:
+    - Make.com (standard for Google Workspace integration — sidesteps OAuth verification)
+
+  payments:
+    - Stripe (standard for SaaS billing)
+
+  storage:
+    - Cloudflare R2 (S3-compatible)
+    - Google Drive (via rclone)
+  
+  cloud_platforms:
+    - Google Cloud Console (OAuth, API credentials — admin@synthinsightlabs.com)
+
+  databases:
+    - PostgreSQL (Railway)
+    - SQLite (local)
+
+  email:
+    - Resend (transactional email)
+  
+  communications:
+    - Twilio (SMS/Voice API — free trial, not active)
+
+  data_sources:
+    - FRED API (St. Louis Fed — free, keyless reads; FRED_API_KEY in Doppler trading-copilot/dev raises rate limits)
+    - BLS API (free, optional BLS_API_KEY in Doppler trading-copilot/dev raises daily call limit from 50 to 500)
+    - SEC EDGAR (free, no key — 10-K filings for headcount disclosures)
+    - layoffs.fyi (public Google Sheet, no auth — tech layoffs since 2020)
+
+  monitoring:
+    - Discord Webhooks
+    - Slack (OpenClaw agent communication)
+    - Autonomous Loops (Janitor)
+  
+  voice_to_text:
+    - SuperWhisper (local)
+    - Wispr Flow (local)
+  
+  tools:
+    - rclone (cloud sync)
+
+# API KEY MANAGEMENT PATTERN
+api_key_pattern:
+  rule: "Each project manages its own API keys - NEVER share across projects"
+  format: "{project-name}-{service} → {project}/.env"
+  template: "{PROJECTS_ROOT}/.env.project-template"
+  naming_rule: "Provider API keys use canonical provider names inside each project scope; project prefixes are legacy."
+  examples:
+    - "DEEPSEEK_API_KEY → _archive/project-scaffolding/.env or Doppler project project-scaffolding (archived)"
+    - "OPENAI_API_KEY → cortana-personal-ai/.env or cortana-personal-ai Doppler config"
+    - "OPENAI_API_KEY → trading-copilot Doppler config"
+  why:
+    - "Cost attribution (which project spent what?)"
+    - "Failure isolation (one project's rate limit doesn't affect others)"
+    - "Security isolation (compromise one → others safe)"
+    - "Clear ownership (each project pays for itself)"
+
+# API KEY INVENTORY AND NORMALIZATION AUDIT
+# First pass added 2026-04-30 after a live DeepSeek key usage investigation.
+# Rules:
+# - Never record secret values here. Record names, owners, storage location, and consumers only.
+# - Doppler is preferred for active projects. Local .env keys are legacy/local-only and should be reviewed.
+# - DOPPLER_TOKEN must not be hardcoded in repos. Use Doppler CLI auth/keychain for local machines;
+#   only deployment-scoped service tokens may exist, and only in the deployment platform.
+# - Standard AI provider key names:
+#   ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, GOOGLE_API_KEY, OPENAI_API_KEY, XAI_API_KEY.
+# - GROK_API_KEY is a legacy/provider-alias name. Keep compatibility only while migrating.
+api_key_inventory:
+  audit_date: "2026-04-30"
+  source:
+    - "Repo grep for *_KEY, API_KEY, *_TOKEN, and key-shaped literals across active first-party projects"
+    - "Doppler secret-name checks from Mac Mini where available"
+    - "Prior Doppler audit: ../INFRASTRUCTURE_AUDIT_2026-04-03.md"
+  status: "first-pass inventory; secret values were not read or recorded"
+  normalized_ai_provider_keys:
+    - ANTHROPIC_API_KEY
+    - DEEPSEEK_API_KEY
+    - GOOGLE_API_KEY
+    - OPENAI_API_KEY
+    - XAI_API_KEY
+
+  doppler_projects:
+    auxesis:
+      configs_seen: ["dev"]
+      api_key_names_confirmed_by_doppler:
+        - ANTHROPIC_API_KEY
+        - CLOUDFLARE_API_KEY
+        - CLOUDFLARE_API_TOKEN
+        - COST_TRACKER_API_KEY
+        - DEEPSEEK_API_KEY
+        - FIRECRAWL_API_KEY
+        - GOOGLE_API_KEY
+        - GROK_API_KEY
+        - GUMROAD_ACCESS_TOKEN
+        - NPM_TOKEN
+        - OPENAI_API_KEY
+        - PADDLE_API_KEY
+        - PYPI_TOKEN
+        - RAILWAY_API_TOKEN
+        - RESEND_API_KEY
+        - STRIPE_SECRET_KEY
+        - TURSO_KANBAN_TOKEN
+        - XAI_API_KEY
+      notes: "DeepSeek investigation target. Confirm exact value fingerprint against provider dashboard before rotating or deleting."
+
+    openclaw:
+      configs_seen: ["dev"]
+      api_key_names_confirmed_by_doppler:
+        - ANTHROPIC_API_KEY
+        - DEEPSEEK_API_KEY
+        - DISCORD_BOT_TOKEN
+        - GATEWAY_TOKEN
+        - GOOGLE_API_KEY
+        - OPENAI_API_KEY
+        - XAI_API_KEY
+      notes: "OpenClaw gateway launches under doppler run --project openclaw --config dev on the Mini; treat as a live consumer."
+
+    auxesis-research-labs:
+      configs_seen: ["dev"]
+      api_key_names_confirmed_by_doppler:
+        - ANTHROPIC_API_KEY
+        - COST_TRACKER_API_KEY
+        - GOOGLE_API_KEY
+        - OPENAI_API_KEY
+        - XAI_API_KEY
+      notes: "No DEEPSEEK_API_KEY listed in first pass. Code/docs require this project to use its own Doppler project, not auxesis."
+
+    ai-memory:
+      configs_seen: ["prd"]
+      api_key_names_from_prior_audit:
+        - ANTHROPIC_API_KEY
+        - TURSO_BRAIN_TOKEN
+        - R2_SECRET_ACCESS_KEY
+      notes: "Needs fresh Doppler name export; prior audit marked active."
+
+    cortana-personal-ai:
+      configs_seen: ["dev"]
+      api_key_names_from_repo:
+        - ANTHROPIC_API_KEY
+        - GITHUB_APP_PRIVATE_KEY
+      notes: "Project docs say GitHub App secrets live in cortana-personal-ai/dev. EXTERNAL_RESOURCES still lists local .env/OpenAI; reconcile."
+
+    flo-fi:
+      configs_seen: ["dev", "prd"]
+      api_key_names_from_repo:
+        - ELEVEN_LABS_API_KEY
+        - FAL_AI_API_KEY
+        - LEONARDO_API_KEY
+        - VERCEL_BLOB_READ_WRITE_TOKEN
+      notes: "Scripts say FAL_AI_API_KEY is in Doppler/flo-fi/prd. Prior audit said flo-fi missing some auth secrets; refresh needed."
+
+    hypocrisynow:
+      configs_seen: ["dev"]
+      api_key_names_from_repo:
+        - ADMIN_API_KEY
+        - OPENAI_API_KEY
+        - RAILWAY_API_TOKEN
+        - SEARCH_API_KEY
+        - VERCEL_TOKEN
+      notes: "Docs say all secrets are Doppler-managed. .env.example/.env.reference contain placeholders only; verify no live values."
+
+    muffinpanrecipes:
+      configs_seen: ["prd", "stg"]
+      api_key_names_from_repo:
+        - ANTHROPIC_API_KEY
+        - BLOB_READ_WRITE_TOKEN
+        - GOOGLE_API_KEY
+        - MUFFINPANRECIPES_R2_SECRET_ACCESS_KEY
+        - NANOBANANA_API_KEY
+        - OPENAI_API_KEY
+        - STABILITY_API_KEY
+      notes: "Project-level EXTERNAL_RESOURCES.yaml lists DOPPLER_TOKEN. Verify this is documentation-only or a deployment-scoped token, not a hardcoded value."
+
+    project-tracker:
+      configs_seen: ["dev"]
+      api_key_names_from_repo:
+        - AGENT_CHAT_API_KEY
+        - GOOGLE_API_KEY
+        - TURSO_BRAIN_TOKEN
+        - TURSO_KANBAN_TOKEN
+      notes: "Prior audit said project-tracker used TURSO tokens from openclaw/dev; must move/verify ownership."
+
+    synth-insight-labs:
+      configs_seen: ["prd"]
+      api_key_names_from_repo:
+        - COST_TRACKER_API_KEY
+        - XAI_API_KEY
+      notes: "Prior audit called this the shared infra hub. It may intentionally hold central GitHub App/package tokens; AI provider key sharing should be reviewed."
+
+    trading-copilot:
+      configs_seen: ["dev"]
+      api_key_names_from_repo:
+        - ANTHROPIC_API_KEY
+        - FINNHUB_API_KEY
+        - TRADIER_API_KEY
+      stale_or_pending_cleanup:
+        - OPENAI_API_KEY
+        - GOOGLE_API_KEY
+        - XAI_API_KEY
+      notes: "Arena-related AI keys remain in Doppler but current code no longer uses them; cleanup pending."
+
+  legacy_or_local_key_references:
+    project-scaffolding:  # ARCHIVED 2026-09-19
+      storage: ".env (legacy/local)"
+      key_names:
+        - SCAFFOLDING_ANTHROPIC_KEY
+        - SCAFFOLDING_DEEPSEEK_KEY
+        - SCAFFOLDING_GOOGLE_KEY
+        - SCAFFOLDING_OPENAI_KEY
+      action: "Move to Doppler or explicitly mark as local-only; normalize to provider API_KEY names if possible."
+    holoscape:
+      storage: ".env (removed from Doppler March 2026)"
+      key_names:
+        - HOLOSCAPE_ANTHROPIC_KEY
+        - HOLOSCAPE_OPENAI_KEY
+      action: "Verify current auth path; project code now appears to prefer OAuth/subscription for Anthropic."
+    image-workflow:
+      storage: ".env"
+      key_names:
+        - IMAGE_WORKFLOW_OPENAI_API_KEY
+      action: "Verify project still exists/uses this key; move to Doppler if active."
+    data-vault-factory:
+      storage: "Doppler per registry; code not on laptop during prior audit"
+      key_names:
+        - DVF_ANTHROPIC_KEY
+        - DVF_FIRECRAWL_KEY
+        - DVF_GHOST_ADMIN_KEY
+        - DVF_GUMROAD_TOKEN
+        - DVF_OPENAI_KEY
+      action: "Normalize names if DVF is revived or moved into Auxesis."
+
+  hardcoded_value_findings:
+    live_secret_values_found: "none in first-pass active-project grep"
+    placeholders_found:
+      - "hypocrisynow/.env.example: fake OpenAI-style placeholder"
+      - "hypocrisynow/.env.reference.md: fake OpenAI-style placeholder"
+      - "Smart-Invoice-Follow-Up-Workflow/.env.example: Stripe/Make/Resend/Vercel placeholders"
+    needs_follow_up:
+      - "Muffinpanrecipes documents DOPPLER_TOKEN; verify no deployment token value is stored in repo, shell history, launchd, or Vercel."
+      - "Run a Doppler names export for every project/config and compare against this table once local keyring auth is fixed."
+      - "Run a dedicated secret scanner with entropy detection; grep only catches common prefixes."
+
+  weird_or_noncanonical_names:
+    - name: GROK_API_KEY
+      preferred: XAI_API_KEY
+      scope: "xAI/Grok provider key"
+      notes: "Confirmed in auxesis Doppler names and prior infrastructure audit; XAI_API_KEY is already present and should be canonical."
+    - name: SCAFFOLDING_DEEPSEEK_KEY
+      preferred: DEEPSEEK_API_KEY
+    - name: SCAFFOLDING_OPENAI_KEY
+      preferred: OPENAI_API_KEY
+    - name: SCAFFOLDING_ANTHROPIC_KEY
+      preferred: ANTHROPIC_API_KEY
+    - name: SCAFFOLDING_GOOGLE_KEY
+      preferred: GOOGLE_API_KEY
+    - name: CORTANA_OPENAI_KEY
+      preferred: OPENAI_API_KEY inside cortana-personal-ai scope
+    - name: CORTANA_OPENAI_API_KEY
+      preferred: OPENAI_API_KEY inside cortana-personal-ai Doppler scope
+    - name: IMAGE_WORKFLOW_OPENAI_API_KEY
+      preferred: OPENAI_API_KEY inside image-workflow Doppler scope
+    - name: HOLOSCAPE_OPENAI_KEY
+      preferred: OPENAI_API_KEY inside holoscape scope
+    - name: HOLOSCAPE_ANTHROPIC_KEY
+      preferred: ANTHROPIC_API_KEY inside holoscape scope
+    - name: DVF_OPENAI_KEY
+      preferred: OPENAI_API_KEY inside data-vault-factory Doppler scope
+    - name: DVF_ANTHROPIC_KEY
+      preferred: ANTHROPIC_API_KEY inside data-vault-factory Doppler scope
+    - name: TRADING_OPENAI_KEY
+      preferred: OPENAI_API_KEY inside trading-copilot Doppler scope
+      notes: "Registry example only; current trading-copilot entry already uses ANTHROPIC_API_KEY for live code."
+    - name: ANTHROPIC_GITHUB_API_KEY
+      preferred: ANTHROPIC_API_KEY for GitHub Actions unless action isolation requires a separate secret name
+      notes: "Workflow secret name, not runtime app config. Present in claude-review workflow templates and archived workflows."
+    - name: MUFFIN_STABILITY_API_KEY
+      preferred: STABILITY_API_KEY inside muffinpanrecipes Doppler scope
+
+  not_ai_provider_key_discrepancies:
+    - name: GOOGLE_TOKEN_ENCRYPTION_KEY
+      reason: "Application encryption key; do not rename to GOOGLE_API_KEY."
+    - name: GOOGLE_CLOUD_API_KEY
+      reason: "Cloud service key naming may be service-specific; do not merge with Google AI provider key without consumer review."
+    - name: ANTHROPIC_PROXY_KEY
+      reason: "Proxy/gateway auth, not the canonical Anthropic provider API key."
+    - name: AZURE_OPENAI_API_KEY
+      reason: "Azure OpenAI has provider-specific endpoint/key semantics; do not collapse into OPENAI_API_KEY automatically."
+    - name: AZURE_ANTHROPIC_KEY
+      reason: "Azure-scoped Anthropic auth, not the canonical Anthropic provider API key."
+
+# COST SUMMARY
+cost_summary:
+  infrastructure: 21  # Railway ($5) + Make.com Pro ($16)
+  ai_apis: 18  # Variable 15-20
+  total_known: 39  # ~$35-40/month
+  total_unknown: 0  # Need audits for some projects
+
+# REJECTED/UNUSED SERVICES
+# Purpose: Don't re-sign up for things we already tried
+rejected_services:
+  - name: SendGrid
+    reason: "Couldn't log into account. Replaced with Resend."
+  - name: WhatsApp (via Twilio)
+    reason: "Needs dedicated phone number. Google Voice doesn't work. Dropped for OpenClaw comms."
+
+cancelled_accounts: []
+
+# ACTION ITEMS
+action_items:
+  immediate:
+    - "✅ Decentralize .env files using global template"
+    - "Audit for orphaned accounts (check email, credit card, password manager)"
+  
+  this_week:
+    - "Migrate individual project keys to their respective .env files"
+    - "Audit 3d-pose-factory resources (Doppler project deleted 2026-09-19; tree in _archive)"
+    - "Audit Hypocrisy Now resources"
+  
+  ongoing:
+    - "Update this file when adding new services"
+    - "Monthly cost review (end of each month)"
+    - "Clean up unused accounts"
+    - "Document credential locations"
+
+# WHEN YOU GET A BILL/NOTIFICATION
+emergency_response:
+  - "Check this file - See which project uses the service"
+  - "Update cost if changed - Keep estimates current"
+  - "Verify still needed - Cancel if not being used"
+  - "Document any issues - Add notes"
+
+# BEFORE ADDING A NEW SERVICE
+before_adding_service:
+  checklist:
+    - "Do we already have something that does this? (Check services_by_function)"
+    - "Have we tried this before? (Check rejected_services)"
+    - "Which project needs this? (Document immediately)"
+    - "What's the cost? (Know before committing)"
+    - "Can we use existing service instead? (Avoid proliferation)"
+  
+  steps_to_add:
+    - "Check services_by_function - avoid duplicates"
+    - "Check rejected_services - don't retry failures"
+    - "Add to projects section above with env_var name"
+    - "Add to services_by_function category"
+    - "Update cost_summary"
+    - "Document credential location"
+    - "Update metadata.last_updated"
+
+# DOMAIN & PACKAGE REGISTRY
+# Purpose: Track all registered names so we don't lose track or let them expire
+domains_and_packages:
+  domains:
+    - domain: "synthinsightlabs.com"
+      registrar: "Namecheap"
+      account: synthinsightlabs
+      project: "synth-insight-labs (company)"
+      dns: "Cloudflare"
+      registered: "2026-03"
+    - domain: "x402gateway.dev"
+      registrar: "Namecheap"
+      account: synthinsightlabs
+      project: "data-vault-factory (x402-gateway)"
+      registered: "2026-03"
+    - domain: "mcp-trust-scanner.com"
+      registrar: "Namecheap"
+      account: synthinsightlabs
+      project: "data-vault-factory (mcp-trust-scanner)"
+      registered: "2026-03-21"
+    - domain: "mcp-trust-scanner.dev"
+      registrar: "Namecheap"
+      account: synthinsightlabs
+      project: "data-vault-factory (mcp-trust-scanner)"
+      registered: "2026-03-21"
+    - domain: "mcp-trust-gateway.com"
+      registrar: "Namecheap"
+      account: synthinsightlabs
+      project: "data-vault-factory (mcp-trust-gateway)"
+      registered: "2026-03-21"
+    - domain: "mcp-trust-gateway.dev"
+      registrar: "Namecheap"
+      account: synthinsightlabs
+      project: "data-vault-factory (mcp-trust-gateway)"
+      registered: "2026-03-21"
+    - domain: "mcp-trust.ai"
+      registrar: "Namecheap"
+      account: synthinsightlabs
+      project: "data-vault-factory (umbrella brand)"
+      registered: "2026-03-21"
+    - domain: "mcp-trust-registry.dev"
+      registrar: "Namecheap"
+      account: synthinsightlabs
+      project: "data-vault-factory (mcp-trust-registry)"
+      registered: "2026-03-21"
+    - domain: "mcp-trust-policy.dev"
+      registrar: "Namecheap"
+      account: synthinsightlabs
+      project: "data-vault-factory (mcp-trust-policy)"
+      registered: "2026-03-21"
+    - domain: "mcp-trust-console.dev"
+      registrar: "Namecheap"
+      account: synthinsightlabs
+      project: "data-vault-factory (mcp-trust-console)"
+      registered: "2026-03-21"
+
+  pypi_packages:
+    - name: "x402-gateway"
+      version: "0.0.1"
+      owner: "SynthInsight Labs"
+      project: "data-vault-factory (x402-gateway)"
+      registered: "2026-03"
+    - name: "mcp-trust-scanner"
+      version: "0.0.1"
+      owner: "SynthInsight Labs"
+      project: "data-vault-factory (mcp-trust)"
+      registered: "2026-03-21"
+    - name: "mcp-trust-gateway"
+      version: "0.0.1"
+      owner: "SynthInsight Labs"
+      project: "data-vault-factory (mcp-trust)"
+      registered: "2026-03-21"
+    - name: "mcp-trust-registry"
+      version: "0.0.1"
+      owner: "SynthInsight Labs"
+      project: "data-vault-factory (mcp-trust)"
+      registered: "2026-03-21"
+    - name: "mcp-trust-policy"
+      version: "0.0.1"
+      owner: "SynthInsight Labs"
+      project: "data-vault-factory (mcp-trust)"
+      registered: "2026-03-21"
+    - name: "mcp-trust-console"
+      version: "0.0.1"
+      owner: "SynthInsight Labs"
+      project: "data-vault-factory (mcp-trust)"
+      registered: "2026-03-21"
+
+  npm_packages:
+    - name: "x402-gateway"
+      version: "0.0.1"
+      owner: "eriksjaastad"
+      project: "data-vault-factory (x402-gateway)"
+      registered: "2026-03"
+    - name: "mcp-trust-scanner"
+      version: "0.0.1"
+      owner: "eriksjaastad"
+      project: "data-vault-factory (mcp-trust)"
+      registered: "2026-03-21"
+    - name: "mcp-trust-gateway"
+      version: "0.0.1"
+      owner: "eriksjaastad"
+      project: "data-vault-factory (mcp-trust)"
+      registered: "2026-03-21"
+    - name: "mcp-trust-registry"
+      version: "0.0.2"
+      owner: "eriksjaastad"
+      project: "data-vault-factory (mcp-trust)"
+      registered: "2026-04-14"
+      notes: "Placeholder, no functional code. Bumped to 0.0.2 during registration to fix an initial description error."
+    - name: "mcp-trust-policy"
+      version: "0.0.2"
+      owner: "eriksjaastad"
+      project: "data-vault-factory (mcp-trust)"
+      registered: "2026-04-14"
+      notes: "Placeholder, no functional code. Bumped to 0.0.2 during registration to fix an initial description error."
+    - name: "mcp-trust-console"
+      version: "0.0.2"
+      owner: "eriksjaastad"
+      project: "data-vault-factory (mcp-trust)"
+      registered: "2026-04-14"
+      notes: "Placeholder, no functional code. Bumped to 0.0.2 during registration to fix an initial description error."
+
+  failed_registrations:
+    - name: "mcp-scanner"
+      registry: "PyPI"
+      reason: "Too similar to existing project (mcp-scan by Snyk)"
+      date: "2026-03-21"
+
+# SECURITY NOTES
+security:
+  policy: "Decentralized Project-Specific Keys"
+  template_source: "{PROJECTS_ROOT}/.env.project-template"
+  credential_locations:
+    - "Each project: .env file (git-ignored)"
+  
+  good_practices:
+    - "✅ All .env files in .gitignore"
+    - "✅ Never committed to git"
+    - "⚠️ Use global template for naming consistency"
+    - "⚠️ Consider key rotation policy (every 6-12 months)"
+
+# RECENT DISCOVERIES
+recent_changes:
+  - date: "2026-09-05"
+    change: |
+      Firecrawl: found and killed a $99/mo subscription that had been billing since May.
+      Root cause was TWO Firecrawl accounts, one per identity. Erik logged in and saw
+      "free plan, no usage" because that was the spudlogic account; the paid Standard plan
+      was on admin@synthinsightlabs and had never sent a receipt to any inbox he reads.
+      About $415 on Visa ...9311 (May 6, Jun 7, Jul 6, Aug 6) for 404 credits of 400,000.
+      Erik set it to free on 2026-09-05. Added a new top-level multi_account_vendors section
+      to make same-vendor/two-identity splits findable, since nothing in this file could
+      express it before. Also resolved hypocrisynow's "account: TODO (spudlogic?)" — its
+      FIRECRAWL_API_KEY is the synthinsightlabs one, which is precisely the link that would
+      have caught this in April. OPEN: verify no $99 charge on/after 2026-09-06 before
+      calling it closed. SEPARATE FIX NEEDED: tax-organizer/docs/TY2026_NOTES.md claims
+      "Firecrawl $99 (cancelled ~Aug)" — wrong, it billed Aug 6; affects the 2026 return.
+  - date: "2026-07-03"
+    change: |
+      Purged smart-invoice-workflow (dead product) from this registry entirely, per Erik: removed the
+      project entry, its api-key inventory block, the smartinvoiceworkflow.com domain, the Neon DB line,
+      the SIW_STRIPE_SECRET_KEY naming entry, and dropped it from the SIL GitHub-App identity lists
+      (10 apps now). It had lingered on the dashboard because the parser doesn't filter dead projects;
+      removing the entry stops it surfacing. Also confirmed SIL is a real LLC (llc: true, EIN in Doppler)
+      and fixed the land-tracker email claim (Discord-only; Gmail staged but unbuilt). This supersedes PR #31.
+      FOLLOW-UP for Erik: GITHUB_APP_*_SMART_INVOICE_WORKFLOW secrets still exist in synth-insight-labs
+      Doppler — flagged for deletion (destructive, not done here). The workspace-mcp server on the Mac Mini
+      is authed to help@smartinvoiceworkflow.com and will break when the domain lapses.
+  - date: "2026-06-29"
+    change: |
+      Reconciliation pass after ~2.5 months stale. (1) smart-invoice-workflow marked DEAD — failed costly
+      product, local dir archived to _archive/, GitHub repo kept, Vercel deploy already removed, domain
+      smartinvoiceworkflow.com flagged for non-renewal, Make.com $16/mo sub flagged for review. (2) Added 11
+      projects that had live Doppler configs but were missing here: synth-insight-labs (identity/infra hub),
+      auxesis, auxesis-research-labs, flo-fi, openclaw, hermes, land-tracker, agent-runtime-config, agent-chat,
+      ai-memory-replay, analyze-youtube-videos — services inferred from Doppler secret NAMES only. (3) Flagged
+      synthinsightlabs account: SYNTH_INSIGHT_LABS_LLC_EIN now exists in Doppler, contradicting 'llc: false' —
+      verify LLC/bank status. (4) Noted land-tracker sends email via Gmail app password (existing send path).
+      Costs for new entries marked "audit" pending confirmation — do not treat as final.
+  - date: "2026-04-20"
+    change: |
+      trading-copilot: Tradier approved and activated. Sandbox account VA61078727 (margin,
+      individual, non-pro per market_data_policy). Tradier MCP server registered at user scope
+      (https://mcp.tradier.com/mcp) with PAPER_TRADING: true header. Secrets stored in Doppler
+      as TRADIER_API_KEY and TRADIER_ACCOUNT_NUMBER (replaces the placeholder
+      TRADING_TRADIER_ACCESS_TOKEN env_var listed on the resource). REST sandbox smoke test
+      confirmed real-time quotes (trade_date within seconds of now — not 15-min delayed, which
+      resolves an open question on card #6017). Live trading is gated on #5968 risk numbers.
+  - date: "2026-04-17"
+    change: |
+      trading-copilot: removed Railway (Postgres + cron dispatcher), Discord webhooks, and the
+      entire Model Arena ecosystem (daily LLM prediction logging, weekly/monthly review scripts).
+      4 months of arena data archived locally before DB deletion. Tradier added as pending —
+      paper trading + free real-time data, signing up under spudlogic per new market_data_policy.
+      Added top-level market_data_policy: always use personal account for exchange data feeds to
+      avoid "professional subscriber" 10-30× fees. Removed xAI, Google AI, OpenAI from
+      trading-copilot's service list (arena-only; not used by what remains). Keys remain in
+      Doppler pending cleanup audit.
+  - date: "2026-04-14"
+    change: "Brought pypi_packages and npm_packages in sync with actual registry state. pypi_packages now correctly lists all 6 MCP Trust + x402 packages (added mcp-trust-registry, mcp-trust-policy, mcp-trust-console which were previously missing from this file but had been registered on 2026-03-21). npm_packages grew to 6 total — mcp-trust-registry, mcp-trust-policy, and mcp-trust-console were registered on npm for the first time today at version 0.0.2 (placeholder releases with no functional code). Previous file had only 3 PyPI and 3 npm packages listed even though PyPI had 6."
+  - date: "2026-03-10"
+    change: "Added account registry (spudlogic vs synthinsightlabs). Tagged all projects with account owner. Added unassigned SIL services (Twilio, RSS.app, Brave Search API, Reddit) discovered via Gmail audit."
+  - date: "2026-01-06"
+    change: "Implemented decentralized environment variable system with global template"
+  - date: "2025-12-31"
+    change: "Converted to YAML format for better parsing"
+
+# 2026-09-19: project-scaffolding archived to ~/projects/_archive/project-scaffolding (Phase 7). Local path no longer ~/projects/project-scaffolding. model-bench seats validator still reads scaffold/seats.py from the archive tree.
+
+# 2026-09-19: Doppler project 3d-pose-factory deleted by Erik. No live doppler.yaml pinned it. Registry entry marked archived/doppler:deleted. Secrets were last fetched ~2026-04; do not recreate unless resurrecting.

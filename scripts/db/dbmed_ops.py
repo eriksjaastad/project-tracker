@@ -67,6 +67,7 @@ ALLOWLIST: dict[str, Kind | tuple[Kind, set[str]]] = {
     "get_ai_agents": Kind.READ,
     "get_services": Kind.READ,
     "get_activity": Kind.READ,
+    "get_task_counts_by_project": Kind.READ,
     "get_tasks": Kind.READ,
     "get_task": Kind.READ,
     "resolve_task_id": Kind.READ,

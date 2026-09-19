@@ -1300,6 +1300,55 @@ class DatabaseManager:
                 (pt_next_id(self.db_path), project_id, key, cleaned, datetime.now(timezone.utc).isoformat()),
             )
     
+
+    def get_task_counts_by_project(
+        self,
+        statuses: Optional[List[str]] = None,
+        include_archived: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Count open cards grouped by (project, status).
+
+        The dashboard's board breakdown needs one number per project per
+        column, not the rows themselves. Fetching 2,400 enriched tasks to
+        length() them client-side is the N+1 the board already learned to
+        avoid, so this aggregates in SQLite and returns at most
+        projects x statuses rows.
+
+        Args:
+            statuses: Restrict to these statuses (optional; all when None).
+            include_archived: Include tasks with a non-NULL archived_at.
+                Archived cards are Done rows past the per-project display
+                cap, so the default False matches what the board renders.
+
+        Returns:
+            List of {"project_id", "status", "count"} dicts, unordered.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+
+            query = "SELECT project_id, status, COUNT(*) AS count FROM tasks WHERE 1=1"
+            params: List[Any] = []
+
+            if not include_archived:
+                query += " AND archived_at IS NULL"
+
+            if statuses:
+                placeholders = ",".join("?" for _ in statuses)
+                query += f" AND status IN ({placeholders})"
+                params.extend(statuses)
+
+            query += " GROUP BY project_id, status"
+
+            cursor.execute(query, params)
+            return [
+                {
+                    "project_id": row["project_id"],
+                    "status": row["status"],
+                    "count": row["count"],
+                }
+                for row in cursor.fetchall()
+            ]
+
     def get_tasks(
         self,
         project_id: Optional[str] = None,
