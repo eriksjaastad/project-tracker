@@ -185,6 +185,17 @@ class RemoteDatabaseManager:
             return {}
         return {int(k): v for k, v in result.items()}
 
+    def is_blocked(self, task_id: int) -> tuple[bool, list[int]]:
+        """Check if a task is blocked, returning (is_blocked, blocker_ids).
+
+        JSON-RPC serializes tuples as lists. This wrapper coerces back to tuple
+        to maintain the contract callers expect.
+        """
+        result = self._client.call("is_blocked", {"task_id": task_id})
+        if isinstance(result, list) and len(result) == 2:
+            return (result[0], result[1])
+        return result  # Fallback if format unexpected
+
     def seed(self, task_id: int, **columns: Any) -> Any:
         """Test-fixture seeding. Refused unless the registry entry allows it.
 
