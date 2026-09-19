@@ -11,14 +11,15 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import dashboard.app as dashboard_app
+from db.backend_manager import DatabaseManager as BackendDatabaseManager
 from db.manager import DatabaseManager
 from db.schema import create_database
 
 
-def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, dict[str, int]]:
+def _setup_db(tmp_path: Path) -> tuple[Path, BackendDatabaseManager, dict[str, int]]:
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = DatabaseManager()
+    db = BackendDatabaseManager(db_path)
     task_ids: dict[str, int] = {}
 
     for project_id in ("project-tracker", "image-workflow"):
@@ -35,7 +36,7 @@ def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, dict[str, int]]:
 
 
 def _insert_history(
-    db: DatabaseManager, task_id: int, project_id: str, rows: list[tuple[str, str, str]]
+    db: BackendDatabaseManager, task_id: int, project_id: str, rows: list[tuple[str, str, str]]
 ) -> None:
     with db._get_conn() as conn:
         cursor = conn.cursor()
