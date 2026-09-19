@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { PageShell } from './PageShell';
+import { KanbanBreakdown } from './KanbanBreakdown';
 import { CostPanel } from './CostPanel';
 import { ShadowPricingPanel } from './ShadowPricingPanel';
 import { ApiActivityPanel } from './ApiActivityPanel';
@@ -227,6 +228,9 @@ export function DashboardPage() {
       subtitle={summary ? `${summary.total_repos} repos · ${summary.recent_commit_count} commits this week${fetchErrors.length ? ` · ${fetchErrors.length} incomplete` : ''}` : 'Project activity and API usage'}
     >
       <div className="dashboard-grid">
+        {/* Kanban board breakdown — the work in flight, before anything else */}
+        <KanbanBreakdown />
+
         {/* API Cost Overview */}
         <CostPanel />
         <ApiActivityPanel />

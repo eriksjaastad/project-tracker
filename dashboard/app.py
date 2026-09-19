@@ -53,6 +53,11 @@ from scripts.pt import rebuild_project_graph
 
 logger = get_logger(__name__)
 
+# The open columns of the Kanban board, in board order. Done and Cancelled are
+# deliberately absent: these drive the dashboard breakdown of work still in
+# flight, not an archive count.
+BOARD_COLUMNS = ("Backlog", "To Do", "In Progress", "Review")
+
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
     """Lifespan handler: rebuild project graph in background after server starts."""
@@ -1053,6 +1058,58 @@ async def api_stats():
         "projects_with_ai": projects_with_ai,
         "alerts": alert_counts
     }
+
+
+@app.get("/api/kanban/breakdown")
+async def api_kanban_breakdown():
+    """Per-project card counts for the open Kanban columns.
+
+    Feeds the dashboard's board breakdown. Deliberately an aggregate rather
+    than a client-side count over /api/tasks: that endpoint enriches and
+    returns every one of the ~2,400 live rows, which is a lot of payload to
+    produce four columns of integers.
+    """
+    try:
+        db = DatabaseManager()
+        rows = db.get_task_counts_by_project(statuses=list(BOARD_COLUMNS))
+        # A card cannot be created for an unregistered project and deleting a
+        # project takes its cards with it, so the id fallback should never
+        # fire — it is here so a name lookup miss degrades to the id rather
+        # than 500-ing the whole section.
+        project_names = {
+            project["id"]: project.get("name") or project["id"]
+            for project in db.get_all_projects()
+        }
+
+        columns: Dict[str, List[Dict[str, object]]] = {column: [] for column in BOARD_COLUMNS}
+        for row in rows:
+            project_id = row["project_id"]
+            columns[row["status"]].append({
+                "project_id": project_id,
+                "project": project_names.get(project_id, project_id),
+                "count": row["count"],
+            })
+
+        # Ranked by card count, heaviest first; name breaks ties so the order
+        # is stable between polls instead of following SQLite's grouping.
+        for entries in columns.values():
+            entries.sort(key=lambda entry: (-entry["count"], str(entry["project"]).lower()))
+
+        return {
+            "statuses": list(BOARD_COLUMNS),
+            "columns": columns,
+            "totals": {
+                column: sum(entry["count"] for entry in columns[column])
+                for column in BOARD_COLUMNS
+            },
+            "generated_at": datetime.now().isoformat(),
+        }
+    except Exception as exc:
+        logger.error(f"Error building Kanban breakdown: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to build the Kanban breakdown"
+        )
 
 
 @app.get("/api/learning")
