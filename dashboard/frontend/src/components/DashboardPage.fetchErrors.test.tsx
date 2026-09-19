@@ -6,6 +6,7 @@ import { DashboardPage } from './DashboardPage';
 
 // Panels that fetch on their own — not under test here.
 vi.mock('./CostPanel', () => ({ CostPanel: () => <div>Independent costs</div> }));
+vi.mock('./KanbanBreakdown', () => ({ KanbanBreakdown: () => null }));
 vi.mock('./ShadowPricingPanel', () => ({ ShadowPricingPanel: () => null }));
 vi.mock('./ApiActivityPanel', () => ({ ApiActivityPanel: () => null }));
 
