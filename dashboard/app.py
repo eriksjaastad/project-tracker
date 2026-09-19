@@ -4,7 +4,7 @@ import sys
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Optional, List, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import shutil
 import subprocess
@@ -3855,7 +3855,10 @@ def _fetch_github_data() -> Dict:
         all_prs.extend(prs)
 
     # 4. Recent commits (last 7 days) — only from tracked repos
-    seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat() + "Z"
+    # Use timezone-aware UTC and a Zulu timestamp GitHub accepts. Avoid
+    # datetime.utcnow().isoformat()+"Z" (naive + micros) which made string
+    # comparisons against GitHub's pushedAt brittle.
+    seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     recent_commits: List[Dict] = []
     for repo in repos:
         pushed = repo.get("pushedAt", "")
