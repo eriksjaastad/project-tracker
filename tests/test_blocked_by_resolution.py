@@ -51,13 +51,13 @@ def runner() -> CliRunner:
 
 
 def _find(db: BackendDatabaseManager, text: str):
-    return next(t for t in backend_db.get_tasks(project_id=PROJECT_ID) if t["text"] == text)
+    return next(t for t in db.get_tasks(project_id=PROJECT_ID) if t["text"] == text)
 
 
 def _unused_display_id(db: BackendDatabaseManager) -> int:
     """A small integer that resolves to no task at all."""
     candidate = 999999
-    assert backend_db.resolve_task_id(candidate) is None
+    assert db.resolve_task_id(candidate) is None
     return candidate
 
 
@@ -178,16 +178,16 @@ def test_update_can_still_clear_blocked_by(backend_db, runner):
 # ---------------------------------------------------------------------
 
 
-def _force_blocked_by(db: DatabaseManager, task_id: int, value: str) -> None:
+def _force_blocked_by(db: BackendDatabaseManager, task_id: int, value: str) -> None:
     """Write blocked_by past the CLI, simulating pre-fix rows in the DB."""
-    with backend_db._get_conn() as conn:
+    with db._get_conn() as conn:
         conn.execute(
             "UPDATE tasks SET blocked_by = ? WHERE id = ?", (value, task_id)
         )
         conn.commit()
 
 
-def test_show_flags_stored_ids_that_resolve_to_nothing(db, backend_db, runner):
+def test_show_flags_stored_ids_that_resolve_to_nothing(backend_db, runner):
     target = backend_db.add_task(text="Target", project_id=PROJECT_ID)
     bogus = _unused_display_id(backend_db)
     _force_blocked_by(backend_db, target["id"], json.dumps([bogus]))
