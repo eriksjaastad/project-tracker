@@ -650,7 +650,11 @@ def _enrich_task_payloads_with_display_ids(tasks: list[dict], db: DatabaseManage
     task_ids: set[int] = set()
     for task in tasks:
         _collect_task_display_ids(task, task_ids)
-    display_map = db.get_task_display_id_map(list(task_ids))
+    # Keyword args required by the dbmed RPC proxy; JSON-RPC also stringifies
+    # snowflake dict keys, so coerce before lookup or every card falls back to
+    # the 20-digit pk (what the Kanban board was showing after cutover).
+    raw_map = db.get_task_display_id_map(task_ids=list(task_ids)) if task_ids else {}
+    display_map = {int(k): int(v) for k, v in (raw_map or {}).items()}
     return [_apply_task_display_ids(task, display_map) for task in tasks]
 
 
@@ -2558,8 +2562,11 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
                 logger.warning(f"Agent task #{task_id} started without a prompt")
             is_blocked, blocking_ids = db.is_blocked(task_id)
             if is_blocked:
-                blocking_display_map = db.get_task_display_id_map(blocking_ids)
-                blocking_str = ", ".join([f"#{blocking_display_map.get(bid, bid)}" for bid in blocking_ids])
+                raw_blockers = db.get_task_display_id_map(task_ids=list(blocking_ids))
+                blocking_display_map = {int(k): int(v) for k, v in (raw_blockers or {}).items()}
+                blocking_str = ", ".join(
+                    f"#{blocking_display_map.get(int(bid), bid)}" for bid in blocking_ids
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Cannot start task while blocked by: {blocking_str}"
