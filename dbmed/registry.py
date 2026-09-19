@@ -60,7 +60,7 @@ class RegistryEntry:
     searched ~/.local/lib, which the agent's own user owns at mode 755.
     """
     offsite_rclone_dest: str | None = None
-    """rclone destination for off-machine copies (e.g. gbackup:project-tracker/db-backups).
+    """rclone destination for off-machine copies (portfolio: gbackup:db-backups/<project>).
 
     Root-owned registry value — agents cannot redirect copies via env vars.
     None means offsite is not configured.

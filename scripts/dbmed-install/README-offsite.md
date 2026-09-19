@@ -13,7 +13,7 @@ sudo env \
   REPO="$PWD" \
   USER_RCLONE_CONF="$HOME/.config/rclone/rclone.conf" \
   RCLONE_BIN="$(command -v rclone)" \
-  OFFSITE_DEST="gbackup:project-tracker/db-backups" \
+  OFFSITE_DEST="gbackup:db-backups/project-tracker" \
   bash scripts/dbmed-install/install-offsite.sh
 ```
 
@@ -35,5 +35,6 @@ The installer:
 `scripts/backup-db.sh` (LaunchAgent) calls `pt backup create` then
 `pt backup offsite`. Offsite failures are logged but do not fail the local backup.
 
-Override `OFFSITE_DEST` if you want another remote/path. Override `REMOTE_SECTION`
+Portfolio convention: `gbackup:db-backups/<project-name>/` (same remote and tree for every
+project). Override `OFFSITE_DEST` only if you must; override `REMOTE_SECTION`
 (default `gbackup`) if the rclone remote name differs.

@@ -12,7 +12,7 @@ set -euo pipefail
 DEST_CONF="${DEST_CONF:-/usr/local/etc/dbmed/rclone.conf}"
 REGISTRY="${REGISTRY:-/usr/local/etc/dbmed/registry.d/project-tracker.toml}"
 REMOTE_SECTION="${REMOTE_SECTION:-gbackup}"
-DEST="${OFFSITE_DEST:-gbackup:project-tracker/db-backups}"
+DEST="${OFFSITE_DEST:-gbackup:db-backups/project-tracker}"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run as root via sudo env ..." >&2
