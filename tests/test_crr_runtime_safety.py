@@ -8,18 +8,21 @@ from pathlib import Path
 
 import pytest
 
+# This module uses direct database access and direct schema inspection
+pytestmark = pytest.mark.no_dbmed
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from db.calendar_manager import CalendarManager  # noqa: E402
+from db.backend_calendar_manager import CalendarManager as BackendCalendarManager  # noqa: E402
 from db.attachment_paths import attachments_dir
-from db.manager import DatabaseManager  # noqa: E402
+from db.backend_manager import DatabaseManager as BackendDatabaseManager  # noqa: E402
 from db.schema import create_database  # noqa: E402
 
 
-def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, CalendarManager]:
+def _setup_db(tmp_path: Path) -> tuple[Path, BackendDatabaseManager, BackendCalendarManager]:
     db_path = tmp_path / "tracker.db"
     create_database(db_path)
-    return db_path, DatabaseManager(), CalendarManager(db_path=db_path)
+    return db_path, BackendDatabaseManager(db_path), BackendCalendarManager(db_path)
 
 
 def _count(conn: sqlite3.Connection, table: str) -> int:
@@ -29,7 +32,7 @@ def _count(conn: sqlite3.Connection, table: str) -> int:
 def test_crr_insert_paths_assign_explicit_ids(monkeypatch, tmp_path: Path):
     ids = iter([101, 102, 103, 104, 105, 106, 107])
     monkeypatch.setattr("db.backend_manager.pt_next_id", lambda _db_path: next(ids))
-    monkeypatch.setattr("db.calendar_manager.pt_next_id", lambda _db_path: next(ids))
+    monkeypatch.setattr("db.backend_calendar_manager.pt_next_id", lambda _db_path: next(ids))
 
     db_path, db, cal = _setup_db(tmp_path)
     db.add_project("proj", "Proj", "/tmp/proj", "active")

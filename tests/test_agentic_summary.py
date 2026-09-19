@@ -6,19 +6,16 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import dashboard.app as dashboard_app
-from db.manager import DatabaseManager
-from db.schema import create_database
+from fastapi.testclient import TestClient
+
+from db.backend_manager import DatabaseManager as BackendDatabaseManager
 
 
-def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, dict[str, int]]:
-    db_path = tmp_path / "test.db"
-    create_database(db_path)
-    db = DatabaseManager()
+def _setup_db(db: BackendDatabaseManager) -> dict[str, int]:
     task_ids: dict[str, int] = {}
 
     for project_id in ("project-tracker", "image-workflow"):
@@ -31,11 +28,11 @@ def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager, dict[str, int]]:
         task = db.add_task(text=f"{project_id} task", project_id=project_id, status="Review")
         task_ids[project_id] = task["id"]
 
-    return db_path, db, task_ids
+    return task_ids
 
 
 def _insert_history(
-    db: DatabaseManager, task_id: int, project_id: str, rows: list[tuple[str, str, str]]
+    db: BackendDatabaseManager, task_id: int, project_id: str, rows: list[tuple[str, str, str]]
 ) -> None:
     with db._get_conn() as conn:
         cursor = conn.cursor()
@@ -49,18 +46,18 @@ def _insert_history(
         conn.commit()
 
 
-def _freeze_now(monkeypatch: pytest.MonkeyPatch, frozen_now: datetime) -> None:
+def _freeze_now(monkeypatch: pytest.MonkeyPatch, dashboard_app_module, frozen_now: datetime) -> None:
     class FrozenDateTime:
         @classmethod
         def now(cls) -> datetime:
             return frozen_now
 
-    monkeypatch.setattr(dashboard_app, "datetime", FrozenDateTime)
+    monkeypatch.setattr(dashboard_app_module, "datetime", FrozenDateTime)
 
 
-def _patch_markers(monkeypatch: pytest.MonkeyPatch, content: str | None) -> None:
-    real_exists = dashboard_app.Path.exists
-    real_read_text = dashboard_app.Path.read_text
+def _patch_markers(monkeypatch: pytest.MonkeyPatch, dashboard_app_module, content: str | None) -> None:
+    real_exists = dashboard_app_module.Path.exists
+    real_read_text = dashboard_app_module.Path.read_text
 
     def fake_exists(self: Path) -> bool:
         if self.name == "agentic_markers.json":
@@ -72,16 +69,17 @@ def _patch_markers(monkeypatch: pytest.MonkeyPatch, content: str | None) -> None
             return content or ""
         return real_read_text(self, *args, **kwargs)
 
-    monkeypatch.setattr(dashboard_app.Path, "exists", fake_exists)
-    monkeypatch.setattr(dashboard_app.Path, "read_text", fake_read_text)
+    monkeypatch.setattr(dashboard_app_module.Path, "exists", fake_exists)
+    monkeypatch.setattr(dashboard_app_module.Path, "read_text", fake_read_text)
 
 
-def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    db_path, db, task_ids = _setup_db(tmp_path)
-    monkeypatch.setenv("PT_DB_PATH", str(db_path))
-    _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
+def test_agentic_summary_aggregates_rates_series_and_markers(dbmed_backend, monkeypatch: pytest.MonkeyPatch):
+    db = dbmed_backend
+    task_ids = _setup_db(db)
+    _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(
         monkeypatch,
+        dashboard_app,
         json.dumps([
             {"date": "2026-03-08", "label": "Workflow change"},
             {"date": "2026-02-20", "label": "Out of range"},
@@ -117,11 +115,11 @@ def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, mon
     assert payload["date_range"] == {"start": "2026-03-08", "end": "2026-03-10"}
 
 
-def test_agentic_summary_filters_by_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    db_path, db, task_ids = _setup_db(tmp_path)
-    monkeypatch.setenv("PT_DB_PATH", str(db_path))
-    _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
-    _patch_markers(monkeypatch, None)
+def test_agentic_summary_filters_by_project(dbmed_backend, monkeypatch: pytest.MonkeyPatch):
+    db = dbmed_backend
+    task_ids = _setup_db(db)
+    _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
+    _patch_markers(monkeypatch, dashboard_app, None)
 
     _insert_history(db, task_ids["project-tracker"], "project-tracker", [
         ("2026-03-10 09:00:00", "Review", "In Progress"),
@@ -142,11 +140,10 @@ def test_agentic_summary_filters_by_project(tmp_path: Path, monkeypatch: pytest.
     assert payload["summary"]["review_entries"] == 0
 
 
-def test_agentic_summary_handles_invalid_days_and_malformed_markers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    db_path, _, _ = _setup_db(tmp_path)
-    monkeypatch.setenv("PT_DB_PATH", str(db_path))
-    _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
-    _patch_markers(monkeypatch, "{not-json")
+def test_agentic_summary_handles_invalid_days_and_malformed_markers(dbmed_backend, monkeypatch: pytest.MonkeyPatch):
+    _setup_db(dbmed_backend)
+    _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
+    _patch_markers(monkeypatch, dashboard_app, "{not-json")
 
     response = TestClient(dashboard_app.app).get("/api/agentic/summary?days=0")
 

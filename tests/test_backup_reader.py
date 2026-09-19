@@ -2,9 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import plistlib
+import pytest
 from pathlib import Path
 
 from scripts.discovery import backup_reader
+
+
+@pytest.fixture(autouse=True)
+def legacy_backup_status(monkeypatch):
+    """These cases cover the legacy filesystem fallback, not daemon listing."""
+    monkeypatch.setattr(backup_reader, "_dbmed_local_full", lambda: None)
+    monkeypatch.setattr(backup_reader, "_registry_offsite_dest", lambda: "")
 
 
 def _write(path: Path, content: str) -> None:

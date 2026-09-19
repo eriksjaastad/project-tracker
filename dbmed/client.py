@@ -173,6 +173,29 @@ class RemoteDatabaseManager:
         """Explicit form, for callers that prefer not to rely on __getattr__."""
         return self._client.call(op, params)
 
+    def get_task_display_id_map(self, task_ids: list) -> dict:
+        """Return {task_id: display_id} mapping with integer keys.
+
+        JSON-RPC serializes dict keys as strings. This wrapper coerces them
+        back to int so callers get the same contract they had with the
+        in-process manager.
+        """
+        result = self._client.call("get_task_display_id_map", {"task_ids": task_ids})
+        if not result:
+            return {}
+        return {int(k): v for k, v in result.items()}
+
+    def is_blocked(self, task_id: int) -> tuple[bool, list[int]]:
+        """Check if a task is blocked, returning (is_blocked, blocker_ids).
+
+        JSON-RPC serializes tuples as lists. This wrapper coerces back to tuple
+        to maintain the contract callers expect.
+        """
+        result = self._client.call("is_blocked", {"task_id": task_id})
+        if isinstance(result, list) and len(result) == 2:
+            return (result[0], result[1])
+        return result  # Fallback if format unexpected
+
     def seed(self, task_id: int, **columns: Any) -> Any:
         """Test-fixture seeding. Refused unless the registry entry allows it.
 

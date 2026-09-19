@@ -100,7 +100,9 @@ def test_rotation_is_a_noop_when_logs_are_absent(tmp_path: Path):
     result = _rotate(tmp_path)
 
     assert result.returncode == 0
-    assert not list(tmp_path.iterdir())
+    # With dbmed autouse fixture, tmp_path may contain _dbmed directory
+    remaining = [p for p in tmp_path.iterdir() if p.name != "_dbmed"]
+    assert not remaining
 
 
 def test_rotation_failure_does_not_block_startup(tmp_path: Path):
