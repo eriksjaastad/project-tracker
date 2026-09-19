@@ -122,6 +122,11 @@ def test_delete_project_cascades_tasks(scan_env):
     db.add_task(text="Disposable", project_id="demo", status="Backlog", priority=None, prompt=None)
 
     assert len(db.get_tasks(project_id="demo")) == 1
+    
+    # Authorize destructive op before calling delete_project
+    import dbmed
+    dbmed.authorize("delete_project is tested")
+    
     db.delete_project("demo")
     assert len(db.get_tasks(project_id="demo")) == 0
 
@@ -206,14 +211,20 @@ def test_scan_integrity_check_force_allows(scan_env, monkeypatch):
     assert proj["status"] == "active"
 
 
+@pytest.mark.no_dbmed
 def test_scan_per_project_transaction_rolls_back_on_failure(scan_env, monkeypatch):
     # Prevents partial updates when a project sync fails mid-transaction
     schema = scan_env["schema"]
     manager = scan_env["manager"]
     pt = scan_env["pt"]
 
+    # For no_dbmed test, reload manager to get BackendDatabaseManager
+    import scripts.db.backend_manager as backend_manager
+    import importlib
+    importlib.reload(backend_manager)
+    
     schema.init_db()
-    db = manager.DatabaseManager()
+    db = backend_manager.DatabaseManager(scan_env["db_path"])
     db.add_project(project_id="good", name="Good", path="good", status="paused")
     db.add_project(project_id="bad", name="Bad", path="bad", status="paused")
 
@@ -234,7 +245,7 @@ def test_scan_per_project_transaction_rolls_back_on_failure(scan_env, monkeypatc
             raise RuntimeError("Injected failure")
         return {"added": 0, "updated": 0, "deleted": 0}
 
-    monkeypatch.setattr(pt.DatabaseManager, "_sync_cron_jobs_with_cursor", _raise_on_bad)
+    monkeypatch.setattr(backend_manager.DatabaseManager, "_sync_cron_jobs_with_cursor", _raise_on_bad)
 
     pt.scan(no_graph=True, dry_run=False, force=True)
 
