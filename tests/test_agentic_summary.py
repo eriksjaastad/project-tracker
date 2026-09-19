@@ -84,12 +84,13 @@ def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, mon
     db_path, db, task_ids = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
     
-    # Patch db.manager.DatabaseManager class to be a factory returning backend instances
-    from db import manager, backend_manager
-    class MockDatabaseManagerFactory:
-        def __call__(self):
-            return backend_manager.DatabaseManager(db_path)
-    monkeypatch.setattr(manager, "DatabaseManager", MockDatabaseManagerFactory())
+    # Patch db.manager.DatabaseManager BEFORE importing dashboard.app
+    from db import manager
+    monkeypatch.setattr(manager, "DatabaseManager", lambda: BackendDatabaseManager(db_path))
+    
+    # NOW import dashboard.app - it will capture our patched DatabaseManager
+    from fastapi.testclient import TestClient
+    import dashboard.app as dashboard_app
     
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(
@@ -133,12 +134,13 @@ def test_agentic_summary_filters_by_project(tmp_path: Path, monkeypatch: pytest.
     db_path, db, task_ids = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
     
-    # Patch db.manager.DatabaseManager class to be a factory returning backend instances
-    from db import manager, backend_manager
-    class MockDatabaseManagerFactory:
-        def __call__(self):
-            return backend_manager.DatabaseManager(db_path)
-    monkeypatch.setattr(manager, "DatabaseManager", MockDatabaseManagerFactory())
+    # Patch db.manager.DatabaseManager BEFORE importing dashboard.app
+    from db import manager
+    monkeypatch.setattr(manager, "DatabaseManager", lambda: BackendDatabaseManager(db_path))
+    
+    # NOW import dashboard.app - it will capture our patched DatabaseManager
+    from fastapi.testclient import TestClient
+    import dashboard.app as dashboard_app
     
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, None)
@@ -169,12 +171,13 @@ def test_agentic_summary_handles_invalid_days_and_malformed_markers(tmp_path: Pa
     db_path, _, _ = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
     
-    # Patch db.manager.DatabaseManager class to be a factory returning backend instances
-    from db import manager, backend_manager
-    class MockDatabaseManagerFactory:
-        def __call__(self):
-            return backend_manager.DatabaseManager(db_path)
-    monkeypatch.setattr(manager, "DatabaseManager", MockDatabaseManagerFactory())
+    # Patch db.manager.DatabaseManager BEFORE importing dashboard.app
+    from db import manager
+    monkeypatch.setattr(manager, "DatabaseManager", lambda: BackendDatabaseManager(db_path))
+    
+    # NOW import dashboard.app - it will capture our patched DatabaseManager
+    from fastapi.testclient import TestClient
+    import dashboard.app as dashboard_app
     
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, "{not-json")
