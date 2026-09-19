@@ -104,7 +104,11 @@ function SummaryCard({ anchor, value, label, bad }: {
   bad?: boolean;
 }) {
   return (
-    <a className={`summary-card${bad ? ' highlight-bad' : ''}`} href={`#${anchor}`}>
+    <a
+      className={`summary-card${bad ? ' highlight-bad' : ''}`}
+      href={`#${anchor}`}
+      aria-label={`${value ?? 0} ${label}`}
+    >
       <span className="summary-number">{value}</span>
       <span className="summary-label">{label}</span>
     </a>
@@ -229,14 +233,16 @@ export function DashboardPage() {
   const openPrBranches = new Set(
     (open_pull_requests || []).map(pr => `${pr.repository?.name}:${pr.headRefName}`)
   );
+  // Same predicate the backend uses for summary.failing_ci, and deliberately
+  // unsliced: the card links here claiming a number, so a cap would hide rows
+  // the number counted.
   const failingRuns = (workflow_runs || [])
     .filter(r => {
       if (r.conclusion !== 'failure') return false;
       const isDefaultBranch = r.branch === 'main' || r.branch === 'master';
       const hasOpenPr = openPrBranches.has(`${r.repo}:${r.branch}`);
       return isDefaultBranch || hasOpenPr;
-    })
-    .slice(0, 10);
+    });
 
   // Stale branches (non-main, non-protected)
   const staleBranches = (branches || [])
