@@ -52,6 +52,20 @@ class CalendarManager:
         def _invoke(*args: Any, **params: Any) -> Any:
             # Map method name to wire operation name with calendar_ prefix
             op_name = f"calendar_{name}"
+            
+            # Forward positional args the same way RemoteDatabaseManager does
+            if args:
+                order = self._mgr._order(op_name)
+                if len(args) > len(order):
+                    raise DbmedError(
+                        f"{name}() takes at most {len(order)} positional arguments "
+                        f"({', '.join(order) or 'none'}), got {len(args)}"
+                    )
+                for key, value in zip(order, args):
+                    if key in params:
+                        raise DbmedError(f"{name}() got multiple values for {key!r}")
+                    params[key] = value
+            
             return self._mgr.call(op_name, **params)
 
         _invoke.__name__ = name

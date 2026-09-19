@@ -180,7 +180,7 @@ touch "$STAGING/scripts/__init__.py"
 stage_db_package() {
   local dest="$1"
   mkdir -p "$dest"
-  for module in __init__ backend_manager backend_restore_db schema pt_id \
+  for module in __init__ backend_manager backend_calendar_manager backend_restore_db schema pt_id \
                 calendar_manager crr_manifest migration_runner sync_state \
                 sync_checks sync_http sync_daemon dbmed_ops; do
     cp "$REPO_DIR/scripts/db/${module}.py" "$dest/${module}.py"

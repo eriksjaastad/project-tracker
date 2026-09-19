@@ -84,9 +84,15 @@ def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, mon
     db_path, db, task_ids = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
     
-    # Patch dashboard's DatabaseManager to use the backend directly (no daemon)
-    from db import backend_manager
-    monkeypatch.setattr(dashboard_app, "DatabaseManager", lambda: backend_manager.DatabaseManager(db_path))
+    # Patch db.manager.DatabaseManager to return backend instances (no daemon needed)
+    from db import manager, backend_manager
+    original_init = manager.DatabaseManager.__init__
+    def patched_init(self, *args, **kwargs):
+        # Hijack the RemoteDatabaseManager and replace it with backend
+        backend = backend_manager.DatabaseManager(db_path)
+        self.__dict__.update(backend.__dict__)
+        self.__class__ = backend_manager.DatabaseManager
+    monkeypatch.setattr(manager.DatabaseManager, "__init__", patched_init)
     
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(
@@ -129,6 +135,15 @@ def test_agentic_summary_aggregates_rates_series_and_markers(tmp_path: Path, mon
 def test_agentic_summary_filters_by_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path, db, task_ids = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
+    
+    # Patch db.manager.DatabaseManager to return backend instances (no daemon needed)
+    from db import manager, backend_manager
+    def patched_init(self, *args, **kwargs):
+        backend = backend_manager.DatabaseManager(db_path)
+        self.__dict__.update(backend.__dict__)
+        self.__class__ = backend_manager.DatabaseManager
+    monkeypatch.setattr(manager.DatabaseManager, "__init__", patched_init)
+    
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, None)
 
@@ -154,6 +169,11 @@ def test_agentic_summary_filters_by_project(tmp_path: Path, monkeypatch: pytest.
 def test_agentic_summary_handles_invalid_days_and_malformed_markers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path, _, _ = _setup_db(tmp_path)
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
+    
+    # Patch dashboard's DatabaseManager to use the backend directly (no daemon)
+    from db import backend_manager
+    monkeypatch.setattr(dashboard_app, "DatabaseManager", lambda: backend_manager.DatabaseManager(db_path))
+    
     _freeze_now(monkeypatch, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, "{not-json")
 
