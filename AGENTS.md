@@ -14,7 +14,7 @@ You are responsible for the entire project-tracker worktree, not only the files 
 Before opening a PR, committing, or declaring the tree clean, inspect and classify every dirty/untracked path in `git status`. For each path, decide one of:
 
 - **Include:** it belongs with the current change, including generated mirrors such as `AGENTS.md` after editing `CLAUDE.md`.
-- **Separate:** it is real project work but belongs in its own commit/PR/card.
+- **Separate:** it is real project work but belongs in a different change set. Prefer bundling related cards into one PR (see portfolio CLAUDE.md); only open a separate PR when the work is truly unrelated.
 - **Ignore for now:** it is intentionally local-only or explicitly out of scope, and you can state why.
 
 Do not omit a file silently. If a generated file mirrors a source file you changed, regenerate it and include it. If you are unsure whether a dirty file is related, inspect it before deciding. The default posture in project-tracker is ownership of the whole board and repo, not narrow ownership of today's patch.
