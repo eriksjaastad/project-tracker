@@ -213,7 +213,9 @@ chmod 0755 "$INSTALL_DIR"
 # be bad, the thing that was working is still on disk to compare against.
 if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR")" ]; then
   ARCHIVE="${DATA_ROOT}/attic/install-${STAMP}"
-  install -d -o root -g wheel -m 0700 "${DATA_ROOT}/attic"
+  # Create both attic parent and the timestamped destination directory;
+  # mv with a glob requires DEST to already exist as a directory.
+  install -d -o root -g wheel -m 0700 "${DATA_ROOT}/attic" "$ARCHIVE"
   mv "$INSTALL_DIR"/* "$ARCHIVE"
   ok "archived the previous install at ${ARCHIVE}"
 fi
