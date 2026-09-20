@@ -20,9 +20,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOG_MAX_BYTES = int(os.getenv("PT_LOG_MAX_BYTES", 10 * 1024 * 1024))
 LOG_BACKUP_COUNT = int(os.getenv("PT_LOG_BACKUP_COUNT", 3))
 
+# Log directory: PT_LOGS_DIR overrides the default (used by the daemon to write
+# to ${DATA_ROOT}/logs instead of the root-owned install tree). Fall back to
+# PROJECT_ROOT / "logs" for development and non-daemon usage.
 # Create logs directory when available. Sandboxed agents may have read access to
 # project-tracker without write access to its logs directory.
-LOGS_DIR = PROJECT_ROOT / "logs"
+LOGS_DIR = Path(os.getenv("PT_LOGS_DIR", PROJECT_ROOT / "logs"))
 handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
 try:
     LOGS_DIR.mkdir(exist_ok=True)

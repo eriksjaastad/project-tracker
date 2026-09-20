@@ -220,15 +220,9 @@ if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR")" ]; then
   # mv with a glob requires DEST to already exist as a directory.
   install -d -o root -g wheel -m 0700 "${DATA_ROOT}/attic" "$ARCHIVE"
   
-  # Remove any non-root logs/ from older installs before archiving. Older
-  # versions created ${INSTALL_DIR}/logs owned by _dbmed; verify_tree now
-  # requires every path under ${INSTALL_DIR} to be root-owned, so preserving
-  # it would break daemon startup. Writable logs belong under ${DATA_ROOT}/logs.
-  if [ -d "${INSTALL_DIR}/logs" ]; then
-    rm -rf "${INSTALL_DIR}/logs"
-    ok "removed non-root ${INSTALL_DIR}/logs from previous install"
-  fi
-  
+  # Archive everything including any legacy logs/ directory. Older versions
+  # created ${INSTALL_DIR}/logs owned by _dbmed, but verify_tree only cares
+  # about the NEW install tree after the swap — archived logs are fine.
   mv "$INSTALL_DIR"/* "$ARCHIVE"
   ok "archived the previous install at ${ARCHIVE}"
 fi
@@ -423,6 +417,11 @@ cat > "$PLIST" <<PLISTEOF
         <string>${PROJECT_DATA}/tracker.db</string>
         <key>PT_EXTERNAL_BACKUP_DIR</key>
         <string>${DATA_ROOT}/external/${PROJECT}</string>
+        <!-- Route file logging to the writable data-root logs directory.
+             logger.py defaults to PROJECT_ROOT / "logs", which would resolve
+             to the root-owned install tree and silently lose file logging. -->
+        <key>PT_LOGS_DIR</key>
+        <string>${DATA_ROOT}/logs</string>
         <!-- SAFE_MODE used to be read from the agent's own shell. It is the
              daemon's now, which is the whole point: exporting SAFE_MODE=0 in
              a terminal no longer unlocks deletes. -->
@@ -450,14 +449,16 @@ launchctl bootout system/com.dbmed 2>/dev/null || true
 
 # Bootstrap can fail with I/O error 5 on macOS due to launchd race conditions.
 # Retry once, then fall back to kickstart which forces load even if registered.
-if ! launchctl bootstrap system "$PLIST" 2>/dev/null; then
-  warn "bootstrap failed, retrying once..."
+bootstrap_err=$(launchctl bootstrap system "$PLIST" 2>&1) || {
+  warn "bootstrap failed: ${bootstrap_err}"
+  warn "retrying once after 1s..."
   sleep 1
-  if ! launchctl bootstrap system "$PLIST" 2>/dev/null; then
-    warn "bootstrap retry failed, attempting kickstart"
+  bootstrap_err=$(launchctl bootstrap system "$PLIST" 2>&1) || {
+    warn "bootstrap retry also failed: ${bootstrap_err}"
+    warn "falling back to kickstart -k"
     launchctl kickstart -k system/com.dbmed || die "could not start daemon"
-  fi
-fi
+  }
+}
 ok "daemon bootstrapped"
 
 # The socket is created by the daemon; wait for it rather than racing.
