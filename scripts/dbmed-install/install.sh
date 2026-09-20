@@ -220,10 +220,11 @@ if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR")" ]; then
   # mv with a glob requires DEST to already exist as a directory.
   install -d -o root -g wheel -m 0700 "${DATA_ROOT}/attic" "$ARCHIVE"
   
-  # Archive everything including any legacy logs/ directory. Older versions
-  # created ${INSTALL_DIR}/logs owned by _dbmed, but verify_tree only cares
-  # about the NEW install tree after the swap — archived logs are fine.
-  mv "$INSTALL_DIR"/* "$ARCHIVE"
+  # Archive everything including any legacy logs/ directory and dotfiles. Older
+  # versions created ${INSTALL_DIR}/logs owned by _dbmed, but verify_tree only
+  # cares about the NEW install tree after the swap — archived logs are fine.
+  # Use a subshell with dotglob to include hidden files; plain * misses them.
+  (shopt -s dotglob && mv "$INSTALL_DIR"/* "$ARCHIVE")
   ok "archived the previous install at ${ARCHIVE}"
 fi
 mv "$STAGING"/* "$INSTALL_DIR"
@@ -448,15 +449,17 @@ ok "wrote ${PLIST}"
 launchctl bootout system/com.dbmed 2>/dev/null || true
 
 # Bootstrap can fail with I/O error 5 on macOS due to launchd race conditions.
-# Retry once, then fall back to kickstart which forces load even if registered.
+# Retry the unload/bootstrap sequence rather than falling back to kickstart:
+# kickstart only restarts an already-registered job and ignores the new plist,
+# so new environment like PT_LOGS_DIR would be omitted (scripts/launchd/install-dashboard.sh:13-14).
 bootstrap_err=$(launchctl bootstrap system "$PLIST" 2>&1) || {
   warn "bootstrap failed: ${bootstrap_err}"
-  warn "retrying once after 1s..."
+  warn "retrying unload/bootstrap sequence after 1s..."
   sleep 1
+  launchctl bootout system/com.dbmed 2>/dev/null || true
   bootstrap_err=$(launchctl bootstrap system "$PLIST" 2>&1) || {
     warn "bootstrap retry also failed: ${bootstrap_err}"
-    warn "falling back to kickstart -k"
-    launchctl kickstart -k system/com.dbmed || die "could not start daemon"
+    die "could not bootstrap daemon after retry; see error above"
   }
 }
 ok "daemon bootstrapped"

@@ -25,7 +25,7 @@ LOG_BACKUP_COUNT = int(os.getenv("PT_LOG_BACKUP_COUNT", 3))
 # PROJECT_ROOT / "logs" for development and non-daemon usage.
 # Create logs directory when available. Sandboxed agents may have read access to
 # project-tracker without write access to its logs directory.
-LOGS_DIR = Path(os.getenv("PT_LOGS_DIR", PROJECT_ROOT / "logs"))
+LOGS_DIR = Path(os.getenv("PT_LOGS_DIR")) if os.getenv("PT_LOGS_DIR") else PROJECT_ROOT / "logs"
 handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
 try:
     LOGS_DIR.mkdir(exist_ok=True)
