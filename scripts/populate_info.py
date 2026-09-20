@@ -119,7 +119,7 @@ EXTRA_KEYS = {
         "PT_DASHBOARD_LOG_BACKUPS": "Generations kept for the launchd-owned dashboard logs",
         "PT_DESTRUCTIVE_LOG_PATH": "Override for the in-process deletion audit log (tests redirect this)",
         "PT_ALLOW_MAIN_EDIT": "One-shot bypass for the no-edits-on-main hook",
-        "PT_ALLOW_DIRTY_EXIT": "One-shot bypass for the session-end cleanliness gate",
+        "PT_ALLOW_DIRTY_EXIT": "Reserved for future session-end gate (not currently implemented as a Stop hook)",
     },
     "ai-memory": {
         "infrastructure": "libsql/SQLite (brain.db), MCP server (mcp_server.py), graph analytics (graspologic)",
