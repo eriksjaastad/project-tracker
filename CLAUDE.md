@@ -151,23 +151,29 @@ hooks in `~/.claude/` and by `pt` CLI commands in project-tracker. **Treat this 
 
 ### What the contract requires
 
-1. **No direct edits on `main`/`master`/`trunk`.** A Stop-event hook blocks
+1. **No direct edits on `main`/`master`/`trunk`.** A PreToolUse hook blocks
    `Edit`/`Write`/`MultiEdit`/`NotebookEdit` on tracked files while HEAD is the
    default branch. Work happens on feature branches; PRs are how changes land.
-2. **No dirty session exits.** A session-end gate refuses to close while any of
-   four conditions hold:
+2. **Clean session exits encouraged.** Run `pt hygiene` to detect:
    - dirty working tree (PROGRESS.md is ignored),
    - commits ahead of upstream unpushed,
-   - branch with no PR opened,
-   - an authored PR still open against this repo.
+   - local-only branches with no remote tracking,
+   - stashes,
+   - open bot PRs older than 24h,
+   - stale PROGRESS.md with other uncommitted work.
+   
+   Exit 0 = clean portfolio, exit 6 = findings. Agents should resolve findings
+   before completing work. (Note: No automatic gate blocks session close; enforcement
+   is manual via `pt hygiene`. The session-end gate referenced by `PT_ALLOW_DIRTY_EXIT`
+   is not currently implemented as a Stop hook.)
 3. **Audit trail for bulk changes.** Multi-file refactors, renames, and doc
    reorgs run inside `pt migration start <name>` … `pt migration finish <name>`
    so they are reversible (`--revert` uses `git restore` for tracked paths and
    `send2trash` for untracked — never raw `rm`).
 4. **Handoffs are first-class.** If a session must end dirty (mid-rebase, mid-
    investigation), record it: `pt handoff create <card-pk> --branch <b> --intent
-   <s> --status <s> --next <s> --guidance preserve|discard`. The session-end
-   gate honors an open handoff covering the current branch.
+   <s> --status <s> --next <s> --guidance preserve|discard`. Use `pt handoff list`
+   to check open handoffs before ending sessions.
 
 ### Safety valves
 
@@ -178,12 +184,10 @@ hooks in `~/.claude/` and by `pt` CLI commands in project-tracker. **Treat this 
   move it out before committing.
 - **`PT_ALLOW_MAIN_EDIT=1`** — one-shot env var to bypass the main-edit hook.
   Use sparingly; intended for emergency fixes and tooling that must touch the
-  default branch.
-- **`PT_ALLOW_DIRTY_EXIT=1`** — one-shot env var to bypass the session-end gate.
-  Every use is logged to `~/.claude/state/locked_hygiene/bypasses.jsonl`.
-- **`pt handoff`** — durable alternative to the env-var bypass: the gate
-  recognizes an active handoff record for the current branch and lets the
-  session close.
+  default branch. Every use is logged to `~/.claude/state/locked_hygiene/bypasses.jsonl`.
+- **`pt handoff`** — structured alternative for recording unfinished work that
+  must be left in a dirty state. Use `pt handoff create` to document the context,
+  then `pt handoff list` to review open handoffs before completing sessions.
 
 ### Quick reference
 
