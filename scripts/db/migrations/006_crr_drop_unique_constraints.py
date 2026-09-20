@@ -85,7 +85,9 @@ def _backup(conn: sqlite3.Connection) -> None:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     name = f"pre_006_crr_drop_unique_{ts}.db"
     # Respect PT_EXTERNAL_BACKUP_DIR for test isolation (conftest sets this).
-    external_backup_dir = Path(os.getenv("PT_EXTERNAL_BACKUP_DIR", Path.home() / ".project-tracker" / "backups"))
+    # Treat empty string as unset (fall back to default).
+    external_backup_env = os.getenv("PT_EXTERNAL_BACKUP_DIR", "").strip()
+    external_backup_dir = Path(external_backup_env) if external_backup_env else Path.home() / ".project-tracker" / "backups"
     locations = [
         db_path.parent / "backups" / name,
         external_backup_dir / name,

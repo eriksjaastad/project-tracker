@@ -69,6 +69,10 @@ def test_migration_backup_respects_external_backup_dir(migration_num: str, tmp_p
     # Track real backup dir contents before backup
     real_backup_files_before = set(real_backup_dir.iterdir()) if real_backup_dir.exists() else set()
     
+    # Track test backup dir contents before this specific invocation
+    test_external_backup_dir = Path(env_external_backup)
+    test_backup_files_before = set(test_external_backup_dir.iterdir()) if test_external_backup_dir.exists() else set()
+    
     # Run the backup function
     _test_backup_function(migration_num, tmp_path)
     
@@ -82,12 +86,25 @@ def test_migration_backup_respects_external_backup_dir(migration_num: str, tmp_p
         f"violating test isolation. Files: {new_files_in_real_backup_dir}"
     )
     
-    # Verify backup WAS created in the test-scoped directory
-    test_external_backup_dir = Path(env_external_backup)
-    if test_external_backup_dir.exists():
-        backup_files = list(test_external_backup_dir.glob(f"pre_{migration_num.split('_')[0]}*.db"))
-        # At least one backup should exist (may be more from other tests)
-        assert len(backup_files) > 0, (
-            f"Migration {migration_num} should have written a backup to "
-            f"PT_EXTERNAL_BACKUP_DIR={test_external_backup_dir}, but none found"
-        )
+    # Verify backup WAS created in the test-scoped directory by THIS invocation
+    test_backup_files_after = set(test_external_backup_dir.iterdir()) if test_external_backup_dir.exists() else set()
+    new_files_in_test_backup_dir = test_backup_files_after - test_backup_files_before
+    
+    assert len(new_files_in_test_backup_dir) >= 1, (
+        f"Migration {migration_num} should have written at least one backup to "
+        f"PT_EXTERNAL_BACKUP_DIR={test_external_backup_dir} during this invocation, but none found. "
+        f"Files before: {len(test_backup_files_before)}, after: {len(test_backup_files_after)}"
+    )
+    
+    # Verify the backup filename matches the expected pattern
+    migration_prefix = migration_num.split('_')[0]
+    new_backups_with_correct_prefix = [
+        f for f in new_files_in_test_backup_dir 
+        if f.name.startswith(f"pre_{migration_prefix}_")
+    ]
+    
+    assert len(new_backups_with_correct_prefix) >= 1, (
+        f"Migration {migration_num} created backup(s) in test directory, "
+        f"but none matched expected prefix 'pre_{migration_prefix}_'. "
+        f"Created: {[f.name for f in new_files_in_test_backup_dir]}"
+    )
