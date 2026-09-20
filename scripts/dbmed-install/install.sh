@@ -149,7 +149,10 @@ install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 \
 install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "${DATA_ROOT}/audit"
 ok "service-owned at 0700: ${PROJECT_DATA}"
 
-# Daemon may open $INSTALL_DIR/logs after step 3; create the data-root logs dir now.
+# Writable logs belong under ${DATA_ROOT}/logs (created here), not under the
+# root-owned install tree. Daemon stdout/stderr go to audit files; application
+# logs that need rotation go to ${DATA_ROOT}/logs. verify_tree requires every
+# path under ${INSTALL_DIR} to be root-owned.
 install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "${DATA_ROOT}/logs"
 
 # --------------------------------------------------------------------------
@@ -213,16 +216,21 @@ chmod 0755 "$INSTALL_DIR"
 # be bad, the thing that was working is still on disk to compare against.
 if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR")" ]; then
   ARCHIVE="${DATA_ROOT}/attic/install-${STAMP}"
-  install -d -o root -g wheel -m 0700 "${DATA_ROOT}/attic"
-  mv "$INSTALL_DIR"/* "$ARCHIVE"
+  # Create both attic parent and the timestamped destination directory;
+  # mv with a glob requires DEST to already exist as a directory.
+  install -d -o root -g wheel -m 0700 "${DATA_ROOT}/attic" "$ARCHIVE"
+  
+  # Archive everything including any legacy logs/ directory and dotfiles. Older
+  # versions created ${INSTALL_DIR}/logs owned by _dbmed, but verify_tree only
+  # cares about the NEW install tree after the swap — archived logs are fine.
+  # Use a subshell with dotglob to include hidden files; plain * misses them.
+  (shopt -s dotglob && mv "$INSTALL_DIR"/* "$ARCHIVE")
   ok "archived the previous install at ${ARCHIVE}"
 fi
 mv "$STAGING"/* "$INSTALL_DIR"
 chown root:wheel "$INSTALL_DIR"
 chmod 0755 "$INSTALL_DIR"
 ok "installed root-owned backend at ${INSTALL_DIR}"
-install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "${INSTALL_DIR}/logs"
-ok "daemon logs dir at ${INSTALL_DIR}/logs"
 
 # --------------------------------------------------------------------------
 say "3b. Private interpreter"
@@ -410,6 +418,11 @@ cat > "$PLIST" <<PLISTEOF
         <string>${PROJECT_DATA}/tracker.db</string>
         <key>PT_EXTERNAL_BACKUP_DIR</key>
         <string>${DATA_ROOT}/external/${PROJECT}</string>
+        <!-- Route file logging to the writable data-root logs directory.
+             logger.py defaults to PROJECT_ROOT / "logs", which would resolve
+             to the root-owned install tree and silently lose file logging. -->
+        <key>PT_LOGS_DIR</key>
+        <string>${DATA_ROOT}/logs</string>
         <!-- SAFE_MODE used to be read from the agent's own shell. It is the
              daemon's now, which is the whole point: exporting SAFE_MODE=0 in
              a terminal no longer unlocks deletes. -->
@@ -434,7 +447,21 @@ chmod 0644 "$PLIST"
 ok "wrote ${PLIST}"
 
 launchctl bootout system/com.dbmed 2>/dev/null || true
-launchctl bootstrap system "$PLIST"
+
+# Bootstrap can fail with I/O error 5 on macOS due to launchd race conditions.
+# Retry the unload/bootstrap sequence rather than falling back to kickstart:
+# kickstart only restarts an already-registered job and ignores the new plist,
+# so new environment like PT_LOGS_DIR would be omitted (scripts/launchd/install-dashboard.sh:13-14).
+bootstrap_err=$(launchctl bootstrap system "$PLIST" 2>&1) || {
+  warn "bootstrap failed: ${bootstrap_err}"
+  warn "retrying unload/bootstrap sequence after 1s..."
+  sleep 1
+  launchctl bootout system/com.dbmed 2>/dev/null || true
+  bootstrap_err=$(launchctl bootstrap system "$PLIST" 2>&1) || {
+    warn "bootstrap retry also failed: ${bootstrap_err}"
+    die "could not bootstrap daemon after retry; see error above"
+  }
+}
 ok "daemon bootstrapped"
 
 # The socket is created by the daemon; wait for it rather than racing.
