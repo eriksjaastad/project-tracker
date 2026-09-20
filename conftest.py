@@ -41,8 +41,13 @@ os.environ.setdefault("PT_DESTRUCTIVE_LOG_PATH", str(_TEST_DESTRUCTIVE_LOG))
 #
 # Set before anything imports scripts.config, because it is read once at
 # import and cached in a module constant.
+#
+# FORCE the test override — use direct assignment instead of setdefault so
+# that if PT_EXTERNAL_BACKUP_DIR is inherited from the outer environment,
+# the test-scoped temp directory wins. Prevents leaks when pytest is run
+# with the variable already set.
 _TEST_EXTERNAL_BACKUPS = Path(tempfile.gettempdir()) / f"pt-test-backups-{os.getpid()}"
-os.environ.setdefault("PT_EXTERNAL_BACKUP_DIR", str(_TEST_EXTERNAL_BACKUPS))
+os.environ["PT_EXTERNAL_BACKUP_DIR"] = str(_TEST_EXTERNAL_BACKUPS)
 
 # The schema layer refuses to initialise a database that is unexpectedly
 # empty — a guard against the 2026-01-27 incident, where an empty database
