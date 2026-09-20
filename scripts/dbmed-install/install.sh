@@ -149,7 +149,10 @@ install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 \
 install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "${DATA_ROOT}/audit"
 ok "service-owned at 0700: ${PROJECT_DATA}"
 
-# Daemon may open $INSTALL_DIR/logs after step 3; create the data-root logs dir now.
+# Writable logs belong under ${DATA_ROOT}/logs (created here), not under the
+# root-owned install tree. Daemon stdout/stderr go to audit files; application
+# logs that need rotation go to ${DATA_ROOT}/logs. verify_tree requires every
+# path under ${INSTALL_DIR} to be root-owned.
 install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "${DATA_ROOT}/logs"
 
 # --------------------------------------------------------------------------
@@ -216,6 +219,16 @@ if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR")" ]; then
   # Create both attic parent and the timestamped destination directory;
   # mv with a glob requires DEST to already exist as a directory.
   install -d -o root -g wheel -m 0700 "${DATA_ROOT}/attic" "$ARCHIVE"
+  
+  # Remove any non-root logs/ from older installs before archiving. Older
+  # versions created ${INSTALL_DIR}/logs owned by _dbmed; verify_tree now
+  # requires every path under ${INSTALL_DIR} to be root-owned, so preserving
+  # it would break daemon startup. Writable logs belong under ${DATA_ROOT}/logs.
+  if [ -d "${INSTALL_DIR}/logs" ]; then
+    rm -rf "${INSTALL_DIR}/logs"
+    ok "removed non-root ${INSTALL_DIR}/logs from previous install"
+  fi
+  
   mv "$INSTALL_DIR"/* "$ARCHIVE"
   ok "archived the previous install at ${ARCHIVE}"
 fi
@@ -223,8 +236,6 @@ mv "$STAGING"/* "$INSTALL_DIR"
 chown root:wheel "$INSTALL_DIR"
 chmod 0755 "$INSTALL_DIR"
 ok "installed root-owned backend at ${INSTALL_DIR}"
-install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "${INSTALL_DIR}/logs"
-ok "daemon logs dir at ${INSTALL_DIR}/logs"
 
 # --------------------------------------------------------------------------
 say "3b. Private interpreter"
@@ -436,7 +447,17 @@ chmod 0644 "$PLIST"
 ok "wrote ${PLIST}"
 
 launchctl bootout system/com.dbmed 2>/dev/null || true
-launchctl bootstrap system "$PLIST"
+
+# Bootstrap can fail with I/O error 5 on macOS due to launchd race conditions.
+# Retry once, then fall back to kickstart which forces load even if registered.
+if ! launchctl bootstrap system "$PLIST" 2>/dev/null; then
+  warn "bootstrap failed, retrying once..."
+  sleep 1
+  if ! launchctl bootstrap system "$PLIST" 2>/dev/null; then
+    warn "bootstrap retry failed, attempting kickstart"
+    launchctl kickstart -k system/com.dbmed || die "could not start daemon"
+  fi
+fi
 ok "daemon bootstrapped"
 
 # The socket is created by the daemon; wait for it rather than racing.
