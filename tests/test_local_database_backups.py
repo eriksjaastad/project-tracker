@@ -359,6 +359,43 @@ def test_retirement_preserves_existing_parent_ownership(retirement_install, monk
     assert parent.stat().st_mode & 0o777 == 0o750
 
 
+@pytest.mark.parametrize('existing_parent', [False, True])
+@pytest.mark.parametrize('has_history', [False, True])
+def test_retirement_external_parent_ownership(retirement_install, monkeypatch,
+                                             existing_parent, has_history):
+    retirement, repo, data, archive, calls = retirement_install
+    home = Path(retirement.pwd.getpwnam('synthetic-owner').pw_dir)
+    home.mkdir(mode=0o750)
+    parent = home / '.project-tracker'
+    if existing_parent:
+        parent.mkdir(mode=0o750)
+        (parent / 'backup.log').write_text('preserved log\n')
+    if has_history:
+        history = data / 'external/project-tracker'
+        history.mkdir(parents=True)
+        (history / 'external.db').write_bytes(b'external recovery history')
+    ownership = []
+    monkeypatch.setattr(retirement.os, 'chown', lambda path, uid, gid, **kw:
+                        ownership.append((path, uid, gid)))
+    original = retirement.subprocess.run
+    def command(argv, **kwargs):
+        if argv[:2] == ('launchctl', 'bootout'):
+            assert parent.is_dir()
+            assert ((parent, 501, 20) in ownership) is not existing_parent
+        return original(argv, **kwargs)
+    monkeypatch.setattr(retirement.subprocess, 'run', command)
+    retirement.retire(repo)
+    assert ((parent, 501, 20) in ownership) is not existing_parent
+    assert not any(path == home for path, _, _ in ownership)
+    assert home.stat().st_mode & 0o777 == 0o750
+    assert parent.stat().st_mode & 0o777 == (0o750 if existing_parent else 0o700)
+    if existing_parent:
+        assert (parent / 'backup.log').read_text() == 'preserved log\n'
+    if has_history:
+        assert (parent / 'backups/external.db').read_bytes() == b'external recovery history'
+        assert (parent / 'backups', 501, 20) in ownership
+
+
 @pytest.mark.parametrize('name', ['../tracker.db', '/tmp/tracker.db'])
 def test_restore_cli_rejects_paths_without_traceback(db, monkeypatch, tmp_path, name):
     from click.testing import CliRunner

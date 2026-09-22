@@ -135,6 +135,70 @@ def test_retire_backup_failure_leaves_files_and_rows(fabricated_project, monkeyp
     assert len(fabricated_project["db"].get_tasks(project_id="humpty-dumpty")) == 2
 
 
+def test_retire_uses_preflight_snapshot_after_moving_directory(fabricated_project, monkeypatch):
+    from db.operations import ProjectTrackerOps
+
+    events = []
+    original_snapshot = ProjectTrackerOps.create_recovery_snapshot
+    original_verify = ProjectTrackerOps.verify_backup
+    project_dir = fabricated_project['project_dir']
+    trashed = fabricated_project['projects_root'] / 'synthetic-trash'
+
+    def snapshot(self, label):
+        if 'snapshot' in events:
+            raise OSError('No space for a duplicate snapshot')
+        events.append('snapshot')
+        return original_snapshot(self, label)
+
+    def verify(self, path):
+        events.append('verified')
+        return original_verify(self, path)
+
+    def trash(path):
+        assert events == ['snapshot', 'verified']
+        events.append('trash')
+        Path(path).rename(trashed)
+
+    monkeypatch.setattr(ProjectTrackerOps, 'create_recovery_snapshot', snapshot)
+    monkeypatch.setattr(ProjectTrackerOps, 'verify_backup', verify)
+    with patch('send2trash.send2trash', side_effect=trash):
+        result = CliRunner().invoke(
+            _get_cli(), ['retire-project', 'humpty-dumpty', '--execute', '-y']
+        )
+
+    assert result.exit_code == 0, result.output
+    assert events == ['snapshot', 'verified', 'trash']
+    assert not project_dir.exists()
+    assert (trashed / 'README.md').read_text() == '# humpty-dumpty\n'
+    assert fabricated_project['db'].get_project('humpty-dumpty') is None
+    assert fabricated_project['db'].get_tasks(project_id='humpty-dumpty') == []
+
+
+@pytest.mark.parametrize('backend_fails', [False, True])
+def test_prepared_operation_is_bound_and_single_use(db, monkeypatch, backend_fails):
+    calls = []
+
+    def delete(project_id):
+        calls.append(project_id)
+        if backend_fails:
+            raise OSError('Backend failure after possible commit')
+        return 'deleted'
+
+    monkeypatch.setattr(db._db, 'delete_project', delete)
+    prepared = db.prepare_operation(
+        'delete_project', reason='Test one-shot retirement', project_id='chosen'
+    )
+    assert calls == []
+    if backend_fails:
+        with pytest.raises(OSError, match='possible commit'):
+            prepared()
+    else:
+        assert prepared() == 'deleted'
+    with pytest.raises(RuntimeError, match='already consumed'):
+        prepared()
+    assert calls == ['chosen']
+
+
 def test_retire_trash_failure_preserves_rows(fabricated_project):
     with patch("send2trash.send2trash", side_effect=OSError("trash unavailable")):
         result = CliRunner().invoke(
