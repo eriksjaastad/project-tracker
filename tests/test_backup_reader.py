@@ -8,13 +8,6 @@ from pathlib import Path
 from scripts.discovery import backup_reader
 
 
-@pytest.fixture(autouse=True)
-def legacy_backup_status(monkeypatch):
-    """These cases cover the legacy filesystem fallback, not daemon listing."""
-    monkeypatch.setattr(backup_reader, "_dbmed_local_full", lambda: None)
-    monkeypatch.setattr(backup_reader, "_registry_offsite_dest", lambda: "")
-
-
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
@@ -58,11 +51,11 @@ def test_get_backup_status_reports_healthy_local_and_cloud(tmp_path, monkeypatch
         plistlib.dump({"Label": "com.eriksjaastad.pt-backup", "StartInterval": 21600}, handle)
     _write(rclone_config_path, "[b2]\ntype = b2\n")
 
-    monkeypatch.setenv("PT_FULL_BACKUP_DIR", str(backup_dir))
+    monkeypatch.setenv("PT_EXTERNAL_BACKUP_DIR", str(backup_dir))
     monkeypatch.setenv("PT_BACKUP_LOG_PATH", str(log_path))
     monkeypatch.setenv("PT_BACKUP_LAUNCH_AGENT_PATH", str(launch_agent_path))
     monkeypatch.setenv("PT_BACKUP_RCLONE_DEST", "b2:tracker-backups")
-    monkeypatch.setenv("RCLONE_CONFIG_PATH", str(rclone_config_path))
+    monkeypatch.setenv("RCLONE_CONFIG", str(rclone_config_path))
     monkeypatch.setattr(backup_reader, "DATABASE_PATH", db_path)
 
     status = backup_reader.get_backup_status()
@@ -77,7 +70,7 @@ def test_get_backup_status_reports_healthy_local_and_cloud(tmp_path, monkeypatch
 
 def test_get_backup_status_reports_critical_when_no_local_backups(tmp_path, monkeypatch):
     backup_dir = tmp_path / "full-backups"
-    monkeypatch.setenv("PT_FULL_BACKUP_DIR", str(backup_dir))
+    monkeypatch.setenv("PT_EXTERNAL_BACKUP_DIR", str(backup_dir))
     monkeypatch.setenv("PT_BACKUP_LOG_PATH", str(tmp_path / "missing.log"))
     monkeypatch.setenv("PT_BACKUP_LAUNCH_AGENT_PATH", str(tmp_path / "missing.plist"))
     monkeypatch.delenv("PT_BACKUP_RCLONE_DEST", raising=False)
@@ -97,7 +90,7 @@ def test_get_backup_status_warns_when_cloud_copy_is_unconfigured(tmp_path, monke
     _touch_with_age(backup_dir / "tracker_20260423_141355.db", timedelta(hours=2))
     _write(log_path, f"{_iso_age(timedelta(hours=2))} | backup | 3510272 bytes | /tmp/tracker_20260423_141355.db")
 
-    monkeypatch.setenv("PT_FULL_BACKUP_DIR", str(backup_dir))
+    monkeypatch.setenv("PT_EXTERNAL_BACKUP_DIR", str(backup_dir))
     monkeypatch.setenv("PT_BACKUP_LOG_PATH", str(log_path))
     monkeypatch.setenv("PT_BACKUP_LAUNCH_AGENT_PATH", str(tmp_path / "missing.plist"))
     monkeypatch.delenv("PT_BACKUP_RCLONE_DEST", raising=False)
@@ -115,7 +108,7 @@ def test_get_backup_status_distinguishes_empty_backup_directory(tmp_path, monkey
     backup_dir = tmp_path / "full-backups"
     backup_dir.mkdir()
 
-    monkeypatch.setenv("PT_FULL_BACKUP_DIR", str(backup_dir))
+    monkeypatch.setenv("PT_EXTERNAL_BACKUP_DIR", str(backup_dir))
     monkeypatch.setenv("PT_BACKUP_LOG_PATH", str(tmp_path / "missing.log"))
     monkeypatch.setenv("PT_BACKUP_LAUNCH_AGENT_PATH", str(tmp_path / "missing.plist"))
     monkeypatch.delenv("PT_BACKUP_RCLONE_DEST", raising=False)

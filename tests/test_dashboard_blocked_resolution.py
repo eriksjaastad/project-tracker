@@ -30,7 +30,7 @@ from db.schema import create_database  # noqa: E402
 def board(tmp_path, monkeypatch):
     db_path = tmp_path / "tracker.db"
     create_database(db_path)
-    db = DatabaseManager()
+    db = DatabaseManager(db_path)
     db.add_project("alpha", "Alpha", str(tmp_path / "alpha"), "active")
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
     return db

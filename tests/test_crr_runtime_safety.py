@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 # This module uses direct database access and direct schema inspection
-pytestmark = pytest.mark.no_dbmed
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 

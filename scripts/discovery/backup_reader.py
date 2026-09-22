@@ -11,6 +11,12 @@ import plistlib
 from typing import Any
 
 from scripts.config import DATABASE_PATH
+from scripts.backup_config import (
+    external_backup_dir as _backup_root,
+    launch_agent_path as _launch_agent_path,
+    rclone_config_path as _rclone_config_path,
+    rclone_destination as _configured_rclone_dest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,41 +25,11 @@ _LOCAL_BACKUP_STALE_HOURS = 24
 _CLOUD_BACKUP_HEALTHY_HOURS = 36
 
 
-def _backup_root() -> Path:
-    configured = os.getenv("PT_FULL_BACKUP_DIR", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    return Path.home() / ".project-tracker" / "backups"
-
-
 def _backup_log_path() -> Path:
     configured = os.getenv("PT_BACKUP_LOG_PATH", "").strip()
     if configured:
         return Path(configured).expanduser()
     return Path.home() / ".project-tracker" / "backup.log"
-
-
-def _launch_agent_path() -> Path:
-    configured = os.getenv("PT_BACKUP_LAUNCH_AGENT_PATH", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    return (
-        Path.home()
-        / "Library"
-        / "LaunchAgents"
-        / "com.eriksjaastad.pt-backup.plist"
-    )
-
-
-def _rclone_config_path() -> Path:
-    configured = os.getenv("RCLONE_CONFIG_PATH", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    return Path.home() / ".config" / "rclone" / "rclone.conf"
-
-
-def _configured_rclone_dest() -> str:
-    return os.getenv("PT_BACKUP_RCLONE_DEST", "").strip()
 
 
 def _parse_iso(value: str) -> datetime | None:
@@ -289,74 +265,16 @@ def _remote_name(dest: str) -> str | None:
     return dest.split(":", 1)[0]
 
 
-def _dbmed_local_full() -> dict[str, Any] | None:
-    """Latest protected snapshot via dbmed, or None if the service is down."""
-    try:
-        from db.manager import DatabaseManager
-
-        rows = DatabaseManager().backup_list()
-    except Exception as err:
-        logger.warning("dbmed backup_list unavailable for status: %s", err)
-        return None
-    if not rows:
-        return {
-            "exists": False,
-            "count": 0,
-            "path": None,
-            "timestamp": None,
-            "size_bytes": None,
-            "age_human": None,
-            "state": "empty",
-            "error": None,
-        }
-    latest = rows[0]
-    ts = _parse_iso(latest.get("modified", "") + "+00:00") if "T" in latest.get("modified", "") else _parse_iso(
-        latest.get("modified", "")
-    )
-    # backup_list returns local-time naively; treat as local wall clock → UTC best-effort
-    if ts is None and latest.get("modified"):
-        try:
-            ts = datetime.strptime(latest["modified"], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
-        except ValueError:
-            ts = None
-    return {
-        "exists": True,
-        "count": len(rows),
-        "path": latest.get("name"),
-        "timestamp": _dt_to_iso(ts),
-        "size_bytes": latest.get("size_bytes"),
-        "age_human": _human_age(ts),
-        "state": "found",
-        "error": None,
-    }
-
-
-def _registry_offsite_dest() -> str:
-    """Read offsite dest from the root-owned registry if present."""
-    registry = Path("/usr/local/etc/dbmed/registry.d/project-tracker.toml")
-    if not registry.is_file():
-        return ""
-    try:
-        for line in registry.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("offsite_rclone_dest"):
-                _, _, value = line.partition("=")
-                return value.strip().strip('"').strip("'")
-    except OSError as err:
-        logger.warning("Failed to read offsite dest from registry: %s", err)
-    return ""
-
-
 def get_backup_status() -> dict[str, Any]:
     """Build the shared backup status payload for CLI and dashboard use."""
     now = datetime.now(timezone.utc)
     backup_dir = _backup_root()
-    local = _dbmed_local_full() or _latest_matching_file(backup_dir, "tracker_*.db")
+    local = _latest_matching_file(backup_dir, "tracker_*.db")
     safety = _latest_matching_file(DATABASE_PATH.parent / "backups", "tasks_safety_backup_*.json")
     log = _parse_backup_log()
     launch_agent = _parse_launch_agent()
     remotes = _parse_rclone_config()
-    configured_dest = _registry_offsite_dest() or _configured_rclone_dest()
+    configured_dest = _configured_rclone_dest()
     configured_remote = _remote_name(configured_dest)
     cloud_success_at = _parse_iso(log["last_cloud_success_at"])
 
