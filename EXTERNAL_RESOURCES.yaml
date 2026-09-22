@@ -1252,7 +1252,7 @@ monitoring:
     prod_url: Public URL, or UNKNOWN, or null when the project has no web surface.
     repo: git remote origin.
     provider: vercel | railway | cloud-run | local-launchd | local-cron | none (combined with ' + ')
-    health: How to tell it is up. `check` is a literal command or request.
+    health: How to tell it is up. Commands run on the Mini; laptop checks explicitly use SSH.
     scheduled: Jobs that must run while their host is awake; see _scheduled_jobs.caveat.
     database: engine + offsite destination. `offsite_wired` is the honest state.
     owner: Who fixes it. floor-manager = the project's own Claude session.
@@ -1264,7 +1264,15 @@ monitoring:
     provider: vercel
     health:
       check: GET https://muffinpanrecipes.com/ expect 200
-      deep: "cd ~/projects/muffinpanrecipes && uv run scripts/session_pipeline_status.py"
+      deep: >-
+        ssh -o BatchMode=yes -o ConnectTimeout=10 macbook-pro
+        'cd ~/projects/muffinpanrecipes && ~/.local/bin/uv run scripts/session_pipeline_status.py'
+      deep_expect: >-
+        Read the printed OK/DEGRADED/unknown verdict, not the exit status (the
+        session hook intentionally exits 0 in all three cases). Unknown or
+        missing output is UNKNOWN coverage. SSH failure uses the host states
+        in docs/MONITORING_REGISTRY.md#the-laptop-sleeps; never fall back to a
+        Mini checkout. The public health.check continues from the Mini.
     scheduled:
       - id: muffinpanrecipes-cron-test
         where: laptop crontab
@@ -1419,7 +1427,10 @@ monitoring:
       These run only while the laptop is awake. Sleep is currently held off by
       caffeinate, which is not permanent. A missed run during sleep is NOT a
       failure — Saga must distinguish "did not run because the host slept" from
-      "ran and failed" before opening a card.
+      "ran and failed" before opening a card. Read all job metadata and log paths
+      on this host over SSH, never from the Mini's launchd or filesystem. Apply
+      the HOST_OFFLINE/SSH_UNAVAILABLE/REACHABILITY_UNKNOWN contract in
+      docs/MONITORING_REGISTRY.md#the-laptop-sleeps when access fails.
     jobs:
       - {id: com.ai-memory.classifier-batcher,        project: ai-memory,            schedule: every 300s,   log: ~/projects/ai-memory/logs/launchd/classifier-batcher.log}
       - {id: com.ai-memory.sync-pending,              project: ai-memory,            schedule: every 300s,   log: /tmp/brain-sync-pending.log}
@@ -1436,8 +1447,12 @@ monitoring:
         project: project-tracker
         schedule: every 300s
         log: ~/projects/project-tracker/logs/dashboard_watchdog.log
-        check: 'launchctl print "gui/$(id -u)/com.eriksjaastad.dashboard-watchdog"'
-        health_check: curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/api/health
+        check: >-
+          ssh -o BatchMode=yes -o ConnectTimeout=10 macbook-pro
+          'launchctl print "gui/$(id -u)/com.eriksjaastad.dashboard-watchdog"'
+        health_check: >-
+          ssh -o BatchMode=yes -o ConnectTimeout=10 macbook-pro
+          'curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/api/health'
         expect: >-
           Run count advances across an awake interval longer than 300s and last
           exit code is 0. Health separately expects HTTP 200 and status ok.
