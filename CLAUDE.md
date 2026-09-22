@@ -230,3 +230,13 @@ At card pickup/scoping, aim for **one coherent PR around 500 substantive changed
 ### Do not spring the rule only at PR submission
 
 The policy must appear at **pickup/scoping** (before coding starts) and again at **local pre-push review** (before pushing). Discovering a 1200-line diff at push time with no path to split it is the failure case this policy prevents.
+
+### On-Card/On-Read Visibility
+
+The sizing cue appears when viewing/planning cards, not just at creation or PR time:
+
+- **Dashboard TaskDetailModal**: Always-visible banner near the top when opening any task
+- **CLI `pt tasks show`**: Printed once at the top before task details
+- **TaskForm (create)**: Hint below task description during card creation
+
+Use this cue when ordering/packing cards into PR chunks or deciding if a card must be split before coding.

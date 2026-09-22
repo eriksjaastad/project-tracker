@@ -2173,6 +2173,13 @@ def tasks_show(task_ids, json_output):
     """Show full details of one or more tasks including prompt."""
     db = DatabaseManager()
     tasks = []
+    
+    # Show sizing reminder once at the top for agent/human planning
+    if not json_output and task_ids:
+        console.print("[dim]PR sizing: Aim for ~500 substantive changed lines per PR, plus/minus. "
+                     "Not a hard gate. Keep related work bundled when coherent. "
+                     "Excludes generated/lockfile/vendored/mechanical.[/dim]\n")
+    
     for i, task_id in enumerate(task_ids):
         try:
             task_id = _resolve_task_id(db, task_id)
