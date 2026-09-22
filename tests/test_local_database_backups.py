@@ -10,6 +10,78 @@ from db.calendar_manager import CalendarManager
 from scripts.retire_dbmed import copy_history, database_counts, snapshot
 
 
+@pytest.mark.parametrize('op', ['delete_project', 'delete_done_tasks', 'trim_done_tasks', 'raw_import_tasks'])
+@pytest.mark.parametrize('explicit', [False, True])
+def test_destructive_backend_calls_verify_snapshot_before_mutation(db, monkeypatch, op, explicit):
+    events = []
+    monkeypatch.setattr(db, 'create_recovery_snapshot', lambda **kw: events.append('snapshot') or Path('synthetic.db'))
+    monkeypatch.setattr(db, 'verify_backup', lambda path: events.append('verified') or True)
+    monkeypatch.setattr(db._db, op, lambda **kw: events.append(('mutation', kw)) or 7)
+    if explicit:
+        result = db.authorize(op, reason='Synthetic explicit operation', marker='preserved')
+    else:
+        result = getattr(db, op)(marker='preserved')
+    assert result == 7
+    assert events == ['snapshot', 'verified', ('mutation', {'marker': 'preserved'})]
+
+
+@pytest.mark.parametrize('op', ['delete_project', 'delete_done_tasks', 'trim_done_tasks', 'raw_import_tasks', 'backup_restore', 'migrations_apply'])
+def test_direct_destructive_call_stops_on_invalid_backup(db, monkeypatch, op):
+    called = []
+    monkeypatch.setattr(db, 'verify_backup', lambda path: False)
+    target, name = (db._db, op) if op in db._DESTRUCTIVE_BACKEND_OPS else (db, f'_{op}')
+    monkeypatch.setattr(target, name, lambda *a, **kw: called.append(op))
+    with pytest.raises(RuntimeError, match='Recovery snapshot failed verification'):
+        getattr(db, op)(*(() if op == 'migrations_apply' else ('synthetic',)))
+    assert called == []
+
+
+@pytest.mark.parametrize('op,params', [('backup_restore', {'name': 'snapshot.db'}), ('migrations_apply', {})])
+@pytest.mark.parametrize('explicit', [False, True])
+def test_local_destructive_entry_paths_take_one_snapshot(db, monkeypatch, op, params, explicit):
+    events = []
+    monkeypatch.setattr(db, 'create_recovery_snapshot', lambda **kw: events.append('snapshot') or Path('synthetic.db'))
+    monkeypatch.setattr(db, 'verify_backup', lambda path: events.append('verified') or True)
+    monkeypatch.setattr(db, f'_{op}', lambda *a, **kw: events.append('mutation') or {'ok': True})
+    if explicit:
+        result = db.authorize(op, reason='Synthetic explicit operation', **params)
+    else:
+        result = getattr(db, op)(**params)
+    assert result == {'ok': True}
+    assert events == ['snapshot', 'verified', 'mutation']
+
+
+def test_direct_import_snapshot_preserves_replaced_row(db, tmp_path):
+    db.add_project('import', 'Import', str(tmp_path), 'active')
+    original = db.add_task('Before import', 'import')
+    replacement = {**db.get_task(original['id']), 'text': 'After import'}
+    assert db.raw_import_tasks([replacement]) == 1
+    assert db.get_task(original['id'])['text'] == 'After import'
+    backups = db.backup_list()
+    assert len(backups) == 1
+    saved = Path(backups[0]['location']) / backups[0]['name']
+    with sqlite3.connect(saved) as conn:
+        assert conn.execute('SELECT text FROM tasks WHERE id = ?', (original['id'],)).fetchone() == ('Before import',)
+
+
+def test_refresh_preserves_stale_project_if_recovery_backup_fails(db, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    from dashboard import app
+
+    missing = tmp_path / 'missing-project'
+    db.add_project('stale', 'Stale', str(missing), 'active')
+    task = db.add_task('Preserve on failed backup', 'stale')
+    monkeypatch.setattr(app, 'DatabaseManager', lambda: db)
+    monkeypatch.setattr(app, 'PROJECTS_BASE_DIR', tmp_path)
+    monkeypatch.setattr(app, 'discover_projects', lambda: [])
+    monkeypatch.setattr(db, 'verify_backup', lambda path: False)
+    result = TestClient(app.app).post('/api/refresh')
+    assert result.status_code == 500
+    assert 'Recovery snapshot failed verification' in result.json()['message']
+    assert db.get_project('stale')['name'] == 'Stale'
+    assert db.get_task(task['id'])['text'] == 'Preserve on failed backup'
+
+
 def test_local_board_calendar_and_restore_work_without_service(db, monkeypatch, tmp_path):
     monkeypatch.setenv('DBMED_SOCKET', str(tmp_path / 'absent.sock'))
     db.add_project('recovery', 'Recovery', str(tmp_path), 'active')
