@@ -825,4 +825,3 @@ class ProjectTrackerOps:
             return False
         finally:
             conn.close()
-

@@ -79,4 +79,3 @@ class LocalTestSupport:
         finally:
             conn.close()
         return {"task_id": task_id}
-
