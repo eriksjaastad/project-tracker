@@ -47,6 +47,8 @@ GLOBAL_KEYS = {
         "and mechanical snapshots. If likely materially larger (800+), split into coherent cards/PRs before coding. "
         "At local pre-push review, run code review AND inspect actual substantive diff size: "
         "BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'); "
+        "if [ -z \"$BASE\" ]; then for candidate in main master trunk; do "
+        "if git rev-parse --verify \"origin/$candidate\" >/dev/null 2>&1; then BASE=\"$candidate\"; break; fi; done; fi; "
         "BASE=${BASE:-main}; git diff $BASE...HEAD --stat. "
         "If materially over ~500 substantive lines: split if multiple logical changes, or document why it cannot be split. "
         "Policy must appear at pickup/scoping (before coding) and local pre-push review (before pushing). "

@@ -136,7 +136,7 @@ rule: substantive lines exclude generated files, lockfiles, vendored code, and m
 rule: if likely materially larger (800+ substantive lines), split into coherent cards/PRs before coding
 rule: preserve anti-micro-PR principle — related work stays bundled when it fits coherently
 checkpoint_1: at card pickup/scoping, estimate substantive diff size; if >500 and naturally separable, create multiple cards
-checkpoint_2: at local pre-push review, run code review AND inspect actual substantive diff size (resolve base branch: BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'); BASE=${BASE:-main}; git diff $BASE...HEAD --stat)
+checkpoint_2: at local pre-push review, run code review AND inspect actual substantive diff size (resolve base branch: BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'); if [ -z "$BASE" ]; then for candidate in main master trunk; do if git rev-parse --verify "origin/$candidate" >/dev/null 2>&1; then BASE="$candidate"; break; fi; done; fi; BASE=${BASE:-main}; git diff $BASE...HEAD --stat)
 rule: if materially over ~500 substantive lines at pre-push, split OR document why it cannot be split cleanly
 banned: discovering a 1200-line diff at push time with no path to split — the policy exists to prevent this
 note: 500 is a target, not a hard gate; goal is reviewability, faster merges, and reduced rebase pain
