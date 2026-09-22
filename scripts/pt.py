@@ -1888,6 +1888,10 @@ def tasks_create(text, project, status, priority, prompt, category, description,
     Not a hard gate. Keep related work bundled when coherent.
     Excludes generated files, lockfiles, vendored code, snapshots.
     """
+    # Show sizing reminder at task creation (not just in --help)
+    console.print("[dim]PR sizing: Aim for ~500 substantive changed lines per PR, plus/minus. "
+                 "Not a hard gate. Keep related work bundled when coherent.[/dim]")
+    
     db = DatabaseManager()
     if project: project_id = _resolve_project_id(db, project)
     else: project_id = _detect_project_from_cwd(db)
@@ -3867,6 +3871,7 @@ def info_group(ctx, project, json_output):
       mac_mini_ssh         SSH connection string for Mac Mini
       git_identity         gha vs git vs gh conventions (bot identity)
       pr_merge_policy      PR review/merge procedure (mirrors agent-runtime-config)
+      pr_sizing_policy     ~500-line PR target for reviewability (with fallback)
 
     \b
     Per-project keys (pt info -p <project>):
@@ -3935,8 +3940,9 @@ def info_get(key, project, json_output):
     db = DatabaseManager()
     entries = db.get_info(project_id=project, key=key)
     if not entries:
-        # Fallback: check populate_info.py GLOBAL_KEYS for built-in defaults
-        if not project:
+        # Fallback: check populate_info.py GLOBAL_KEYS for pr_sizing_policy only
+        # (limiting to pr_sizing_policy prevents undoing intentional key deletes)
+        if not project and key == "pr_sizing_policy":
             try:
                 from scripts.populate_info import GLOBAL_KEYS
                 if key in GLOBAL_KEYS:
@@ -3946,8 +3952,9 @@ def info_get(key, project, json_output):
                     else:
                         click.echo(value)
                     return
-            except ImportError:
-                pass
+            except ImportError as e:
+                # Surface import failure instead of silently looking like "No entry found"
+                click.echo(f"Warning: Could not load fallback for '{key}': {e}", err=True)
         scope = f" for project '{project}'" if project else " (global)"
         click.echo(f"No entry found for '{key}'{scope}")
         return

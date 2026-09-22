@@ -219,7 +219,8 @@ At card pickup/scoping, aim for **one coherent PR around 500 substantive changed
 2. **At local pre-push review**: Run the local code review AND inspect actual substantive diff size:
    ```bash
    # Resolve base branch dynamically (handles main/master/trunk)
-   BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "main")
+   BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+   BASE=${BASE:-main}
    git diff $BASE...HEAD --stat
    # Manually subtract generated/mechanical files from the total
    ```
