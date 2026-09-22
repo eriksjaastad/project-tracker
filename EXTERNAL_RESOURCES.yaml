@@ -1322,7 +1322,21 @@ monitoring:
     repo: https://github.com/eriksjaastad/project-tracker.git (agent-chat/)
     provider: cloud-run
     health:
-      check: GET https://agent-chat-2z5wcdmnga-uc.a.run.app/health expect 200 and "status":"ok"
+      check: GET https://agent-chat-2z5wcdmnga-uc.a.run.app/health expect 200, status ok, backend postgres; also require read_probe
+      read_probe:
+        request: GET https://agent-chat-2z5wcdmnga-uc.a.run.app/messages?limit=0
+        auth: X-API-Key header from the Mini's existing Agent Chat client configuration; see _secrets.agent_chat_client_exception
+        expect: HTTP 200 and a JSON object with messages equal to []; this queries the database without returning message bodies
+        failure_states: >-
+          Missing credentials or HTTP 401/403 mean monitoring-auth coverage
+          UNKNOWN, not a proven database outage. HTTP 5xx, timeout or transport
+          failure means service/read-probe failure. Invalid JSON or response
+          shape is UNKNOWN coverage. None is healthy; never send a test message.
+      production_contract: >-
+        Both checks must pass. /health alone does not open a database connection.
+        backend sqlite is an unsafe production configuration even if reads work;
+        absent or unrecognized backend is UNKNOWN durability coverage. Deployment
+        freshness is checked independently and cannot override either result.
       deploy_drift:
         live_check: curl --fail --silent --show-error --max-time 10 https://agent-chat-2z5wcdmnga-uc.a.run.app/health
         expected_sha_check: gha api repos/eriksjaastad/project-tracker/commits/main --jq .sha
@@ -1345,8 +1359,10 @@ monitoring:
       offsite_wired: false
     owner: floor-manager (project-tracker)
     notes: >-
-      Backs `pt message` for every agent. An outage looks like "Agent Chat not
-      configured" or silent message loss, not a crash. Production has drifted
+      Backs `pt message` for every agent. "Agent Chat not configured" means the
+      local client configuration is missing, not evidence of a server outage.
+      Production failures may instead cause request errors or message loss.
+      Production has drifted
       months behind main before; deploy_drift compares actual deployed source
       with current main. make deploy-chat-status only displays the live version.
       Deploys need Erik's interactive gcloud auth — Saga reports, never deploys.
@@ -1504,11 +1520,19 @@ monitoring:
 
   # --- secrets ---------------------------------------------------------------
   _secrets:
-    authority: Doppler. There is no second store and must not be one.
+    authority: Doppler for provider and server credentials; preserve the Agent Chat client exception below.
     saga_rule: >-
-      Saga reads secrets at point of use via `doppler run --`. It does not copy
-      them into OpenClaw, a .env, or its own config. The empty OpenClaw secret
-      store is correct and is not a blocker to fix.
+      Saga reads provider/server secrets at point of use via `doppler run --`.
+      It does not duplicate them into OpenClaw or a new config. The empty
+      OpenClaw secret store is correct and is not a blocker to fix.
+    agent_chat_client_exception: >-
+      Each machine intentionally keeps AGENT_CHAT_URL, AGENT_CHAT_API_KEY and
+      AGENT_CHAT_SENDER in ~/.claude/agent-chat.env (or the environment), consumed
+      by scripts/pt.py _load_chat_config. Preserve the Mini's own configuration
+      and sender; never copy the laptop's file or move client identity into
+      shared Doppler. Server secrets remain in Doppler agent-chat/prd. Read the
+      client file as data, never shell-source it; do not print credentials or
+      put the API key in a URL or diagnostic log.
     known_gaps:
       - RunPod account is spudlogic personal; the muffinpanrecipes key lives at
         Doppler muffinpanrecipes/MUFFIN_RUNPOD_API_KEY. No portfolio-wide key.
