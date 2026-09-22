@@ -39,9 +39,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from scripts.config import PROJECTS_BASE_DIR
-from db.schema import init_db, get_db_path
+from db.schema import (
+    init_db, get_db_path, SafetyError, FreshDatabaseError, FingerprintMismatchError,
+)
 from db.manager import DatabaseManager, _USE_TURSO
-from dbmed.errors import DbmedError, DbUnavailable, OperationFailed
 from discovery.project_scanner import (
     PORTFOLIO_ROOTS,
     discover_projects,
@@ -61,6 +62,12 @@ from skill_invocations_reader import (
     TursoEnabledError as _SkillsTursoEnabledError,
 )
 from skills_registry import installed_skills as _installed_skills
+
+# Local operations expose validation and safety errors directly, without RPC wrapping.
+_LOCAL_DB_ERRORS = (
+    sqlite3.Error, OSError, RuntimeError, ValueError,
+    SafetyError, FreshDatabaseError, FingerprintMismatchError,
+)
 
 console = Console()
 PT_VERSION = "0.0.0"
@@ -82,7 +89,7 @@ def _portfolio_project_info(project: dict) -> dict:
 
     Used to be a cursor-taking write inside the caller's transaction. It is
     now just the data, handed to `sync_project_bundle`, which owns the
-    transaction on the privileged side of the dbmed boundary.
+    transaction in the shared local database operations.
     """
     return {
         "portfolio_group": project.get("portfolio_group"),
@@ -289,22 +296,18 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
     if not base_path.exists() or not base_path.is_dir():
         console.print("[red]PROJECTS_BASE_DIR is invalid or missing. Aborting scan.[/red]")
         return
-    # "Does the database exist" used to be `get_db_path().exists()`. The client
-    # cannot see that path any more — that is the point — so the question is
-    # now "does the service answer", which is the thing we actually needed to
-    # know. A reachable service always has an initialised database, because
-    # the daemon creates the schema when it loads the project.
-    db = DatabaseManager()
+    # Report an unavailable database before scanning.
     try:
-        db.call("dbmed.ping")
+        db = DatabaseManager()
+        db.health_snapshot()
         db_reachable = True
-    except DbmedError as exc:
+    except _LOCAL_DB_ERRORS as exc:
         db_reachable = False
         if not dry_run:
-            console.print(f"[red]Database service unavailable: {exc}[/red]")
+            console.print(f"[red]Database unavailable: {exc}[/red]")
             return
         console.print(
-            f"[yellow]Database service unavailable; dry-run will skip DB comparison.[/yellow]\n"
+            f"[yellow]Database unavailable; dry-run will skip DB comparison.[/yellow]\n"
             f"[dim]{exc}[/dim]"
         )
     with Progress() as progress:
@@ -1521,12 +1524,9 @@ def retire_project(project, execute, keep_files, yes):
 
     # Verify the database backup and obtain authorization BEFORE moving files.
     # A rejected grant must leave both the project directory and its rows intact.
-    from dbmed.client import DbmedClient
-
-    retirement_client = DbmedClient("project-tracker")
-    grant = retirement_client.call(
-        "dbmed.authorize",
-        {"op": "delete_project", "reason": f"Confirmed retire-project {project_id}"},
+    delete_project = db.prepare_operation(
+        "delete_project", reason=f"Confirmed retire-project {project_id}",
+        project_id=project_id,
     )
 
     # 1. Send directory to Trash (unless --keep-files)
@@ -1546,7 +1546,7 @@ def retire_project(project, execute, keep_files, yes):
         console.print(f"[dim]✓ directory already missing, nothing to trash[/dim]")
 
     # 2. Cascade-delete DB rows
-    retirement_client.call("delete_project", {"project_id": project_id}, token=grant["token"])
+    delete_project()
     console.print(f"[green]✓[/green] deleted project '{project_name}' and cascaded rows from the database")
 
     console.print(f"\n[bold green]✅ Retired '{project_name}'.[/bold green]")
@@ -1637,7 +1637,7 @@ def backup_list(json_output: bool):
     """List restorable snapshots by name."""
     try:
         rows = DatabaseManager().backup_list()
-    except DbmedError as err:
+    except _LOCAL_DB_ERRORS as err:
         console.print(f"[red]pt backup list: {err}[/red]")
         raise SystemExit(2)
 
@@ -1657,7 +1657,7 @@ def backup_create():
     """Take a verified timestamped snapshot to both backup locations."""
     try:
         result = DatabaseManager().backup_create()
-    except DbmedError as err:
+    except _LOCAL_DB_ERRORS as err:
         console.print(f"[red]pt backup create: {err}[/red]")
         raise SystemExit(2)
     size_mb = result["size_bytes"] / (1024 * 1024)
@@ -1669,15 +1669,14 @@ def backup_create():
 @backup_group.command(name="offsite")
 @click.argument("backup_name", required=False)
 def backup_offsite(backup_name):
-    """Copy a verified snapshot off-machine via the dbmed rclone operation.
+    """Copy a verified snapshot off-machine using rclone.
 
-    With no name, copies the newest local snapshot. Destination is the
-    root-owned registry value offsite_rclone_dest (not PT_BACKUP_RCLONE_DEST).
+    Destination is PT_BACKUP_RCLONE_DEST. Uses the existing user rclone config.
     """
     try:
         db = DatabaseManager()
         result = db.backup_offsite_copy(name=backup_name) if backup_name else db.backup_offsite_copy()
-    except (DbmedError, RuntimeError, FileNotFoundError, ValueError) as err:
+    except (*_LOCAL_DB_ERRORS, subprocess.TimeoutExpired) as err:
         try:
             from scripts.discovery.backup_reader import append_cloud_copy_log
 
@@ -1710,7 +1709,7 @@ def backup_restore(backup_name: str, yes: bool):
     BREAKING CHANGE: this used to take a filesystem path and copy whatever was
     at it over the live database — a write-anything primitive that needed no
     SQL and no handle on tracker.db. It now takes a NAME, which the database
-    service resolves inside its own protected backup directories. Run
+    tool resolves inside its configured backup directories. Run
     `pt backup list` to see the names.
     """
     if not yes:
@@ -1728,7 +1727,7 @@ def backup_restore(backup_name: str, yes: bool):
             reason=f"pt backup restore from snapshot {backup_name}",
             name=backup_name,
         )
-    except DbmedError as err:
+    except _LOCAL_DB_ERRORS as err:
         console.print(f"[red]pt backup restore: {err}[/red]")
         raise SystemExit(2)
 
@@ -2357,8 +2356,8 @@ def tasks_clear_done(project, yes):
         # Capture task info before deletion for notifications
         for t in done_tasks:
             _notify_inbox(t["id"], t.get("project_id", "unknown"), "Deleted", t["text"])
-        # A hard delete of every Done row. The daemon takes and verifies a
-        # full timestamped backup before it will issue the token this needs.
+        # A hard delete of every Done row. The local operation takes and verifies a
+        # full timestamped recovery snapshot first.
         deleted_count = db.authorize(
             "delete_done_tasks",
             reason=f"pt tasks delete-done for {project_id or 'all projects'}",
@@ -3001,10 +3000,7 @@ def _open_memory_db_readonly() -> sqlite3.Connection:
             f"memory database not found at {db_path}",
             EXIT_BACKEND_UNAVAILABLE,
         )
-    # NOT YET BEHIND dbmed. This opens ai-memory's brain.db, which belongs to
-    # that project and is card #7220's scope, not #7219's. It is read-only and
-    # it is the last direct database connection left in pt. When #7220 lands,
-    # this becomes a call to ai-memory's own sanctioned tool.
+    # ai-memory owns this read-only source; the dbmed rollout was cancelled.
     try:
         uri = f"file:{db_path}?mode=ro"
         conn = sqlite3.connect(uri, uri=True)
@@ -4740,8 +4736,7 @@ def db_migrate():
 
     # Schema migration is a destructive operation: it runs ALTERs, and for CRR
     # tables the runner brackets them with crsql_begin_alter/crsql_commit_alter.
-    # `authorize` makes the daemon take and verify a full timestamped backup
-    # before it will issue the single-use token this call needs.
+    # `authorize` takes and verifies a full timestamped backup first.
     result = db.authorize(
         "migrations_apply", reason="pt db migrate: apply pending schema migrations"
     )
@@ -4790,16 +4785,7 @@ def sync_group(ctx):
 
 
 def _sync_conn() -> DatabaseManager:
-    """Open a sqlite connection to the tracker DB for sync-state reads/writes.
-
-    The sync subcommands used to open the tracker database directly. Each
-    command's database body is now one dbmed operation, so this returns the
-    client rather than a connection.
-
-    A ``DbmedError`` here (daemon down, operation refused) is turned into
-    "pt sync <cmd>: <reason>" by ``_handle_sync_db_error``, so the operator
-    still gets one line instead of a traceback.
-    """
+    """Return local operations for sync control commands."""
     return DatabaseManager()
 
 
@@ -4820,7 +4806,7 @@ def sync_status():
         return
     try:
         state = _sync_conn().sync_status()
-    except DbmedError as err:
+    except _LOCAL_DB_ERRORS as err:
         _handle_sync_db_error("status", err)
         return  # pragma: no cover — _handle_sync_db_error raises SystemExit
     paused = state["paused"]
@@ -4852,7 +4838,7 @@ def sync_check():
         return
     try:
         checks = _sync_conn().sync_check()
-    except DbmedError as err:
+    except _LOCAL_DB_ERRORS as err:
         _handle_sync_db_error("check", err)
         return  # pragma: no cover
 
@@ -4877,12 +4863,11 @@ def sync_set_machine_id(machine_id: int):
 
     try:
         _sync_conn().sync_set_machine_id(machine_id=machine_id)
-    except OperationFailed as err:
-        # The backend raises ValueError for an out-of-range id; the daemon
-        # wraps it. Either way the operator wants one line, not a traceback.
+    except ValueError as err:
+        # An out-of-range id is an operator error, not a traceback.
         console.print(f"[red]pt sync set-machine-id: {err}[/red]")
         sys.exit(2)
-    except DbmedError as err:
+    except _LOCAL_DB_ERRORS as err:
         _handle_sync_db_error("set-machine-id", err)
         return  # pragma: no cover
 
@@ -4902,7 +4887,7 @@ def sync_pause(all_scope: bool):
     scope = "all" if all_scope else "data_plane"
     try:
         _sync_conn().sync_pause(scope=scope)
-    except DbmedError as err:
+    except _LOCAL_DB_ERRORS as err:
         _handle_sync_db_error("pause", err)
         return  # pragma: no cover
     console.print(f"[yellow]✓ sync paused ({scope}).[/yellow]")
@@ -4956,7 +4941,7 @@ def sync_resume(force: bool):
                 )
                 sys.exit(3)
         was_paused = db.sync_resume()["was_paused"]
-    except DbmedError as err:
+    except _LOCAL_DB_ERRORS as err:
         _handle_sync_db_error("resume", err)
         return  # pragma: no cover
     if was_paused:
@@ -4972,21 +4957,14 @@ PT_HANDOFF_SCHEMA_VERSION = "pt.handoff.v1"
 
 
 def _get_tracker_db() -> DatabaseManager:
-    """Return a dbmed client, or raise PtJsonError if the service is down.
-
-    Used to open the tracker database directly. The handoff and migration
-    commands now call named operations; the only thing that can fail here is
-    reaching the daemon, and that is still `backend_unavailable` with the same
-    exit code, so the `pt.handoff.v1` and `pt.migration.v1` envelopes are
-    unchanged.
-    """
-    db = DatabaseManager()
+    """Open the local database, preserving structured availability errors."""
     try:
-        db.call("dbmed.ping")
-    except DbmedError as exc:
+        db = DatabaseManager()
+        db.health_snapshot()
+    except _LOCAL_DB_ERRORS as exc:
         raise PtJsonError(
             "backend_unavailable",
-            f"tracker database service unavailable: {exc}",
+            f"tracker database unavailable: {exc}",
             EXIT_BACKEND_UNAVAILABLE,
         ) from exc
     return db
@@ -5237,7 +5215,7 @@ def handoff_create(
             created_at=now,
             created_by=resolved_created_by,
         )
-    except DbmedError as exc:
+    except _LOCAL_DB_ERRORS as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff create failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.create",
@@ -5284,7 +5262,7 @@ def handoff_list(
         records = db.handoff_list(
             card_id=card_id, project=project, unresolved_only=unresolved_only
         )
-    except DbmedError as exc:
+    except _LOCAL_DB_ERRORS as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff list failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.list",
@@ -5323,7 +5301,7 @@ def handoff_show(handoff_id: int, json_output: bool) -> None:
 
     try:
         record = db.handoff_show(handoff_id=handoff_id)
-    except DbmedError as exc:
+    except _LOCAL_DB_ERRORS as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff show failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.show",
@@ -5379,7 +5357,7 @@ def handoff_resolve(handoff_id: int, note: Optional[str], json_output: bool) -> 
 
     try:
         outcome = db.handoff_resolve(handoff_id=handoff_id, resolved_at=now, note=note)
-    except DbmedError as exc:
+    except _LOCAL_DB_ERRORS as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff resolve failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.resolve",
@@ -5640,7 +5618,7 @@ def migration_start(name: str, force: bool, json_output: bool) -> None:
                 f"⚠ migration session not recorded in the tracker DB: {outcome['error']}",
                 err=True,
             )
-    except (PtJsonError, DbmedError) as exc:
+    except (PtJsonError, *_LOCAL_DB_ERRORS) as exc:
         click.echo(f"⚠ migration session not recorded in the tracker DB: {exc}", err=True)
 
     if json_output:
@@ -6036,7 +6014,7 @@ def migration_finish(
                 f"⚠ migration session not closed in the tracker DB: {outcome['error']}",
                 err=True,
             )
-    except (PtJsonError, DbmedError) as exc:
+    except (PtJsonError, *_LOCAL_DB_ERRORS) as exc:
         click.echo(f"⚠ migration session not closed in the tracker DB: {exc}", err=True)
 
     # Remove the state file so the name is reusable.
@@ -6089,7 +6067,7 @@ def migration_list(json_output: bool) -> None:
 
     try:
         records = db.migration_session_list()
-    except DbmedError as exc:
+    except _LOCAL_DB_ERRORS as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"migration list failed: {exc}", EXIT_QUERY_FAILURE),
             "migration.list",
@@ -6136,21 +6114,10 @@ cli.add_command(handoff_group)
 cli.add_command(migration_group)
 
 def main() -> NoReturn:
-    """Run the CLI, turning a missing database service into one clear line.
-
-    `DbUnavailable` is the single most likely failure in normal operation —
-    the daemon is restarting, or has not been installed on this host yet — and
-    it was surfacing as a Python traceback from whatever call site happened to
-    touch the database first. A traceback tells the operator where we were,
-    not what to do.
-
-    The exit code is EXIT_BACKEND_UNAVAILABLE, the same code the handoff and
-    migration commands already use for this condition, so scripts can tell
-    "the service is down" apart from "your arguments were wrong".
-    """
+    """Run the CLI and report database availability failures with the documented exit code."""
     try:
         cli(standalone_mode=False)
-    except DbUnavailable as exc:
+    except _LOCAL_DB_ERRORS as exc:
         click.echo(f"pt: {exc}", err=True)
         sys.exit(EXIT_BACKEND_UNAVAILABLE)
     except click.ClickException as exc:

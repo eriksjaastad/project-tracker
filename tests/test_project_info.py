@@ -24,14 +24,14 @@ from pt import info_group
 def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager]:
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    db = DatabaseManager()
+    db = DatabaseManager(db_path)
     return db_path, db
 
 
 def _invoke_cli(db_path: Path, args: list) -> object:
     """Invoke info_group CLI with a patched DatabaseManager pointing to test DB."""
     runner = CliRunner()
-    with patch("pt.DatabaseManager", lambda: DatabaseManager()):
+    with patch("pt.DatabaseManager", lambda: DatabaseManager(db_path)):
         return runner.invoke(info_group, args, catch_exceptions=False)
 
 

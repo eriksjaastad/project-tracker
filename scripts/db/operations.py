@@ -1,234 +1,89 @@
-"""project-tracker's operations module, as loaded by the dbmed daemon.
-
-This file is the complete, reviewable statement of what any caller can do to
-`tracker.db`. If an operation is not in `ALLOWLIST`, no client can reach it —
-there is no passthrough, no `execute`, and no way to name a table or a path.
-
-It runs only inside the daemon, from the root-owned install tree. It is never
-imported by `pt` or the dashboard.
-
-## How operations are classified
-
-`Kind` drives authorisation, so the classification is the security decision and
-deserves the argument:
-
-**READ** — returns rows, changes nothing.
-
-**WRITE** — changes rows, including the single-row deletes that `pt` has always
-offered. These keep the gates they already had: `_backup_before_delete` writes
-a JSON snapshot of the affected rows to both backup locations, and
-`_ensure_delete_allowed` still consults `SAFE_MODE`. Note that `SAFE_MODE` is
-now read from the *daemon's* environment, set by launchd — an agent exporting
-`SAFE_MODE=0` in its own shell no longer changes anything, which is the point.
-
-**DESTRUCTIVE** — bulk or irreversible. These refuse by default and require a
-token that the daemon issues only after taking and verifying a full timestamped
-backup. Card #7219 says to preserve existing destructive-operation gates, not
-to invent friction, so routine single-row deletes were deliberately left at
-WRITE. What moved up to DESTRUCTIVE is the set that can empty a board in one
-call: whole-project deletion, the done-column sweeps, and bulk import.
-"""
-
+"""In-process project operations shared by the CLI and dashboard."""
 from __future__ import annotations
-
 import os
 import sqlite3
 import time
 from pathlib import Path
 from typing import Any
-
-from dbmed.opspec import Kind
-
-# `update_project` and `calendar_update_event` take **kwargs. opspec refuses an
-# open kwargs surface, so the accepted field names are enumerated here. Both
-# lists mirror the whitelist the backend method already enforces; the backend
-# still validates, this just makes the surface reviewable from one place.
-_PROJECT_FIELDS = {
-    "name", "path", "status", "phase", "description", "completion_pct",
-    "last_modified", "is_infrastructure", "has_index", "index_is_valid",
-    "index_updated_at", "health_score", "health_grade", "project_type",
-}
-_TASK_FIELDS = {
-    "text", "status", "priority", "prompt", "task_type", "review_comment",
-    "title", "notes", "commit_sha", "category", "parent_id", "blocked_by",
-    "sequence_order", "machine", "project_id",
-}
-_EVENT_FIELDS = {
-    "title", "description", "event_date", "event_time", "event_type",
-    "recurrence", "project_id", "machine", "prompt", "notify_before_minutes",
-    "notified_at", "status", "created_by", "metadata",
-}
-
-ALLOWLIST: dict[str, Kind | tuple[Kind, set[str]]] = {
-    # -- reads ---------------------------------------------------------
-    "get_project": Kind.READ,
-    "get_all_projects": Kind.READ,
-    "get_cron_jobs": Kind.READ,
-    "get_ai_agents": Kind.READ,
-    "get_services": Kind.READ,
-    "get_activity": Kind.READ,
-    "get_task_counts_by_project": Kind.READ,
-    "get_tasks": Kind.READ,
-    "get_task": Kind.READ,
-    "resolve_task_id": Kind.READ,
-    "get_task_display_id": Kind.READ,
-    "get_task_display_id_map": Kind.READ,
-    "get_subtasks": Kind.READ,
-    "get_subtask_progress": Kind.READ,
-    "get_blocking_tasks": Kind.READ,
-    "get_blocked_tasks": Kind.READ,
-    "is_blocked": Kind.READ,
-    "get_task_history": Kind.READ,
-    "get_attachments": Kind.READ,
-    "get_attachment": Kind.READ,
-    "get_idea": Kind.READ,
-    "get_all_ideas": Kind.READ,
-    "get_info": Kind.READ,
-    # -- writes --------------------------------------------------------
-    "migrate_attachments_table": Kind.WRITE,
-    "add_attachment": Kind.WRITE,
-    "add_project": Kind.WRITE,
-    "update_project": (Kind.WRITE, _PROJECT_FIELDS),
-    "update_health": Kind.WRITE,
-    "add_cron_job": Kind.WRITE,
-    "add_ai_agent": Kind.WRITE,
-    "add_service": Kind.WRITE,
-    "add_task": Kind.WRITE,
-    "update_task": (Kind.WRITE, _TASK_FIELDS),
-    "add_idea": Kind.WRITE,
-    "update_idea": Kind.WRITE,
-    "set_info": Kind.WRITE,
-    # Single-row and per-project deletes. They already back up the rows they
-    # touch and already honour SAFE_MODE; escalating them would change the CLI
-    # contract without making anything safer.
-    "delete_task": Kind.WRITE,
-    "delete_attachment": Kind.WRITE,
-    "delete_idea": Kind.WRITE,
-    "delete_info": Kind.WRITE,
-    "delete_cron_jobs": Kind.WRITE,
-    "delete_ai_agents": Kind.WRITE,
-    "delete_services": Kind.WRITE,
-    # -- destructive: token + verified full backup required ------------
-    "delete_project": Kind.DESTRUCTIVE,
-    "delete_done_tasks": Kind.DESTRUCTIVE,
-    "trim_done_tasks": Kind.DESTRUCTIVE,
-    "raw_import_tasks": Kind.DESTRUCTIVE,
-    # NOT destructive, despite the name and despite sitting next to two that
-    # are. `archive_done_tasks` sets `archived_at` and never deletes a row,
-    # never touches `status`, and is reversible. It also runs automatically on
-    # every `pt tasks done`, so requiring a token and a full backup would mean
-    # backing up the whole database every time somebody finishes a card —
-    # friction with no safety bought. It exists precisely because the hard
-    # delete it replaced destroyed 1,288 Done cards (#6870).
-    "archive_done_tasks": Kind.WRITE,
-    # -- calendar ------------------------------------------------------
-    # Namespaced because `get_cron_jobs` and `add_cron_job` exist on both
-    # managers and would otherwise collide into one wire name.
-    "calendar_add_event": Kind.WRITE,
-    "calendar_update_event": (Kind.WRITE, _EVENT_FIELDS),
-    "calendar_mark_done": Kind.WRITE,
-    "calendar_cancel_event": Kind.WRITE,
-    "calendar_link_task": Kind.WRITE,
-    "calendar_unlink_task": Kind.WRITE,
-    "calendar_mark_notified": Kind.WRITE,
-    "calendar_reset_notify": Kind.WRITE,
-    "calendar_get_event": Kind.READ,
-    "calendar_get_events": Kind.READ,
-    "calendar_get_upcoming_reminders": Kind.READ,
-    "calendar_get_events_for_task": Kind.READ,
-    "calendar_get_cron_jobs": Kind.READ,
-    "calendar_add_cron_job": Kind.WRITE,
-    "calendar_export_ical": Kind.READ,
-    # -- composite transactions ----------------------------------------
-    # `pt scan` and `pt project sync` used to run this as five private
-    # cursor-taking calls inside one `BEGIN`. A cursor cannot cross a socket,
-    # and splitting it into five round trips would lose atomicity — a failure
-    # halfway would leave a project with new agents and stale services. It is
-    # one operation now, which is what it always was semantically.
-    "sync_project_bundle": Kind.WRITE,
-    # -- sync control plane --------------------------------------------
-    # Each of these used to be a `sqlite3.connect(get_db_path())` inside a
-    # CLI command. They are small, connection-scoped units of work, so each
-    # command's database body became one operation.
-    "sync_status": Kind.READ,
-    "sync_check": Kind.READ,
-    "sync_pause": Kind.WRITE,
-    "sync_resume": Kind.WRITE,
-    "sync_set_machine_id": Kind.WRITE,
-    "sync_resume_blocked_versions": Kind.READ,
-    # -- schema migrations ---------------------------------------------
-    # `migrations_apply` is destructive: it runs ALTER statements, and the
-    # runner brackets CRR tables with crsql_begin_alter/crsql_commit_alter.
-    # The migrations directory is fixed to the installed, root-owned copy —
-    # the caller cannot name one, which is what closes migration_runner's
-    # exec_module on an arbitrary path.
-    "migrations_pending": Kind.READ,
-    "migrations_apply": Kind.DESTRUCTIVE,
-    # -- handoff records -----------------------------------------------
-    "handoff_create": Kind.WRITE,
-    "handoff_list": Kind.READ,
-    "handoff_show": Kind.READ,
-    "handoff_resolve": Kind.WRITE,
-    # -- migration sessions (pt migration start/finish/list) -----------
-    # Distinct from schema migrations above: these are the recorded bulk-change
-    # sessions from the locked hygiene contract.
-    "migration_session_start": Kind.WRITE,
-    "migration_session_finish": Kind.WRITE,
-    "migration_session_list": Kind.READ,
-    # -- dashboard ------------------------------------------------------
-    # The dashboard used `db._get_conn()` for these four. It is an
-    # unprivileged client now, so each became a named operation. Only the SQL
-    # moved; the presentation logic stayed in the dashboard where it belongs.
-    "upsert_project_with_portfolio_info": Kind.WRITE,
-    "health_snapshot": Kind.READ,
-    "loop_last_executions": Kind.READ,
-    "task_history_daily": Kind.READ,
-    # -- backup and restore ---------------------------------------------
-    # `pt backup restore` used to take a filesystem path and copy whatever was
-    # there over the live database. That is a write-anything primitive wearing
-    # a backup's clothes: it needs no SQL and no file handle on tracker.db to
-    # replace its contents entirely. Restore now names a backup, and the
-    # daemon resolves the name inside its own protected backup directories.
-    "backup_create": Kind.WRITE,
-    "backup_list": Kind.READ,
-    "backup_restore": Kind.DESTRUCTIVE,
-    "backup_offsite_copy": Kind.WRITE,
-}
-
+from types import SimpleNamespace
+from functools import wraps
 
 class ProjectTrackerOps:
-    """Composite backend: the tracker manager plus the calendar manager.
+    _DESTRUCTIVE_BACKEND_OPS = frozenset({
+        "delete_project", "delete_done_tasks", "trim_done_tasks", "raw_import_tasks",
+    })
 
-    Both already exist and both already speak in validated domain methods with
-    parameterised SQL. Nothing about them is rewritten here — they are simply
-    moved to the privileged side of the socket and given a reviewed surface.
-    """
-
-    def __init__(self, entry: Any) -> None:
-        from db.backend_manager import DatabaseManager
-        from db.backend_calendar_manager import CalendarManager
-
-        self.entry = entry
-        self.db_path = Path(entry.db_path)
-        crsqlite = getattr(entry, "crsqlite_path", None)
-        self._db = DatabaseManager(self.db_path, crsqlite_path=crsqlite)
+    def __init__(self, db_path=None):
+        from .backend_manager import DatabaseManager, _USE_TURSO
+        if _USE_TURSO:
+            raise RuntimeError(
+                "Project Tracker local operations require Turso to be disabled in "
+                "~/projects/.turso-config.json; refusing mixed local/remote writes"
+            )
+        from .backend_calendar_manager import CalendarManager
+        from .schema import get_db_path
+        from .pt_id import _find_crsqlite_dylib
+        from scripts.backup_config import external_backup_dir
+        self.db_path = Path(db_path) if db_path is not None else get_db_path()
+        self.entry = SimpleNamespace(
+            backup_dir=self.db_path.parent / "backups",
+            external_backup_dir=external_backup_dir(),
+            crsqlite_path=_find_crsqlite_dylib(),
+        )
+        self._db = DatabaseManager(self.db_path)
         self._cal = CalendarManager(self.db_path)
         self._cal.ensure_tables()
-
-        # Idempotent startup migrations. These used to run at dashboard import
-        # time, where any process that imported the module — including the test
-        # suite — wrote to the live database. Running them here means they
-        # happen once, in the one process that is supposed to write.
         self._db.migrate_attachments_table()
 
-        for name in dir(self._db):
-            if not name.startswith("_") and callable(getattr(self._db, name)):
-                setattr(self, name, getattr(self._db, name))
-        for name in dir(self._cal):
-            if not name.startswith("_") and callable(getattr(self._cal, name)):
-                setattr(self, f"calendar_{name}", getattr(self._cal, name))
+    def __getattr__(self, name):
+        method = getattr(self._db, name)
+        if name not in self._DESTRUCTIVE_BACKEND_OPS:
+            return method
 
-    # -- composite transactions ------------------------------------------
+        @wraps(method)
+        def with_snapshot(*args, **params):
+            self.prepare_destructive(reason=f"Direct database operation: {name}")
+            return method(*args, **params)
+
+        return with_snapshot
+
+    def prepare_destructive(self, *, reason):
+        """Verify a fresh recovery snapshot before a confirmed operation."""
+        if not isinstance(reason, str) or len(reason.strip()) < 8:
+            raise ValueError("A descriptive reason is required")
+        path = self.create_recovery_snapshot(label="before_destructive")
+        if not self.verify_backup(str(path)):
+            raise RuntimeError(f"Recovery snapshot failed verification: {path}")
+        return path
+
+    def authorize(self, op, /, *, reason, **params):
+        return self.prepare_operation(op, reason=reason, **params)()
+
+    def prepare_operation(self, op, /, *, reason, **params):
+        """Verify recovery now; return a single-use call bound to this operation.
+
+        Retirement must establish recovery before moving files, then perform
+        its database mutation without another fallible snapshot in between.
+        """
+        if op not in {"delete_project", "delete_done_tasks", "trim_done_tasks", "raw_import_tasks", "backup_restore", "migrations_apply"}:
+            raise ValueError(f"Not a destructive operation: {op}")
+        self.prepare_destructive(reason=reason)
+        if op in self._DESTRUCTIVE_BACKEND_OPS:
+            operation = getattr(self._db, op)
+        else:
+            operation = getattr(self, f"_{op}")
+        used = False
+
+        def execute():
+            nonlocal used
+            if used:
+                raise RuntimeError("Prepared database operation was already consumed")
+            # A failed backend call may already have committed; never retry it
+            # using this preflight. Backend safety checks still run normally.
+            used = True
+            return operation(**params)
+
+        return execute
 
     def sync_project_bundle(
         self,
@@ -308,7 +163,7 @@ class ProjectTrackerOps:
         return sqlite3.connect(self.db_path, isolation_level=None)
 
     def sync_status(self) -> dict:
-        from db.sync_state import is_paused, last_sync, pause_scope
+        from .sync_state import is_paused, last_sync, pause_scope
 
         conn = self._sync_conn()
         try:
@@ -322,7 +177,7 @@ class ProjectTrackerOps:
             conn.close()
 
     def sync_check(self) -> list:
-        from db.sync_checks import local_sync_readiness
+        from .sync_checks import local_sync_readiness
 
         conn = self._sync_conn()
         try:
@@ -334,7 +189,7 @@ class ProjectTrackerOps:
             conn.close()
 
     def sync_pause(self, scope: str = "data_plane") -> dict:
-        from db.sync_state import set_paused
+        from .sync_state import set_paused
 
         if scope not in ("data_plane", "all"):
             raise ValueError(f"unknown pause scope {scope!r}")
@@ -346,7 +201,7 @@ class ProjectTrackerOps:
         return {"paused": True, "scope": scope}
 
     def sync_resume(self) -> dict:
-        from db.sync_state import clear_paused, is_paused
+        from .sync_state import clear_paused, is_paused
 
         conn = self._sync_conn()
         try:
@@ -357,7 +212,7 @@ class ProjectTrackerOps:
         return {"was_paused": was_paused}
 
     def sync_resume_blocked_versions(self) -> list:
-        from db.sync_state import resume_blocked_versions
+        from .sync_state import resume_blocked_versions
 
         conn = self._sync_conn()
         try:
@@ -366,7 +221,7 @@ class ProjectTrackerOps:
             conn.close()
 
     def sync_set_machine_id(self, machine_id: int) -> dict:
-        from db.sync_checks import set_explicit_machine_id
+        from .sync_checks import set_explicit_machine_id
 
         conn = self._sync_conn()
         try:
@@ -386,17 +241,11 @@ class ProjectTrackerOps:
     # -- schema migrations --------------------------------------------------
 
     def _migrations_dir(self) -> Path:
-        """The installed migrations directory. Never caller-supplied.
-
-        `migration_runner._load_migration` uses `exec_module`, so whoever
-        chooses this directory chooses what Python the privileged daemon
-        executes. It is pinned to the deployed copy beside this module, which
-        `registry.verify_tree` has already confirmed is root-owned.
-        """
+        """Migrations shipped alongside the local database implementation."""
         return Path(__file__).resolve().parent / "migrations"
 
     def migrations_pending(self) -> list:
-        from db.migration_runner import discover_migrations, unapplied_migrations
+        from .migration_runner import discover_migrations, unapplied_migrations
 
         directory = self._migrations_dir()
         if not directory.is_dir():
@@ -410,7 +259,11 @@ class ProjectTrackerOps:
         return [{"version": m.version, "name": m.name} for m in pending]
 
     def migrations_apply(self) -> dict:
-        from db.migration_runner import MigrationError, apply_all
+        self.prepare_destructive(reason="Apply database schema migrations")
+        return self._migrations_apply()
+
+    def _migrations_apply(self) -> dict:
+        from .migration_runner import MigrationError, apply_all
 
         directory = self._migrations_dir()
         if not directory.is_dir():
@@ -432,29 +285,10 @@ class ProjectTrackerOps:
         }
 
     def _load_crsqlite(self, conn: sqlite3.Connection) -> None:
-        """Load cr-sqlite from the vendored, root-owned copy only.
-
-        The dylib used to be read from ~/.local/lib/crsqlite/, which is owned
-        by the agent's own user at mode 755. A SQLite extension is native code
-        running inside the process that loads it, so an agent that could swap
-        that file would be executing its own code with database privileges —
-        the exact hole the service account is supposed to close. The installer
-        vendors it root-owned beside the daemon and this refuses to look
-        anywhere else.
-        """
-        configured = getattr(self.entry, "crsqlite_path", None)
-        if configured is None:
-            raise FileNotFoundError(
-                "no crsqlite_path in this project's registry entry; migrations that "
-                "bracket CRR tables cannot run safely without the extension. Add "
-                "crsqlite_path to the registry and redeploy."
-            )
-        dylib = Path(configured)
-        if not dylib.exists():
-            raise FileNotFoundError(
-                f"cr-sqlite is not at the registered path {dylib}; migrations that "
-                "bracket CRR tables cannot run safely without it"
-            )
+        """Load the locally installed cr-sqlite extension for migrations."""
+        dylib = self.entry.crsqlite_path
+        if dylib is None or not Path(dylib).is_file():
+            raise FileNotFoundError("cr-sqlite is required for migrations; install the local extension")
         conn.enable_load_extension(True)
         try:
             conn.load_extension(str(dylib), entrypoint="sqlite3_crsqlite_init")
@@ -813,8 +647,8 @@ class ProjectTrackerOps:
         quote broke out of the command. There is no shell here.
         """
         stamp = time.strftime("%Y%m%d_%H%M%S")
-        primary = self.dbmed_backup(label=f"tracker_{stamp}")
-        if not self.dbmed_verify_backup(str(primary)):
+        primary = self.create_recovery_snapshot(label=f"tracker_{stamp}")
+        if not self.verify_backup(str(primary)):
             raise RuntimeError(f"backup at {primary} failed verification")
 
         pruned = self._prune_backups(
@@ -829,30 +663,16 @@ class ProjectTrackerOps:
 
 
     def backup_offsite_copy(self, name: str | None = None) -> dict:
-        """Copy a verified snapshot to the registry rclone destination.
-
-        Runs rclone inside the daemon so the protected backup file never has to
-        be world-readable for an agent-owned LaunchAgent script. Destination and
-        config path come from the root-owned registry — not PT_BACKUP_RCLONE_DEST.
-        """
+        """Copy a consistent, verified snapshot using the user's rclone config."""
         import shutil
         import subprocess
-
-        dest = getattr(self.entry, "offsite_rclone_dest", None)
+        from scripts.backup_config import rclone_config_path, rclone_destination
+        dest = rclone_destination()
         if not dest:
-            raise RuntimeError(
-                "offsite rclone is not configured in the dbmed registry "
-                "(offsite_rclone_dest). Set it in /usr/local/etc/dbmed/registry.d/"
-                "project-tracker.toml and restart com.dbmed."
-            )
-        config = getattr(self.entry, "offsite_rclone_config", None)
-        config_path = Path(config) if config else Path("/usr/local/etc/dbmed/rclone.conf")
+            raise RuntimeError("Set PT_BACKUP_RCLONE_DEST to the existing offsite backup destination")
+        config_path = rclone_config_path()
         if not config_path.is_file():
-            raise FileNotFoundError(
-                f"rclone config not found at {config_path}; install a root-owned "
-                "config containing only the offsite remote (see scripts/dbmed-install/"
-                "README-offsite.md)"
-            )
+            raise FileNotFoundError(f"rclone config not found at {config_path}")
 
         if name:
             source = self._resolve_backup(name)
@@ -862,26 +682,12 @@ class ProjectTrackerOps:
                 raise FileNotFoundError("no local backups available to copy offsite")
             source = self._resolve_backup(listed[0]["name"])
 
-        if not self.dbmed_verify_backup(str(source)):
+        if not self.verify_backup(str(source)):
             raise RuntimeError(f"backup {source.name} failed verification; refusing offsite copy")
 
-        # Binary path comes from the registry when set; otherwise PATH lookup.
-        # Do not hardcode Homebrew prefixes — the LaunchDaemon PATH (or
-        # offsite_rclone_bin) must include rclone for the service account.
-        bin_setting = getattr(self.entry, "offsite_rclone_bin", None)
-        if bin_setting:
-            rclone = Path(bin_setting)
-            if not rclone.is_file():
-                raise FileNotFoundError(f"rclone binary not found at registered path {rclone}")
-        else:
-            rclone_bin = shutil.which("rclone")
-            if not rclone_bin:
-                raise FileNotFoundError(
-                    "rclone binary not found on PATH for the dbmed service; "
-                    "set offsite_rclone_bin in the registry or add rclone to "
-                    "com.dbmed's PATH"
-                )
-            rclone = Path(rclone_bin)
+        rclone = shutil.which("rclone")
+        if not rclone:
+            raise FileNotFoundError("rclone binary not found on PATH")
 
         remote_path = f"{dest.rstrip('/')}/{source.name}"
         cmd = [
@@ -938,9 +744,7 @@ class ProjectTrackerOps:
     def backup_list(self) -> list:
         """Every restorable snapshot, newest first, named not pathed.
 
-        The name is what `backup_restore` accepts. Paths are returned for
-        display only — the caller cannot open them, and cannot restore from
-        one by supplying a different one.
+        The name is what `backup_restore` accepts. Paths are returned for display. Restore accepts a bare snapshot name.
         """
         seen: dict[str, dict] = {}
         for directory in self._backup_dirs():
@@ -962,7 +766,7 @@ class ProjectTrackerOps:
         return sorted(seen.values(), key=lambda row: row["modified"], reverse=True)
 
     def _resolve_backup(self, name: str) -> Path:
-        """Turn a caller-supplied name into a path inside a protected dir.
+        """Turn a caller-supplied name into a path inside a configured backup dir.
 
         The name is a bare filename and is checked as one. Anything with a
         separator, a parent reference, or a resolved location outside the
@@ -980,167 +784,42 @@ class ProjectTrackerOps:
                 continue
             return resolved
         raise FileNotFoundError(
-            f"no backup named {name!r} in the protected backup directories; "
+            f"no backup named {name!r} in the configured backup directories; "
             "list them with backup_list"
         )
 
     def backup_restore(self, name: str) -> dict:
-        """Replace the live database with a named, validated snapshot.
+        self.prepare_destructive(reason=f"Restore database snapshot {name}")
+        return self._backup_restore(name)
 
-        Destructive, so the daemon has already taken and verified a full
-        backup of the current state before issuing the token that reaches
-        here. The snapshot is validated again before it is swapped in, and the
-        swap is an atomic rename of a fully written temporary file, so an
-        interrupted restore cannot leave a half-written database.
+    def _backup_restore(self, name: str) -> dict:
+        """Restore through SQLite so concurrent handles never retain a replaced inode.
+
+        Both public entry paths verify a recovery snapshot before this operation.
+        SQLite's backup transaction coordinates with existing readers/writers;
+        do not replace the file or detach its WAL/SHM while other callers exist.
         """
-        from send2trash import send2trash
-
         source = self._resolve_backup(name)
         if source == self.db_path.resolve():
             raise ValueError("refusing to restore from the live database itself")
-        if not self.dbmed_verify_backup(str(source)):
+        if not self.verify_backup(str(source)):
             raise ValueError(f"backup {name!r} failed validation; refusing to restore")
-
-        import tempfile
-
-        handle, staging_name = tempfile.mkstemp(
-            dir=str(self.db_path.parent), prefix="tracker-restore-", suffix=".db"
-        )
-        os.close(handle)
-        staging = Path(staging_name)
+        src = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
         try:
-            src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+            dst = sqlite3.connect(self.db_path)
             try:
-                dst = sqlite3.connect(staging)
-                try:
-                    src.backup(dst)
-                finally:
-                    dst.close()
+                deadline = time.monotonic() + 60
+                def progress(status, remaining, total):
+                    if time.monotonic() > deadline:
+                        raise TimeoutError("Restore timed out waiting for database access")
+                src.backup(dst, pages=256, progress=progress)
             finally:
-                src.close()
-            if not self.dbmed_verify_backup(str(staging)):
-                raise ValueError("the staged restore failed validation; live DB untouched")
-            os.replace(staging, self.db_path)
-        except Exception:
-            if staging.exists():
-                send2trash(str(staging))
-            raise
-
-        # The previous database's WAL and SHM describe a database that no
-        # longer exists. Left in place, SQLite would try to replay them over
-        # the restored file. They go to the Trash rather than being removed.
-        trashed: list[str] = []
-        for suffix in ("-wal", "-shm"):
-            sidecar = Path(f"{self.db_path}{suffix}")
-            if sidecar.exists():
-                send2trash(str(sidecar))
-                trashed.append(sidecar.name)
-
-        return {
-            "restored_from": name,
-            "restored_path": str(self.db_path),
-            "trashed_sidecars": trashed,
-        }
-
-    # -- test-fixture seeding ----------------------------------------------
-
-    # Only these columns, and only on `tasks`. Wide enough for the ordering
-    # and staleness scenarios the suite needs to build, narrow enough that it
-    # cannot be turned into a general "write anything" primitive if the
-    # registry flag were ever enabled somewhere it should not be.
-    _SEEDABLE_TASK_COLUMNS = frozenset(
-        {"created_at", "updated_at", "completed_at", "archived_at"}
-    )
-
-    def dbmed_seed(self, task_id: int, **columns: Any) -> dict:
-        """Backdate or adjust timestamp columns on one task. Tests only.
-
-        Reached exclusively through `dbmed.seed`, which the daemon refuses
-        unless the registry entry sets `allow_seeding`. `install.sh` never
-        writes that flag.
-        """
-        unknown = set(columns) - self._SEEDABLE_TASK_COLUMNS
-        if unknown:
-            raise ValueError(
-                f"dbmed_seed does not set {sorted(unknown)}; "
-                f"seedable columns are {sorted(self._SEEDABLE_TASK_COLUMNS)}"
-            )
-        if not columns:
-            return {"task_id": task_id, "updated": 0}
-
-        assignments = ", ".join(f"{name} = ?" for name in columns)
-        values = [*columns.values(), task_id]
-        conn = self._tracker_conn()
-        try:
-            cursor = conn.execute(
-                f"UPDATE tasks SET {assignments} WHERE id = ?", values
-            )
-            conn.commit()
-            return {"task_id": task_id, "updated": cursor.rowcount}
+                dst.close()
         finally:
-            conn.close()
+            src.close()
+        return {"restored_from": name, "restored_path": str(self.db_path), "trashed_sidecars": []}
 
-    _COUNTABLE_TABLES = frozenset(
-        {
-            "tasks", "projects", "task_history", "delete_audit_log", "handoffs",
-            "migrations", "calendar_events", "ai_agents", "cron_jobs",
-            "services", "ideas", "project_info", "attachments",
-        }
-    )
-
-    def dbmed_count_rows(self, table: str) -> dict:
-        """Count rows in one allowlisted table. Tests only.
-
-        The table name is interpolated into the SQL because a table name
-        cannot be a bound parameter, which is exactly why it is checked
-        against a frozen allowlist first rather than escaped.
-        """
-        if table not in self._COUNTABLE_TABLES:
-            raise ValueError(
-                f"{table!r} is not countable; allowed: {sorted(self._COUNTABLE_TABLES)}"
-            )
-        conn = self._tracker_conn()
-        try:
-            return {"table": table, "rows": conn.execute(
-                f"SELECT COUNT(*) FROM {table}"  # noqa: S608 - allowlisted above
-            ).fetchone()[0]}
-        finally:
-            conn.close()
-
-    def dbmed_seed_task(
-        self,
-        task_id: int,
-        text: str,
-        project_id: str,
-        status: str = "To Do",
-        created_at: str | None = None,
-        updated_at: str | None = None,
-    ) -> dict:
-        """Insert a task with a caller-chosen id. Tests only.
-
-        `add_task` allocates ids through `pt_next_id`, which is correct and
-        which fixtures cannot predict. Several suites assert against a known
-        card number, so they need to choose one. That is a fixture need and
-        never a product one, so it lives behind the same registry flag as the
-        rest of the test-support surface.
-        """
-        stamp = created_at or "2026-01-01T00:00:00Z"
-        conn = self._tracker_conn()
-        try:
-            conn.execute(
-                "INSERT OR REPLACE INTO tasks "
-                "(id, text, status, project_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (task_id, text, status, project_id, stamp, updated_at or stamp),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-        return {"task_id": task_id}
-
-    # -- dbmed integration hooks -----------------------------------------
-
-    def dbmed_backup(self, label: str) -> Path:
+    def create_recovery_snapshot(self, label: str) -> Path:
         """Full timestamped backup to both locations, via SQLite's backup API.
 
         Uses the online backup API rather than a file copy so a concurrent
@@ -1148,10 +827,9 @@ class ProjectTrackerOps:
         `cp` of a WAL database quietly useless.
 
         DECISIONS.md requires two locations, because the 2026-01-27 incident
-        proved one can be lost with the project. Both now sit under the service
-        account, so an agent can neither read them nor delete them.
+        proved one can be lost with the project. These are user-owned local recovery copies.
         """
-        stamp = time.strftime("%Y%m%dT%H%M%S")
+        stamp = time.strftime("%Y%m%dT%H%M%S") + f"_{time.time_ns()}"
         primary = self.entry.backup_dir / f"{label}_{stamp}.db"
         primary.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1170,7 +848,7 @@ class ProjectTrackerOps:
         external.write_bytes(primary.read_bytes())
         return primary
 
-    def dbmed_verify_backup(self, path: str) -> bool:
+    def verify_backup(self, path: str) -> bool:
         """A backup only counts if it opens, passes integrity_check, and has rows.
 
         Checking that the file exists is not verification. The gate exists
@@ -1198,41 +876,3 @@ class ProjectTrackerOps:
             return False
         finally:
             conn.close()
-
-    def dbmed_fixture_create(self, name: str) -> dict:
-        """Create a disposable synthetic database inside the protected root.
-
-        Probes need a target they are *supposed* to fail to open. Giving them
-        the live database to fail against would violate card #7217's rule
-        against probing live data, so the daemon makes one here — same
-        directory, same ownership, same mode, no real rows.
-        """
-        from db.schema import ensure_schema
-
-        root = Path(self.entry.fixture_root)
-        root.mkdir(parents=True, exist_ok=True)
-        path = root / f"{name}.db"
-        conn = sqlite3.connect(path)
-        try:
-            ensure_schema(conn.cursor())
-            conn.execute(
-                "INSERT INTO projects (id, name, path, status, created_at) VALUES (?,?,?,?,?)",
-                (f"fixture-{name}", f"fixture {name}", f"/nonexistent/{name}", "active",
-                 time.strftime("%Y-%m-%dT%H:%M:%S")),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-        return {"path": str(path), "project": f"fixture-{name}"}
-
-    def dbmed_fixture_destroy(self, name: str) -> dict:
-        from send2trash import send2trash
-
-        path = Path(self.entry.fixture_root) / f"{name}.db"
-        if path.exists():
-            send2trash(str(path))
-        return {"destroyed": str(path)}
-
-
-def build(entry: Any) -> tuple[ProjectTrackerOps, dict[str, Kind | tuple[Kind, set[str]]]]:
-    return ProjectTrackerOps(entry), ALLOWLIST

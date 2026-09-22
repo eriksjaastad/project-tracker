@@ -1,14 +1,4 @@
-"""Where a task's attachment files live on disk.
-
-Pure path arithmetic, no database. It sits in its own module because both
-sides of the dbmed boundary legitimately need it and neither should reach
-across for it: the dashboard writes and serves the files, and the backend
-trashes them when a task or attachment is deleted.
-
-Attachments are ordinary files under the user's home, not database contents,
-so they are deliberately *not* behind the boundary. The rows that describe
-them are.
-"""
+"""Shared paths for user-uploaded task attachments. No database access."""
 
 from __future__ import annotations
 
@@ -26,16 +16,7 @@ def attachments_dir(task_id: int, *, create: bool = True) -> Path:
 
 
 def delete_attachment_files(attachments: list[dict]) -> None:
-    """Send each attachment's file to the Trash, and tidy the empty directory.
-
-    Lives here rather than on `DatabaseManager` because it touches files, not
-    rows, and both sides of the dbmed boundary call it: the dashboard when a
-    single attachment is removed, the backend when a task delete cascades.
-
-    Never unlinks. This is user-uploaded content, and a misclick in the
-    dashboard used to destroy it outright (#6905). Failures are logged and the
-    loop continues — one unreadable file must not abandon the rest.
-    """
+    """Trash attachment files and remove empty bookkeeping directories. Log failures without hiding committed database changes."""
     import logging
 
     from send2trash import send2trash

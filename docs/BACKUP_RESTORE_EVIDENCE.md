@@ -3,6 +3,13 @@
 **Date:** 2026-09-19 (America/New_York)  
 **Scope:** Prove existing local backup can recover the work queue. Production `data/tracker.db` was never replaced.
 
+## Retirement update — 2026-09-22
+
+The historical evidence below predates dbmed retirement. It is not proof of
+current offsite health. Before cutover, `pt backup status` reported offsite
+unconfigured and `pt backup create` reported insufficient access privileges.
+Follow [the cutover runbook](DBMED_RETIREMENT.md) and record fresh evidence.
+
 ## Coverage snapshot (`pt backup status`)
 
 | Check | Result |
@@ -24,7 +31,7 @@
 ## Gaps / decisions
 
 - **No additional Turso destination needed** for recovery: local SQLite atomic `.backup` + 6h LaunchAgent is sufficient for on-machine restore.
-- **Off-machine** uses dbmed `backup_offsite_copy` once `offsite_rclone_dest` + `/usr/local/etc/dbmed/rclone.conf` are installed (see `scripts/dbmed-install/README-offsite.md`).
+- **Off-machine** uses dbmed `backup_offsite_copy` once `offsite_rclone_dest` + `/usr/local/etc/dbmed/rclone.conf` are installed (historical setup, now retired).
 - **`~/.project-tracker/backups` file sprawl** (~9.9k files, only ~102 `tracker_*.db`) is test junk, not retention failure on `tracker_*.db` (zero `tracker_*.db` older than 30 days). Handled under #7230.
 
 ## Conclusion
