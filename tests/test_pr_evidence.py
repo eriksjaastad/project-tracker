@@ -160,6 +160,20 @@ def test_missing_initial_head_preserves_independent_evidence():
     assert not any("/commits/" in endpoint for endpoint, _ in api.calls)
 
 
+@pytest.mark.parametrize("state", ["open", "closed"])
+def test_missing_merge_sha_is_explicitly_unavailable(state):
+    api = FakeAPI()
+    api.pr.update(merge_commit_sha=None, state=state)
+    result = capture(api)
+    assert result["status"] == "unknown"
+    for name in ("merge_check_runs", "merge_statuses"):
+        assert result[name] is None
+        assert result["errors"][name]["kind"] == "unavailable"
+    assert result["check_runs"][0]["head_sha"] == HEAD
+    assert result["reviews"][0]["id"] == 3
+    assert not any(MERGE in endpoint for endpoint, _ in api.calls)
+
+
 @pytest.mark.parametrize("mismatch", [None, "id", "node_id", "login"])
 def test_reaction_identity_is_resolved_not_trusted_from_display_login(mismatch):
     api = FakeAPI()
