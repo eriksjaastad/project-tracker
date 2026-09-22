@@ -218,7 +218,9 @@ At card pickup/scoping, aim for **one coherent PR around 500 substantive changed
 1. **At card pickup/scoping**: Estimate substantive diff size. If likely >500 and naturally separable, create multiple cards. Document the split decision.
 2. **At local pre-push review**: Run the local code review AND inspect actual substantive diff size:
    ```bash
-   git diff main...HEAD --stat
+   # Resolve base branch dynamically (handles main/master/trunk)
+   BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "main")
+   git diff $BASE...HEAD --stat
    # Manually subtract generated/mechanical files from the total
    ```
    If materially over ~500 substantive lines:

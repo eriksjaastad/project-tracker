@@ -3928,6 +3928,19 @@ def info_get(key, project, json_output):
     db = DatabaseManager()
     entries = db.get_info(project_id=project, key=key)
     if not entries:
+        # Fallback: check populate_info.py GLOBAL_KEYS for built-in defaults
+        if not project:
+            try:
+                from scripts.populate_info import GLOBAL_KEYS
+                if key in GLOBAL_KEYS:
+                    value = GLOBAL_KEYS[key]
+                    if json_output:
+                        click.echo(json_mod.dumps({"key": key, "value": value, "source": "fallback"}, indent=2))
+                    else:
+                        click.echo(value)
+                    return
+            except ImportError:
+                pass
         scope = f" for project '{project}'" if project else " (global)"
         click.echo(f"No entry found for '{key}'{scope}")
         return
