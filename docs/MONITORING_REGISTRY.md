@@ -11,6 +11,14 @@ There is one registry file, not several:
 ~/projects/project-tracker/EXTERNAL_RESOURCES.yaml
 ```
 
+This is the default-layout example. The seeded alias uses the configured
+`EXTERNAL_RESOURCES_FILE` (including `PT_RESOURCES_FILE`); generate these laptop
+paths on the laptop. The remote invocation uses the actual tracker checkout,
+the configured `PROJECTS_ROOT`, and explicit resource configuration, with shell
+quoting for each path. Saga executes that invocation from the Mini rather than
+regenerating it from the Mini's settings. SSH examples below show the default
+layout; use the seeded invocation when the laptop's paths differ.
+
 Its `projects:` block (pre-existing) is the authority on **which third-party
 services each project uses**, account ownership and cost. Its `monitoring:`
 block (added 2026-09-22) adds only what a monitor needs: production URL, repo,
