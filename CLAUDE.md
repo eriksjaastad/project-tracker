@@ -201,3 +201,50 @@ hooks in `~/.claude/` and by `pt` CLI commands in project-tracker. **Treat this 
 | Resolve a handoff               | `pt handoff resolve <id>`                     |
 | Refresh this block portfolio-wide | Manual / agent-runtime-config guidance (scaffold sync CLI retired #6833) |
 <!-- END scaffold:hygiene -->
+
+## PR Workflow and Sizing Policy
+
+### PR Sizing Target
+
+At card pickup/scoping, aim for **one coherent PR around 500 substantive changed lines or less**.
+
+- **500 is a target, not a hard gate.** The goal is reviewability — smaller PRs get better reviews, merge faster, and reduce rebase pain.
+- **Substantive lines** exclude generated files, lockfiles (`package-lock.json`, `uv.lock`, etc.), vendored code, and mechanical snapshots (e.g., test fixtures that mirror a large input verbatim).
+- **If likely materially larger** (e.g., 800+ substantive lines), split into coherent cards/PRs **before coding**. Each PR should be independently reviewable and testable. Example: extract helper functions into one PR, then use them in a second PR for the main feature.
+- **Preserve Erik's anti-micro-PR rule**: related work stays bundled when it fits coherently. A 600-line PR that's one logical unit is better than three artificial 200-line splits.
+
+### Checkpoints
+
+1. **At card pickup/scoping**: Estimate substantive diff size. If likely >500 and naturally separable, create multiple cards. Document the split decision.
+2. **At local pre-push review**: Run the local code review AND inspect actual substantive diff size:
+   ```bash
+   # Resolve base branch dynamically (handles main/master/trunk, with or without remote HEAD)
+   BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+   if [ -z "$BASE" ]; then
+     for candidate in main master trunk; do
+       if git rev-parse --verify "origin/$candidate" >/dev/null 2>&1; then
+         BASE="origin/$candidate"; break
+       fi
+     done
+   fi
+   BASE=${BASE:-origin/main}
+   git diff $BASE...HEAD --stat
+   # Manually subtract generated/mechanical files from the total
+   ```
+   If materially over ~500 substantive lines:
+   - **Split** if the PR contains multiple logical changes that can be separated.
+   - **Document why not** if it's one coherent change that cannot be split cleanly without breaking atomicity.
+
+### Do not spring the rule only at PR submission
+
+The policy must appear at **pickup/scoping** (before coding starts) and again at **local pre-push review** (before pushing). Discovering a 1200-line diff at push time with no path to split it is the failure case this policy prevents.
+
+### On-Card/On-Read Visibility
+
+The sizing cue appears when viewing/planning cards, not just at creation or PR time:
+
+- **Dashboard TaskDetailModal**: Always-visible banner near the top when opening any task
+- **CLI `pt tasks show`**: Printed once at the top before task details
+- **TaskForm (create)**: Hint below task description during card creation
+
+Use this cue when ordering/packing cards into PR chunks or deciding if a card must be split before coding.
