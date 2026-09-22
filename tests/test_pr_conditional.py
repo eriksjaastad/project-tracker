@@ -51,6 +51,36 @@ def test_later_page_changes_even_when_first_is_304_without_links(tmp_path):
     assert not runner.responses
 
 
+@pytest.mark.parametrize("envelope", [None, "check_runs", "workflows"])
+def test_full_terminal_page_probe_finds_new_evidence_after_304_without_link(tmp_path, envelope):
+    def wrap(rows, total):
+        return {envelope: rows, "total_count": total} if envelope else rows
+    full = wrap([{"id": n} for n in range(100)], 100)
+    empty = wrap([], 100)
+    appended = wrap([{"id": 100, "body": "new finding"}], 101)
+    runner = Runner(
+        (FIRST, response(body=full, headers=[("etag", '"full"')])),
+        (SECOND, response(body=empty, headers=[("etag", '"empty"')])),
+        (FIRST, response(304)),
+        (SECOND, response(body=appended, headers=[("etag", '"new"')])),
+    )
+    transport = ConditionalGhaTransport(tmp_path, run=runner)
+    assert transport.get(FIRST, paginate=True) == [full, empty]
+    assert transport.get(FIRST, paginate=True) == [full, appended]
+    assert 'If-None-Match: "empty"' in runner.calls[-1][0]
+    assert not runner.responses
+
+
+def test_full_later_terminal_page_probes_next_number_and_preserves_filters(tmp_path):
+    second = "repos/owner/repo/commits/abc/check-runs?filter=all&per_page=2&page=2"
+    third = "repos/owner/repo/commits/abc/check-runs?filter=all&per_page=2&page=3"
+    full = {"total_count": 4, "check_runs": [{"id": 3}, {"id": 4}]}
+    empty = {"total_count": 4, "check_runs": []}
+    runner = Runner((second, response(body=full)), (third, response(body=empty)))
+    assert ConditionalGhaTransport(tmp_path, run=runner).get(second, paginate=True) == [full, empty]
+    assert not runner.responses
+
+
 def test_old_comment_edit_and_reaction_id_replacement_are_not_count_shortcuts(tmp_path):
     endpoint = "repos/owner/repo/issues/7/reactions"
     runner = Runner(

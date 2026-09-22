@@ -10,7 +10,7 @@ import json
 import re
 import subprocess
 import time
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit
 
 from scripts.pr_evidence import EvidenceError, GhaTransport
 
@@ -71,6 +71,29 @@ def _next_link(header, endpoint):
     if len(next_links) > 1:
         raise EvidenceError("pagination", "Ambiguous next page")
     return next_links[0] if next_links else None
+
+
+def _overflow_page(endpoint, data):
+    """A full terminal page needs a probe: a 304 can omit newly changed Links."""
+    rows = data
+    if isinstance(data, dict):
+        rows = data.get("check_runs", data.get("workflows"))
+    if not isinstance(rows, list):
+        return None
+    parsed = urlsplit(endpoint)
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    parameters = dict(query)
+    try:
+        size = min(100, int(parameters.get("per_page", "30")))
+        page = int(parameters.get("page", "1"))
+    except ValueError as exc:
+        raise EvidenceError("pagination", "Invalid numeric pagination parameter") from exc
+    if size <= 0 or page <= 0:
+        raise EvidenceError("pagination", "Pagination parameters must be positive")
+    if len(rows) != size:
+        return None
+    query = [(key, value) for key, value in query if key != "page"]
+    return parsed.path + "?" + urlencode([*query, ("page", str(page + 1))])
 
 
 class ConditionalGhaTransport(GhaTransport):
@@ -139,8 +162,11 @@ class ConditionalGhaTransport(GhaTransport):
             if endpoint in seen:
                 raise EvidenceError("pagination", "Pagination repeated a page")
             seen.add(endpoint)
-            data, endpoint = self._page(endpoint)
+            current = endpoint
+            data, endpoint = self._page(current)
             if not paginate:
                 return data
             pages.append(data)
+            if endpoint is None:
+                endpoint = _overflow_page(current, data)
         return pages
