@@ -285,3 +285,55 @@ def test_retirement_preserves_existing_parent_ownership(retirement_install, monk
     retirement.retire(repo)
     assert parent not in ownership
     assert parent.stat().st_mode & 0o777 == 0o750
+
+
+@pytest.mark.parametrize('name', ['../tracker.db', '/tmp/tracker.db'])
+def test_restore_cli_rejects_paths_without_traceback(db, monkeypatch, tmp_path, name):
+    from click.testing import CliRunner
+    import pt
+    db.add_project('keep', 'Keep', str(tmp_path), 'active')
+    saved = db.add_task('Keep this row', 'keep')
+    monkeypatch.setattr(pt, 'DatabaseManager', lambda: db)
+    result = CliRunner().invoke(pt.cli, ['backup', 'restore', name, '--yes'])
+    assert result.exit_code == 2
+    assert 'pt backup restore:' in result.output
+    assert isinstance(result.exception, SystemExit)
+    assert db.get_task(saved['id'])['text'] == 'Keep this row'
+
+
+@pytest.mark.parametrize('command', [['backup', 'create'], ['backup', 'restore', 'tracker_saved.db', '--yes']])
+def test_backup_cli_reports_verification_failure(db, monkeypatch, tmp_path, command):
+    from click.testing import CliRunner
+    import pt
+    db.add_project('keep', 'Keep', str(tmp_path), 'active')
+    saved = db.add_task('Keep this row', 'keep')
+    monkeypatch.setattr(pt, 'DatabaseManager', lambda: db)
+    monkeypatch.setattr(db, 'verify_backup', lambda path: False)
+    result = CliRunner().invoke(pt.cli, command)
+    assert result.exit_code == 2
+    assert f'pt backup {command[1]}:' in result.output
+    assert 'verification' in result.output.lower()
+    assert isinstance(result.exception, SystemExit)
+    assert db.get_task(saved['id'])['text'] == 'Keep this row'
+
+
+def test_offsite_cli_reports_timeout_and_keeps_snapshot(db, monkeypatch, tmp_path):
+    from click.testing import CliRunner
+    import pt
+    created = db.backup_create(retention_days=0)
+    config = tmp_path / 'rclone.conf'
+    config.write_text('[synthetic]\ntype = local\n')
+    monkeypatch.setenv('PT_BACKUP_LOG_PATH', str(tmp_path / 'backup.log'))
+    monkeypatch.setenv('PT_BACKUP_RCLONE_DEST', 'synthetic:backups')
+    monkeypatch.setenv('RCLONE_CONFIG', str(config))
+    monkeypatch.setattr(pt, 'DatabaseManager', lambda: db)
+    monkeypatch.setattr('shutil.which', lambda name: '/synthetic/rclone')
+    def timeout(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, 300)
+    monkeypatch.setattr(subprocess, 'run', timeout)
+    result = CliRunner().invoke(pt.cli, ['backup', 'offsite', Path(created['path']).name])
+    assert result.exit_code == 2
+    assert 'pt backup offsite:' in result.output
+    assert isinstance(result.exception, SystemExit)
+    assert '| cloud_copy | failed |' in (tmp_path / 'backup.log').read_text()
+    assert db.verify_backup(created['path'])

@@ -293,7 +293,7 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
         db = DatabaseManager()
         db.health_snapshot()
         db_reachable = True
-    except (sqlite3.Error, OSError) as exc:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
         db_reachable = False
         if not dry_run:
             console.print(f"[red]Database unavailable: {exc}[/red]")
@@ -1626,7 +1626,7 @@ def backup_list(json_output: bool):
     """List restorable snapshots by name."""
     try:
         rows = DatabaseManager().backup_list()
-    except (sqlite3.Error, OSError) as err:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as err:
         console.print(f"[red]pt backup list: {err}[/red]")
         raise SystemExit(2)
 
@@ -1646,7 +1646,7 @@ def backup_create():
     """Take a verified timestamped snapshot to both backup locations."""
     try:
         result = DatabaseManager().backup_create()
-    except (sqlite3.Error, OSError) as err:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as err:
         console.print(f"[red]pt backup create: {err}[/red]")
         raise SystemExit(2)
     size_mb = result["size_bytes"] / (1024 * 1024)
@@ -1665,7 +1665,7 @@ def backup_offsite(backup_name):
     try:
         db = DatabaseManager()
         result = db.backup_offsite_copy(name=backup_name) if backup_name else db.backup_offsite_copy()
-    except (sqlite3.Error, OSError, RuntimeError, ValueError) as err:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as err:
         try:
             from scripts.discovery.backup_reader import append_cloud_copy_log
 
@@ -1716,7 +1716,7 @@ def backup_restore(backup_name: str, yes: bool):
             reason=f"pt backup restore from snapshot {backup_name}",
             name=backup_name,
         )
-    except (sqlite3.Error, OSError) as err:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as err:
         console.print(f"[red]pt backup restore: {err}[/red]")
         raise SystemExit(2)
 
@@ -4795,7 +4795,7 @@ def sync_status():
         return
     try:
         state = _sync_conn().sync_status()
-    except (sqlite3.Error, OSError) as err:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as err:
         _handle_sync_db_error("status", err)
         return  # pragma: no cover — _handle_sync_db_error raises SystemExit
     paused = state["paused"]
@@ -4827,7 +4827,7 @@ def sync_check():
         return
     try:
         checks = _sync_conn().sync_check()
-    except (sqlite3.Error, OSError) as err:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as err:
         _handle_sync_db_error("check", err)
         return  # pragma: no cover
 
@@ -4856,7 +4856,7 @@ def sync_set_machine_id(machine_id: int):
         # An out-of-range id is an operator error, not a traceback.
         console.print(f"[red]pt sync set-machine-id: {err}[/red]")
         sys.exit(2)
-    except (sqlite3.Error, OSError) as err:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as err:
         _handle_sync_db_error("set-machine-id", err)
         return  # pragma: no cover
 
@@ -4876,7 +4876,7 @@ def sync_pause(all_scope: bool):
     scope = "all" if all_scope else "data_plane"
     try:
         _sync_conn().sync_pause(scope=scope)
-    except (sqlite3.Error, OSError) as err:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as err:
         _handle_sync_db_error("pause", err)
         return  # pragma: no cover
     console.print(f"[yellow]✓ sync paused ({scope}).[/yellow]")
@@ -4930,7 +4930,7 @@ def sync_resume(force: bool):
                 )
                 sys.exit(3)
         was_paused = db.sync_resume()["was_paused"]
-    except (sqlite3.Error, OSError) as err:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as err:
         _handle_sync_db_error("resume", err)
         return  # pragma: no cover
     if was_paused:
@@ -4950,7 +4950,7 @@ def _get_tracker_db() -> DatabaseManager:
     try:
         db = DatabaseManager()
         db.health_snapshot()
-    except (sqlite3.Error, OSError) as exc:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
         raise PtJsonError(
             "backend_unavailable",
             f"tracker database unavailable: {exc}",
@@ -5204,7 +5204,7 @@ def handoff_create(
             created_at=now,
             created_by=resolved_created_by,
         )
-    except (sqlite3.Error, OSError) as exc:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff create failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.create",
@@ -5251,7 +5251,7 @@ def handoff_list(
         records = db.handoff_list(
             card_id=card_id, project=project, unresolved_only=unresolved_only
         )
-    except (sqlite3.Error, OSError) as exc:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff list failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.list",
@@ -5290,7 +5290,7 @@ def handoff_show(handoff_id: int, json_output: bool) -> None:
 
     try:
         record = db.handoff_show(handoff_id=handoff_id)
-    except (sqlite3.Error, OSError) as exc:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff show failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.show",
@@ -5346,7 +5346,7 @@ def handoff_resolve(handoff_id: int, note: Optional[str], json_output: bool) -> 
 
     try:
         outcome = db.handoff_resolve(handoff_id=handoff_id, resolved_at=now, note=note)
-    except (sqlite3.Error, OSError) as exc:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"handoff resolve failed: {exc}", EXIT_QUERY_FAILURE),
             "handoff.resolve",
@@ -5607,7 +5607,7 @@ def migration_start(name: str, force: bool, json_output: bool) -> None:
                 f"⚠ migration session not recorded in the tracker DB: {outcome['error']}",
                 err=True,
             )
-    except (PtJsonError, sqlite3.Error, OSError) as exc:
+    except (PtJsonError, sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
         click.echo(f"⚠ migration session not recorded in the tracker DB: {exc}", err=True)
 
     if json_output:
@@ -6003,7 +6003,7 @@ def migration_finish(
                 f"⚠ migration session not closed in the tracker DB: {outcome['error']}",
                 err=True,
             )
-    except (PtJsonError, sqlite3.Error, OSError) as exc:
+    except (PtJsonError, sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
         click.echo(f"⚠ migration session not closed in the tracker DB: {exc}", err=True)
 
     # Remove the state file so the name is reusable.
@@ -6056,7 +6056,7 @@ def migration_list(json_output: bool) -> None:
 
     try:
         records = db.migration_session_list()
-    except (sqlite3.Error, OSError) as exc:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
         _emit_json_error(
             PtJsonError("query_failure", f"migration list failed: {exc}", EXIT_QUERY_FAILURE),
             "migration.list",
@@ -6106,7 +6106,7 @@ def main() -> NoReturn:
     """Run the CLI and report database availability failures with the documented exit code."""
     try:
         cli(standalone_mode=False)
-    except (sqlite3.Error, OSError) as exc:
+    except (sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
         click.echo(f"pt: {exc}", err=True)
         sys.exit(EXIT_BACKEND_UNAVAILABLE)
     except click.ClickException as exc:
