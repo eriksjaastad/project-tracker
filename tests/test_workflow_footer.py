@@ -55,8 +55,8 @@ PROJECT_ID = "project-tracker"
 def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager]:
     db_path = tmp_path / "test.db"
     create_database(db_path)
-    # Use Remote manager so CLI subprocess can reach same DB through daemon
-    db = DatabaseManager()
+    # Use the same explicit local database in the fixture and CLI.
+    db = DatabaseManager(db_path)
     db.add_project(
         project_id=PROJECT_ID,
         name="Project Tracker",

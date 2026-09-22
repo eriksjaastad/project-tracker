@@ -204,12 +204,7 @@ class DatabaseManager:
         db_path: Optional[Path] = None,
         crsqlite_path: Optional[Path] = None,
     ):
-        """Initialize database manager.
-
-        crsqlite_path: absolute path to a root-owned crsqlite dylib (dbmed
-        registry). When set, connections load that file instead of searching
-        ~/.local/lib/crsqlite — which is invisible to the _dbmed service account.
-        """
+        """Initialize the local manager, optionally selecting a cr-sqlite extension."""
         global _schema_ensured
         self.db_path = db_path or get_db_path()
         self.crsqlite_path = Path(crsqlite_path) if crsqlite_path else None

@@ -137,7 +137,7 @@ def resume_blocked_versions(conn: sqlite3.Connection) -> list[int]:
     blocking on "peer hasn't announced" would be blocking forever).
     This mirrors the guard in ``sync_daemon._outstanding_peer_announcements``.
 
-    Moved here from ``scripts/pt.py`` when database access went behind dbmed:
+    Shared by the CLI and local database operations:
     it is sync-state logic, and the daemon cannot import the CLI.
     """
     try:

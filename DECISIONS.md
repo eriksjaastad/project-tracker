@@ -3,6 +3,16 @@
 Deliberate architectural choices. Read before changing anything structural.
 To revisit a decision, don't edit — add a new entry that supersedes it.
 
+## Retire dbmed; use consistent snapshots and rclone
+**Accepted 2026-09-22; supersedes the 2026-09-17 database lockdown initiative.**
+
+Erik cancelled the rollout and explicitly requested removal of the installed
+service. Project Tracker returns to its existing in-process database operations.
+Backups use the SQLite backup API and the existing rclone destination; preserve
+backup history, destructive-operation confirmation, and SAFE_MODE. No replacement
+storage gate is planned. Root-owned installation retirement follows
+[the cutover runbook](docs/DBMED_RETIREMENT.md), after the code is deployed.
+
 ---
 
 ## Dual-Interface Architecture (CLI + Web Dashboard)

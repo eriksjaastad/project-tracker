@@ -85,12 +85,7 @@ app = FastAPI(title="Project Tracker Dashboard", lifespan=_lifespan)
 _PROCESS_START_WALL = datetime.now()
 _PROCESS_START_MONOTONIC = _monotonic()
 
-# Idempotent startup migrations used to run here, at import. That made merely
-# importing this module write to the live tracker database — which is how
-# fourteen test modules ended up mutating data/tracker.db just by importing the
-# dashboard. The daemon runs them now, once, when it loads this project's
-# operations module, which is both the right owner and the only process with
-# permission to do it.
+# Database initialization happens when a manager is requested, never at import.
 
 # Setup templates and static files
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -570,10 +565,7 @@ def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
 def _portfolio_project_info(project: dict) -> dict:
     """Tracker-owned portfolio metadata for a discovered project.
 
-    Used to be a cursor-taking write inside the caller's transaction. The
-    dashboard is an unprivileged dbmed client now, so this is just the data;
-    the transaction belongs to `upsert_project_with_portfolio_info` on the
-    privileged side.
+    The shared upsert operation applies this metadata in its transaction.
     """
     return {
         "portfolio_group": project.get("portfolio_group"),
@@ -650,7 +642,7 @@ def _enrich_task_payloads_with_display_ids(tasks: list[dict], db: DatabaseManage
     task_ids: set[int] = set()
     for task in tasks:
         _collect_task_display_ids(task, task_ids)
-    # Keyword args required by the dbmed RPC proxy; JSON-RPC also stringifies
+    # Explicit arguments retain the shared manager contract; callers normalize
     # snowflake dict keys, so coerce before lookup or every card falls back to
     # the 20-digit pk (what the Kanban board was showing after cutover).
     raw_map = db.get_task_display_id_map(task_ids=list(task_ids)) if task_ids else {}
