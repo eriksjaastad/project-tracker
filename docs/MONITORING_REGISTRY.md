@@ -146,6 +146,26 @@ or managed-backup policy; those remain unverified.
 
 ### Agent Chat deployment drift
 
+First check service availability and storage separately from deployment
+freshness. `/health` must return HTTP 200 with `status: ok` and
+`backend: postgres`. It only describes configuration and never connects to the
+database. A production `sqlite` backend is unsafe even if requests succeed;
+a missing or unrecognized backend is unknown durability coverage.
+
+From the Mini, also send authenticated `GET /messages?limit=0` to the registered
+production URL. This opens the real database and queries its messages table
+without returning message bodies. Require HTTP 200 and a JSON object whose
+`messages` value is exactly an empty array. Do not send a test message or log
+response bodies. Both this probe and the health/backend check must pass.
+
+Use the `X-API-Key` header from the Mini's existing Agent Chat client
+configuration, not a URL parameter. Missing credentials or HTTP 401/403 means
+monitoring authentication is unavailable: record unknown coverage and a
+configuration incident, without claiming the database itself is down. A timeout,
+transport error or HTTP 5xx is a service/read-probe failure. Malformed JSON or
+an unexpected response shape is unknown coverage. None of these counts as
+healthy. Continue public checks if authenticated coverage is unavailable.
+
 `make deploy-chat-status` displays `/health`; its exit status does not prove
 health or freshness. Read the health JSON and compare its `version` with the
 expected full SHA from GitHub's current `main`, using the registry's commands.
@@ -162,7 +182,23 @@ Equal trees mean the deployed source is current despite unrelated tracker
 commits; record the SHA mismatch without an outage alert. If health fails,
 report service failure. A missing/`unknown` version, unresolved commit, API
 failure, or incomplete tree comparison is `UNKNOWN` coverage, never a pass.
+Track health, durability, authenticated-read coverage and freshness independently;
+a matching deploy SHA cannot override a failed or unknown health/read check.
 Saga reports drift; it never deploys or promotes traffic.
+
+### Agent Chat client credentials
+
+Doppler owns provider and server secrets, including Agent Chat's server config
+in `agent-chat/prd`. The deliberate client exception is each machine's
+`~/.claude/agent-chat.env`, containing `AGENT_CHAT_URL`, `AGENT_CHAT_API_KEY` and
+`AGENT_CHAT_SENDER` (the client also supports environment values). Saga preserves
+the Mini's existing client file and sender identity. Never copy the laptop's
+file or consolidate these machine identities into shared Doppler.
+
+Read the file as key/value data using the existing client loader's semantics;
+never execute it as shell code. Credentials must not appear in logs, command
+traces or URLs. A missing client configuration is a coverage gap to report,
+not authorization to create a new secret store or change identity.
 
 ### Silent scheduled jobs
 
@@ -178,8 +214,9 @@ awake observations mean unknown coverage, not a stopped job.
 Four of the five blockers Saga reported are already resolved or were misread:
 
 1. **"OpenClaw secret store is empty"** — correct, and it stays empty. Doppler
-   is the only secret store. Saga reads secrets at point of use with
-   `doppler run --`, and copies none.
+   owns provider/server secrets. Saga reads those at point of use with
+   `doppler run --`, and copies none. Preserve the existing per-machine Agent
+   Chat client exception described above.
 2. **"Vercel plugin is not installed"** — no plugin exists or is needed. The
    laptop's `vercel` CLI is authenticated as `eriksjaastad`. For the Mini, put
    a Vercel API token in Doppler.
