@@ -179,3 +179,65 @@ def test_retirement_copy_failure_restarts_original_service(retirement_install):
     assert not (repo / 'data/tracker.db').exists()
     assert ('launchctl', 'bootstrap', 'system', str(retirement.PLIST)) in calls
     assert not any('dscl' in call for call in calls)
+
+
+def test_scheduled_settings_match_manual_upload_and_status(db, monkeypatch, tmp_path):
+    import plistlib
+    from scripts.discovery.backup_reader import get_backup_status, append_cloud_copy_log
+
+    config = tmp_path / 'scheduled-rclone.conf'
+    config.write_text('[scheduled]\ntype = local\n')
+    external = tmp_path / 'scheduled-backups'
+    plist = tmp_path / 'backup.plist'
+    plist.write_bytes(plistlib.dumps({'EnvironmentVariables': {
+        'PT_BACKUP_RCLONE_DEST': 'scheduled:recovery',
+        'RCLONE_CONFIG': str(config),
+        'PT_EXTERNAL_BACKUP_DIR': str(external),
+    }}))
+    monkeypatch.setenv('PT_BACKUP_LAUNCH_AGENT_PATH', str(plist))
+    monkeypatch.setenv('PT_BACKUP_LOG_PATH', str(tmp_path / 'backup.log'))
+    for key in ('PT_BACKUP_RCLONE_DEST', 'RCLONE_CONFIG', 'RCLONE_CONFIG_PATH',
+                'PT_EXTERNAL_BACKUP_DIR', 'PT_FULL_BACKUP_DIR'):
+        monkeypatch.delenv(key, raising=False)
+    local = DatabaseManager(db.db_path)
+    assert local.entry.external_backup_dir == external
+    created = local.backup_create(retention_days=0)
+    monkeypatch.setattr('shutil.which', lambda name: '/synthetic/rclone')
+    calls = []
+    def upload(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, '', '')
+    monkeypatch.setattr(subprocess, 'run', upload)
+    result = local.backup_offsite_copy(Path(created['path']).name)
+    assert calls[0][3] == result['dest']
+    assert calls[0][5] == str(config)
+    assert result['dest'].startswith('scheduled:recovery/')
+    append_cloud_copy_log(ok=True, detail=result['dest'])
+    status = get_backup_status()
+    assert status['backup_dir'] == str(external)
+    assert status['status'] == 'healthy'
+    assert status['local_full']['count'] == 1
+
+
+def test_backup_settings_process_precedence_and_legacy_aliases(monkeypatch, tmp_path):
+    import plistlib
+    from scripts.backup_config import external_backup_dir, rclone_config_path, rclone_destination
+    plist = tmp_path / 'backup.plist'
+    plist.write_bytes(plistlib.dumps({'EnvironmentVariables': {
+        'PT_BACKUP_RCLONE_DEST': 'scheduled:old',
+        'RCLONE_CONFIG': str(tmp_path / 'scheduled.conf'),
+        'PT_EXTERNAL_BACKUP_DIR': str(tmp_path / 'scheduled'),
+    }}))
+    monkeypatch.setenv('PT_BACKUP_LAUNCH_AGENT_PATH', str(plist))
+    monkeypatch.delenv('PT_EXTERNAL_BACKUP_DIR', raising=False)
+    monkeypatch.delenv('RCLONE_CONFIG', raising=False)
+    monkeypatch.setenv('PT_FULL_BACKUP_DIR', str(tmp_path / 'legacy'))
+    monkeypatch.setenv('RCLONE_CONFIG_PATH', str(tmp_path / 'legacy.conf'))
+    monkeypatch.setenv('PT_BACKUP_RCLONE_DEST', 'manual:new')
+    assert external_backup_dir() == tmp_path / 'legacy'
+    assert rclone_config_path() == tmp_path / 'legacy.conf'
+    assert rclone_destination() == 'manual:new'
+    monkeypatch.setenv('PT_EXTERNAL_BACKUP_DIR', str(tmp_path / 'canonical'))
+    monkeypatch.setenv('RCLONE_CONFIG', str(tmp_path / 'canonical.conf'))
+    assert external_backup_dir() == tmp_path / 'canonical'
+    assert rclone_config_path() == tmp_path / 'canonical.conf'

@@ -11,6 +11,12 @@ import plistlib
 from typing import Any
 
 from scripts.config import DATABASE_PATH
+from scripts.backup_config import (
+    external_backup_dir as _backup_root,
+    launch_agent_path as _launch_agent_path,
+    rclone_config_path as _rclone_config_path,
+    rclone_destination as _configured_rclone_dest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,41 +25,11 @@ _LOCAL_BACKUP_STALE_HOURS = 24
 _CLOUD_BACKUP_HEALTHY_HOURS = 36
 
 
-def _backup_root() -> Path:
-    configured = os.getenv("PT_FULL_BACKUP_DIR", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    return Path.home() / ".project-tracker" / "backups"
-
-
 def _backup_log_path() -> Path:
     configured = os.getenv("PT_BACKUP_LOG_PATH", "").strip()
     if configured:
         return Path(configured).expanduser()
     return Path.home() / ".project-tracker" / "backup.log"
-
-
-def _launch_agent_path() -> Path:
-    configured = os.getenv("PT_BACKUP_LAUNCH_AGENT_PATH", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    return (
-        Path.home()
-        / "Library"
-        / "LaunchAgents"
-        / "com.eriksjaastad.pt-backup.plist"
-    )
-
-
-def _rclone_config_path() -> Path:
-    configured = os.getenv("RCLONE_CONFIG_PATH", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    return Path.home() / ".config" / "rclone" / "rclone.conf"
-
-
-def _configured_rclone_dest() -> str:
-    return os.getenv("PT_BACKUP_RCLONE_DEST", "").strip()
 
 
 def _parse_iso(value: str) -> datetime | None:

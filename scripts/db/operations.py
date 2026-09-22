@@ -13,11 +13,11 @@ class ProjectTrackerOps:
         from .backend_calendar_manager import CalendarManager
         from .schema import get_db_path
         from .pt_id import _find_crsqlite_dylib
-        from scripts.config import EXTERNAL_BACKUP_DIR
+        from scripts.backup_config import external_backup_dir
         self.db_path = Path(db_path) if db_path is not None else get_db_path()
         self.entry = SimpleNamespace(
             backup_dir=self.db_path.parent / "backups",
-            external_backup_dir=Path(os.getenv("PT_EXTERNAL_BACKUP_DIR", str(EXTERNAL_BACKUP_DIR))),
+            external_backup_dir=external_backup_dir(),
             crsqlite_path=_find_crsqlite_dylib(),
         )
         self._db = DatabaseManager(self.db_path)
@@ -620,10 +620,11 @@ class ProjectTrackerOps:
         """Copy a consistent, verified snapshot using the user's rclone config."""
         import shutil
         import subprocess
-        dest = os.getenv("PT_BACKUP_RCLONE_DEST", "").strip()
+        from scripts.backup_config import rclone_config_path, rclone_destination
+        dest = rclone_destination()
         if not dest:
             raise RuntimeError("Set PT_BACKUP_RCLONE_DEST to the existing offsite backup destination")
-        config_path = Path(os.getenv("RCLONE_CONFIG", str(Path.home() / ".config/rclone/rclone.conf"))).expanduser()
+        config_path = rclone_config_path()
         if not config_path.is_file():
             raise FileNotFoundError(f"rclone config not found at {config_path}")
 
