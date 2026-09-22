@@ -375,3 +375,19 @@
   color: var(--danger);
   background: rgba(255, 107, 107, 0.1);
 }
+
+.task-detail-sizing-banner {
+  background: rgba(var(--accent-rgb), 0.08);
+  border-left: 3px solid var(--accent);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.task-detail-sizing-banner strong {
+  color: var(--accent);
+  font-weight: 600;
+}

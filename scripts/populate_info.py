@@ -41,6 +41,20 @@ GLOBAL_KEYS = {
         "Sanity: git config --local user.name should end in [bot]. "
         "Source of truth: ~/projects/CLAUDE.md (Which wrapper section). Related: pt info get pr_merge_policy."
     ),
+    "pr_sizing_policy": (
+        "At card pickup/scoping, aim for one coherent PR around 500 substantive changed lines or less. "
+        "500 is a target, not a hard gate. Substantive lines exclude generated files, lockfiles, vendored code, "
+        "and mechanical snapshots. If likely materially larger (800+), split into coherent cards/PRs before coding. "
+        "At local pre-push review, run code review AND inspect actual substantive diff size: "
+        "BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'); "
+        "if [ -z \"$BASE\" ]; then for candidate in main master trunk; do "
+        "if git rev-parse --verify \"origin/$candidate\" >/dev/null 2>&1; then BASE=\"origin/$candidate\"; break; fi; done; fi; "
+        "BASE=${BASE:-origin/main}; git diff $BASE...HEAD --stat. "
+        "If materially over ~500 substantive lines: split if multiple logical changes, or document why it cannot be split. "
+        "Policy must appear at pickup/scoping (before coding) and local pre-push review (before pushing). "
+        "Preserve anti-micro-PR rule: related work stays bundled when it fits coherently. "
+        "Source: CLAUDE.md § PR Workflow and Sizing Policy, REVIEWS_AND_GOVERNANCE_PROTOCOL.md § PR Sizing Policy."
+    ),
 }
 
 # ── Manual overrides for projects where auto-detection is wrong/incomplete ───
