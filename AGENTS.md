@@ -205,6 +205,33 @@ hooks in `~/.claude/` and by `pt` CLI commands in project-tracker. **Treat this 
 | Refresh this block portfolio-wide | Manual / agent-runtime-config guidance (scaffold sync CLI retired #6833) |
 <!-- END scaffold:hygiene -->
 
+## PR Workflow and Sizing Policy
+
+### PR Sizing Target
+
+At card pickup/scoping, aim for **one coherent PR around 500 substantive changed lines or less**.
+
+- **500 is a target, not a hard gate.** The goal is reviewability — smaller PRs get better reviews, merge faster, and reduce rebase pain.
+- **Substantive lines** exclude generated files, lockfiles (`package-lock.json`, `uv.lock`, etc.), vendored code, and mechanical snapshots (e.g., test fixtures that mirror a large input verbatim).
+- **If likely materially larger** (e.g., 800+ substantive lines), split into coherent cards/PRs **before coding**. Each PR should be independently reviewable and testable. Example: extract helper functions into one PR, then use them in a second PR for the main feature.
+- **Preserve Erik's anti-micro-PR rule**: related work stays bundled when it fits coherently. A 600-line PR that's one logical unit is better than three artificial 200-line splits.
+
+### Checkpoints
+
+1. **At card pickup/scoping**: Estimate substantive diff size. If likely >500 and naturally separable, create multiple cards. Document the split decision.
+2. **At local pre-push review**: Run the local code review AND inspect actual substantive diff size:
+   ```bash
+   git diff main...HEAD --stat
+   # Manually subtract generated/mechanical files from the total
+   ```
+   If materially over ~500 substantive lines:
+   - **Split** if the PR contains multiple logical changes that can be separated.
+   - **Document why not** if it's one coherent change that cannot be split cleanly without breaking atomicity.
+
+### Do not spring the rule only at PR submission
+
+The policy must appear at **pickup/scoping** (before coding starts) and again at **local pre-push review** (before pushing). Discovering a 1200-line diff at push time with no path to split it is the failure case this policy prevents.
+
 <!-- BEGIN runtime-doctor:shared:code-review-rules -->
 ## Code Review Rules
 
