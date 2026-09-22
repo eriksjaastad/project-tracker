@@ -121,8 +121,28 @@ and provider API checks continue directly from the Mini during host outages.
 |---|---|---|
 | Live sites | `monitoring.<project>.health` | HTTP check against `prod_url`; Vercel API for last deploy state |
 | Scheduled jobs | `monitoring._scheduled_jobs` | Run/exit evidence while awake; require log growth only where successful runs are documented to log |
-| Backups | `monitoring._backups` | Snapshot freshness; offsite copy present at `gbackup:db-backups/<project>/` |
+| Backups | `monitoring._backups` | Snapshot freshness and offsite presence at the project's explicit destination (see below) |
 | Third-party connections | `projects:` block | Services actually in use vs. services the registry lists |
+
+### Backup destinations
+
+For each inventoried project, use `monitoring._backups.destinations[project]`
+when the key exists; otherwise use `monitoring.<project>.database.offsite_dest`.
+Missing or `UNKNOWN` destinations are unknown coverage, never a reason to guess
+`gbackup:db-backups/<project>/` or report a missing copy at that guessed path.
+The convention is for setup; it is not evidence of an installed backup.
+
+The two wired projects have explicit destinations: project-tracker uses
+`gbackup:db-backups/project-tracker/`; ai-memory uses the canonical encrypted
+`gbackup:ai-memory-encrypted` destination documented in
+[the backup guide](PORTFOLIO_OFFSITE_DB_BACKUPS.md).
+Check the latter's freshness through its sanctioned encrypted-backup tooling;
+never flatten, migrate, or copy its data to the conventional plain path.
+Track thoughts-export freshness separately from full-database recovery
+coverage; a fresh encrypted upload alone does not prove a restorable database.
+An unwired entry remains a known gap even if a planned destination is recorded.
+Agent Chat's known Cloud SQL provider does not establish its backup destination
+or managed-backup policy; those remain unverified.
 
 ### Agent Chat deployment drift
 
@@ -169,7 +189,9 @@ Four of the five blockers Saga reported are already resolved or were misread:
 4. **"Hosted DB monitoring depends on provider: Neon/Supabase"** — there is no
    Supabase and no Neon in the registry. The portfolio has two hosted
    databases: hypocrisynow's Railway Postgres, and agent-chat's production
-   Postgres behind Cloud Run (its host provider is `UNKNOWN` in the registry).
+   Cloud SQL Postgres behind Cloud Run. The deployment Makefile attaches
+   `synth-insight-labs:us-central1:synth-insight-labs-pg`; the registry records
+   that instance without inferring its backup policy.
    Everything else is local SQLite (project-tracker's behind dbmed; the rest
    plain files).
 5. **"Need the live project list"** — the only genuine blocker, and the
