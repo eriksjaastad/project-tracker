@@ -337,3 +337,40 @@ def test_offsite_cli_reports_timeout_and_keeps_snapshot(db, monkeypatch, tmp_pat
     assert isinstance(result.exception, SystemExit)
     assert '| cloud_copy | failed |' in (tmp_path / 'backup.log').read_text()
     assert db.verify_backup(created['path'])
+
+
+@pytest.mark.parametrize('error_name', ['SafetyError', 'FreshDatabaseError', 'FingerprintMismatchError'])
+def test_handoff_json_preserves_database_safety_errors(monkeypatch, error_name):
+    import json
+    from click.testing import CliRunner
+    import pt
+    from db import schema
+    def refuse():
+        raise getattr(schema, error_name)('Database safety guard refused this database')
+    monkeypatch.setattr(pt, 'DatabaseManager', refuse)
+    result = CliRunner().invoke(pt.cli, ['handoff', 'list', '--json'])
+    assert result.exit_code == 3
+    payload = json.loads(result.output)
+    assert payload['error']['class'] == 'backend_unavailable'
+    assert 'Database safety guard refused' in payload['error']['message']
+
+
+def test_fresh_database_guard_outside_pytest_returns_json(db, tmp_path):
+    import json
+    import os
+    import sys
+    (db.db_path.parent / '.db-fingerprint').write_text('synthetic-expected-existing-data')
+    env = dict(os.environ)
+    env.pop('PT_ALLOW_FRESH_DB', None)
+    env.pop('PT_TEST_MODE', None)
+    env['PT_NO_BANNER'] = '1'
+    env['PT_DB_PATH'] = str(db.db_path)
+    command = [sys.executable, str(Path(__file__).resolve().parents[1] / 'scripts/pt.py'),
+               'handoff', 'list', '--json']
+    # Use a clean child so schema's intentional pytest bypass cannot mask this guard.
+    result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 3
+    payload = json.loads(result.stdout)
+    assert payload['error']['class'] == 'backend_unavailable'
+    assert 'UNEXPECTED FRESH DATABASE' in payload['error']['message']
+    assert 'Traceback' not in result.stderr
