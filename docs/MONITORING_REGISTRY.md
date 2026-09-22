@@ -182,16 +182,36 @@ expected full SHA from GitHub's current `main`, using the registry's commands.
 Resolve a short deployed version through the repository's commits API; accept
 only an unambiguous commit, never a prefix comparison. Record both full SHAs.
 
-Equal SHAs mean current. For different SHAs, compare the `agent-chat/` source
-trees at those exact commits through GitHub: this directory is the complete
-Cloud Run build context (`make deploy-chat` uses `--source .` inside it).
-Use the Git trees API at each full commit SHA and compare the `sha` of the
-`agent-chat` entry with type `tree`; reject truncated or missing entries.
-Different trees mean deployment drift and require a card even with HTTP 200.
-Equal trees mean the deployed source is current despite unrelated tracker
-commits; record the SHA mismatch without an outage alert. If health fails,
-report service failure. A missing/`unknown` version, unresolved commit, API
-failure, or incomplete tree comparison is `UNKNOWN` coverage, never a pass.
+The version is a **claimed source stamp**, not build provenance. The Makefile
+uploads the working directory while stamping Git HEAD, so even equal SHAs can
+hide uncommitted build inputs. Require immutable evidence tying the serving
+revision/image to the actual uploaded clean context or a verified context
+digest. A clean checkout observed later does not establish what was uploaded.
+The current `/health` stamp supplies no such evidence: absent independent
+provenance, record freshness `UNKNOWN`, including when the SHAs match.
+This is a known coverage gap, not permission to change deployment tooling.
+
+With provenance, compare the deployed and expected **effective build inputs**,
+using the build system's upload/context/ignore semantics at each revision.
+Compare included paths, contents and file modes, plus the Dockerfile and relevant
+ignore/build configuration. Whole `agent-chat/` Git tree
+hashes are insufficient: `.dockerignore` excludes `IDEAS.md` and
+`install-hooks.sh`, while `COPY . .` still includes nonignored client, hooks and
+identity files. Do not substitute a server-only list or a handwritten ignore
+approximation. Use verified build manifests/digests or the actual build-system
+context calculation; unavailable, ambiguous, failed or truncated evidence is
+`UNKNOWN`. This PR adds no provenance producer or context-calculation tool.
+
+| Evidence | Source-freshness result |
+|---|---|
+| Equal stamps, dirty upload possible or provenance missing | `UNKNOWN` |
+| Proven equivalent effective inputs, including excluded-only changes | Current source; no deployment-drift card |
+| Proven different included inputs | Deployment drift; open a card even with HTTP 200 |
+| Stamp mismatch alone, missing version, or incomplete evidence | `UNKNOWN`; record the claim mismatch without asserting actual drift |
+
+These comparisons concern source freshness, not reproducible image bytes or
+dependency/base-image currency. Record the revision/image identifier, claimed
+and expected SHAs, provenance and context-comparison evidence with the result.
 Track health, durability, authenticated-read coverage and freshness independently;
 a matching deploy SHA cannot override a failed or unknown health/read check.
 Saga reports drift; it never deploys or promotes traffic.
