@@ -6,8 +6,13 @@ import time
 from pathlib import Path
 from typing import Any
 from types import SimpleNamespace
+from functools import wraps
 
 class ProjectTrackerOps:
+    _DESTRUCTIVE_BACKEND_OPS = frozenset({
+        "delete_project", "delete_done_tasks", "trim_done_tasks", "raw_import_tasks",
+    })
+
     def __init__(self, db_path=None):
         from .backend_manager import DatabaseManager, _USE_TURSO
         if _USE_TURSO:
@@ -31,7 +36,16 @@ class ProjectTrackerOps:
         self._db.migrate_attachments_table()
 
     def __getattr__(self, name):
-        return getattr(self._db, name)
+        method = getattr(self._db, name)
+        if name not in self._DESTRUCTIVE_BACKEND_OPS:
+            return method
+
+        @wraps(method)
+        def with_snapshot(*args, **params):
+            self.prepare_destructive(reason=f"Direct database operation: {name}")
+            return method(*args, **params)
+
+        return with_snapshot
 
     def prepare_destructive(self, *, reason):
         """Verify a fresh recovery snapshot before a confirmed operation."""
@@ -46,7 +60,11 @@ class ProjectTrackerOps:
         if op not in {"delete_project", "delete_done_tasks", "trim_done_tasks", "raw_import_tasks", "backup_restore", "migrations_apply"}:
             raise ValueError(f"Not a destructive operation: {op}")
         self.prepare_destructive(reason=reason)
-        return getattr(self, op)(**params)
+        if op in self._DESTRUCTIVE_BACKEND_OPS:
+            # The explicit path has already verified its snapshot; bypass only
+            # the automatic wrapper, never the backend's own safety checks.
+            return getattr(self._db, op)(**params)
+        return getattr(self, f"_{op}")(**params)
 
     def sync_project_bundle(
         self,
@@ -222,6 +240,10 @@ class ProjectTrackerOps:
         return [{"version": m.version, "name": m.name} for m in pending]
 
     def migrations_apply(self) -> dict:
+        self.prepare_destructive(reason="Apply database schema migrations")
+        return self._migrations_apply()
+
+    def _migrations_apply(self) -> dict:
         from .migration_runner import MigrationError, apply_all
 
         directory = self._migrations_dir()
@@ -748,9 +770,13 @@ class ProjectTrackerOps:
         )
 
     def backup_restore(self, name: str) -> dict:
+        self.prepare_destructive(reason=f"Restore database snapshot {name}")
+        return self._backup_restore(name)
+
+    def _backup_restore(self, name: str) -> dict:
         """Restore through SQLite so concurrent handles never retain a replaced inode.
 
-        The CLI verifies a recovery snapshot before calling this operation.
+        Both public entry paths verify a recovery snapshot before this operation.
         SQLite's backup transaction coordinates with existing readers/writers;
         do not replace the file or detach its WAL/SHM while other callers exist.
         """
