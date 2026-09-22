@@ -38,7 +38,10 @@ backup/restore, SAFE_MODE, and destructive-operation confirmation and backups.
    the normal checkout's `data/tracker.db`. Compare the receipt's counts and
    check `pt backup list` includes the preserved history.
 4. Configure the existing scheduled backup job with
-   `PT_BACKUP_RCLONE_DEST=gbackup:db-backups/project-tracker`. Run
+   `PT_BACKUP_RCLONE_DEST=gbackup:db-backups/project-tracker` in its plist
+   `EnvironmentVariables`. Manual runs and status also read those persisted
+   settings; explicit process environment overrides them. `RCLONE_CONFIG` and
+   `PT_EXTERNAL_BACKUP_DIR` use the same precedence when customized. Run
    `pt backup create`, `pt backup offsite`, and `pt backup status`. Download the
    uploaded snapshot and prove an isolated restore before recording offsite
    success. The original user rclone config remains in place; credentials stay
