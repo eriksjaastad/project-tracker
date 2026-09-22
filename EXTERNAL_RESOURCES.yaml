@@ -1338,7 +1338,9 @@ monitoring:
     scheduled: []
     database:
       engine: postgres (production; AGENT_CHAT_DATABASE_URL in Doppler agent-chat/prd)
-      host_provider: UNKNOWN
+      host_provider: Google Cloud SQL
+      cloud_sql_instance: synth-insight-labs:us-central1:synth-insight-labs-pg
+      host_evidence: Makefile deploy-chat --add-cloudsql-instances (Cloud SQL Unix socket)
       offsite_dest: UNKNOWN
       offsite_wired: false
     owner: floor-manager (project-tracker)
@@ -1479,6 +1481,14 @@ monitoring:
   # --- backups ---------------------------------------------------------------
   _backups:
     convention: gbackup:db-backups/<project-name>/
+    destinations:
+      project-tracker: gbackup:db-backups/project-tracker/
+      ai-memory: gbackup:ai-memory-encrypted
+    destination_rule: >-
+      Use this per-project destinations map when present, otherwise the project's
+      database.offsite_dest. A missing or UNKNOWN destination is UNKNOWN coverage;
+      never derive it from convention or replace an explicit UNKNOWN. The
+      ai-memory destination is encrypted and canonical; do not flatten or move it.
     locked: 2026-09-19
     how_to: project-tracker/docs/PORTFOLIO_OFFSITE_DB_BACKUPS.md
     status: >-
