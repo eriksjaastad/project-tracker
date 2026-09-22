@@ -28,6 +28,11 @@ GLOBAL_KEYS = {
         "Model: ollama nomic-embed-text at localhost:11434."
     ),
     "projects_root": str(PROJECTS_BASE_DIR),
+    "external_resources_doc": "~/projects/project-tracker/EXTERNAL_RESOURCES.yaml",
+    "remote_pt_invocation": (
+        "ssh macbook-pro 'cd ~/projects && PT_SKIP_DOPPLER=1 "
+        "~/projects/project-tracker/pt tasks'"
+    ),
     "db_backend": "local SQLite at data/tracker.db (controlled by ~/projects/.turso-config.json)",
     "default_doppler_config": "dev",
     "mac_mini_ssh": "eriksjaastad@Eriks-Mac-mini.local",

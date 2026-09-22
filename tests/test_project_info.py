@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
@@ -19,6 +20,39 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from db.manager import DatabaseManager
 from db.schema import create_database
 from pt import info_group
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_monitoring_alias_population_and_cli_lookup(db, monkeypatch, tmp_path, dry_run):
+    """A fresh store gets the documented references through the real seed path."""
+    from scripts import populate_info
+
+    projects = tmp_path / "synthetic-projects"
+    projects.mkdir()
+    monkeypatch.setattr(populate_info, "PROJECTS_BASE_DIR", projects)
+    monkeypatch.setattr(populate_info, "DatabaseManager", lambda: db)
+    monkeypatch.setattr(sys, "argv", ["populate_info.py"] + (["--dry-run"] if dry_run else []))
+    expected = {
+        "external_resources_doc": "~/projects/project-tracker/EXTERNAL_RESOURCES.yaml",
+        "remote_pt_invocation": (
+            "ssh macbook-pro 'cd ~/projects && PT_SKIP_DOPPLER=1 "
+            "~/projects/project-tracker/pt tasks'"
+        ),
+    }
+    for key in expected:
+        assert db.get_info(key=key) == []
+    populate_info.main()
+    with patch("pt.DatabaseManager", lambda: db):
+        for key, value in expected.items():
+            result = CliRunner().invoke(info_group, ["get", key], catch_exceptions=False)
+            assert result.exit_code == 0
+            if dry_run:
+                assert db.get_info(key=key) == []
+                assert result.output.strip() == f"No entry found for '{key}' (global)"
+            else:
+                assert result.output.strip() == value
+                entry = db.get_info(key=key)[0]
+                assert entry["value"] == value and entry["project_id"] is None
 
 
 def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager]:
