@@ -223,11 +223,11 @@ At card pickup/scoping, aim for **one coherent PR around 500 substantive changed
    if [ -z "$BASE" ]; then
      for candidate in main master trunk; do
        if git rev-parse --verify "origin/$candidate" >/dev/null 2>&1; then
-         BASE="$candidate"; break
+         BASE="origin/$candidate"; break
        fi
      done
    fi
-   BASE=${BASE:-main}
+   BASE=${BASE:-origin/main}
    git diff $BASE...HEAD --stat
    # Manually subtract generated/mechanical files from the total
    ```
