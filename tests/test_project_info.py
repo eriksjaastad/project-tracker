@@ -8,6 +8,10 @@ Covers:
 - JSON output mode
 """
 
+import importlib.util
+import json
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -33,11 +37,8 @@ def test_monitoring_alias_population_and_cli_lookup(db, monkeypatch, tmp_path, d
     monkeypatch.setattr(populate_info, "DatabaseManager", lambda: db)
     monkeypatch.setattr(sys, "argv", ["populate_info.py"] + (["--dry-run"] if dry_run else []))
     expected = {
-        "external_resources_doc": "~/projects/project-tracker/EXTERNAL_RESOURCES.yaml",
-        "remote_pt_invocation": (
-            "ssh macbook-pro 'cd ~/projects && PT_SKIP_DOPPLER=1 "
-            "~/projects/project-tracker/pt tasks'"
-        ),
+        "external_resources_doc": str(populate_info.EXTERNAL_RESOURCES_FILE.resolve()),
+        "remote_pt_invocation": populate_info.GLOBAL_KEYS["remote_pt_invocation"],
     }
     for key in expected:
         assert db.get_info(key=key) == []
@@ -53,6 +54,60 @@ def test_monitoring_alias_population_and_cli_lookup(db, monkeypatch, tmp_path, d
                 assert result.output.strip() == value
                 entry = db.get_info(key=key)[0]
                 assert entry["value"] == value and entry["project_id"] is None
+
+
+@pytest.mark.parametrize("resource_override", [None, "absolute", "relative"])
+def test_monitoring_aliases_honor_configured_paths(db, monkeypatch, tmp_path, resource_override):
+    from scripts import populate_info
+
+    projects = tmp_path / "portfolio space's $NOT_EXPANDED"
+    checkout = tmp_path / "separate checkout's $(not-a-command)"
+    projects.mkdir()
+    checkout.mkdir()
+    registry = (tmp_path / "custom registry's $NAME.yaml" if resource_override
+                else checkout / "EXTERNAL_RESOURCES.yaml")
+    registry.write_text("monitoring: {}\n")
+    launcher = checkout / "pt"
+    launcher.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$PWD" "$PROJECTS_ROOT" "$PT_RESOURCES_FILE" "$PT_SKIP_DOPPLER" "$@"\n'
+    )
+    launcher.chmod(0o755)
+    monkeypatch.setenv("PROJECTS_ROOT", str(projects))
+    if resource_override:
+        monkeypatch.chdir(tmp_path)
+        configured_registry = registry.name if resource_override == "relative" else str(registry)
+        monkeypatch.setenv("PT_RESOURCES_FILE", configured_registry)
+    else:
+        monkeypatch.delenv("PT_RESOURCES_FILE", raising=False)
+    config_spec = importlib.util.spec_from_file_location(
+        "synthetic_config", Path(populate_info.__file__).with_name("config.py")
+    )
+    config = importlib.util.module_from_spec(config_spec)
+    config_spec.loader.exec_module(config)
+    assert config.PROJECTS_BASE_DIR == projects
+    assert config.EXTERNAL_RESOURCES_FILE == (Path(configured_registry) if resource_override else
+                                             config.PROJECT_ROOT / "EXTERNAL_RESOURCES.yaml")
+    config.PROJECT_ROOT = checkout  # Simulate an installed checkout outside the scan root.
+    if not resource_override:
+        config.EXTERNAL_RESOURCES_FILE = registry
+    monkeypatch.setitem(sys.modules, "config", config)
+    seed_spec = importlib.util.spec_from_file_location("synthetic_seed", populate_info.__file__)
+    seed = importlib.util.module_from_spec(seed_spec)
+    seed_spec.loader.exec_module(seed)
+    monkeypatch.setattr(seed, "DatabaseManager", lambda: db)
+    monkeypatch.setattr(sys, "argv", ["populate_info.py"])
+    seed.main()
+    with patch("pt.DatabaseManager", lambda: db):
+        result = CliRunner().invoke(info_group, ["get", "remote_pt_invocation", "--json"])
+    assert result.exit_code == 0, result.output
+    ssh_argv = shlex.split(json.loads(result.output)["value"])
+    assert ssh_argv[:2] == ["ssh", "macbook-pro"] and len(ssh_argv) == 3
+    # Simulate the remote shell with no inherited configuration, never real SSH.
+    remote = subprocess.run(["/bin/sh", "-c", ssh_argv[2]], env={"PATH": "/usr/bin:/bin"},
+                            check=True, capture_output=True, text=True, timeout=10)
+    assert remote.stdout.splitlines() == [str(projects), str(projects), str(registry), "1", "tasks"]
+    assert db.get_info(key="external_resources_doc")[0]["value"] == str(registry)
 
 
 def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager]:

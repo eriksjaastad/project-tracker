@@ -12,14 +12,24 @@ Usage:
 
 import argparse
 import json
+import shlex
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from config import PROJECTS_BASE_DIR
+from config import EXTERNAL_RESOURCES_FILE, PROJECT_ROOT, PROJECTS_BASE_DIR
 from db.manager import DatabaseManager
 
 # ── Global keys ──────────────────────────────────────────────────────────────
+
+_resources_path = str(EXTERNAL_RESOURCES_FILE.resolve())
+_remote_pt_command = (
+    f"cd {shlex.quote(str(PROJECTS_BASE_DIR))} && "
+    + shlex.join([
+        "env", "PT_SKIP_DOPPLER=1", f"PROJECTS_ROOT={PROJECTS_BASE_DIR}",
+        f"PT_RESOURCES_FILE={_resources_path}", str(PROJECT_ROOT / "pt"), "tasks",
+    ])
+)
 
 GLOBAL_KEYS = {
     "semantic_search": (
@@ -28,11 +38,8 @@ GLOBAL_KEYS = {
         "Model: ollama nomic-embed-text at localhost:11434."
     ),
     "projects_root": str(PROJECTS_BASE_DIR),
-    "external_resources_doc": "~/projects/project-tracker/EXTERNAL_RESOURCES.yaml",
-    "remote_pt_invocation": (
-        "ssh macbook-pro 'cd ~/projects && PT_SKIP_DOPPLER=1 "
-        "~/projects/project-tracker/pt tasks'"
-    ),
+    "external_resources_doc": _resources_path,
+    "remote_pt_invocation": shlex.join(["ssh", "macbook-pro", _remote_pt_command]),
     "db_backend": "local SQLite at data/tracker.db (controlled by ~/projects/.turso-config.json)",
     "default_doppler_config": "dev",
     "mac_mini_ssh": "eriksjaastad@Eriks-Mac-mini.local",
