@@ -69,8 +69,19 @@ is currently held off only by `caffeinate`, which is not permanent.
 
 Consequences Saga must encode:
 
-- **A failed SSH to `macbook-pro` is not an incident.** It means the host is
-  asleep. Retry next cycle; do not page, do not open a card.
+- **Failed SSH does not prove sleep.** Check the Mini's Tailscale health and
+  the laptop's peer status independently. Only a healthy tailnet reporting the
+  laptop offline suppresses host-dependent checks for that cycle; label it
+  `HOST_OFFLINE`, not confirmed sleep. Keep checking public services and queue
+  board updates. An online peer with failed DNS, SSH, or authentication is
+  `SSH_UNAVAILABLE`. Missing peer data or an unhealthy Mini tailnet is
+  `REACHABILITY_UNKNOWN`, never sleep or a healthy result.
+- **Persistent access failures need an independent alert.** Retry after five
+  minutes. If `SSH_UNAVAILABLE` or `REACHABILITY_UNKNOWN` persists, send one
+  transition alert through the Mini's existing Discord #alerts path, including
+  the SSH error and tailnet evidence. Queue the same incident for the board;
+  SSH cannot be its only delivery path. Alert on recovery and flush queued
+  updates after a successful connection. Never bypass SSH host-key checks.
 - **A missed scheduled run during sleep is not a failure.** Before opening a
   card for a job that did not run, Saga must establish that the host was awake
   at the scheduled time. A job that "ran and failed" and a job that "never got
@@ -88,9 +99,38 @@ start.
 | Surface | Source of truth | Check |
 |---|---|---|
 | Live sites | `monitoring.<project>.health` | HTTP check against `prod_url`; Vercel API for last deploy state |
-| Scheduled jobs | `monitoring._scheduled_jobs` | Did it run on schedule, exit clean, is the log growing |
+| Scheduled jobs | `monitoring._scheduled_jobs` | Run/exit evidence while awake; require log growth only where successful runs are documented to log |
 | Backups | `monitoring._backups` | Snapshot freshness; offsite copy present at `gbackup:db-backups/<project>/` |
 | Third-party connections | `projects:` block | Services actually in use vs. services the registry lists |
+
+### Agent Chat deployment drift
+
+`make deploy-chat-status` displays `/health`; its exit status does not prove
+health or freshness. Read the health JSON and compare its `version` with the
+expected full SHA from GitHub's current `main`, using the registry's commands.
+Resolve a short deployed version through the repository's commits API; accept
+only an unambiguous commit, never a prefix comparison. Record both full SHAs.
+
+Equal SHAs mean current. For different SHAs, compare the `agent-chat/` source
+trees at those exact commits through GitHub: this directory is the complete
+Cloud Run build context (`make deploy-chat` uses `--source .` inside it).
+Use the Git trees API at each full commit SHA and compare the `sha` of the
+`agent-chat` entry with type `tree`; reject truncated or missing entries.
+Different trees mean deployment drift and require a card even with HTTP 200.
+Equal trees mean the deployed source is current despite unrelated tracker
+commits; record the SHA mismatch without an outage alert. If health fails,
+report service failure. A missing/`unknown` version, unresolved commit, API
+failure, or incomplete tree comparison is `UNKNOWN` coverage, never a pass.
+Saga reports drift; it never deploys or promotes traffic.
+
+### Silent scheduled jobs
+
+The dashboard watchdog exits successfully without writing stdout when health
+is good. Inspect `launchctl print` run counts and last exit status across an
+awake interval longer than its five-minute schedule. A flat log is normal.
+Probe the dashboard separately: healthy HTTP alone does not prove the watchdog
+ran. After a launchd reload, establish a new run-count baseline; insufficient
+awake observations mean unknown coverage, not a stopped job.
 
 ### Corrections to the initial blocker list
 
