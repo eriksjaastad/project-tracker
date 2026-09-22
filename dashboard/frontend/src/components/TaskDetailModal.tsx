@@ -232,6 +232,12 @@ export function TaskDetailModal({
           </div>
         )}
 
+        <div className="task-detail-sizing-banner">
+          <strong>PR sizing:</strong> Aim for ~500 substantive changed lines per PR, plus/minus.
+          Not a hard gate. Keep related work bundled when coherent.
+          Excludes generated files, lockfiles, vendored code, snapshots.
+        </div>
+
         <div className="task-detail-modal-content">
           {isEditing ? (
             <>
