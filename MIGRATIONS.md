@@ -113,3 +113,24 @@ Append-only log of `pt migration` sessions. Each section records the paths touch
 
 ---
 
+## dbmed-retirement-7422 — 2026-09-22T18:12:32Z
+
+- started_at:  `2026-09-22T18:11:40Z`
+- finished_at: `2026-09-22T18:12:32Z`
+- baseline_head: `cc647719193d9b1cfe059ad1bd4cef2a0f76dbdb`
+- action: `committed`
+- WARNING: HEAD drifted from baseline cc647719193d to 9784d063f2e9; revert will restore against current HEAD
+
+### New paths (introduced during session)
+- _(none)_
+
+### Modified paths (status changed during session)
+- _(none)_
+
+---
+
+Audit note: recording began after the working-tree edits were prepared. The
+implementation commit is 9784d063f2e9fc783bf84ebb6eb6cbd0af745a6f; its diff
+against 17d49b661a37bf728dfb11e23090c7946c474380 is the authoritative change list.
+The rebase excluded unrelated, unmerged monitoring changes from the source
+checkout. No live installation or production database was moved during this audit.
