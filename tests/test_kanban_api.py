@@ -338,7 +338,6 @@ def test_property_8_task_edit_persistence(initial_text, new_text, project_id, st
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
 @settings(max_examples=50)
-@pytest.mark.no_dbmed
 def test_property_18_transaction_rollback_on_api_error(text, project_id, status, priority):
     """
     Feature: kanban-board, Property 18: Transaction Rollback on API Error
@@ -488,7 +487,6 @@ def test_property_18_transaction_rollback_on_api_error(text, project_id, status,
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
 @settings(max_examples=1)
-@pytest.mark.no_dbmed
 def test_property_19_database_lock_retry(text, project_id, status, priority):
     """
     Feature: kanban-board, Property 19: Database Lock Retry

@@ -45,24 +45,13 @@ def _apply_migration(conn: sqlite3.Connection, version: int) -> None:
 
 
 def _make_tracker_db(path: Path) -> None:
-    """Create a tracker DB with the migrations table applied."""
-    conn = sqlite3.connect(path)
+    """Use the real schema and migration history for the local manager."""
+    from db.schema import create_database
+    from db.migration_runner import apply_all
+    create_database(path)
+    conn = sqlite3.connect(path, isolation_level=None)
     try:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY NOT NULL,
-                text TEXT NOT NULL,
-                status TEXT NOT NULL,
-                project_id TEXT NOT NULL,
-                priority TEXT,
-                created_at TEXT NOT NULL DEFAULT '',
-                updated_at TEXT NOT NULL DEFAULT ''
-            )
-            """
-        )
-        _apply_migration(conn, 11)
-        conn.commit()
+        apply_all(conn, _MIGRATIONS_DIR)
     finally:
         conn.close()
 

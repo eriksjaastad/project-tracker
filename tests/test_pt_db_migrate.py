@@ -24,7 +24,6 @@ from pathlib import Path
 
 import pytest
 
-from dbmed.errors import OperationFailed
 from click.testing import CliRunner
 
 # Every test in this file is about the migration runner, so they all need a
@@ -63,10 +62,9 @@ def plain_sqlite_migration_fixture(monkeypatch):
     CI has no native cr-sqlite extension. Production must still require the
     registered extension; only this test daemon's loader is replaced.
     """
-    from db.dbmed_ops import ProjectTrackerOps
+    from db.operations import ProjectTrackerOps
 
     def load_fixture(self, conn):
-        assert self.entry.test_support
         assert not self._engine_active(conn)
 
     monkeypatch.setattr(ProjectTrackerOps, "_load_crsqlite", load_fixture)
@@ -179,8 +177,7 @@ def test_pt_db_migrate_still_tracebacks_on_unexpected_error(
     # OperationFailed because an exception cannot cross a socket, with the
     # original type carried on the wire. The property under test is intact:
     # an unexpected bug stays loud and is not mistaken for a MigrationError.
-    assert isinstance(result.exception, OperationFailed)
-    assert result.exception.exc_type == "RuntimeError"
+    assert isinstance(result.exception, RuntimeError)
     assert "genuine bug" in str(result.exception)
 
 
@@ -237,7 +234,9 @@ def test_warn_unapplied_does_not_brick_pt_when_the_service_is_down(
     database does not.
     """
     monkeypatch.delenv("PT_SUPPRESS_MIGRATION_WARNING", raising=False)
-    monkeypatch.setenv("DBMED_SOCKET", str(tmp_path / "no-such.sock"))
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("blocker")
+    monkeypatch.setenv("PT_DB_PATH", str(blocker / "tracker.db"))
 
     _warn_unapplied_migrations()  # must not raise
 

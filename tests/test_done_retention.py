@@ -26,10 +26,9 @@ import pt as pt_cli  # noqa: E402
 
 
 def _setup_db() -> DatabaseManager:
-    """The daemon-backed manager for this test's own database.
+    """The local manager for this test's own database.
 
-    The conftest `dbmed_daemon` fixture is autouse, so by the time a test body
-    runs there is a daemon serving a fresh schema over DBMED_SOCKET. Nothing
+    The isolated database fixture supplies a fresh migrated schema. Nothing
     here opens a file.
     """
     db = DatabaseManager()
@@ -42,10 +41,7 @@ def _add_done(db: DatabaseManager, project_id: str, n: int) -> list[int]:
     """Create `n` Done cards in `project_id`, oldest first, with distinct
     completion timestamps so the retention ordering is unambiguous.
 
-    Backdating goes through `dbmed.seed`, which the daemon only honours
-    because the test registry sets `allow_seeding`. No product operation can
-    rewrite a completion time, and none should — this needs it to prove that
-    retention archives the *oldest* cards, which requires some to be old.
+    Backdating uses helpers attached only to the synthetic test fixture.
     """
     ids = []
     for i in range(n):

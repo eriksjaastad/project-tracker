@@ -100,8 +100,8 @@ def test_rotation_is_a_noop_when_logs_are_absent(tmp_path: Path):
     result = _rotate(tmp_path)
 
     assert result.returncode == 0
-    # With dbmed autouse fixture, tmp_path may contain _dbmed directory
-    remaining = [p for p in tmp_path.iterdir() if p.name != "_dbmed"]
+    # The isolated database fixture creates _local.
+    remaining = [p for p in tmp_path.iterdir() if p.name != "_local"]
     assert not remaining
 
 

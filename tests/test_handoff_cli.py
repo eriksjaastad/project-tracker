@@ -10,6 +10,7 @@ parallel DDL string is maintained inside the test suite.
 
 from __future__ import annotations
 
+import os
 import json
 import subprocess
 import sys
@@ -32,17 +33,7 @@ _MIGRATIONS_DIR = SCRIPTS_DIR / "db" / "migrations"
 
 
 def _make_tracker_db() -> None:
-    """Seed card 6151 into this test's own database.
-
-    Was: hand-rolled `CREATE TABLE tasks` DDL plus a direct INSERT plus a
-    manual run of migration 010 against a file the test owned. All three are
-    gone. The conftest daemon fixture supplies a fully-migrated schema, so
-    the only thing left to arrange is the one card these tests act on.
-
-    The id is chosen rather than generated because 29 assertions in this file
-    name it. `dbmed.seed_task` is refused by any daemon whose registry entry
-    does not enable test support, which the installer never does.
-    """
+    """Seed card 6151 into the isolated local database."""
     DatabaseManager().seed_task(
         6151,
         text="Phase D handoff test card",
@@ -73,13 +64,7 @@ def _invoke(tmp_path: Path, args: list[str]):
 
 
 def _invoke_on_db(db_path, args: list[str]):
-    """Invoke against the already-seeded database.
-
-    `db_path` is vestigial and ignored — every test in this module shares one
-    daemon-backed database for its duration, so "which database" is no longer
-    a per-call decision. The parameter stays so the multi-step tests read the
-    same as they did.
-    """
+    """Invoke the CLI against the per-test database selected by PT_DB_PATH."""
     runner = CliRunner()
     return runner.invoke(cli, args, env=dict(_COMMON_ENV), catch_exceptions=False)
 
@@ -250,7 +235,7 @@ def test_handoff_create_files_and_auto_files_exclusive(tmp_path: Path) -> None:
 def _seed_two_handoffs(db_path: Path) -> None:
     """Insert two handoffs: one for card 6151 (project-tracker), one won't match filters."""
     runner = CliRunner()
-    env = {**_COMMON_ENV, "PT_DB_PATH": str(db_path)}
+    env = {**_COMMON_ENV, "PT_DB_PATH": str(db_path or os.environ["PT_DB_PATH"])}
     # First handoff for card 6151
     runner.invoke(
         cli,
@@ -435,7 +420,7 @@ def test_auto_files_warns_on_git_missing(tmp_path: Path, monkeypatch) -> None:
     result = runner.invoke(
         cli,
         ["handoff", "create", "6151", "--json", "--auto-files"] + _REQUIRED_CREATE_ARGS,
-        env={**_COMMON_ENV, "PT_DB_PATH": str(db_path)},
+        env={**_COMMON_ENV, "PT_DB_PATH": str(db_path or os.environ["PT_DB_PATH"])},
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
@@ -462,7 +447,7 @@ def test_auto_files_warns_on_git_timeout(tmp_path: Path, monkeypatch) -> None:
     result = runner.invoke(
         cli,
         ["handoff", "create", "6151", "--json", "--auto-files"] + _REQUIRED_CREATE_ARGS,
-        env={**_COMMON_ENV, "PT_DB_PATH": str(db_path)},
+        env={**_COMMON_ENV, "PT_DB_PATH": str(db_path or os.environ["PT_DB_PATH"])},
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
@@ -494,7 +479,7 @@ def test_auto_files_warns_on_git_nonzero_exit(tmp_path: Path, monkeypatch) -> No
     result = runner.invoke(
         cli,
         ["handoff", "create", "6151", "--json", "--auto-files"] + _REQUIRED_CREATE_ARGS,
-        env={**_COMMON_ENV, "PT_DB_PATH": str(db_path)},
+        env={**_COMMON_ENV, "PT_DB_PATH": str(db_path or os.environ["PT_DB_PATH"])},
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output

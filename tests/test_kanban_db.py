@@ -19,7 +19,6 @@ from datetime import datetime
 from hypothesis import given, strategies as st, assume, settings
 
 # These property tests use isolated temp databases
-pytestmark = pytest.mark.no_dbmed
 
 # Add scripts to path
 import sys

@@ -121,9 +121,9 @@ def test_keep_files_skips_trash_but_cleans_db(fabricated_project):
 
 
 def test_retire_backup_failure_leaves_files_and_rows(fabricated_project, monkeypatch):
-    from db.dbmed_ops import ProjectTrackerOps
+    from db.operations import ProjectTrackerOps
 
-    monkeypatch.setattr(ProjectTrackerOps, "dbmed_verify_backup", lambda self, path: False)
+    monkeypatch.setattr(ProjectTrackerOps, "verify_backup", lambda self, path: False)
     with patch("send2trash.send2trash") as trash_mock:
         result = CliRunner().invoke(
             _get_cli(), ["retire-project", "humpty-dumpty", "--execute", "-y"]

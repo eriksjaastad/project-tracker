@@ -73,8 +73,8 @@ def _patch_markers(monkeypatch: pytest.MonkeyPatch, dashboard_app_module, conten
     monkeypatch.setattr(dashboard_app_module.Path, "read_text", fake_read_text)
 
 
-def test_agentic_summary_aggregates_rates_series_and_markers(dbmed_backend, monkeypatch: pytest.MonkeyPatch):
-    db = dbmed_backend
+def test_agentic_summary_aggregates_rates_series_and_markers(local_backend, monkeypatch: pytest.MonkeyPatch):
+    db = local_backend
     task_ids = _setup_db(db)
     _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(
@@ -115,8 +115,8 @@ def test_agentic_summary_aggregates_rates_series_and_markers(dbmed_backend, monk
     assert payload["date_range"] == {"start": "2026-03-08", "end": "2026-03-10"}
 
 
-def test_agentic_summary_filters_by_project(dbmed_backend, monkeypatch: pytest.MonkeyPatch):
-    db = dbmed_backend
+def test_agentic_summary_filters_by_project(local_backend, monkeypatch: pytest.MonkeyPatch):
+    db = local_backend
     task_ids = _setup_db(db)
     _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, dashboard_app, None)
@@ -140,8 +140,8 @@ def test_agentic_summary_filters_by_project(dbmed_backend, monkeypatch: pytest.M
     assert payload["summary"]["review_entries"] == 0
 
 
-def test_agentic_summary_handles_invalid_days_and_malformed_markers(dbmed_backend, monkeypatch: pytest.MonkeyPatch):
-    _setup_db(dbmed_backend)
+def test_agentic_summary_handles_invalid_days_and_malformed_markers(local_backend, monkeypatch: pytest.MonkeyPatch):
+    _setup_db(local_backend)
     _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
     _patch_markers(monkeypatch, dashboard_app, "{not-json")
 

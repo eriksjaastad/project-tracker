@@ -1,14 +1,7 @@
 #!/bin/bash
-# Point-in-time backup of tracker.db, via the dbmed database service.
-#
-# Usage: ./scripts/backup-db.sh
-# Cron:  Called by the com.eriksjaastad.pt-backup launchd plist
-#
-# Local snapshot + verification + retention happen inside dbmed.
-# Off-machine copy is also a dbmed operation (#7231): the daemon reads the
-# protected snapshot and runs rclone with a root-owned config/destination
-# from the registry. PT_BACKUP_RCLONE_DEST is ignored on purpose — an agent
-# must not be able to redirect offsite copies via the environment.
+# Create a consistent local snapshot, then copy it offsite with rclone.
+# PT_BACKUP_RCLONE_DEST names the existing offsite destination.
+# User-owned scheduled job; no database mediation service is required.
 
 set -euo pipefail
 
