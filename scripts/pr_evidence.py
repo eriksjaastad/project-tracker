@@ -229,6 +229,11 @@ def collect(repo: str, number: int, cwd: Path, *, transport=None,
                 jobs[f"{label}check_runs"] = (
                     f"{prefix}/commits/{sha}/check-runs?filter=all&per_page=100", True, "check_runs")
                 jobs[f"{label}statuses"] = (f"{prefix}/commits/{sha}/statuses?per_page=100", True, None)
+            else:
+                for name in (f"{label}check_runs", f"{label}statuses"):
+                    snapshot["errors"][name] = EvidenceError(
+                        "unavailable", "GitHub has not supplied a commit for this CI source"
+                    ).describe(pr_endpoint)
     else:
         for name in dependent:
             snapshot["errors"][name] = EvidenceError(
