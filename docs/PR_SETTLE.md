@@ -11,10 +11,12 @@ The pickup estimate exceeded 800 substantive lines including failure tests, so
 the work was split before implementation:
 
 1. #7448: independently testable, read-only GitHub evidence collection.
-2. #7449: persistent polling, owner handoff, controls, counters and CLI wiring.
+2. #7454: conditional transport, split when page-level revalidation and failure
+   tests pushed the combined monitor estimate above the sizing threshold.
+3. #7449: persistent polling, owner handoff, controls, counters and CLI wiring.
 
-This first change supplies the collector. The monitor command is not available
-until the second change lands. #7354 stays open until both are complete.
+The collector and conditional transport are supporting APIs. The monitor command
+is not available until #7449 lands. #7354 stays open until all parts are complete.
 
 ## Collector contract
 
@@ -53,6 +55,21 @@ an empty check list does not mean CI is unconfigured.
 No collector operation requests reviews, changes draft state, posts messages or
 merges. The owning agent performs authorized actions through the existing PR
 workflow, including the final head comparison and regular merge commit.
+
+## Conditional transport
+
+`scripts.pr_conditional.ConditionalGhaTransport` can be passed as `transport` to
+`collect`. Reset its `deadline` to a bounded `time.monotonic()` deadline before
+each collection. Its process-local cache revalidates every page independently;
+a 304 response reuses that page's body and pagination links, then still checks
+the next page. A changed 200 response replaces both body and links. Errors never
+substitute cached success; absent validators require ordinary GETs.
+
+This avoids relying on PR update timestamps or reaction counts, which cannot
+establish that every old comment and reaction is unchanged. Authenticated 304s
+[do not consume primary quota](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api).
+Secondary limits still apply. Pagination is restricted to the same GitHub API
+resource, and all commands use the caller's managed `gha` identity.
 
 ## Validation
 
