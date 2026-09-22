@@ -64,6 +64,8 @@ each collection. Its process-local cache revalidates every page independently;
 a 304 response reuses that page's body and pagination links, then still checks
 the next page. A changed 200 response replaces both body and links. Errors never
 substitute cached success; absent validators require ordinary GETs.
+Full terminal pages also probe the next page: an unchanged body and a 304 without
+updated Link metadata must not hide newly appended review evidence.
 
 This avoids relying on PR update timestamps or reaction counts, which cannot
 establish that every old comment and reaction is unchanged. Authenticated 304s
