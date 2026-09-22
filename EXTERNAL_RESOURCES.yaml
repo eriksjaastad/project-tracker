@@ -1253,7 +1253,7 @@ monitoring:
     repo: git remote origin.
     provider: vercel | railway | cloud-run | local-launchd | local-cron | none (combined with ' + ')
     health: How to tell it is up. `check` is a literal command or request.
-    scheduled: Jobs that must run. Missing run = failure, same as a 500.
+    scheduled: Jobs that must run while their host is awake; see _scheduled_jobs.caveat.
     database: engine + offsite destination. `offsite_wired` is the honest state.
     owner: Who fixes it. floor-manager = the project's own Claude session.
     notes: Anything a monitor would otherwise misread.
@@ -1315,7 +1315,17 @@ monitoring:
     provider: cloud-run
     health:
       check: GET https://agent-chat-2z5wcdmnga-uc.a.run.app/health expect 200 and "status":"ok"
-      deploy_drift: "cd ~/projects/project-tracker && make deploy-chat-status"
+      deploy_drift:
+        live_check: curl --fail --silent --show-error --max-time 10 https://agent-chat-2z5wcdmnga-uc.a.run.app/health
+        expected_sha_check: gha api repos/eriksjaastad/project-tracker/commits/main --jq .sha
+        compare: >-
+          Resolve health.version to a full commit SHA through this repository's
+          commits API and compare with expected_sha_check. If different, compare
+          the agent-chat/ source trees at both exact SHAs: different trees are
+          deployment drift; identical trees are current source with unrelated
+          tracker changes. Missing, ambiguous or failed lookups are UNKNOWN,
+          never healthy. Record both SHAs and comparison evidence. See
+          docs/MONITORING_REGISTRY.md#agent-chat-deployment-drift.
       cloud_run: service agent-chat, project synth-insight-labs, region us-central1
     scheduled: []
     database:
@@ -1327,7 +1337,8 @@ monitoring:
     notes: >-
       Backs `pt message` for every agent. An outage looks like "Agent Chat not
       configured" or silent message loss, not a crash. Production has drifted
-      months behind main before; deploy_drift compares the live SHA to main.
+      months behind main before; deploy_drift compares actual deployed source
+      with current main. make deploy-chat-status only displays the live version.
       Deploys need Erik's interactive gcloud auth — Saga reports, never deploys.
 
   synth-insight-labs:
@@ -1394,7 +1405,8 @@ monitoring:
   # 27 launchd agents + 2 crontab entries on the LAPTOP as of 2026-09-22.
   # A job that silently stops running is the most common real failure here and
   # the one nothing currently catches. Saga's check is: did it run on schedule,
-  # did it exit clean, is its log growing.
+  # did it exit clean. Log growth is evidence only for jobs that document output
+  # on successful runs; a silent job needs run/exit metadata instead.
   #
   # Schedules are read from the plists; `expect` is the human contract and is
   # UNKNOWN wherever nobody has stated it. Saga fills those by asking, not
@@ -1420,7 +1432,17 @@ monitoring:
       - {id: com.eriksjaastad.brain-health,           project: ai-memory,            schedule: every 1800s,  log: ~/projects/ai-memory/logs/brain_health.log}
       - {id: com.eriksjaastad.tracked-large-file-audit, project: ai-memory,          schedule: daily 09:00,  log: ~/projects/ai-memory/logs/tracked_large_file_audit.log}
       - {id: com.eriksjaastad.project-tracker,        project: project-tracker,      schedule: keepalive,    log: ~/projects/project-tracker/logs/dashboard.stdout.log}
-      - {id: com.eriksjaastad.dashboard-watchdog,     project: project-tracker,      schedule: every 300s,   log: ~/projects/project-tracker/logs/dashboard_watchdog.stdout.log}
+      - id: com.eriksjaastad.dashboard-watchdog
+        project: project-tracker
+        schedule: every 300s
+        log: ~/projects/project-tracker/logs/dashboard_watchdog.log
+        check: 'launchctl print "gui/$(id -u)/com.eriksjaastad.dashboard-watchdog"'
+        health_check: curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/api/health
+        expect: >-
+          Run count advances across an awake interval longer than 300s and last
+          exit code is 0. Health separately expects HTTP 200 and status ok.
+          Successful runs are silent; do not require log growth. Reset the run
+          baseline after launchd reload; insufficient observations are UNKNOWN.
       - {id: com.eriksjaastad.pt-backup,              project: project-tracker,      schedule: every 21600s, log: ~/.project-tracker/backup.log}
       - {id: com.eriksjaastad.alert-digest,           project: project-tracker,      schedule: daily 07:00,  log: ~/projects/project-tracker/logs/alert_digest.stdout.log}
       - {id: com.eriksjaastad.card-factory,           project: project-tracker,      schedule: UNKNOWN,      log: ~/projects/project-tracker/logs/card-factory.stdout.log}
@@ -1451,7 +1473,7 @@ monitoring:
       state, not a new incident. Agents never run rclone against live DB files.
     rclone_remotes_present_on_laptop: [gbackup, r2_pose_factory, r2_flo_fi, s3]
     wired_today: [project-tracker, ai-memory]
-    not_wired: [muffinpanrecipes, hypocrisynow, synth-insight-labs, twitter-growth,
+    not_wired: [agent-chat, muffinpanrecipes, hypocrisynow, synth-insight-labs, twitter-growth,
                 land-tracker, trading-copilot, tax-organizer, cortana-personal-ai,
                 fci-kwiky-thumbs]
 
