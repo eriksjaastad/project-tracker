@@ -1882,6 +1882,11 @@ def tasks_create(text, project, status, priority, prompt, category, description,
     """Create a new task.
 
     Auto-detects project from current directory.
+    
+    \b
+    PR sizing: Aim for ~500 substantive changed lines per PR, plus/minus.
+    Not a hard gate. Keep related work bundled when coherent.
+    Excludes generated files, lockfiles, vendored code, snapshots.
     """
     db = DatabaseManager()
     if project: project_id = _resolve_project_id(db, project)
