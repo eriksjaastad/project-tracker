@@ -79,8 +79,8 @@ Consequences Saga must encode:
   `.scratch/pending-board-updates.md` when the laptop is unreachable; Saga uses
   the same pattern and flushes on the next successful connection.
 
-What does *not* depend on the laptop: the Vercel API, the Railway API, and any
-public URL. Those can be checked 24/7 from the Mini and are the right place to
+What does *not* depend on the laptop: the Vercel API, the Railway API, Cloud
+Run, and any public URL. Those can be checked 24/7 from the Mini and are the right place to
 start.
 
 ## What Saga sweeps
@@ -106,9 +106,11 @@ Four of the five blockers Saga reported are already resolved or were misread:
    `MUFFIN_RUNPOD_API_KEY` in the muffinpanrecipes Doppler config. The account
    is spudlogic personal, not SIL.
 4. **"Hosted DB monitoring depends on provider: Neon/Supabase"** — there is no
-   Neon and no Supabase. The portfolio has exactly **one** hosted database:
-   hypocrisynow's Railway Postgres. Everything else is local SQLite
-   (project-tracker's behind dbmed; the rest plain files).
+   Supabase and no Neon in the registry. The portfolio has two hosted
+   databases: hypocrisynow's Railway Postgres, and agent-chat's production
+   Postgres behind Cloud Run (its host provider is `UNKNOWN` in the registry).
+   Everything else is local SQLite (project-tracker's behind dbmed; the rest
+   plain files).
 5. **"Need the live project list"** — the only genuine blocker, and the
    `monitoring:` block now answers it.
 
@@ -117,7 +119,8 @@ Four of the five blockers Saga reported are already resolved or were misread:
 Saga's sweep produces cards, not edits. The cards are what keep the registry
 true as projects are added and retired:
 
-- New Vercel or Railway project with no `monitoring:` entry → card.
+- New Vercel project, Railway project or Cloud Run service with no
+  `monitoring:` entry → card.
 - Registry entry whose `prod_url` no longer resolves → card.
 - Scheduled job in launchd/crontab with no `_scheduled_jobs` entry → card.
 - Registry job that no longer exists on the host → card.
@@ -175,9 +178,10 @@ card would not exist. That failure is silent and would hollow out the entire
 
 ```bash
 # Correct — writes the live board:
-ssh macbook-pro 'cd ~/projects && pt tasks create "..." -p <project>'
+ssh macbook-pro 'cd ~/projects && PT_SKIP_DOPPLER=1 ~/projects/project-tracker/pt tasks create "..." -p <project>'
 
-# WRONG — writes the Mini's dead 2026-08-03 copy:
+# WRONG — writes the Mini's dead 2026-08-03 copy (and bare `pt` over ssh
+# fails anyway: on the laptop it is an alias, see section 3):
 pt tasks create "..." -p <project>
 ```
 

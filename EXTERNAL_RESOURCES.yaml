@@ -1251,7 +1251,7 @@ monitoring:
   _schema:
     prod_url: Public URL, or UNKNOWN, or null when the project has no web surface.
     repo: git remote origin.
-    provider: vercel | railway | local-launchd | local-cron | none (combined with ' + ')
+    provider: vercel | railway | cloud-run | local-launchd | local-cron | none (combined with ' + ')
     health: How to tell it is up. `check` is a literal command or request.
     scheduled: Jobs that must run. Missing run = failure, same as a 500.
     database: engine + offsite destination. `offsite_wired` is the honest state.
@@ -1303,10 +1303,32 @@ monitoring:
       offsite_wired: false
     owner: floor-manager
     notes: >-
-      The portfolio's ONLY hosted database. Everything else is local SQLite.
+      One of two hosted databases (the other is agent-chat's). Everything else
+      is local SQLite.
       API and cron were moved onto Railway's private network (#7240); a check
       that assumes the public proxy will read as down. Credential rotation is
       ALTER USER, never POSTGRES_PASSWORD — the volume persists.
+
+  agent-chat:
+    prod_url: https://agent-chat-2z5wcdmnga-uc.a.run.app
+    repo: https://github.com/eriksjaastad/project-tracker.git (agent-chat/)
+    provider: cloud-run
+    health:
+      check: GET https://agent-chat-2z5wcdmnga-uc.a.run.app/health expect 200 and "status":"ok"
+      deploy_drift: "cd ~/projects/project-tracker && make deploy-chat-status"
+      cloud_run: service agent-chat, project synth-insight-labs, region us-central1
+    scheduled: []
+    database:
+      engine: postgres (production; AGENT_CHAT_DATABASE_URL in Doppler agent-chat/prd)
+      host_provider: UNKNOWN
+      offsite_dest: UNKNOWN
+      offsite_wired: false
+    owner: floor-manager (project-tracker)
+    notes: >-
+      Backs `pt message` for every agent. An outage looks like "Agent Chat not
+      configured" or silent message loss, not a crash. Production has drifted
+      months behind main before; deploy_drift compares the live SHA to main.
+      Deploys need Erik's interactive gcloud auth — Saga reports, never deploys.
 
   synth-insight-labs:
     prod_url: https://synth-insight-labs-erik-sjaastads-projects.vercel.app
