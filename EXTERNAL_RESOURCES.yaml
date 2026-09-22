@@ -1229,3 +1229,316 @@ recent_changes:
 # 2026-09-19: project-scaffolding archived to ~/projects/_archive/project-scaffolding (Phase 7). Local path no longer ~/projects/project-scaffolding. model-bench seats validator still reads scaffold/seats.py from the archive tree.
 
 # 2026-09-19: Doppler project 3d-pose-factory deleted by Erik. No live doppler.yaml pinned it. Registry entry marked archived/doppler:deleted. Secrets were last fetched ~2026-04; do not recreate unless resurrecting.
+
+# ---------------------------------------------------------------------------
+# monitoring — added 2026-09-22 for the Saga sweep (Mac Mini).
+#
+# Additive section: the `projects:` block above stays the authority on WHICH
+# third-party services a project uses, account ownership and cost. This block
+# adds only what a monitor needs — where it runs, how to tell it is healthy,
+# what is scheduled, and where the backup goes.
+#
+# Keyed by the same project names used in `projects:` above.
+#
+# OWNERSHIP: this file is laptop-owned. Saga reads it over SSH and opens
+# Kanban cards for drift. Saga never writes it. See
+# project-tracker/docs/MONITORING_REGISTRY.md.
+#
+# UNKNOWN is a real value. It means "nobody has established this yet" and is
+# Saga's work queue — it must never be guessed at or quietly filled in.
+# ---------------------------------------------------------------------------
+monitoring:
+  _schema:
+    prod_url: Public URL, or UNKNOWN, or null when the project has no web surface.
+    repo: git remote origin.
+    provider: vercel | railway | cloud-run | local-launchd | local-cron | none (combined with ' + ')
+    health: How to tell it is up. Commands run on the Mini; laptop checks explicitly use SSH.
+    scheduled: Jobs that must run while their host is awake; see _scheduled_jobs.caveat.
+    database: engine + offsite destination. `offsite_wired` is the honest state.
+    owner: Who fixes it. floor-manager = the project's own Claude session.
+    notes: Anything a monitor would otherwise misread.
+
+  muffinpanrecipes:
+    prod_url: https://muffinpanrecipes.com
+    repo: https://github.com/eriksjaastad/muffinpanrecipes.git
+    provider: vercel
+    health:
+      check: GET https://muffinpanrecipes.com/ expect 200
+      deep: >-
+        ssh -o BatchMode=yes -o ConnectTimeout=10 macbook-pro
+        'cd ~/projects/muffinpanrecipes && ~/.local/bin/uv run scripts/session_pipeline_status.py'
+      deep_expect: >-
+        Read the printed OK/DEGRADED/unknown verdict, not the exit status (the
+        session hook intentionally exits 0 in all three cases). Unknown or
+        missing output is UNKNOWN coverage. SSH failure uses the host states
+        in docs/MONITORING_REGISTRY.md#the-laptop-sleeps; never fall back to a
+        Mini checkout. The public health.check continues from the Mini.
+    scheduled:
+      - id: muffinpanrecipes-cron-test
+        where: laptop crontab
+        schedule: "0 12 * * *"
+        log: ~/projects/muffinpanrecipes/logs/cron_compressed.log
+        expect: one run per day, exit 0, episode integrity clean
+    database:
+      engine: sqlite
+      offsite_dest: gbackup:db-backups/muffinpanrecipes/
+      offsite_wired: false
+    owner: floor-manager
+    notes: >-
+      Daily failures are the reason this whole sweep exists. A SessionStart hook
+      (muffinpan-pipeline-status.sh, card #6857) already reports OK/DEGRADED into
+      any Claude session opened inside the repo — built after a Monday failure
+      went unnoticed until Saturday. Saga should call the same
+      scripts/session_pipeline_status.py rather than invent a second check.
+      Uses Stability AI + RunPod; RunPod key is MUFFIN_RUNPOD_API_KEY in Doppler.
+
+  hypocrisynow:
+    prod_url: https://hypocrisynow-erik-sjaastads-projects.vercel.app
+    repo: https://github.com/eriksjaastad/hypocrisynow.git
+    provider: vercel + railway
+    health:
+      check: GET https://hypocrisynow-erik-sjaastads-projects.vercel.app/ expect 200
+      railway_project_id: 656bb621-18a3-442e-9afe-9d09e47aa5f9
+    scheduled:
+      - id: hypocrisynow-cron
+        where: railway
+        schedule: UNKNOWN
+        log: railway logs
+        expect: UNKNOWN
+    database:
+      engine: postgres (Railway)
+      offsite_dest: gbackup:db-backups/hypocrisynow/
+      offsite_wired: false
+    owner: floor-manager
+    notes: >-
+      One of two hosted databases (the other is agent-chat's). Everything else
+      is local SQLite.
+      API and cron were moved onto Railway's private network (#7240); a check
+      that assumes the public proxy will read as down. Credential rotation is
+      ALTER USER, never POSTGRES_PASSWORD — the volume persists.
+
+  agent-chat:
+    prod_url: https://agent-chat-2z5wcdmnga-uc.a.run.app
+    repo: https://github.com/eriksjaastad/project-tracker.git (agent-chat/)
+    provider: cloud-run
+    health:
+      check: GET https://agent-chat-2z5wcdmnga-uc.a.run.app/health expect 200, status ok, backend postgres; also require read_probe
+      read_probe:
+        request: GET https://agent-chat-2z5wcdmnga-uc.a.run.app/messages?limit=0
+        auth: X-API-Key header from the Mini's existing Agent Chat client configuration; see _secrets.agent_chat_client_exception
+        expect: HTTP 200 and a JSON object with messages equal to []; this queries the database without returning message bodies
+        failure_states: >-
+          Missing credentials or HTTP 401/403 mean monitoring-auth coverage
+          UNKNOWN, not a proven database outage. HTTP 5xx, timeout or transport
+          failure means service/read-probe failure. Invalid JSON or response
+          shape is UNKNOWN coverage. None is healthy; never send a test message.
+      production_contract: >-
+        Both checks must pass. /health alone does not open a database connection.
+        backend sqlite is an unsafe production configuration even if reads work;
+        absent or unrecognized backend is UNKNOWN durability coverage. Deployment
+        freshness is checked independently and cannot override either result.
+      deploy_drift:
+        live_check: curl --fail --silent --show-error --max-time 10 https://agent-chat-2z5wcdmnga-uc.a.run.app/health
+        expected_sha_check: gha api repos/eriksjaastad/project-tracker/commits/main --jq .sha
+        compare: >-
+          Resolve health.version and expected_sha_check to full commits, but
+          record the deployed version only as a claimed source stamp. Freshness
+          requires immutable provenance tying the serving revision/image to its
+          actual clean context or verified context digest. Compare effective
+          build inputs with current main using the build system's ignore rules,
+          not whole Git trees or a handwritten filter. Missing provenance or
+          incomplete comparison is UNKNOWN even when SHAs match. Proven equal
+          inputs are current source; proven different inputs are drift. See
+          docs/MONITORING_REGISTRY.md#agent-chat-deployment-drift.
+      cloud_run: service agent-chat, project synth-insight-labs, region us-central1
+    scheduled: []
+    database:
+      engine: postgres (production; AGENT_CHAT_DATABASE_URL in Doppler agent-chat/prd)
+      host_provider: Google Cloud SQL
+      cloud_sql_instance: synth-insight-labs:us-central1:synth-insight-labs-pg
+      host_evidence: Makefile deploy-chat --add-cloudsql-instances (Cloud SQL Unix socket)
+      offsite_dest: UNKNOWN
+      offsite_wired: false
+    owner: floor-manager (project-tracker)
+    notes: >-
+      Backs `pt message` for every agent. "Agent Chat not configured" means the
+      local client configuration is missing, not evidence of a server outage.
+      Production failures may instead cause request errors or message loss.
+      Production has drifted
+      months behind main before; deploy_drift requires evidence of actual build
+      inputs before comparing with current main. make deploy-chat-status only
+      displays the claimed version; it does not establish build provenance.
+      Deploys need Erik's interactive gcloud auth — Saga reports, never deploys.
+
+  synth-insight-labs:
+    prod_url: https://synth-insight-labs-erik-sjaastads-projects.vercel.app
+    repo: https://github.com/eriksjaastad/synth-insight-labs.git
+    provider: vercel
+    health:
+      check: GET https://synth-insight-labs-erik-sjaastads-projects.vercel.app/ expect 200
+    scheduled: []
+    database:
+      engine: sqlite
+      offsite_dest: gbackup:db-backups/synth-insight-labs/
+      offsite_wired: false
+    owner: floor-manager
+
+  flo-fi:
+    prod_url: https://flo-fi-erik-sjaastads-projects.vercel.app
+    repo: https://github.com/eriksjaastad/Flo-Fi.git
+    provider: vercel
+    health:
+      check: GET https://flo-fi-erik-sjaastads-projects.vercel.app/ expect 200
+    scheduled: []
+    database: null
+    owner: floor-manager
+    notes: Last deploy 168d ago. Confirm it is still wanted before alerting on it.
+
+  eriksjaastad:
+    prod_url: https://eriksjaastad.com
+    repo: https://github.com/eriksjaastad/eriksjaastad.git
+    provider: vercel
+    health:
+      check: GET https://eriksjaastad.com/ expect 200
+    scheduled: []
+    database: null
+    owner: erik
+    notes: Personal site. Matters during a job search — treat downtime as high.
+
+  logicdesigns:
+    prod_url: https://logicdesigns.com
+    repo: UNKNOWN
+    provider: vercel
+    health:
+      check: GET https://logicdesigns.com/ expect 200
+    scheduled: []
+    database: null
+    owner: erik
+    notes: >-
+      No local checkout under ~/projects. Last deploy 126d ago. Email routing
+      for this domain was still pending as of 2026-08-10.
+
+  website:
+    prod_url: null
+    repo: UNKNOWN
+    provider: vercel
+    health: null
+    scheduled: []
+    database: null
+    owner: erik
+    notes: >-
+      Vercel project with NO production URL, untouched 168d. Candidate for
+      deletion — do not monitor. Listed so Saga stops rediscovering it.
+
+  # --- scheduled-job surface -------------------------------------------------
+  # 27 launchd agents + 2 crontab entries on the LAPTOP as of 2026-09-22.
+  # A job that silently stops running is the most common real failure here and
+  # the one nothing currently catches. Saga's check is: did it run on schedule,
+  # did it exit clean. Log growth is evidence only for jobs that document output
+  # on successful runs; a silent job needs run/exit metadata instead.
+  #
+  # Schedules are read from the plists; `expect` is the human contract and is
+  # UNKNOWN wherever nobody has stated it. Saga fills those by asking, not
+  # by inferring from observed behaviour — a job that has been broken for
+  # months would otherwise teach it that broken is normal.
+
+  _scheduled_jobs:
+    host: laptop (macbook-pro / 100.124.58.49)
+    caveat: >-
+      These run only while the laptop is awake. Sleep is currently held off by
+      caffeinate, which is not permanent. A missed run during sleep is NOT a
+      failure — Saga must distinguish "did not run because the host slept" from
+      "ran and failed" before opening a card. Read all job metadata and log paths
+      on this host over SSH, never from the Mini's launchd or filesystem. Apply
+      the HOST_OFFLINE/SSH_UNAVAILABLE/REACHABILITY_UNKNOWN contract in
+      docs/MONITORING_REGISTRY.md#the-laptop-sleeps when access fails.
+    jobs:
+      - {id: com.ai-memory.classifier-batcher,        project: ai-memory,            schedule: every 300s,   log: ~/projects/ai-memory/logs/launchd/classifier-batcher.log}
+      - {id: com.ai-memory.sync-pending,              project: ai-memory,            schedule: every 300s,   log: /tmp/brain-sync-pending.log}
+      - {id: com.ai-memory.daily-backup,              project: ai-memory,            schedule: daily 12:30,  log: /tmp/brain-daily-backup.log}
+      - {id: com.ai-memory.nightly-transcript-miner,  project: ai-memory,            schedule: daily 02:00,  log: /tmp/brain-nightly-transcript-miner.log}
+      - {id: com.ai-memory.weekly-graph-build,        project: ai-memory,            schedule: daily 10:00,  log: ~/projects/ai-memory/logs/launchd/graph-build.log}
+      - {id: com.ai-memory.weekly-dream,              project: ai-memory,            schedule: daily 12:00,  log: /tmp/brain-dream.log}
+      - {id: com.ai-memory.weekly-benchmark,          project: ai-memory,            schedule: daily 14:00,  log: /tmp/brain-weekly-benchmark.log}
+      - {id: com.ai-memory.antigravity-sync,          project: ai-memory,            schedule: UNKNOWN,      log: ~/.gemini/tmp/ai-memory-antigravity-sync.log}
+      - {id: com.eriksjaastad.brain-health,           project: ai-memory,            schedule: every 1800s,  log: ~/projects/ai-memory/logs/brain_health.log}
+      - {id: com.eriksjaastad.tracked-large-file-audit, project: ai-memory,          schedule: daily 09:00,  log: ~/projects/ai-memory/logs/tracked_large_file_audit.log}
+      - {id: com.eriksjaastad.project-tracker,        project: project-tracker,      schedule: keepalive,    log: ~/projects/project-tracker/logs/dashboard.stdout.log}
+      - id: com.eriksjaastad.dashboard-watchdog
+        project: project-tracker
+        schedule: every 300s
+        log: ~/projects/project-tracker/logs/dashboard_watchdog.log
+        check: >-
+          ssh -o BatchMode=yes -o ConnectTimeout=10 macbook-pro
+          'launchctl print "gui/$(id -u)/com.eriksjaastad.dashboard-watchdog"'
+        health_check: >-
+          ssh -o BatchMode=yes -o ConnectTimeout=10 macbook-pro
+          'curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8000/api/health'
+        expect: >-
+          Run count advances across an awake interval longer than 300s and last
+          exit code is 0. Health separately expects HTTP 200 and status ok.
+          Successful runs are silent; do not require log growth. Reset the run
+          baseline after launchd reload; insufficient observations are UNKNOWN.
+      - {id: com.eriksjaastad.pt-backup,              project: project-tracker,      schedule: every 21600s, log: ~/.project-tracker/backup.log}
+      - {id: com.eriksjaastad.alert-digest,           project: project-tracker,      schedule: daily 07:00,  log: ~/projects/project-tracker/logs/alert_digest.stdout.log}
+      - {id: com.eriksjaastad.card-factory,           project: project-tracker,      schedule: UNKNOWN,      log: ~/projects/project-tracker/logs/card-factory.stdout.log}
+      - {id: com.pt.tailscale-up,                     project: project-tracker,      schedule: UNKNOWN,      log: ~/projects/project-tracker/logs/tailscale-up.log}
+      - {id: pt-calendar-poller,                      project: project-tracker,      schedule: "*/10 * * * * (crontab)", log: ~/projects/project-tracker/data/logs/poller.log}
+      - {id: com.eriksjaastad.landtracker.daily,      project: land-tracker,         schedule: daily 07:00,  log: ~/projects/land-tracker/daily_run.log}
+      - {id: com.eriksjaastad.landtracker.stale-watch, project: land-tracker,        schedule: daily 13:00,  log: ~/projects/land-tracker/stale_watch.log}
+      - {id: com.eriksjaastad.job-search-hn,          project: job-search,           schedule: daily 06:15,  log: ~/projects/job-search/market-monitor/snapshots/hn-jobs-cron.log}
+      - {id: com.user.cortana_daily_update,           project: cortana-personal-ai,  schedule: daily 22:00,  log: ~/projects/cortana-personal-ai/data/logs/daily_update.log}
+      - {id: com.user.cortana_health_check,           project: cortana-personal-ai,  schedule: daily 23:00,  log: ~/projects/cortana-personal-ai/data/logs/health_check.log}
+      - {id: com.erik.trading-copilot.alpha-watcher,  project: trading-copilot,      schedule: UNKNOWN,      log: ~/projects/trading-copilot/logs/alpha_watcher.log}
+      - {id: com.erik.fci-kwiky-thumbs.exports-watcher, project: fci-kwiky-thumbs,   schedule: UNKNOWN,      log: ~/projects/fci-kwiky-thumbs/logs/exports_watcher.log}
+      - {id: com.eriksjaastad.agent-runtime-monitor,  project: agent-runtime-config, schedule: daily 09:00,  log: ~/projects/agent-runtime-config/.monitor/launchd.out.log}
+      - {id: com.eriksjaastad.slack-listener,         project: slack-listener,       schedule: keepalive,    log: ~/projects/slack-listener/logs/listener.stdout.log}
+      - {id: com.eriksjaastad.claude-config-pull,     project: claude-user-config,   schedule: every 21600s, log: /tmp/claude-config-pull.log}
+      - {id: com.erik.journal-personal,               project: ai-journal,           schedule: daily 22:00,  log: ~/Library/Logs/journal_personal.out}
+      - {id: muffinpanrecipes-cron-test,              project: muffinpanrecipes,     schedule: "0 12 * * * (crontab)", log: ~/projects/muffinpanrecipes/logs/cron_compressed.log}
+
+  # --- backups ---------------------------------------------------------------
+  _backups:
+    convention: gbackup:db-backups/<project-name>/
+    destinations:
+      project-tracker: gbackup:db-backups/project-tracker/
+      ai-memory: gbackup:ai-memory-encrypted
+    destination_rule: >-
+      Use this per-project destinations map when present, otherwise the project's
+      database.offsite_dest. A missing or UNKNOWN destination is UNKNOWN coverage;
+      never derive it from convention or replace an explicit UNKNOWN. The
+      ai-memory destination is encrypted and canonical; do not flatten or move it.
+    locked: 2026-09-19
+    how_to: project-tracker/docs/PORTFOLIO_OFFSITE_DB_BACKUPS.md
+    status: >-
+      Backups are the chosen control (portfolio DB lockdown cancelled
+      2026-09-20; its per-project dbmed adoption cards were cancelled with it).
+      Most projects are NOT yet wired — absence of an offsite copy is a known
+      state, not a new incident. Agents never run rclone against live DB files.
+    rclone_remotes_present_on_laptop: [gbackup, r2_pose_factory, r2_flo_fi, s3]
+    wired_today: [project-tracker, ai-memory]
+    not_wired: [agent-chat, muffinpanrecipes, hypocrisynow, synth-insight-labs, twitter-growth,
+                land-tracker, trading-copilot, tax-organizer, cortana-personal-ai,
+                fci-kwiky-thumbs]
+
+  # --- secrets ---------------------------------------------------------------
+  _secrets:
+    authority: Doppler for provider and server credentials; preserve the Agent Chat client exception below.
+    saga_rule: >-
+      Saga reads provider/server secrets at point of use via `doppler run --`.
+      It does not duplicate them into OpenClaw or a new config. The empty
+      OpenClaw secret store is correct and is not a blocker to fix.
+    agent_chat_client_exception: >-
+      Each machine intentionally keeps AGENT_CHAT_URL, AGENT_CHAT_API_KEY and
+      AGENT_CHAT_SENDER in ~/.claude/agent-chat.env (or the environment), consumed
+      by scripts/pt.py _load_chat_config. Preserve the Mini's own configuration
+      and sender; never copy the laptop's file or move client identity into
+      shared Doppler. Server secrets remain in Doppler agent-chat/prd. Read the
+      client file as data, never shell-source it; do not print credentials or
+      put the API key in a URL or diagnostic log.
+    known_gaps:
+      - RunPod account is spudlogic personal; the muffinpanrecipes key lives at
+        Doppler muffinpanrecipes/MUFFIN_RUNPOD_API_KEY. No portfolio-wide key.
+      - Vercel monitoring from the Mini needs a Vercel API token in Doppler.
+        The laptop's `vercel` CLI is already authenticated as eriksjaastad;
+        the Mini is not. No Vercel "plugin" is required either way.
