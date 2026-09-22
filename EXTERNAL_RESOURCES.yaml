@@ -1341,12 +1341,14 @@ monitoring:
         live_check: curl --fail --silent --show-error --max-time 10 https://agent-chat-2z5wcdmnga-uc.a.run.app/health
         expected_sha_check: gha api repos/eriksjaastad/project-tracker/commits/main --jq .sha
         compare: >-
-          Resolve health.version to a full commit SHA through this repository's
-          commits API and compare with expected_sha_check. If different, compare
-          the agent-chat/ source trees at both exact SHAs: different trees are
-          deployment drift; identical trees are current source with unrelated
-          tracker changes. Missing, ambiguous or failed lookups are UNKNOWN,
-          never healthy. Record both SHAs and comparison evidence. See
+          Resolve health.version and expected_sha_check to full commits, but
+          record the deployed version only as a claimed source stamp. Freshness
+          requires immutable provenance tying the serving revision/image to its
+          actual clean context or verified context digest. Compare effective
+          build inputs with current main using the build system's ignore rules,
+          not whole Git trees or a handwritten filter. Missing provenance or
+          incomplete comparison is UNKNOWN even when SHAs match. Proven equal
+          inputs are current source; proven different inputs are drift. See
           docs/MONITORING_REGISTRY.md#agent-chat-deployment-drift.
       cloud_run: service agent-chat, project synth-insight-labs, region us-central1
     scheduled: []
@@ -1363,8 +1365,9 @@ monitoring:
       local client configuration is missing, not evidence of a server outage.
       Production failures may instead cause request errors or message loss.
       Production has drifted
-      months behind main before; deploy_drift compares actual deployed source
-      with current main. make deploy-chat-status only displays the live version.
+      months behind main before; deploy_drift requires evidence of actual build
+      inputs before comparing with current main. make deploy-chat-status only
+      displays the claimed version; it does not establish build provenance.
       Deploys need Erik's interactive gcloud auth — Saga reports, never deploys.
 
   synth-insight-labs:
