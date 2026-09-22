@@ -57,14 +57,33 @@ class ProjectTrackerOps:
         return path
 
     def authorize(self, op, /, *, reason, **params):
+        return self.prepare_operation(op, reason=reason, **params)()
+
+    def prepare_operation(self, op, /, *, reason, **params):
+        """Verify recovery now; return a single-use call bound to this operation.
+
+        Retirement must establish recovery before moving files, then perform
+        its database mutation without another fallible snapshot in between.
+        """
         if op not in {"delete_project", "delete_done_tasks", "trim_done_tasks", "raw_import_tasks", "backup_restore", "migrations_apply"}:
             raise ValueError(f"Not a destructive operation: {op}")
         self.prepare_destructive(reason=reason)
         if op in self._DESTRUCTIVE_BACKEND_OPS:
-            # The explicit path has already verified its snapshot; bypass only
-            # the automatic wrapper, never the backend's own safety checks.
-            return getattr(self._db, op)(**params)
-        return getattr(self, f"_{op}")(**params)
+            operation = getattr(self._db, op)
+        else:
+            operation = getattr(self, f"_{op}")
+        used = False
+
+        def execute():
+            nonlocal used
+            if used:
+                raise RuntimeError("Prepared database operation was already consumed")
+            # A failed backend call may already have committed; never retry it
+            # using this preflight. Backend safety checks still run normally.
+            used = True
+            return operation(**params)
+
+        return execute
 
     def sync_project_bundle(
         self,

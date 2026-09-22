@@ -99,6 +99,20 @@ def own_tree(root, uid, gid):
         os.chown(path, uid, gid, follow_symlinks=False)
 
 
+def ensure_owner_directory(path, uid, gid):
+    """Own every directory we create, preserving existing parents and modes."""
+    if path.is_dir():
+        return
+    ensure_owner_directory(path.parent, uid, gid)
+    try:
+        path.mkdir(mode=0o700)
+    except FileExistsError:
+        if not path.is_dir():
+            raise RuntimeError(f'Target parent is not a directory: {path}')
+    else:
+        os.chown(path, uid, gid, follow_symlinks=False)
+
+
 def retire(repo):
     if os.geteuid() != 0 or not os.environ.get('SUDO_USER'):
         raise RuntimeError('Run through sudo as the workstation owner')
@@ -113,14 +127,11 @@ def retire(repo):
     for path in [target, Path(str(target) + '-wal'), Path(str(target) + '-shm')]:
         if path.exists() or path.is_symlink():
             raise RuntimeError(f'Existing target requires inspection before cutover: {path}')
-    try:
-        target.parent.mkdir(parents=True, mode=0o700)
-    except FileExistsError:
-        if not target.parent.is_dir():
-            raise RuntimeError(f"Target parent is not a directory: {target.parent}")
-    else:
-        # SQLite needs to create journals beside the database as its owner.
-        os.chown(target.parent, owner.pw_uid, owner.pw_gid)
+    # SQLite journals and backup.log are siblings of the copied DB/backups.
+    # Ownership of their leaf files alone does not make those parents writable.
+    ensure_owner_directory(target.parent, owner.pw_uid, owner.pw_gid)
+    external = Path(owner.pw_dir) / '.project-tracker/backups'
+    ensure_owner_directory(external.parent, owner.pw_uid, owner.pw_gid)
     stamp = time.strftime('%Y%m%dT%H%M%S')
     stage = Path(tempfile.mkdtemp(prefix='dbmed-retirement-', dir=target.parent))
     archive = ARCHIVE_ROOT / stamp
@@ -138,7 +149,6 @@ def retire(repo):
             raise RuntimeError(f'Cannot verify service stopped: {probe.stderr.strip()}')
         counts = snapshot(source, stage / 'tracker.db')
         copy_history(DATA / 'project-tracker/backups', target.parent / 'backups')
-        external = Path(owner.pw_dir) / '.project-tracker/backups'
         copy_history(DATA / 'external/project-tracker', external)
         copy_history(DATA / 'project-tracker/attic', stage / 'historical-copies')
         if (target.parent / 'backups').exists():

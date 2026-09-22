@@ -1524,7 +1524,10 @@ def retire_project(project, execute, keep_files, yes):
 
     # Verify the database backup and obtain authorization BEFORE moving files.
     # A rejected grant must leave both the project directory and its rows intact.
-    db.prepare_destructive(reason=f"Confirmed retire-project {project_id}")
+    delete_project = db.prepare_operation(
+        "delete_project", reason=f"Confirmed retire-project {project_id}",
+        project_id=project_id,
+    )
 
     # 1. Send directory to Trash (unless --keep-files)
     if not keep_files and path_ok:
@@ -1543,7 +1546,7 @@ def retire_project(project, execute, keep_files, yes):
         console.print(f"[dim]✓ directory already missing, nothing to trash[/dim]")
 
     # 2. Cascade-delete DB rows
-    db.delete_project(project_id=project_id)
+    delete_project()
     console.print(f"[green]✓[/green] deleted project '{project_name}' and cascaded rows from the database")
 
     console.print(f"\n[bold green]✅ Retired '{project_name}'.[/bold green]")
