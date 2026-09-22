@@ -241,3 +241,47 @@ def test_backup_settings_process_precedence_and_legacy_aliases(monkeypatch, tmp_
     monkeypatch.setenv('RCLONE_CONFIG', str(tmp_path / 'canonical.conf'))
     assert external_backup_dir() == tmp_path / 'canonical'
     assert rclone_config_path() == tmp_path / 'canonical.conf'
+
+
+def test_local_interface_rejects_turso_before_opening_either_database(monkeypatch, tmp_path):
+    from db import backend_manager
+    monkeypatch.setattr(backend_manager, '_USE_TURSO', True)
+    opened = []
+    monkeypatch.setattr(backend_manager, 'DatabaseManager', lambda *a: opened.append(a))
+    target = tmp_path / 'must-not-create.db'
+    with pytest.raises(RuntimeError, match='refusing mixed local/remote writes'):
+        DatabaseManager(target)
+    with pytest.raises(RuntimeError, match='refusing mixed local/remote writes'):
+        CalendarManager(target)
+    assert opened == []
+    assert not target.exists()
+
+
+def test_retirement_owns_new_parent_before_stopping_service(retirement_install, monkeypatch):
+    retirement, repo, data, archive, calls = retirement_install
+    ownership = []
+    monkeypatch.setattr(retirement.os, 'chown', lambda path, uid, gid, **kw:
+                        ownership.append((path, uid, gid)))
+    original = retirement.subprocess.run
+    def command(argv, **kwargs):
+        if argv[:2] == ('launchctl', 'bootout'):
+            assert (repo / 'data', 501, 20) in ownership
+        return original(argv, **kwargs)
+    monkeypatch.setattr(retirement.subprocess, 'run', command)
+    assert not (repo / 'data').exists()
+    retirement.retire(repo)
+    assert (repo / 'data', 501, 20) in ownership
+    assert (repo / 'data').stat().st_mode & 0o777 == 0o700
+    assert (repo / 'data/tracker.db').is_file()
+
+
+def test_retirement_preserves_existing_parent_ownership(retirement_install, monkeypatch):
+    retirement, repo, data, archive, calls = retirement_install
+    parent = repo / 'data'
+    parent.mkdir(mode=0o750)
+    ownership = []
+    monkeypatch.setattr(retirement.os, 'chown', lambda path, uid, gid, **kw:
+                        ownership.append(path))
+    retirement.retire(repo)
+    assert parent not in ownership
+    assert parent.stat().st_mode & 0o777 == 0o750
