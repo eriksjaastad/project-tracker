@@ -182,6 +182,11 @@ export function TaskForm({
         <div className="task-form-char-count">
           {text.length} characters
         </div>
+        <div className="task-form-hint">
+          <strong>PR sizing:</strong> Aim for ~500 substantive changed lines per PR, plus/minus.
+          Not a hard gate. Keep related work bundled when coherent.
+          Excludes generated files, lockfiles, vendored code, snapshots.
+        </div>
       </div>
 
       <div className="task-form-row">
