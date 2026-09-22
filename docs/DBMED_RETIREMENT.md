@@ -49,6 +49,11 @@ backup/restore, SAFE_MODE, and destructive-operation confirmation and backups.
 5. Verify `launchctl print system/com.dbmed` no longer finds the service.
    Complete #7422 and #7393 only after live checks; cancel #7412 as superseded.
 
+Project Tracker uses local SQLite throughout. If the shared Turso switch is
+enabled, it refuses startup before opening either database; it must never back
+up a local file and then mutate a remote database. This retirement does not
+change that shared switch or any ai-memory backend configuration.
+
 ## Recovery
 
 The script prints the receipt and archive paths. Both the original database

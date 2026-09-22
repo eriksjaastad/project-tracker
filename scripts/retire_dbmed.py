@@ -113,7 +113,14 @@ def retire(repo):
     for path in [target, Path(str(target) + '-wal'), Path(str(target) + '-shm')]:
         if path.exists() or path.is_symlink():
             raise RuntimeError(f'Existing target requires inspection before cutover: {path}')
-    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target.parent.mkdir(parents=True, mode=0o700)
+    except FileExistsError:
+        if not target.parent.is_dir():
+            raise RuntimeError(f"Target parent is not a directory: {target.parent}")
+    else:
+        # SQLite needs to create journals beside the database as its owner.
+        os.chown(target.parent, owner.pw_uid, owner.pw_gid)
     stamp = time.strftime('%Y%m%dT%H%M%S')
     stage = Path(tempfile.mkdtemp(prefix='dbmed-retirement-', dir=target.parent))
     archive = ARCHIVE_ROOT / stamp
