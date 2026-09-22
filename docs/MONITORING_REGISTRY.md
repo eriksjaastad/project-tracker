@@ -94,6 +94,27 @@ What does *not* depend on the laptop: the Vercel API, the Railway API, Cloud
 Run, and any public URL. Those can be checked 24/7 from the Mini and are the right place to
 start.
 
+### Where checks execute
+
+Registry commands are invoked by Saga on the Mini. Commands requiring the
+laptop's checkout, launchd state, logs, backup files, or loopback services must
+explicitly use `ssh macbook-pro`. Single-quote the remote command so `~`, `$HOME`
+and `$(id -u)` resolve on the laptop. Use the explicit `~/.local/bin/uv` path
+inside SSH; an interactive shell's PATH and aliases are not available there.
+Bound each invocation in the sweep runner and retain stderr and exit status;
+SSH connection timeout alone does not bound a stalled remote command.
+
+The muffin deep check reads public Blob data, but its installed script and
+integrity-checking code are authoritative on the laptop. Run that code there,
+and interpret its printed `OK`/`DEGRADED`/`unknown` verdict: it always exits 0
+because it was designed as a nonblocking session hook. Failed or missing output
+is unknown coverage. Never substitute a stale Mini checkout. The same host rule
+applies to the watchdog's launchd command and `127.0.0.1:8000` health probe.
+
+When SSH fails, use the host states and independent alert path above; do not
+turn missing laptop evidence into a healthy result or a job failure. Public URL
+and provider API checks continue directly from the Mini during host outages.
+
 ## What Saga sweeps
 
 | Surface | Source of truth | Check |
