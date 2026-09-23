@@ -31,6 +31,7 @@ def test_navigation_api_returns_shared_contract():
         "dashboard",
         "kanban",
         "agentic",
+        "holoscape",
         "calendar",
         "agent-chat",
         "graph",
@@ -84,3 +85,15 @@ def test_agent_chat_spa_route_is_registered():
         assert '"id": "agent-chat"' in response.text or "Agent Chat" in response.text
     else:
         assert "Frontend not built" in response.text
+
+
+def test_holoscape_spa_route_and_navigation():
+    response = client.get("/holoscape")
+    assert response.status_code in (200, 503)
+    nav = client.get("/api/navigation").json()["items"]
+    item = next(item for item in nav if item["id"] == "holoscape")
+    assert item["href"] == "/holoscape"
+    assert item["navigation_type"] == "spa"
+    assert next(item for item in build_navigation("/holoscape") if item["id"] == "holoscape")["active"]
+    if response.status_code == 200:
+        assert '"id": "holoscape"' in response.text

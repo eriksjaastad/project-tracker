@@ -127,6 +127,64 @@ export interface NavigationResponse {
   items: NavigationItem[];
 }
 
+export interface HoloscapeSeriesDay {
+  date: string;
+  task_created: number | null;
+  task_completed: number | null;
+  review_entries: number | null;
+  review_bounces: number | null;
+  commits: number | null;
+  github_reviews: number | null;
+  prs_opened: number | null;
+  prs_merged: number | null;
+  ci_success: number | null;
+  ci_failure: number | null;
+  ci_pending: number | null;
+  ci_other: number | null;
+  manager_sessions: number | null;
+  delegate_sessions: number | null;
+  deepseek_cli_sessions: number | null;
+  worktree_references: number | null;
+  manager_session_minutes: number | null;
+  delegate_session_minutes: number | null;
+  deepseek_cli_session_minutes: number | null;
+  manager_input_tokens: number | null;
+  manager_output_tokens: number | null;
+  delegate_input_tokens: number | null;
+  delegate_output_tokens: number | null;
+  deepseek_cli_input_tokens: number | null;
+  deepseek_cli_output_tokens: number | null;
+  deepseek_cli_cache_read_tokens: number | null;
+}
+
+export interface HoloscapeSource {
+  status: 'ok' | 'stale' | 'loading' | 'unavailable';
+  fetched_at: string | null;
+  refreshing?: boolean;
+  refresh_error?: string | null;
+  coverage?: string | null;
+}
+
+export interface HoloscapeSeriesResponse {
+  window: { start: string; end: string; timezone: string };
+  series: HoloscapeSeriesDay[];
+  sources: Record<'board' | 'github' | 'hermes' | 'billing', HoloscapeSource>;
+  pr: {
+    url: string;
+    state: string;
+    merged: boolean;
+    head_sha: string;
+    created_at: string;
+    merged_at: string | null;
+    commits: number;
+    reviews: number;
+    cohort_pull_requests?: number;
+    workflow_names?: string[];
+  } | null;
+  models: Record<string, number> | null;
+  deepseek_cost_usd: number | null;
+}
+
 export interface TaskHistoryEntry {
   date: string;
   completed: number;
