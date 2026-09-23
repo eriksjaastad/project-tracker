@@ -108,7 +108,8 @@ def test_pt_db_migrate_applies_pending_and_reports(
     assert "010_add_handoffs_table" in result.output
     assert "011_add_migrations_table" in result.output
     assert "012_add_tasks_archived_at" in result.output
-    assert "applied 11 migration" in result.output
+    assert "013_add_jobs_tables" in result.output
+    assert "applied 12 migration" in result.output
 
     # The tables the migrations create are proven present by counting rows in
     # them through the sanctioned interface, and by nothing being pending

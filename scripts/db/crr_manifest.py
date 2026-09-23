@@ -83,6 +83,8 @@ LOCAL_ONLY_TABLES: frozenset[str] = frozenset({
     "loop_executions",        # per-machine execution history
     "task_display_ids",       # per-machine sequential display IDs for Snowflake PKs
     "handoffs",               # session-scoped unfinished-work / non-PR records (Phase D)
+    "jobs",                   # laptop-local job-search feed and dashboard state (#7396)
+    "job_submissions",        # local resume paths and repeat submission history (#7396)
 })
 
 # Tables that sync even when the data-plane is paused. Used for sync
