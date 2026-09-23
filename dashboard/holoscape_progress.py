@@ -12,6 +12,7 @@ import subprocess
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from dashboard.github_cache import GitHubCache
@@ -58,7 +59,10 @@ def fetch_board() -> dict:
             counts["review_entries"] += 1
         if row["old_status"] == "Review" and row["new_status"] == "In Progress":
             counts["review_bounces"] += 1
-    return {"daily": dict(daily), "fetched_at": _fetched_at(), "events": len(rows)}
+    return {
+        "daily": dict(daily), "fetched_at": _fetched_at(), "events": len(rows),
+        "coverage": "Holoscape task creation, completion, and review transitions in Project Tracker.",
+    }
 
 
 def _gha_binary() -> str:
@@ -71,7 +75,7 @@ def _gha_binary() -> str:
     raise RuntimeError("Managed GitHub CLI unavailable")
 
 
-def _gha_json(args: list[str], *, paginated: bool = False) -> object:
+def _gha_json(args: list[str], *, paginated: bool = False, page_key: str | None = None) -> object:
     cmd = [_gha_binary(), "api"]
     if paginated:
         cmd.extend(["--paginate", "--slurp"])
@@ -88,30 +92,83 @@ def _gha_json(args: list[str], *, paginated: bool = False) -> object:
     except json.JSONDecodeError as exc:
         raise RuntimeError("GitHub source returned invalid JSON") from exc
     if paginated:
-        if not isinstance(payload, list) or any(not isinstance(page, list) for page in payload):
+        if not isinstance(payload, list):
             raise RuntimeError("GitHub source returned invalid pages")
-        return [item for page in payload for item in page]
+        pages = [page.get(page_key) if isinstance(page, dict) else None
+                 for page in payload] if page_key else payload
+        if any(not isinstance(page, list) for page in pages):
+            raise RuntimeError("GitHub source returned invalid pages")
+        return [item for page in pages for item in page]
     return payload
 
 
 def fetch_github() -> dict:
-    """Collect the experimental PR and dated repository PR milestones."""
+    """Collect complete dated activity for PRs active in the observation window."""
     pr = _gha_json([f"repos/{REPO}/pulls/{PR_NUMBER}"])
-    commits = _gha_json([f"repos/{REPO}/pulls/{PR_NUMBER}/commits?per_page=100"], paginated=True)
-    reviews = _gha_json([f"repos/{REPO}/pulls/{PR_NUMBER}/reviews?per_page=100"], paginated=True)
     pull_requests = _gha_json([f"repos/{REPO}/pulls?state=all&per_page=100"], paginated=True)
-    if not isinstance(pr, dict) or not all(isinstance(x, dict) for x in commits + reviews + pull_requests):
+    if not isinstance(pr, dict) or not all(isinstance(x, dict) for x in pull_requests):
         raise RuntimeError("GitHub source returned invalid records")
 
     daily: dict[str, Counter] = defaultdict(Counter)
-    for commit in commits:
-        stamp = (commit.get("commit") or {}).get("committer") or {}
-        if stamp.get("date"):
-            daily[_timestamp_day(stamp["date"])]["commits"] += 1
-    for review in reviews:
-        if review.get("submitted_at") and review.get("state") != "PENDING":
-            daily[_timestamp_day(review["submitted_at"])]["github_reviews"] += 1
-    for pull in pull_requests:
+    cohort = [pull for pull in pull_requests if (
+        pull.get("created_at") and _timestamp_day(pull["created_at"]) >= START.isoformat()
+    ) or (
+        pull.get("merged_at") and _timestamp_day(pull["merged_at"]) >= START.isoformat()
+    )]
+    if not any(pull.get("number") == PR_NUMBER for pull in cohort):
+        raise RuntimeError("Experimental PR missing from complete GitHub history")
+
+    seen_commits: set[str] = set()
+    seen_runs: set[int] = set()
+    workflow_names: set[str] = set()
+    experimental_commits = 0
+    experimental_reviews = 0
+    for pull in cohort:
+        number = pull.get("number")
+        branch = (pull.get("head") or {}).get("ref")
+        if not isinstance(number, int) or not isinstance(branch, str) or not branch:
+            raise RuntimeError("GitHub PR history lacks a source identity")
+        commits = _gha_json([f"repos/{REPO}/pulls/{number}/commits?per_page=100"], paginated=True)
+        reviews = _gha_json([f"repos/{REPO}/pulls/{number}/reviews?per_page=100"], paginated=True)
+        branch_arg = quote(branch, safe="")
+        runs = _gha_json(
+            [f"repos/{REPO}/actions/runs?branch={branch_arg}&per_page=100"],
+            paginated=True, page_key="workflow_runs",
+        )
+        if not all(isinstance(x, dict) for x in commits + reviews + runs):
+            raise RuntimeError("GitHub source returned invalid records")
+        if number == PR_NUMBER:
+            experimental_commits = len(commits)
+            experimental_reviews = len(reviews)
+        for commit in commits:
+            sha = commit.get("sha")
+            stamp = (commit.get("commit") or {}).get("committer") or {}
+            if sha and sha not in seen_commits and stamp.get("date"):
+                seen_commits.add(sha)
+                daily[_timestamp_day(stamp["date"])]["commits"] += 1
+        for review in reviews:
+            if review.get("submitted_at") and review.get("state") != "PENDING":
+                daily[_timestamp_day(review["submitted_at"])]["github_reviews"] += 1
+        for run in runs:
+            run_id = run.get("id")
+            if not isinstance(run_id, int) or run_id in seen_runs:
+                continue
+            seen_runs.add(run_id)
+            if run.get("name"):
+                workflow_names.add(run["name"])
+            if not run.get("created_at"):
+                continue
+            day = _timestamp_day(run["created_at"])
+            if run.get("status") != "completed":
+                daily[day]["ci_pending"] += 1
+            elif run.get("conclusion") == "success":
+                daily[day]["ci_success"] += 1
+            elif run.get("conclusion") == "failure":
+                daily[day]["ci_failure"] += 1
+            else:
+                daily[day]["ci_other"] += 1
+
+    for pull in cohort:
         if pull.get("created_at") and _timestamp_day(pull["created_at"]) >= START.isoformat():
             daily[_timestamp_day(pull["created_at"])]["prs_opened"] += 1
         if pull.get("merged_at") and _timestamp_day(pull["merged_at"]) >= START.isoformat():
@@ -119,6 +176,7 @@ def fetch_github() -> dict:
     return {
         "daily": dict(daily),
         "fetched_at": _fetched_at(),
+        "coverage": "Holoscape PRs opened or merged since September 15; check runs are scoped by PR head branch.",
         "pr": {
             "url": PR_URL,
             "state": pr.get("state"),
@@ -126,8 +184,10 @@ def fetch_github() -> dict:
             "head_sha": (pr.get("head") or {}).get("sha"),
             "created_at": pr.get("created_at"),
             "merged_at": pr.get("merged_at"),
-            "commits": len(commits),
-            "reviews": len(reviews),
+            "commits": experimental_commits,
+            "reviews": experimental_reviews,
+            "cohort_pull_requests": len(cohort),
+            "workflow_names": sorted(workflow_names),
         },
     }
 
@@ -225,13 +285,14 @@ def fetch_hermes() -> dict:
     return {
         "daily": dict(daily), "fetched_at": _fetched_at(), "records": row_count,
         "models": dict(models), "deepseek_cost_unknown_sessions": unknown_cost_sessions,
-        "coverage": "Two verified Holoscape cron IDs, linked delegates, and CLI sessions in the worker worktree.",
+        "coverage": "Two verified Holoscape cron IDs, linked delegates, and CLI sessions in the worker worktree. Session-minutes sum durations; worktree references count only matching tool calls.",
     }
 
 
 _FIELDS = {
     "board": ("task_created", "task_completed", "review_entries", "review_bounces"),
-    "github": ("commits", "github_reviews", "prs_opened", "prs_merged"),
+    "github": ("commits", "github_reviews", "prs_opened", "prs_merged",
+               "ci_success", "ci_failure", "ci_pending", "ci_other"),
     "hermes": (
         "manager_sessions", "delegate_sessions", "deepseek_cli_sessions",
         "worktree_references", "manager_session_minutes", "delegate_session_minutes",
