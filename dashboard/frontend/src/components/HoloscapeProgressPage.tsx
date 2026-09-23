@@ -47,7 +47,9 @@ const charts: Array<{ title: string; note: string; source: keyof HoloscapeSeries
     { key: 'delegate_output_tokens', label: 'Delegate output', color: '#8d68d0' },
     { key: 'deepseek_cli_input_tokens', label: 'DeepSeek input', color: '#ffcc66' },
     { key: 'deepseek_cli_output_tokens', label: 'DeepSeek output', color: '#d8993b' },
-    { key: 'deepseek_cli_cache_read_tokens', label: 'DeepSeek cache read', color: '#e5dc9a' },
+  ] },
+  { title: 'DeepSeek cache-read tokens', note: 'Shown separately so large cache volume does not flatten input and output trends.', source: 'hermes', lines: [
+    { key: 'deepseek_cli_cache_read_tokens', label: 'Cache read', color: '#e5dc9a' },
   ] },
   { title: 'Worker worktree references', note: 'Matching Hermes tool calls; a reference does not establish who launched or directed DeepSeek.', source: 'hermes', lines: [
     { key: 'worktree_references', label: 'Tool-call references', color: '#ff9a83' },
