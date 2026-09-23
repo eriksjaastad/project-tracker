@@ -58,6 +58,9 @@ class Store:
             for key in ("events", "requests", "finding_heads", "cycles"):
                 if not isinstance(state[key], list):
                     raise ValueError("invalid history")
+            comment_ids = state.get("request_comment_ids", [])
+            if not isinstance(comment_ids, list) or any(type(value) is not int or value <= 0 for value in comment_ids):
+                raise ValueError("invalid request comment IDs")
             for key in ("started_at", "updated_at", "deadline"):
                 if type(state[key]) not in (int, float) or not math.isfinite(state[key]):
                     raise ValueError("invalid clock")
@@ -117,7 +120,9 @@ def pr_group():
 @click.option("--stop", is_flag=True, help="Persist a stop; an active monitor exits promptly.")
 @click.option("--hold", is_flag=True, help="Pause this PR without resetting its history.")
 @click.option("--resume", is_flag=True, help="Resume an explicit/draft hold within the original deadline.")
-def settle(number, repo, owner, interval, max_minutes, stop, hold, resume):
+@click.option("--request-comment-id", multiple=True, type=click.IntRange(min=1),
+              help="Observe reactions on this review-request comment; repeat to add IDs durably.")
+def settle(number, repo, owner, interval, max_minutes, stop, hold, resume, request_comment_id):
     """Poll NUMBER every minute; keep this foreground stream attached to the owner.
 
     Read evidence events, assess GitHub clearance under pr_merge_policy, and
@@ -126,6 +131,8 @@ def settle(number, repo, owner, interval, max_minutes, stop, hold, resume):
     """
     if sum((stop, hold, resume)) > 1:
         raise click.ClickException("Choose only one of --stop, --hold, --resume")
+    if request_comment_id and (stop or hold):
+        raise click.ClickException("Add request comment IDs when starting or resuming, not with --hold/--stop")
     store = Store(repo, number, owner)
     if stop or hold:
         with store.lock():
@@ -144,6 +151,12 @@ def settle(number, repo, owner, interval, max_minutes, stop, hold, resume):
                 if state["status"] != "held":
                     raise click.ClickException("Only a held record can resume; limits and stops are preserved")
                 state["status"] = "active"
+            if request_comment_id and state["status"] not in {"active", "held"}:
+                raise click.ClickException("Cannot add request comment IDs to an ended run")
+            comment_ids = sorted(set(state.get("request_comment_ids", [])) | set(request_comment_id))
+            if comment_ids != state.get("request_comment_ids", []):
+                state.update(snapshot_id=None, history_snapshot_id=None, assessment=None, review="pending")
+            state["request_comment_ids"] = comment_ids
             store.save(state)
             output([event for event in state["events"] if event["seq"] > state.get("acked", 0)])
         cwd = Path(os.environ.get("PT_CALLER_CWD") or os.getcwd())
@@ -159,7 +172,8 @@ def settle(number, repo, owner, interval, max_minutes, stop, hold, resume):
             tick_start = time.monotonic()
             # Collection is outside the transaction lock so hold/stop remain usable.
             transport.deadline = tick_start + 55
-            snapshot = collect(store.repo, number, cwd, transport=transport)
+            snapshot = collect(store.repo, number, cwd, transport=transport,
+                               request_comment_ids=state.get("request_comment_ids", []))
             with store.lock():
                 state = store.load()
                 events = guarded(engine.consume, state, snapshot, time.time())
@@ -220,9 +234,13 @@ def request(number, repo, owner, head, kind):
     """Capture a PR-body baseline before an owner-triggered review; never triggers one."""
     store = Store(repo, number, owner)
     cwd = Path(os.environ.get("PT_CALLER_CWD") or os.getcwd())
-    snapshot = collect(store.repo, number, cwd)
+    with store.lock():
+        comment_ids = store.load().get("request_comment_ids", [])
+    snapshot = collect(store.repo, number, cwd, request_comment_ids=comment_ids)
     with store.lock():
         state = store.load()
+        if state.get("request_comment_ids", []) != comment_ids:
+            raise click.ClickException("Request comment configuration changed during collection; inspect a fresh snapshot")
         observed = guarded(engine.consume, state, snapshot, time.time())
         # A rejected reservation must not erase newly observed acknowledgments,
         # head changes or limit events. Commit the observation independently.

@@ -81,9 +81,18 @@ repair a missing pre-request observation. For a newly created ready PR, retain
 creation time, full head and the new-object empty baseline when creating it.
 Those observations remain necessary for reaction-only clearance.
 
-The request record retains its snapshot, time and existing reaction IDs. It
-supports the PR-body ready trigger. Comment-request observations can be retained
-by the owner under the shared policy. A thumbs-up alone never grants attributed
+The request record retains its snapshot, time and existing reaction IDs. For a
+comment-based request, add `--request-comment-id 123456` to `pt pr settle`; repeat
+the option for more comments. The IDs persist across restarts and are included
+in every poll and `pt pr request` baseline collection. To add IDs while running,
+use `--hold`, wait for the foreground process to exit, then `--resume` with the
+new IDs. Existing IDs and budgets are preserved; do not combine IDs with
+`--hold` or `--stop`.
+
+Configuring an ID enables observation; it does not manufacture a pre-request
+baseline after posting. When a newly created comment itself requests review,
+the owner must retain its creation time, full head and empty initial reaction
+baseline under the shared policy. A thumbs-up alone never grants attributed
 clearance; head lookups and commit/push history still need inspection.
 
 At five silent minutes, stop and ask Erik to resolve whether an execution began.
