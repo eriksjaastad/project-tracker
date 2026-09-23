@@ -1,180 +1,144 @@
-# Ecosystem Governance & Review Protocol
+# Ecosystem governance and review protocol
 
-version: 2026.03.23
+Updated: 2026-09-23. Rehomed from project-scaffolding on 2026-09-18.
 
-NOTE: Moved from project-scaffolding to project-tracker on 2026-09-18
-      (project-tracker is now the canonical home for portfolio-wide governance protocol)
+This document adds project governance and evaluation guidance. The current
+review rules live in the shared `AGENTS.md` block and the
+[full code review protocol](https://github.com/eriksjaastad/agent-runtime-config/blob/main/docs/code-review-protocol.md).
+Publishing and merging follow the
+[PR review and merge policy](https://github.com/eriksjaastad/agent-runtime-config/blob/main/docs/pr-review-policy.md),
+also installed as `pt info get pr_merge_policy`. When this document and those
+sources disagree about review cycles, evidence or gates, follow the shared
+sources. Codex is primary; the same standards apply to Claude local reviewers.
+Installing instructions is evidence of delivery, not evidence that a review
+found every relevant defect.
 
-purpose: Checklist-driven review standard for all projects
-model: two-layer defense — robotic scan (Gate 0) + cognitive audit
+## What to review
 
-## Blast Radius Prioritization
+Start with propagation sources (`templates/`, `AGENTS.md`, `CLAUDE.md`), then
+execution-critical code (`scripts/`, `scaffold/`, hooks), then reference docs.
+This is an order of attention, not a claim that docs have no consequences.
+Trace the change to the card, user request or PRD. Account for each requirement
+as implemented, explicitly deferred or deliberately removed with a reason;
+check the original contract as well as any compressed PR description. A written
+exclusion cannot excuse failure of a workflow the change claims to support.
 
-tier_1: templates/, .cursorrules, AGENTS.md — propagation sources, highest impact
-tier_2: scripts/, scaffold/ — execution critical, don't propagate
-tier_3: .agent/rules/, patterns/, documentation — human reference, zero code impact
-rule: audit in tier order — a Tier 1 defect infects every downstream project
+Run applicable mechanical checks, then finish the independent judgment audit
+even when a scan fails. A mechanical failure prevents a local PASS; it does not
+hide other findings. Check the actual entry point, affected callers and
+consumers, the status protocol, and at least one representative end-to-end
+value trace when a change crosses boundaries. For a found defect, inspect its
+related forms before reporting so one review returns the complete supported
+set. Test both the failing case and legitimate counterpart with safe synthetic
+inputs. Name relevant behavior that passing tests never exercise. Separate
+observations from inference and untested concerns.
 
-## Two-Layer Defense
+Pin a local or delegated verdict to the exact reviewed commit. A local PASS is
+preflight evidence only; GitHub Codex clearance on the unchanged recorded head
+and green CI remain separate merge gates. Keep automatic GitHub review enabled.
+Persist distinct review executions, including failed or stalled ones, across
+sessions and PRs for the same work item. At the third execution, freeze edits,
+pushes and further requests until its result is known. A clean third review may
+merge if all gates pass. Findings on the third require discussion with Erik
+before more fixes or another request. Do not reset the count by changing agent,
+branch or PR. The shared PR policy defines the detailed evidence and wait rules.
 
-layer_1: Robotic Scan (Gate 0) — user-scope code-reviewer subagent + PreToolUse hooks catch hardcoded paths, secrets, silent errors (pre_review_scan.sh wrapper retired in audit Phase F)
-layer_1_rule: single FAIL blocks all further review
-layer_2: Cognitive Audit — judgment-heavy checks automation misses
-layer_2_check: inverse test analysis (what do passing tests NOT check?)
-layer_2_check: temporal risk (what breaks in 1, 6, 12 months?)
-layer_2_check: propagation impact (Tier 1 files contain no machine-specific assumptions?)
+## Safety and authorization
 
-## Data Clobber Guard
+- **Paths and writes.** Validate externally supplied paths before writing to
+  global or external locations. For a bulk or hard-to-reverse operation, provide
+  a preview or dry-run path when the command's contract calls for one. Use atomic
+  replacement where partial output could corrupt critical state. Do not impose
+  one whitelist or a mandatory `--dry-run` flag on every ordinary write.
+- **Database changes.** Follow this repository's `AGENTS.md` four-line gate
+  before destructive database operations. Document foreign-key and cascade
+  effects before a `DELETE` lands. Use the application API and its backup path
+  for authorized row deletion; do not invent cleanup. Additive migrations are
+  governed by their own exception. A backup does not itself authorize deletion.
+- **Auto-repair.** State which failures may be retried, how many times, and
+  what a failed repair reports. Evaluate reversibility, user-facing changes,
+  stateful data and the risk of masking the cause. Back up state when needed,
+  preserve an audit trail, and obtain approval where the specific operation
+  requires it. Avoid a blanket rule that every formatting fix or notification
+  requires human approval or a particular messaging service.
+- **Subprocesses.** Use a timeout and inspect completion. `check=True` is useful
+  when any nonzero status is failure; explicitly handle expected nonzero results
+  when they carry a valid status contract. Never turn an unexpected failure into
+  silent success.
+- **Silent failures.** Distinguish a genuine empty result from an inability to
+  inspect. Report operation failures to the caller or log them under a documented
+  best-effort contract. Do not require warnings for every valid empty scan or
+  exception wrappers around every filesystem iterator.
+- **Portability and secrets.** Flag machine-specific paths used by executable
+  code or prescribed setup, and real credentials in files. Incident evidence,
+  examples, synthetic fixtures and documented placeholders are different from
+  runtime dependencies. Resolve rendered deliverables and runtime config before
+  publication; source templates can retain placeholders.
 
-rule: scripts writing to global/external paths require path validation, dry-run flag, and safety gate
-require: --dry-run flag that parses all logic but performs zero disk writes
-require: target_path validated against whitelist of project roots
+## Tests and operational checks
 
-## Database Safety
+Use assertions about behavior and relevant failure outcomes, not type/non-null
+assertions alone. Isolate destructive or external calls; exercise the real
+boundary where safe. A fixture needs the structure required for the behavior
+under test, not an entire production tree. Mocks are useful for unavailable or
+unsafe dependencies; they are not a substitute for checking a safe real entry
+point. Validate generated frontmatter against the target project's taxonomy
+when the change generates frontmatter. Test path traversal and unbounded scans
+where user input or scale makes them relevant. Bounded or cached scans can be
+appropriate; zero results are only alarming when the contract expects items.
 
-origin: 2026-01-27 94-task data loss
-rule: CASCADE awareness — document FK relationships before any DELETE
-rule: bulk DELETE (>1 row) must backup first (JSON export or table copy)
-rule: auto-cleanup logic requires explicit user confirmation, never silent execution
-banned: unrequested DELETE/DROP/TRUNCATE logic — "helpful" destructive additions are defects
+At card pickup, estimate substantive PR size and split naturally separable
+work likely to exceed roughly 800 lines. At local pre-push review, inspect the
+actual diff against the base and document a coherent exception if it remains
+materially above the roughly 500-line target. Generated files, lockfiles,
+vendored code and mechanical snapshots do not count as substantive lines.
+Keep related work together when splitting would create artificial micro-PRs.
 
-## Resilience Pattern Authorization
+## Evidence cues for applicable checks
 
-origin: 2026-03-23 auto-reviewer flagged governance gap in muffinpanrecipes self-healing pipeline
-rule: auto-repair vs fail-fast must be evaluated per these criteria before implementation
+The shared `AGENTS.md` rules define the checks. This table preserves the
+protocol's evidence column for a local reviewer: mark a check **not applicable**
+with a reason when the diff does not touch it, and **not checked** with the
+coverage gap when an environment prevents it. Executed behavior and file/line
+citations matter more than a pasted search result.
 
-### Decision Framework
+| ID | Check | Evidence to record when applicable |
+|----|-------|------------------------------------|
+| M1/M4 | Portable paths and rendered placeholders | Cite the executable/configuration use or rendered output; classify examples and source templates separately. |
+| M2/E2 | Unexpected or silent failure | Trace the failing operation to caller-visible result or documented best-effort log, with file/line and an exercised case. |
+| M3 | Credentials | Record a names-only or redacted scan and the changed files checked; never paste secret values. |
+| M5 | Static JavaScript redeclarations | Name changed `static` JS paths and the required ESLint exit status, or state that none changed. |
+| T1/T2 | Inverse tests and meaningful assertions | Name a failing case, a legitimate counterpart, the passing tests' dark territory, and the behavioral assertions examined. |
+| E1 | Status contract | Show the actual caller protocol and observed return/JSON decision for a failure path. |
+| H1 | Subprocess integrity | Cite timeout and expected/nonexpected return-code handling; exercise a bounded failure path where safe. |
+| H5–H7 | Deletion and cleanup | List affected foreign keys/cascades, the user requirement authorizing cleanup, and the backup/approval evidence required for the operation. |
+| H10 | Boundary trace | Follow one representative input through parser/context, storage or subprocess, and public output; include a safe counterpart. |
+| A1–A4 | Auto-repair | Record the requested repair tier, retry cap, observable failure, and backup/notification or approval evidence where its effect requires them. |
+| T5 | Requirement traceability | List each original requirement as implemented, deferred or descoped with its reason and test/evidence reference. |
+| R1 | Review result | Record exact commit SHA, complete findings or clean result, coverage gaps, and the native GitHub or local report location. |
 
-| Question | If YES | If NO |
-|----------|--------|-------|
-| Is the action fully reversible? | Auto-heal OK | Require approval |
-| Does it modify user-facing content? | Notify after (minimum) | Auto-heal OK |
-| Does it touch stateful data (DB, blob, catalog)? | Backup first, notify | Auto-heal OK |
-| Has it already failed N times (N≥3)? | Escalate to human | Retry permitted |
-| Could the "fix" mask a deeper bug? | Fail-fast, log loudly | Auto-heal OK |
+## Measure review coverage before broad rollout
 
-### Tiers
+Use a bounded historical pilot before claiming that revised instructions
+improve first-review coverage:
 
-tier_auto: Retry transient failures (network, CDN cache), fix formatting, clean input validation
-tier_notify: LLM-assisted content repair, recipe/copy rewriting, catalog updates — auto-heal but log and notify
-tier_approve: Schema changes, data deletion, publishing after 3+ failed attempts, anything involving credentials
+1. Freeze the contract, base/head SHAs, diff, affected entry point and known
+   environment limits. Keep later reviews and held-out findings away from the
+   independent reviewer.
+2. Have the reviewer submit one complete report before revealing historical
+   findings. Preserve its exact text and commit-pinned verdict. A list of
+   checklist words or a PASS without behavioral probes is not coverage.
+3. Compare *finding families* against historically supported, in-scope cases.
+   Record supported new findings, false positives, untested areas and cases that
+   need an unavailable environment. Replay against the base and prior reviewed
+   head before calling a defect inherited or fix-induced.
+4. Record change size and semantic breadth alongside recall. A review can miss
+   a defect because the supported behavior became too broad for a bounded model;
+   better instruction delivery alone cannot settle that design question.
+5. Keep the denominator honest: retrospectively found defects are a lower
+   bound on defects present, not proof of complete recall. A single case pilot
+   cannot establish a portfolio-wide rate. Expand only after reviewing misses
+   and false blocks, then use a fresh held-out case for a further claim.
 
-### Review Checklist Addition
-
-rule: PRs introducing auto-repair logic must document which tier the repair falls into
-rule: auto-repair that modifies user-facing content must include a notification mechanism (Discord, Slack, or brain write)
-rule: auto-repair loops must have a hard cap (max retries) to prevent infinite cost spirals
-banned: silent auto-repair of stateful data without backup or audit trail
-
-## Feature Authorization (Scope Creep Prevention)
-
-rule: new DELETE, DROP, TRUNCATE, or cleanup logic must trace to explicit user request
-rule: "helpful" additions that weren't asked for are defects, not features
-test: "Did the Conductor explicitly request this behavior?" — if no, reject
-
-## Subprocess Integrity
-
-rule: subprocess.run requires check=True, timeout=<seconds>, capture_output=True
-banned: subprocess calls without timeout (prevents indefinite hangs)
-
-## Frontmatter & Schema Validation
-
-rule: generated markdown must validate against project's frontmatter taxonomy
-rule: verbatim text (transcripts) must be escaped or truncated to prevent YAML parser breakage
-
-## Test Fixture Integrity
-
-rule: all tests use temporary directories (tmp_path, tempfile) — no real project paths
-rule: fixtures must mirror production file structures, not empty dirs
-rule: mock subprocess.run, network calls, and system queries
-rule: build complex fixtures from simpler ones (composable)
-banned: weak assertions — assert isinstance() or is not None alone is insufficient
-
-## Placeholder Integrity (Gate 2)
-
-rule: zero unfilled {{VAR}} patterns in any .md, .py, or .sh files
-check: grep -RInE '\{\{[A-Z_]+\}\}' --include='*.md' --include='*.py' --include='*.sh' .
-enforcement: single unfilled placeholder triggers Scaffolding Failure alert
-
-## Silent Failure Prevention
-
-rule: return [] without logging when an operation failed is a defect
-rule: distinguish "nothing found" from "couldn't look" — different failure modes
-require: try/except with logging around iterdir(), glob(), filesystem operations
-require: if scanner finds 0 items where items are expected, emit WARNING
-
-## Environment Variable Standards
-
-rule: critical env vars (PROJECTS_ROOT) validated at startup — exists, is directory, is readable
-banned: empty string fallback to cwd — use explicit default or fail
-require: log resolved path at startup for debugging
-
-## Performance Guards
-
-banned: unbounded recursive globs (**/*.py) across full project trees
-alternatives: root-level globs (*.py), specific known locations, cached metadata, depth-limited globs
-rule: zero-result sanity check — warn when scanner finds nothing, don't silently proceed
-
-## E2E Data Flow Trace
-
-rule: code reviews involving pipelines or cross-boundary calls require at least one concrete E2E trace
-method: pick representative input, walk through every layer, document what happens at each hop
-check: at each boundary — is value passed? right type? transformed correctly? can it be lost?
-origin: 2026-02-15 bufio.Scanner 64KB buffer silently dropped 242KB review prompts
-
-## PRD Traceability
-
-rule: Judge verifies implementation against original PRD, not just compressed Proposal
-require: every PRD requirement has status — Implemented, DESCOPED (with reason), or Deferred (with rationale)
-banned: requirements vanishing without documentation — silent drops are review failures
-
-## PR Sizing Policy
-
-origin: 2026-09-22 portfolio-wide reviewability standard
-rule: at card pickup/scoping, aim for one coherent PR around 500 substantive changed lines or less
-rule: substantive lines exclude generated files, lockfiles, vendored code, and mechanical snapshots
-rule: if likely materially larger (800+ substantive lines), split into coherent cards/PRs before coding
-rule: preserve anti-micro-PR principle — related work stays bundled when it fits coherently
-checkpoint_1: at card pickup/scoping, estimate substantive diff size; if >500 and naturally separable, create multiple cards
-checkpoint_2: at local pre-push review, run code review AND inspect actual substantive diff size (resolve base branch: BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'); if [ -z "$BASE" ]; then for candidate in main master trunk; do if git rev-parse --verify "origin/$candidate" >/dev/null 2>&1; then BASE="origin/$candidate"; break; fi; done; fi; BASE=${BASE:-origin/main}; git diff $BASE...HEAD --stat)
-rule: if materially over ~500 substantive lines at pre-push, split OR document why it cannot be split cleanly
-banned: discovering a 1200-line diff at push time with no path to split — the policy exists to prevent this
-note: 500 is a target, not a hard gate; goal is reviewability, faster merges, and reduced rebase pain
-
-## Master Review Checklist
-
-| ID | Category | Check Item | Evidence Requirement |
-|----|----------|------------|----------------------|
-| **M1** | **Robot** | No hardcoded `/Users/` or `/home/` paths | Paste `grep` output (all files) |
-| **M2** | **Robot** | No silent `except: pass` patterns | Paste `grep` output (Python files) |
-| **M3** | **Robot** | No API keys (`sk-...`) in code/templates | Paste `grep` output |
-| **M4** | **Robot** | Zero unfilled `{{VAR}}` placeholders | Paste `grep -RInE '\{\{[A-Z_]+\}\}'` output |
-| **P1** | **DNA** | Templates contain no machine-specific data | List files checked in `templates/` |
-| **P2** | **DNA** | `.cursorrules` is portable | Verify path placeholders used |
-| **T1** | **Tests** | Inverse Audit: What do tests MISS? | Map "Dark Territory" |
-| **T2** | **Tests** | No weak assertions (`isinstance`, `is not None` alone) | Grep for assertion patterns |
-| **T3** | **Tests** | Every public class/function has test coverage | Coverage report or file audit |
-| **T4** | **Tests** | External dependencies mocked (subprocess, network) | Verify `@patch` or mock usage |
-| **E1** | **Errors** | Exit codes are accurate (non-zero on fail) | Document manual test of failure path |
-| **E2** | **Errors** | No silent failure returns (`return []` without warning) | Grep for `return []`, `return None`, `return {}` - verify logging/warning |
-| **E3** | **Errors** | Critical env vars validated at startup | List env vars, verify validation logic exists |
-| **E4** | **Errors** | Zero-result sanity checks (warn when 0 items found) | Verify scanner/discovery functions have sanity warnings |
-| **D1** | **Deps** | Dependency versions are pinned/bounded | Paste `requirements.txt` snapshot |
-| **H1** | **Hardening**| Subprocess `check=True` and `timeout` used | List files/lines checked |
-| **H2** | **Hardening**| Dry-run flag implemented for global writes | Verify `--dry-run` logic exists |
-| **H3** | **Hardening**| Atomic writes used for critical file updates | Verify temp-and-rename pattern |
-| **H4** | **Hardening**| Path Safety (safe_slug + traversal check) | Verify all user-input paths are sanitized |
-| **H5** | **Hardening**| CASCADE DELETE documented for all DB deletions | List FK relationships and what cascades |
-| **H6** | **Hardening**| Bulk DELETE has backup-before-delete | Verify backup logic in delete functions |
-| **H7** | **Hardening**| No unrequested auto-cleanup/delete logic | Grep for DELETE/drop patterns, verify authorization |
-| **H8** | **Hardening**| No unbounded recursive globs (`**/*.py`) | Grep for `.glob("**` patterns, verify bounded or cached |
-| **H9** | **Hardening**| Exception handling around filesystem iterators | Verify `iterdir()`, `glob()` wrapped in try/except |
-| **H10** | **Hardening**| E2E data flow trace for cross-boundary changes | Document one concrete value traced through all layers |
-| **A1** | **Auto-Heal** | Auto-repair tier documented (auto/notify/approve) | Verify tier assignment matches decision framework |
-| **A2** | **Auto-Heal** | Retry loops have hard max cap | Verify max_retries constant, no unbounded loops |
-| **A3** | **Auto-Heal** | Content-modifying auto-repair has notification | Verify Discord/Slack/brain write on auto-fix |
-| **A4** | **Auto-Heal** | Stateful auto-repair creates backup before modify | Verify backup/snapshot before in-place changes |
-| **R1** | **Reviews** | **Active Review Location** | Must be in project root: `CODE_REVIEW_{MODEL}_{VERSION}.md` |
-| **S1** | **Scaling** | Context ceiling strategy (Map-Reduce/RAG) | Document the architectural ceiling |
-| **S2** | **Scaling** | Memory/OOM guards for unbounded processing | Verify size-aware batching logic |
-| **T5** | **Traceability** | Every PRD requirement accounted for (no silent drops) | List each requirement, status (Impl/Descoped/Deferred) |
+The bounded pilot and its limitations are recorded in
+[the September 23 review pilot](docs/REVIEW_COVERAGE_PILOT_2026-09-23.md).
