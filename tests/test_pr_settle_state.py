@@ -78,7 +78,8 @@ def test_head_change_and_same_head_new_finding_invalidate_assessment():
     assert state["head"] != old_head and state["review"] == "pending"
 
 
-def test_finding_heads_are_not_execution_counts_and_reconciled_third_stops():
+@pytest.mark.parametrize("review", ["findings", "ambiguous"])
+def test_finding_heads_are_not_execution_counts_and_third_adjudicated_problem_stops(review):
     state = active()
     for index, char in enumerate("abc"):
         state = json.loads(json.dumps(state))
@@ -86,13 +87,14 @@ def test_finding_heads_are_not_execution_counts_and_reconciled_third_stops():
         assert consume(state, snapshot(char * 40, finding=True), index * 60 + 1) == []
     assert state["status"] == "active" and len(state["finding_heads"]) == 3
     events = history(state, [cycle(str(i), char * 40, at=i) for i, char in enumerate("abc")], 180)
-    assert state["review_hold"] and state["status"] == "escalated"
+    assert state["review_hold"] and state["status"] == "active"
+    events = judge(state, review=review, now=180)
     assert sum(event["action"] == "notify_erik_and_stop" for event in events) == 1
     assert judge(state, now=180) == []
     assert consume(state, snapshot("d" * 40), 240) == []
 
 
-def test_third_request_holds_even_if_clean_and_history_cannot_be_dropped():
+def test_third_request_blocks_fourth_but_completed_clean_can_pass():
     state = active()
     for when in (1, 3):
         request(state, state["head"], "initial", when)
@@ -105,16 +107,62 @@ def test_third_request_holds_even_if_clean_and_history_cannot_be_dropped():
     assert state["review_hold"] and state["status"] == "active"
     with pytest.raises(ValueError, match="hold"):
         request(state, state["head"], "thorough", 6)
-    with pytest.raises(ValueError, match="hold"):
+    with pytest.raises(ValueError, match="completed third"):
         judge(state, now=6)
     with pytest.raises(ValueError, match="dropped"):
         history(state, [], 6)
     completed = deepcopy(state["cycles"])
     completed[-1]["status"] = "completed"
-    assert history(state, completed, 7)[-1]["action"] == "notify_erik_and_stop"
-    assert state["status"] == "escalated" and state["review_hold"]
+    history(state, completed, 7)
+    assert state["status"] == "active" and state["review_hold"]
+    assert judge(state, now=8)[-1]["action"] == "recheck_and_merge"
+    assert state["status"] == "settled"
     assert state["requests"][0]["snapshot"] == snapshot()
     assert len(state["cycles"]) == 3
+
+
+@pytest.mark.parametrize("ci", ["pending", "unknown", "failed"])
+def test_clean_third_waits_for_ci_and_failed_ci_requires_discussion(ci):
+    state = active()
+    history(state, [cycle("one"), cycle("two", at=1), cycle("three", at=2)], 2)
+    events = judge(state, ci=ci, now=3)
+    assert not any(event["action"] == "recheck_and_merge" for event in events)
+    assert state["status"] == ("escalated" if ci == "failed" else "active")
+    if ci == "failed":
+        assert events[-1]["action"] == "notify_erik_and_stop"
+    else:
+        with pytest.raises(ValueError, match="hold"):
+            request(state, state["head"], "thorough", 4)
+        old_id = state["snapshot_id"]
+        changed = snapshot()
+        changed["pr_end"]["body"] = "CI evidence has changed"
+        consume(state, changed, 5)
+        with pytest.raises(ValueError, match="current head and snapshot"):
+            assess(state, state["head"], old_id, "clean", "satisfied", PROOF, "old", now=6)
+        history(state, now=7)
+        assert judge(state, now=8)[-1]["action"] == "recheck_and_merge"
+
+
+def test_earlier_current_head_review_cannot_clear_a_third_cycle_on_another_head():
+    state = active()
+    history(state, [cycle("one"), cycle("two", head="b" * 40, at=1),
+                    cycle("three", head="b" * 40, at=2)], 2)
+    with pytest.raises(ValueError, match="completed third execution at the current head"):
+        judge(state, now=3)
+
+
+def test_clean_third_cannot_hand_off_a_draft_and_closed_pr_is_terminal():
+    state = active()
+    history(state, [cycle("one"), cycle("two", at=1), cycle("three", at=2)], 2)
+    data = snapshot()
+    data["pr_end"]["draft"] = True
+    consume(state, data, 3)
+    history(state, now=4)
+    with pytest.raises(ValueError, match="open, ready PR"):
+        judge(state, now=5)
+    data["pr_end"]["state"] = "closed"
+    assert consume(state, data, 6)[-1]["type"] == "closed"
+    assert state["status"] == "settled"
 
 
 def test_fingerprint_ignores_transport_order_but_keeps_source_edits():
@@ -282,7 +330,7 @@ def test_rejected_third_reservation_preserves_hold_without_losing_ledger():
     assert events[-1]["action"] == "notify_erik_and_stop"
 
 
-def test_third_reserved_cycle_completion_candidate_reports_once_and_never_merges():
+def test_third_reserved_candidate_notifies_without_approving_or_blocking_owner():
     state = active()
     history(state, [cycle("one"), cycle("two", at=1)], 1)
     request(state, state["head"], "thorough", 2)
@@ -290,14 +338,18 @@ def test_third_reserved_cycle_completion_candidate_reports_once_and_never_merges
     data["pr_reactions"] = [dict(id=9, content="+1")]
     data["actor_verification"].append(dict(source="pr_reactions", id=9, connector_verified=True))
     events = consume(state, data, 60)
-    reports = [event for event in events if event["action"] == "notify_erik_and_stop"]
-    assert len(reports) == 1 and "candidate" in reports[0]["summary"]["reason"]
-    assert state["status"] == "escalated" and state["review_hold"]
-    assert state["review"] == "pending" and state["cycles"][-1]["status"] == "requested"
+    reports = [event for event in events if event["type"] == "completion_candidate"]
+    assert len(reports) == 1 and reports[0]["action"] == "assess_external_evidence"
+    assert state["status"] == "active" and state["review_hold"]
+    assert state["review"] == "pending" and state["cycles"][-1]["status"] == "acknowledged"
     assert not any(event["action"] == "recheck_and_merge" for event in state["events"])
     assert consume(state, data, 120) == []
-    assert request(state, state["head"], "thorough", 121) == []
-    assert judge(state, now=122) == []
+    with pytest.raises(ValueError, match="hold"):
+        request(state, state["head"], "thorough", 121)
+    completed = deepcopy(state["cycles"])
+    completed[-1]["status"] = "completed"
+    history(state, completed, 122)
+    assert judge(state, now=123)[-1]["action"] == "recheck_and_merge"
     assert len(state["requests"]) == 1
 
 
@@ -347,6 +399,26 @@ def test_acknowledged_execution_cannot_be_removed_from_count(intermediate_unknow
     with pytest.raises(ValueError, match="Acknowledged executions"):
         history(state, [rejected], 3)
     assert state == before
+
+
+@pytest.mark.parametrize("legacy_attempt_only", [False, True])
+def test_observed_acknowledgment_is_counted_and_cannot_be_rejected(legacy_attempt_only):
+    state = active()
+    request(state, state["head"], "initial", 1)
+    data = snapshot()
+    data["pr_reactions"] = [dict(id=9, content="eyes")]
+    data["actor_verification"].append(dict(source="pr_reactions", id=9, connector_verified=True))
+    consume(state, data, 60)
+    assert state["cycles"][0]["status"] == "acknowledged"
+    assert state["cycles"][0]["acknowledged_at"] == state["requests"][0]["acknowledged_at"] == 60
+    if legacy_attempt_only:  # Previously persisted states kept this fact only on the attempt.
+        state["cycles"][0].pop("acknowledged_at")
+        state["cycles"][0]["status"] = "requested"
+    rejected = deepcopy(state["cycles"])
+    rejected[0].update(status="rejected")
+    rejected[0].pop("acknowledged_at", None)
+    with pytest.raises(ValueError, match="Acknowledged executions"):
+        history(state, rejected, 61)
 
 
 def test_new_rejected_record_cannot_contain_acknowledgment_evidence():
