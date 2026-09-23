@@ -118,8 +118,11 @@ export function HoloscapeProgressPage() {
         if (controller.signal.aborted) return;
         setData(response);
         setError(null);
-        const pending = Object.values(response.sources).some(source => source.status === 'loading' || source.refreshing);
-        nextPoll = setTimeout(load, pending ? 3000 : 5 * 60 * 1000);
+        const sources = Object.values(response.sources);
+        const pending = sources.some(source => source.status === 'loading' || source.refreshing);
+        const failedRefresh = sources.some(source => Boolean(source.refresh_error));
+        // Reading the feed triggers the backend cache's retry after a failed refresh.
+        nextPoll = setTimeout(load, pending ? 3000 : failedRefresh ? 60 * 1000 : 5 * 60 * 1000);
       } catch (failure) {
         if (isAbortError(failure) || controller.signal.aborted) return;
         setError(failure instanceof Error ? failure.message : 'Holoscape feed unavailable');
