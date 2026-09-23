@@ -171,25 +171,34 @@ def settle(number, repo, owner, interval, max_minutes, stop, hold, resume, reque
                 break
             tick_start = time.monotonic()
             # Collection is outside the transaction lock so hold/stop remain usable.
-            transport.deadline = tick_start + 55
-            snapshot = collect(store.repo, number, cwd, transport=transport,
-                               request_comment_ids=state.get("request_comment_ids", []))
             with store.lock():
                 state = store.load()
-                events = guarded(engine.consume, state, snapshot, time.time())
-                store.save(state)
+                revision = state["polls"]
+                comment_ids = state.get("request_comment_ids", [])
+            if state["status"] != "active":
+                break
+            transport.deadline = tick_start + 55
+            snapshot = collect(store.repo, number, cwd, transport=transport,
+                               request_comment_ids=comment_ids)
+            with store.lock():
+                state = store.load()
+                stale = state["polls"] != revision or state.get("request_comment_ids", []) != comment_ids
+                events = []
+                if not stale:
+                    events = guarded(engine.consume, state, snapshot, time.time())
+                    store.save(state)
             output(events)
             fatal = {key: error for key, error in snapshot["errors"].items()
                      if not (key in {"merge_check_runs", "merge_statuses"}
                              and error.get("kind") == "unavailable")
                      and not (key == "pr_identity" and error.get("kind") == "changed")}
-            if fatal and state["status"] == "active":
+            if fatal and not stale and state["status"] == "active":
                 raise click.ClickException("GitHub evidence unavailable; inspect saved errors before restarting")
             while state["status"] == "active" and time.monotonic() - tick_start < interval:
                 if time.time() >= state["deadline"]:
                     with store.lock():
                         state = store.load()
-                        events = guarded(engine.consume, state, snapshot, time.time())
+                        events = guarded(engine.consume, state, state["snapshot"] or {}, time.time())
                         store.save(state)
                     output(events)
                     break
@@ -224,6 +233,8 @@ def assess(number, repo, owner, head, snapshot_id, review, ci, evidence, summary
                          now=time.time())
         store.save(state)
     output(events)
+    if not any(event["type"] == "assessment" for event in events):
+        raise click.ClickException("Assessment was not recorded; inspect the persisted run status and limits")
 
 
 @pr_group.command("request")
@@ -235,12 +246,16 @@ def request(number, repo, owner, head, kind):
     store = Store(repo, number, owner)
     cwd = Path(os.environ.get("PT_CALLER_CWD") or os.getcwd())
     with store.lock():
-        comment_ids = store.load().get("request_comment_ids", [])
+        state = store.load()
+        revision = state["polls"]
+        comment_ids = state.get("request_comment_ids", [])
     snapshot = collect(store.repo, number, cwd, request_comment_ids=comment_ids)
     with store.lock():
         state = store.load()
         if state.get("request_comment_ids", []) != comment_ids:
             raise click.ClickException("Request comment configuration changed during collection; inspect a fresh snapshot")
+        if state["polls"] != revision:
+            raise click.ClickException("Evidence changed during collection; request baseline discarded, inspect the latest snapshot")
         observed = guarded(engine.consume, state, snapshot, time.time())
         # A rejected reservation must not erase newly observed acknowledgments,
         # head changes or limit events. Commit the observation independently.
@@ -249,6 +264,8 @@ def request(number, repo, owner, head, kind):
         events = guarded(engine.request, state, head, kind, time.time())
         store.save(state)
     output(events)
+    if not any(event["type"] == "request_baseline" for event in events):
+        raise click.ClickException("Review request was not reserved; do not trigger GitHub, inspect the persisted run status and limits")
 
 
 @pr_group.command("history")

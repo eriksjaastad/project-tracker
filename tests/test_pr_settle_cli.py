@@ -368,3 +368,139 @@ def test_late_comment_source_is_raw_evidence_until_owner_reconciles(storage, mon
             "--summary", "Owner observed comment creation after reservation, empty baseline, then eyes"])
         assert result.exit_code == 0, result.output
         assert storage.load()["cycles"][0]["acknowledged_at"] == 150
+
+
+def active_record(storage):
+    state = cli.engine.fresh(storage.repo, 7, storage.owner, 0, 180)
+    current = snapshot()
+    current["pr_end"]["state"] = "open"
+    cli.engine.consume(state, current, 10)
+    cli.engine.reconcile(state, [], ["https://github.com/owner/repo/pull/7"],
+                         "No prior executions", 10, snapshot_id=state["snapshot_id"])
+    storage.save(state)
+    return state, current
+
+
+@pytest.mark.parametrize("command", ["request", "assess"])
+@pytest.mark.parametrize("blocked", ["held", "stopped", "settled", "escalated", "deadline", "polls"])
+def test_unrecorded_operations_fail_and_preserve_limit_events(storage, monkeypatch, command, blocked):
+    state, current = active_record(storage)
+    if blocked == "deadline":
+        state["deadline"] = 99
+    elif blocked == "polls":
+        state["polls"] = 240
+    else:
+        state["status"] = blocked
+    storage.save(state)
+    monkeypatch.setattr(cli.time, "time", lambda: 100)
+    monkeypatch.setattr(cli, "collect", lambda *a, **kw: current)
+    options = ["--kind", "initial"] if command == "request" else [
+        "--snapshot", state["snapshot_id"], "--review", "pending", "--ci", "unknown",
+        "--evidence", "https://github.com/owner/repo/pull/7", "--summary", "Still pending"]
+    result = CliRunner().invoke(cli.pr_group, [command, "7", "--repo", "owner/repo",
+        "--owner", "agent-1", "--head", "a" * 40, *options])
+    assert result.exit_code != 0 and "not " in result.output
+    saved = storage.load()
+    assert saved["requests"] == [] and saved["assessment"] is None
+    if blocked in {"deadline", "polls"}:
+        assert saved["status"] == "escalated"
+        assert saved["events"][-1]["action"] == "notify_erik_and_stop"
+        assert '"action": "notify_erik_and_stop"' in result.output
+    else:
+        assert saved["status"] == blocked and saved["events"] == state["events"]
+
+
+@pytest.mark.parametrize("third", [False, True])
+def test_legitimate_reservation_and_assessment_report_success(storage, monkeypatch, third):
+    state, current = active_record(storage)
+    url = "https://github.com/owner/repo/pull/7"
+    if third:
+        ledger = [dict(id=str(i), head="a" * 40, status="completed", at=i,
+                       evidence=[url], summary="Distinct completed execution") for i in (1, 2)]
+        cli.engine.reconcile(state, ledger, [url], "Two completed executions", 10,
+                             snapshot_id=state["snapshot_id"])
+        storage.save(state)
+    monkeypatch.setattr(cli.time, "time", lambda: 100)
+    monkeypatch.setattr(cli, "collect", lambda *a, **kw: current)
+    runner = CliRunner()
+    target = ["7", "--repo", "owner/repo", "--owner", "agent-1", "--head", "a" * 40]
+    result = runner.invoke(cli.pr_group, ["request", *target, "--kind", "initial"])
+    assert result.exit_code == 0, result.output
+    assert len(storage.load()["requests"]) == 1
+    result = runner.invoke(cli.pr_group, ["assess", *target, "--snapshot", state["snapshot_id"],
+        "--review", "findings" if third else "pending", "--ci", "pending",
+        "--evidence", url, "--summary", "Owner inspected the current review"])
+    assert result.exit_code == 0, result.output
+    assert storage.load()["assessment"]["review"] == ("findings" if third else "pending")
+    assert storage.load()["status"] == ("escalated" if third else "active")
+
+
+@pytest.mark.parametrize("change", ["unchanged", "head", "reaction"])
+def test_request_discards_collection_when_poll_committed_during_io(storage, monkeypatch, change):
+    state, current = active_record(storage)
+    newer = deepcopy(current)
+    if change == "head":
+        newer["head_sha"] = "b" * 40
+    elif change == "reaction":
+        newer["pr_reactions"] = [dict(id=77, content="eyes", created_at="1970-01-01T00:01:30Z")]
+        newer["actor_verification"] = [dict(source="pr_reactions", id=77, connector_verified=True)]
+    monkeypatch.setattr(cli.time, "time", lambda: 100)
+    def collect(*args, **kwargs):
+        with storage.lock():
+            latest = storage.load()
+            cli.engine.consume(latest, newer, 100)
+            storage.save(latest)
+        return current
+    monkeypatch.setattr(cli, "collect", collect)
+    result = CliRunner().invoke(cli.pr_group, ["request", "7", "--repo", "owner/repo",
+        "--owner", "agent-1", "--head", "a" * 40, "--kind", "initial"])
+    assert result.exit_code != 0 and "baseline discarded" in result.output
+    saved = storage.load()
+    assert saved["snapshot"] == newer and saved["polls"] == state["polls"] + 1
+    assert saved["requests"] == []
+
+
+def test_request_deadline_between_observation_and_reservation_is_nonzero(storage, monkeypatch):
+    state, current = active_record(storage)
+    state["deadline"] = 101
+    storage.save(state)
+    clock = iter([100, 101])
+    monkeypatch.setattr(cli.time, "time", lambda: next(clock))
+    monkeypatch.setattr(cli, "collect", lambda *a, **kw: current)
+    result = CliRunner().invoke(cli.pr_group, ["request", "7", "--repo", "owner/repo",
+        "--owner", "agent-1", "--head", "a" * 40, "--kind", "initial"])
+    assert result.exit_code != 0 and "not reserved" in result.output
+    saved = storage.load()
+    assert saved["snapshot"] == current and saved["requests"] == []
+    assert saved["status"] == "escalated" and '"action": "notify_erik_and_stop"' in result.output
+
+
+@pytest.mark.parametrize("stale_error", [False, True])
+def test_poll_discards_collection_when_request_committed_during_io(storage, monkeypatch, stale_error):
+    state, current = active_record(storage)
+    older = deepcopy(current)
+    older["head_sha"] = "b" * 40
+    if stale_error:
+        older.update(status="unknown", errors={"reviews": {"http_status": 403}})
+    monkeypatch.setattr(cli.time, "time", lambda: 100)
+    target = ["7", "--repo", "owner/repo", "--owner", "agent-1"]
+    def collect(*args, **kwargs):
+        if "transport" in kwargs:
+            result = CliRunner().invoke(cli.pr_group, ["request", *target,
+                "--head", "a" * 40, "--kind", "initial"])
+            assert result.exit_code == 0, result.output
+            return older
+        return current
+    def pause(_seconds):
+        with storage.lock():
+            latest = storage.load()
+            latest["status"] = "held"
+            storage.save(latest)
+    monkeypatch.setattr(cli, "collect", collect)
+    monkeypatch.setattr(cli.time, "sleep", pause)
+    result = CliRunner().invoke(cli.pr_group, ["settle", *target])
+    assert result.exit_code == 0, result.output
+    saved = storage.load()
+    assert saved["snapshot"] == current and saved["polls"] == state["polls"] + 1
+    assert saved["requests"][0]["snapshot"] == current and len(saved["requests"]) == 1
+    assert saved["head"] == "a" * 40 and saved["status"] == "held"

@@ -81,6 +81,13 @@ repair a missing pre-request observation. For a newly created ready PR, retain
 creation time, full head and the new-object empty baseline when creating it.
 Those observations remain necessary for reaction-only clearance.
 
+Only a successful `request` command with a `request_baseline` event reserves a
+review. An inactive run, expired budget or concurrent evidence update can reject
+the command; do not trigger GitHub after a failure. Inspect the saved state and
+reconcile fresh evidence before trying again within the existing limits.
+`assess` also fails when no assessment was recorded. Successful clean assessments
+can end the run, and a recorded third-finding assessment can escalate it.
+
 The request record retains its snapshot, time and existing reaction IDs. For a
 comment-based request, add `--request-comment-id 123456` to `pt pr settle`; repeat
 the option for more comments. The IDs persist across restarts and are included
@@ -150,6 +157,11 @@ repositories have ten independent records. An owner mismatch or corrupt state
 is an error, never permission to reset counters. API/auth/rate failures remain
 visible and stop polling; investigate before restarting. A temporarily missing
 GitHub test-merge SHA remains pending collection evidence.
+
+Collections happen outside the state lock so controls remain responsive. Before
+saving a collection, both the monitor and request command check for intervening
+evidence updates. A stale monitor result is discarded; a stale request fails
+without replacing newer evidence or reserving an execution.
 
 ## Evidence and validation
 
