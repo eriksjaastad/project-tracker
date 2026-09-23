@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HoloscapeProgressPage } from './HoloscapeProgressPage';
 
@@ -19,7 +19,7 @@ const base = {
   deepseek_cost_usd: null,
 };
 
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('Holoscape progress', () => {
   it('shows source gaps separately from observed zero and keeps cost unknown', async () => {
@@ -53,5 +53,26 @@ describe('Holoscape progress', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('HTTP 503'));
     expect(screen.getByText('Unknown — no verified charge')).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads again at the failed-source retry interval', async () => {
+    vi.useFakeTimers();
+    const failedSource = {
+      ...base,
+      sources: {
+        ...base.sources,
+        github: { status: 'unavailable', fetched_at: null, refresh_error: 'GitHub refresh failed. Retrying shortly.' },
+      },
+    };
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => failedSource });
+    vi.stubGlobal('fetch', fetcher);
+    const { unmount } = render(<HoloscapeProgressPage />);
+    await act(async () => { await Promise.resolve(); });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(59_999); });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(1); await Promise.resolve(); });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    unmount();
   });
 });
