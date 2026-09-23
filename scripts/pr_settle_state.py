@@ -215,21 +215,23 @@ def reconcile(state, cycles, evidence, summary, now, *, snapshot_id):
 
 
 def _activity(snapshot, baseline, head):
-    """Fresh authenticated activity is acknowledgment evidence, never approval."""
+    """New acknowledgment objects only; prose and pre-request edits need owner judgment."""
     for actor in snapshot.get("actor_verification", []):
         source = actor["source"]
-        if not actor.get("connector_verified"):
+        if not actor.get("connector_verified") or not (
+                source == "reviews" or source == "pr_reactions" or source.startswith("comment_reactions:")):
             continue
         def rows(data):
             return (data.get("comment_reactions", {}).get(source.split(":", 1)[1])
                     if source.startswith("comment_reactions:") else data.get(source)) or []
         before = {row.get("id"): row for row in rows(baseline)}
         for row in rows(snapshot):
-            if row.get("id") != actor["id"] or before.get(row.get("id")) == row:
+            if type(row.get("id")) is not int or row["id"] != actor["id"] or row["id"] in before:
                 continue
-            if source == "reviews" and row.get("commit_id") != head:
+            if source == "reviews" and (row.get("commit_id") != head or row.get("state") not in
+                    {"PENDING", "APPROVED", "COMMENTED", "CHANGES_REQUESTED"}):
                 continue
-            if source == "inline_comments" and row.get("original_commit_id") != head:
+            if "reactions" in source and row.get("content") not in {"eyes", "+1"}:
                 continue
             yield source, row
 
