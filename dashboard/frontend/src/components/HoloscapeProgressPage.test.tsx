@@ -30,8 +30,9 @@ describe('Holoscape progress', () => {
     expect(screen.getByText('Unknown — no verified charge')).toBeInTheDocument();
     expect(screen.getByLabelText('Board flow daily time series')).toBeInTheDocument();
     expect(screen.getAllByText('Loading this source…')).toHaveLength(2);
-    expect(screen.getAllByText('No verified data for this source or range.')).toHaveLength(4);
+    expect(screen.getAllByText('No verified data for this source or range.')).toHaveLength(5);
     expect(screen.getByText('CI workflow runs by current result')).toBeInTheDocument();
+    expect(screen.getByText('DeepSeek cache-read tokens')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '7 days' }));
     expect(screen.getByRole('button', { name: '7 days' })).toHaveAttribute('aria-pressed', 'true');
   });
