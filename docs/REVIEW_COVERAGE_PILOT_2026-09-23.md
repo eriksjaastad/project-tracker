@@ -55,6 +55,15 @@ not real secret values; Linux procfs and GNU tool behavior were not exercised
 on this macOS host. This single reviewer, short contract prompt, focused commit
 diff and historical case cannot establish a future first-review rate.
 
+The historical first review found 6 of these 11 families on this same head.
+Of the blind pass's two families, R6-2 overlaps that first review and R7-1 is
+additional. Treating them as two complementary passes on the frozen head gives
+**7/11 combined recall**, leaving four historically supported families missed.
+This is an observational comparison, not a controlled two-reviewer trial: the
+historical reviewer had different prompts and context. The extra pass found
+one family but did not close the coverage gap, so a broader rollout of
+complementary passes is not yet supported by this single case.
+
 The practical correction is to require bounded related-form and legitimate-use
 probes before claiming coverage. Instruction delivery and a large passing test
 count were both present in the historical case, yet neither proved coverage.
