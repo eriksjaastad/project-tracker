@@ -84,6 +84,23 @@ def test_unknown_and_invalid_submissions_do_not_create_history(db):
     assert client.get("/api/jobs/submissions").json()["jobs"] == []
 
 
+def test_submissions_order_by_instant_across_different_utc_offsets(db):
+    client = TestClient(app)
+    later = _job(db, "later")
+    earlier = _job(db, "earlier")
+    # Lexical order disagrees with real time: the -07:00 entry is 06:30Z.
+    for job, timestamp in (
+        (later, "2026-09-22T23:30:00-07:00"),
+        (earlier, "2026-09-23T04:00:00+00:00"),
+    ):
+        assert client.post(
+            f"/api/jobs/{job['id']}/submissions", json={"submitted_at": timestamp}
+        ).status_code == 201
+    groups = client.get("/api/jobs/submissions").json()["jobs"]
+    assert [group["job"]["id"] for group in groups] == [later["id"], earlier["id"]]
+    assert groups[0]["submissions"][0]["submitted_at"] == "2026-09-23T06:30:00+00:00"
+
+
 def test_upsert_preserves_first_seen_and_rejects_unbounded_categories(db):
     first = _job(db, "same", "Other")
     with db._db._get_conn() as conn:

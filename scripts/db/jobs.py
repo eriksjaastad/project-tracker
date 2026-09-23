@@ -81,11 +81,16 @@ class JobsMixin:
         notes: str | None = None,
     ) -> dict[str, Any] | None:
         """Append one submission; a later submission never replaces an earlier one."""
-        timestamp = submitted_at or datetime.now(timezone.utc).isoformat()
+        supplied = submitted_at or datetime.now(timezone.utc).isoformat()
         try:
-            datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(supplied.replace("Z", "+00:00"))
         except (TypeError, ValueError) as exc:
             raise ValueError("invalid submitted_at date") from exc
+        # A date-only historical entry is midnight UTC; explicit offsets are
+        # converted before storage so text ordering matches chronological order.
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        timestamp = parsed.astimezone(timezone.utc).isoformat()
         with self._db._get_conn() as conn:
             job = conn.execute(
                 "SELECT id FROM jobs WHERE id = ? AND deleted_at IS NULL", (job_id,)
