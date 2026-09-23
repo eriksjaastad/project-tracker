@@ -310,6 +310,10 @@ def progress_snapshot() -> dict:
         "github": _GITHUB_CACHE.read(fetch_github),
         "hermes": _HERMES_CACHE.read(fetch_hermes),
     }
+    observed_through = {
+        name: _timestamp_day(snap["fetched_at"]) if snap.get("fetched_at") else None
+        for name, snap in snapshots.items()
+    }
     sources = {}
     for name, snap in snapshots.items():
         has_data = "daily" in snap
@@ -335,7 +339,7 @@ def progress_snapshot() -> dict:
         for name, snap in snapshots.items():
             counts = snap.get("daily", {}).get(day, {})
             for field in _FIELDS[name]:
-                if "daily" not in snap:
+                if "daily" not in snap or observed_through[name] is None or day > observed_through[name]:
                     item[field] = None
                 elif field.endswith("_minutes"):
                     item[field] = round(float(counts.get(field, 0)), 1)

@@ -5,6 +5,7 @@ import { KanbanBoard } from './components/KanbanBoard';
 import { AgenticDashboard } from './components/AgenticDashboard';
 import { CalendarPage } from './components/CalendarPage';
 import { AgentChatPage } from './components/AgentChatPage';
+import { HoloscapeProgressPage } from './components/HoloscapeProgressPage';
 import './App.css';
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
           <Route path="/agentic" element={<AgenticDashboard />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/agent-chat" element={<AgentChatPage />} />
+          <Route path="/holoscape" element={<HoloscapeProgressPage />} />
           <Route path="*" element={<Navigate to="/kanban" replace />} />
         </Routes>
       </div>

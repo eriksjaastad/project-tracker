@@ -1,6 +1,7 @@
 """Source and failure contracts for the temporary Holoscape progress feed."""
 
 import json
+from datetime import datetime, time, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -134,9 +135,10 @@ def test_missing_source_values_are_unknown_not_zero(monkeypatch):
             return self.value
 
     base = {"refreshing": False, "stale": False, "refresh_error": None}
-    monkeypatch.setattr(progress, "_BOARD_CACHE", FakeCache({**base, "daily": {}, "fetched_at": "now"}))
+    fetched_at = progress._fetched_at()
+    monkeypatch.setattr(progress, "_BOARD_CACHE", FakeCache({**base, "daily": {}, "fetched_at": fetched_at}))
     monkeypatch.setattr(progress, "_GITHUB_CACHE", FakeCache({**base, "refresh_error": "GitHub refresh failed"}))
-    monkeypatch.setattr(progress, "_HERMES_CACHE", FakeCache({**base, "daily": {}, "fetched_at": "now"}))
+    monkeypatch.setattr(progress, "_HERMES_CACHE", FakeCache({**base, "daily": {}, "fetched_at": fetched_at}))
     payload = progress.progress_snapshot()
     today = payload["series"][-1]
     assert today["task_created"] == 0
@@ -144,6 +146,36 @@ def test_missing_source_values_are_unknown_not_zero(monkeypatch):
     assert today["manager_sessions"] == 0
     assert payload["deepseek_cost_usd"] is None
     assert payload["sources"]["github"]["status"] == "unavailable"
+
+
+def test_stale_snapshot_does_not_zero_fill_unobserved_dates(monkeypatch):
+    yesterday = datetime.now(progress.DISPLAY_ZONE).date() - timedelta(days=1)
+    fetched_at = datetime.combine(yesterday, time(12), progress.DISPLAY_ZONE).isoformat()
+
+    class FakeCache:
+        def __init__(self, value):
+            self.value = value
+
+        def read(self, _fetch):
+            return self.value
+
+    fresh = {"refreshing": False, "stale": False, "refresh_error": None,
+             "daily": {}, "fetched_at": progress._fetched_at()}
+    stale = {"refreshing": False, "stale": True, "refresh_error": "GitHub refresh failed",
+             "daily": {yesterday.isoformat(): {"commits": 3}}, "fetched_at": fetched_at}
+    monkeypatch.setattr(progress, "_BOARD_CACHE", FakeCache(fresh))
+    monkeypatch.setattr(progress, "_GITHUB_CACHE", FakeCache(stale))
+    monkeypatch.setattr(progress, "_HERMES_CACHE", FakeCache(fresh))
+
+    payload = progress.progress_snapshot()
+    observed, unobserved = payload["series"][-2:]
+    assert observed["date"] == yesterday.isoformat()
+    assert observed["commits"] == 3
+    assert observed["prs_merged"] == 0
+    assert unobserved["commits"] is None
+    assert unobserved["ci_success"] is None
+    assert unobserved["task_created"] == 0
+    assert payload["sources"]["github"]["status"] == "stale"
 
 
 def test_api_exposes_progress_shape(monkeypatch):
