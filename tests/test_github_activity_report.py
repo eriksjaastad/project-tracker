@@ -64,10 +64,13 @@ def test_cross_identity_events_and_reviews_are_not_confused_with_cycles():
     assert report["review_cycles"] is None
     assert report["window_utc"] == [
         "2026-09-23T04:00:00+00:00", "2026-09-24T04:00:00+00:00"]
-    assert report["pull_requests"][0]["card"] == "7549"
+    assert report["pull_requests"][0]["card_ref"] == "7549"
+    assert report["pull_requests"][0]["local_card_match"] is True
     assert len(report["pull_requests"][0]["reviews"]) == 1
     markdown = render(report)
-    assert "**3 distinct PRs in the candidate set; 1 opened, 1 merged, 1 closed without merge; 1 submitted review objects on 1 distinct PRs.**" in markdown
+    assert "**3 distinct PRs with activity (from 3 queried candidates); 1 opened, 1 merged, 1 closed without merge; 1 submitted review object on 1 distinct PR.**" in markdown
+    assert "#7549 (local match)" in markdown
+    assert "not a verified cross-machine card identity" in markdown
     assert "Distinct Codex review executions: **unknown**" in markdown
     assert "Erik reported a code review count of 1 in the Codex UI" in markdown
     assert "manager-identity[bot]" in markdown
@@ -106,8 +109,10 @@ def test_review_on_pr_without_same_day_lifecycle_event_is_found_by_update():
     report = collect("eriksjaastad", date(2026, 9, 23),
                      "America/New_York", api=api, cards={"7549"})
     assert len(report["pull_requests"]) == 1
+    assert report["candidate_count"] == 2
     assert not report["pull_requests"][0]["opened"]
     assert report["pull_requests"][0]["reviews"][0]["actor"] == "eriksjaastad"
+    assert "1 distinct PR with activity (from 2 queried candidates)" in render(report)
 
 
 def test_card_index_uses_unscoped_active_and_archived_views(monkeypatch):
