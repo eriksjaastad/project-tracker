@@ -221,6 +221,9 @@ def _activity(snapshot, baseline, head):
         if not actor.get("connector_verified") or not (
                 source == "reviews" or source == "pr_reactions" or source.startswith("comment_reactions:")):
             continue
+        if source.startswith("comment_reactions:") and not isinstance(
+                baseline.get("comment_reactions", {}).get(source.split(":", 1)[1]), list):
+            continue  # Unobserved source is unknown, not a recorded empty baseline.
         def rows(data):
             return (data.get("comment_reactions", {}).get(source.split(":", 1)[1])
                     if source.startswith("comment_reactions:") else data.get(source)) or []

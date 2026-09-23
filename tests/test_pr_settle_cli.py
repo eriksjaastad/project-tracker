@@ -322,3 +322,49 @@ def test_request_rejects_configuration_changed_during_collection(storage, monkey
     assert result.exit_code != 0 and "configuration changed" in result.output
     saved = storage.load()
     assert saved["request_comment_ids"] == [82, 99] and saved["snapshot"] is None and saved["requests"] == []
+
+
+@pytest.mark.parametrize("content,created", [("eyes", 50), ("+1", 50), ("eyes", 150)])
+def test_late_comment_source_is_raw_evidence_until_owner_reconciles(storage, monkeypatch, tmp_path, content, created):
+    monkeypatch.setattr(cli.time, "time", lambda: 200)
+    state = cli.engine.fresh(storage.repo, 7, storage.owner, 0, 180)
+    current = snapshot()
+    current.update(pr_end={"state": "open", "draft": False}, comment_reactions={})
+    url = "https://github.com/owner/repo/pull/7"
+    cli.engine.consume(state, current, 90)
+    cli.engine.reconcile(state, [], [url], "No prior executions", 90, snapshot_id=state["snapshot_id"])
+    cli.engine.request(state, "a" * 40, "initial", 100)
+    state["status"] = "held"
+    storage.save(state)
+    observed = deepcopy(current)
+    observed["comment_reactions"]["82"] = [dict(id=77, content=content,
+        created_at="1970-01-01T00:00:50Z" if created == 50 else "1970-01-01T00:02:30Z")]
+    observed["actor_verification"] = [dict(source="comment_reactions:82", id=77, connector_verified=True)]
+    def collect(*args, **kwargs):
+        assert kwargs["request_comment_ids"] == [82]
+        return observed
+    def pause(_seconds):
+        saved = storage.load()
+        saved["status"] = "held"
+        storage.save(saved)
+    monkeypatch.setattr(cli, "collect", collect)
+    monkeypatch.setattr(cli.time, "sleep", pause)
+    args = ["7", "--repo", "owner/repo", "--owner", "agent-1"]
+    runner = CliRunner()
+    result = runner.invoke(cli.pr_group, ["settle", *args, "--resume", "--request-comment-id", "82"])
+    assert result.exit_code == 0, result.output
+    saved = storage.load()
+    assert saved["snapshot"] == observed and saved["cycles"][0]["status"] == "requested"
+    assert "acknowledged_at" not in saved["requests"][0] and not saved["requests"][0].get("completed")
+    assert saved["requests"][0]["snapshot"]["comment_reactions"] == {}
+    assert "completion_candidate" not in result.output
+    if created == 150:
+        ledger = deepcopy(saved["cycles"])
+        ledger[0].update(status="acknowledged", acknowledged_at=150)
+        path = tmp_path / "creation-proof-ledger.json"
+        path.write_text(json.dumps(ledger))
+        result = runner.invoke(cli.pr_group, ["history", *args, "--ledger", str(path),
+            "--snapshot", saved["snapshot_id"], "--evidence", url + "#issuecomment-82",
+            "--summary", "Owner observed comment creation after reservation, empty baseline, then eyes"])
+        assert result.exit_code == 0, result.output
+        assert storage.load()["cycles"][0]["acknowledged_at"] == 150
