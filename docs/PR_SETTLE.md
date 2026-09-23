@@ -92,8 +92,11 @@ new IDs. Existing IDs and budgets are preserved; do not combine IDs with
 Configuring an ID enables observation; it does not manufacture a pre-request
 baseline after posting. When a newly created comment itself requests review,
 the owner must retain its creation time, full head and empty initial reaction
-baseline under the shared policy. A thumbs-up alone never grants attributed
-clearance; head lookups and commit/push history still need inspection.
+baseline under the shared policy. Reactions on a comment absent from the recorded
+request baseline remain raw evidence, even when posted after the reservation.
+Use `pt pr history` to reconcile acknowledgment with external creation/baseline
+proof; adding the ID alone cannot attribute it to an execution. A thumbs-up alone
+never grants clearance; head lookups and commit/push history still need inspection.
 
 At five silent minutes, stop and ask Erik to resolve whether an execution began.
 There is no automatic silent retry. The canonical policy permits a retry only
