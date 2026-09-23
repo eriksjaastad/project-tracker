@@ -6097,6 +6097,9 @@ def migration_list(json_output: bool) -> None:
 # Register subgroups and run
 # =============================================================================
 
+from scripts.pr_settle import pr_group
+
+cli.add_command(pr_group)
 cli.add_command(backup_group)
 cli.add_command(tasks_group)
 cli.add_command(inbox_group)
