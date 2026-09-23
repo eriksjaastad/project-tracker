@@ -129,7 +129,8 @@ number). Restarts replay unacknowledged IDs, so delivery is at least once; the
 owner must deduplicate before external actions. A broken output pipe ends the
 foreground run. The saved event remains available through `status`.
 
-State lives under `~/.project-tracker/pr-settle/<owner>/<repo>/<PR>/state.json`;
+State lives under `~/.project-tracker/pr-settle/<github-owner>/<repository-name>/<PR>/state.json`.
+The `--owner` agent/session ID is stored inside the record, not in its path.
 `PT_PR_SETTLE_DIR` overrides the root for isolated tests. Repository names are
 canonicalized. A per-PR process lease prevents duplicate monitors; a separate
 short transaction lock allows concurrent control/assessment commands. Ten

@@ -223,8 +223,12 @@ def request(number, repo, owner, head, kind):
     snapshot = collect(store.repo, number, cwd)
     with store.lock():
         state = store.load()
-        events = guarded(engine.consume, state, snapshot, time.time())
-        events += guarded(engine.request, state, head, kind, time.time())
+        observed = guarded(engine.consume, state, snapshot, time.time())
+        # A rejected reservation must not erase newly observed acknowledgments,
+        # head changes or limit events. Commit the observation independently.
+        store.save(state)
+        output(observed)
+        events = guarded(engine.request, state, head, kind, time.time())
         store.save(state)
     output(events)
 
