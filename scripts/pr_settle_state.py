@@ -160,13 +160,16 @@ def _cycle_hold(state):
         _escalate(state, "Third GitHub review cycle requires Erik's direction, even when clean")
 
 
-def reconcile(state, cycles, evidence, summary, now):
+def reconcile(state, cycles, evidence, summary, now, *, snapshot_id):
     """Owner groups executions using external proof; raw objects are never counted.
 
     Full ledger records have id, head, status, evidence, summary and numeric at.
     Acknowledged records also need acknowledged_at. Existing records cannot be
     dropped or reassigned; this operation never clears a hold or restarts a run.
+    The caller must supply the digest inspected when preparing this ledger.
     """
+    if not snapshot_id or snapshot_id != state["snapshot_id"]:
+        raise ValueError("Execution history requires the inspected current snapshot")
     _external(evidence, summary)
     if not isinstance(cycles, list) or not state["snapshot_id"]:
         raise ValueError("A full cycle ledger and collected snapshot are required")
@@ -187,6 +190,10 @@ def reconcile(state, cycles, evidence, summary, now):
                 or not cycle["at"] <= cycle["acknowledged_at"] <= now):
             raise ValueError("Acknowledgment needs its observed timestamp")
         old = previous.get(cycle["id"])
+        if cycle["status"] == "rejected" and (
+                cycle.get("acknowledged_at") is not None
+                or old and (old["status"] == "acknowledged" or old.get("acknowledged_at") is not None)):
+            raise ValueError("Acknowledged executions cannot be reclassified as rejected requests")
         if old and (old["head"] != cycle["head"] or old["at"] != cycle["at"]
                     or old["status"] in {"completed", "rejected"} and old["status"] != cycle["status"]
                     or old.get("acknowledged_at") is not None and old["acknowledged_at"] != cycle.get("acknowledged_at")
