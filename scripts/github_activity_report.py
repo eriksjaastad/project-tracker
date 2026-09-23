@@ -29,10 +29,11 @@ class ReportError(RuntimeError):
     """A source was incomplete, unavailable, or did not match its contract."""
 
 
-def _run(command: list[str], timeout: int = API_TIMEOUT) -> str:
+def _run(command: list[str], timeout: int = API_TIMEOUT, *,
+         cwd: str | None = None) -> str:
     try:
         result = subprocess.run(command, capture_output=True, text=True,
-                                timeout=timeout, check=True)
+                                timeout=timeout, check=True, cwd=cwd)
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         raise ReportError(f"Source command failed: {command[0]} {command[1]}") from exc
     return result.stdout
@@ -79,7 +80,11 @@ def _repo_and_number(item: dict, owner: str) -> tuple[str, int]:
 
 def _pt_cards() -> set[str] | None:
     try:
-        output = _run(["pt", "tasks", "--all"], timeout=90)
+        # pt otherwise infers the current project from the report's checkout.
+        # Archived Done cards require a second, explicit retention view.
+        output = _run(["pt", "tasks", "--all"], timeout=90, cwd="/")
+        output += "\n" + _run(["pt", "tasks", "--all", "--archived"],
+                               timeout=90, cwd="/")
     except ReportError:
         return None
     return {match.group(1) for line in output.splitlines()
@@ -99,10 +104,16 @@ def collect(owner: str, day: date, zone_name: str, *, api=_api,
     # Bind the injectable API only around collection, avoiding any global patch.
     for field in SEARCH_FIELDS:
         lower = start.strftime("%Y-%m-%dT%H:%M:%SZ")
-        # Include the next midnight in the search to avoid losing fractional
-        # seconds at the boundary; event timestamps are filtered below.
-        upper = end.strftime("%Y-%m-%dT%H:%M:%SZ")
-        query = f"user:{owner} is:pr {field}:{lower}..{upper}"
+        # A PR reviewed on a historical day can have been updated again since.
+        # Search every PR currently updated *after* that day for review
+        # candidates; retain only events submitted inside the exact window.
+        if field == "updated":
+            qualifier = f"updated:>={lower}"
+        else:
+            # Include the next midnight to avoid losing fractional seconds.
+            upper = end.strftime("%Y-%m-%dT%H:%M:%SZ")
+            qualifier = f"{field}:{lower}..{upper}"
+        query = f"user:{owner} is:pr {qualifier}"
         total = None
         found = 0
         for page in range(1, 11):
@@ -165,7 +176,7 @@ def collect(owner: str, day: date, zone_name: str, *, api=_api,
                 break
         else:
             raise ReportError(f"Review pagination exceeded 100 pages for {repo}#{number}")
-        rows.append({
+        row = {
             "repo": repo, "number": number, "title": title,
             "url": item.get("html_url") or f"https://github.com/{repo}/pull/{number}",
             "author": (item.get("user") or {}).get("login") or "(deleted account)",
@@ -177,7 +188,9 @@ def collect(owner: str, day: date, zone_name: str, *, api=_api,
             "card": card if cards is not None and card in cards else None,
             "unverified_card": card if card and (cards is None or card not in cards) else None,
             "reviews": reviews,
-        })
+        }
+        if row["opened"] or row["merged"] or row["closed_unmerged"] or reviews:
+            rows.append(row)
     return {
         "owner": owner, "date": day.isoformat(), "timezone": zone_name,
         "window_utc": [start.isoformat(), end.isoformat()],
@@ -270,11 +283,15 @@ def render(report: dict) -> str:
                for row in unmerged] or ["None in this candidate set."])
     lines += [
         "", "## Source coverage and limits", "",
-        "- GitHub Search: all PRs under the named owner matching created, updated, "
-        "closed, or merged in the UTC window for this local day. Each search "
+        "- GitHub Search: all PRs under the named owner matching created, "
+        "closed, or merged in this day's UTC window, plus PRs whose current "
+        "updated time is at or after the window's start. The latter keeps "
+        "historical review candidates after later PR updates; only activity "
+        "inside the requested day appears in the tables. Each search "
         "must be complete and below GitHub's 1,000-result cap; otherwise the "
         "command fails. Repository visibility is limited to the active `gha` "
-        "credential and GitHub search indexing. This is a multi-request "
+        "credential and GitHub search indexing. Review discovery assumes "
+        "a submitted review advances the PR's updated time. This is a multi-request "
         "snapshot, not an atomic export; activity during collection can move "
         "between queries.",
         "- Reviews: paginated GitHub PR review objects for those candidate PRs, "
@@ -288,7 +305,8 @@ def render(report: dict) -> str:
         "#7413 and Project Tracker #7417. Multiple review objects can belong "
         "to one execution; a reaction-only completion can have no review object.",
         "- PT linkage: a trailing `(#card)` in the PR title is verified "
-        "against `pt tasks --all` when available. It does not prove that "
+        "against unscoped `pt tasks --all` and `pt tasks --all --archived` "
+        "when available. It does not prove that "
         "the PR delivered the full card. "
         + ("The PT index was available." if report["pt_available"]
            else "The PT index was unavailable; references are unverified."),
