@@ -147,7 +147,7 @@ export function HoloscapeProgressPage() {
     {error && <p role="alert" className="holoscape-error">{error}. {data ? 'Showing the last available view.' : 'Retrying shortly.'}</p>}
     {data && <>
       <div className="holoscape-intro">
-        <p>Daily observations from {data.window.start} through {data.window.end} ({data.window.timezone}). Missing sources leave gaps; a plotted zero means the source loaded and observed no event.</p>
+        <p>Daily observations from {data.window.start} through {data.window.end} ({data.window.timezone}). Missing sources leave gaps; a plotted zero means no event was recorded through that source’s update time.</p>
         <div className="holoscape-range" role="group" aria-label="Chart range">
           {([7, 14, 'all'] as const).map(value => <button key={value} type="button" aria-pressed={range === value}
             onClick={() => setRange(value)}>{value === 'all' ? 'All dates' : `${value} days`}</button>)}
