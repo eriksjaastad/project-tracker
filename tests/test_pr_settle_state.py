@@ -1,0 +1,309 @@
+"""Owner judgments stay pinned, limits survive restarts, and pending polls stay quiet."""
+from copy import deepcopy
+import json
+
+import pytest
+
+from scripts.pr_settle_state import assess, consume, fresh, observed_ci, reconcile, request
+
+PROOF = ["https://github.com/owner/repo/pull/7"]
+
+
+def cycle(id="initial-observed", head="a" * 40, status="completed", at=0):
+    return dict(id=id, head=head, status=status, at=at, evidence=PROOF,
+                summary="Owner grouped execution request and completion evidence")
+
+
+def history(state, cycles=None, now=0):
+    return reconcile(state, state["cycles"] if cycles is None else cycles, PROOF,
+                     "Owner reconciled the complete execution history", now)
+
+
+def snapshot(head="a" * 40, finding=False):
+    return dict(repo="owner/repo", number=7, head_sha=head, status="complete",
+        started_at="first", finished_at="last", sources={"reviews": {"observed_at": "now"}},
+        pr_end={"state": "open", "draft": False, "body": "PR body"}, reviews=[],
+        inline_comments=[dict(id=1, original_commit_id=head, body="[P2] A finding")] if finding else [],
+        actor_verification=[dict(source="inline_comments", id=1, connector_verified=True)],
+        pr_reactions=[], comment_reactions={})
+
+
+def active():
+    state = fresh("owner/repo", 7, "session-owner", 0, 240)
+    consume(state, snapshot(), 0)
+    history(state)
+    return state
+
+
+def judge(state, review="clean", ci="satisfied", now=1):
+    if review == "clean" and not state["review_hold"]:
+        history(state, state["cycles"] or [cycle(head=state["head"])], now=now)
+    return assess(state, state["head"], state["snapshot_id"], review, ci,
+                  ["https://github.com/owner/repo/pull/7#pullrequestreview-8"],
+                  "Owner checked external review against current policy", now=now)
+
+
+def test_pending_quiet_then_owner_handoff_on_next_observation():
+    state = active()
+    later = snapshot()
+    later.update(started_at="new", finished_at="new")
+    later["sources"]["reviews"]["observed_at"] = "new"
+    assert consume(state, later, 60) == []
+    later["reviews"] = [dict(id=8, body="Completion candidate", commit_id=state["head"])]
+    assert consume(state, later, 120)[0]["action"] == "assess_external_evidence"
+    assert state["review"] == "pending"  # Text cannot approve itself.
+    events = judge(state, now=121)
+    assert events[-1]["action"] == "recheck_and_merge"
+    assert state["status"] == "settled" and events[-1]["owner"] == "session-owner"
+    assert [event["seq"] for event in state["events"]] == list(range(1, len(state["events"]) + 1))
+
+
+@pytest.mark.parametrize("ci", ["unknown", "pending", "failed"])
+def test_ci_does_not_pass_from_empty_or_unknown(ci):
+    state = active()
+    assert not any(event["action"] == "recheck_and_merge" for event in judge(state, ci=ci))
+    assert state["status"] == "active"
+
+
+def test_head_change_and_same_head_new_finding_invalidate_assessment():
+    state = active()
+    old_id, old_head = state["snapshot_id"], state["head"]
+    judge(state, ci="pending")
+    consume(state, snapshot(finding=True), 60)
+    assert state["assessment"] is None and state["review"] == "findings"
+    with pytest.raises(ValueError, match="current head and snapshot"):
+        assess(state, old_head, old_id, "clean", "satisfied", [], "old", now=61)
+    consume(state, snapshot("b" * 40), 120)
+    assert state["head"] != old_head and state["review"] == "pending"
+
+
+def test_finding_heads_are_not_execution_counts_and_reconciled_third_stops():
+    state = active()
+    for index, char in enumerate("abc"):
+        state = json.loads(json.dumps(state))
+        consume(state, snapshot(char * 40, finding=True), index * 60)
+        assert consume(state, snapshot(char * 40, finding=True), index * 60 + 1) == []
+    assert state["status"] == "active" and len(state["finding_heads"]) == 3
+    events = history(state, [cycle(str(i), char * 40, at=i) for i, char in enumerate("abc")], 180)
+    assert state["review_hold"] and state["status"] == "escalated"
+    assert sum(event["action"] == "notify_erik_and_stop" for event in events) == 1
+    assert judge(state, now=180) == []
+    assert consume(state, snapshot("d" * 40), 240) == []
+
+
+def test_third_request_holds_even_if_clean_and_history_cannot_be_dropped():
+    state = active()
+    for when in (1, 3):
+        request(state, state["head"], "initial", when)
+        completed = deepcopy(state["cycles"])
+        completed[-1]["status"] = "completed"
+        history(state, completed, now=when + 1)
+        state = json.loads(json.dumps(state))
+    events = request(state, state["head"], "thorough", 5)
+    assert events[0]["action"] == "owner_trigger_final_review_and_hold"
+    assert state["review_hold"] and state["status"] == "active"
+    with pytest.raises(ValueError, match="hold"):
+        request(state, state["head"], "thorough", 6)
+    with pytest.raises(ValueError, match="hold"):
+        judge(state, now=6)
+    with pytest.raises(ValueError, match="dropped"):
+        history(state, [], 6)
+    completed = deepcopy(state["cycles"])
+    completed[-1]["status"] = "completed"
+    assert history(state, completed, 7)[-1]["action"] == "notify_erik_and_stop"
+    assert state["status"] == "escalated" and state["review_hold"]
+    assert state["requests"][0]["snapshot"] == snapshot()
+    assert len(state["cycles"]) == 3
+
+
+def test_fingerprint_ignores_transport_order_but_keeps_source_edits():
+    state = active()
+    data = snapshot()
+    data["reviews"] = [{"id": 2, "body": "two"}, {"id": 1, "body": "one"}]
+    consume(state, data, 1)
+    reordered = deepcopy(data)
+    reordered["reviews"].reverse()
+    assert consume(state, reordered, 2) == []
+    reordered["reviews"][0]["body"] = "edited old comment"
+    assert consume(state, reordered, 3)[0]["type"] == "evidence"
+
+
+@pytest.mark.parametrize("limit", ["time", "polls"])
+def test_limits_are_sticky_and_deadline_also_applies_to_assessment(limit):
+    state = active()
+    if limit == "polls":
+        state["polls"] = 240
+    else:
+        state["deadline"] = 1
+    assert judge(state, now=2)[0]["action"] == "notify_erik_and_stop"
+    assert state["status"] == "escalated" and judge(state, now=3) == []
+
+
+@pytest.mark.parametrize("change,status", [({"draft": True}, "held"), ({"state": "closed"}, "settled")])
+def test_draft_and_closed_are_terminal_for_this_run(change, status):
+    state, data = active(), snapshot()
+    data["pr_end"].update(change)
+    consume(state, data, 1)
+    assert state["status"] == status and consume(state, snapshot(), 2) == []
+
+
+def test_unknown_collection_and_missing_external_evidence_cannot_clear():
+    state = active()
+    with pytest.raises(ValueError, match="External GitHub"):
+        assess(state, state["head"], state["snapshot_id"], "clean", "satisfied", [], "local PASS", now=1)
+    data = snapshot()
+    data["status"] = "unknown"
+    consume(state, data, 2)
+    with pytest.raises(ValueError, match="complete"):
+        judge(state, now=3)
+
+
+def test_authenticated_acknowledgment_prevents_silent_retry():
+    state = active()
+    request(state, state["head"], "initial", 1)
+    data = snapshot()
+    data["pr_reactions"] = [dict(id=9, content="eyes")]
+    data["actor_verification"].append(dict(source="pr_reactions", id=9, connector_verified=True))
+    consume(state, data, 60)
+    with pytest.raises(ValueError, match="active execution"):
+        request(state, state["head"], "silent_retry", 301)
+
+
+def test_five_minutes_silence_escalates_without_any_retry_permission():
+    state = active()
+    request(state, state["head"], "initial", 0)
+    with pytest.raises(ValueError, match="active execution"):
+        request(state, state["head"], "silent_retry", 299)
+    events = consume(state, snapshot(), 300)
+    assert len(events) == 1 and events[0]["action"] == "notify_erik_and_stop"
+    assert "unknown" in events[0]["summary"]["reason"]
+    assert consume(state, snapshot(), 301) == []
+
+
+@pytest.mark.parametrize("completion", [False, True])
+def test_acknowledgment_timeout_survives_restart_but_completion_candidate_ends_wait(completion):
+    state = active()
+    request(state, state["head"], "initial", 0)
+    data = snapshot()
+    data["pr_reactions"] = [dict(id=9, content="eyes")]
+    data["actor_verification"].append(dict(source="pr_reactions", id=9, connector_verified=True))
+    consume(state, data, 60)
+    if completion:
+        data["pr_reactions"].append(dict(id=10, content="+1"))
+        data["actor_verification"].append(dict(source="pr_reactions", id=10, connector_verified=True))
+        consume(state, data, 120)
+    state = json.loads(json.dumps(state))
+    events = consume(state, data, 960)
+    assert state["review"] == "pending"
+    assert state["status"] == ("active" if completion else "escalated")
+    assert not events if completion else events[0]["action"] == "notify_erik_and_stop"
+
+
+@pytest.mark.parametrize("prefix,source", [("", "check_runs"), ("merge_", "check_runs"),
+                                          ("", "statuses"), ("merge_", "statuses")])
+def test_observed_ci_uses_latest_run_in_each_sha_bucket(prefix, source):
+    data = snapshot()
+    data.update(merge_sha="b" * 40, check_runs=[], merge_check_runs=[], statuses=[], merge_statuses=[])
+    sha = data["merge_sha" if prefix else "head_sha"]
+    failure = dict(id=1, head_sha=sha, name="pytest", app={"id": 2}, status="completed",
+                   conclusion="failure", context="pytest", state="failure")
+    data[prefix + source] = [failure]
+    state = active()
+    assert consume(state, data, 1)[0]["ci"] == "failed"
+    assert consume(state, data, 2) == []
+    data[prefix + source].append({**failure, "id": 2, "conclusion": "success", "state": "success"})
+    assert observed_ci(data) == "unknown"  # Latest success cannot establish required-workflow clearance.
+    data[prefix + source].append({**failure, "id": 3, "status": "queued", "state": "pending"})
+    assert observed_ci(data) == "pending"
+    data["status"] = "unknown"
+    assert observed_ci(data) == "unknown"
+
+
+def test_absent_ci_or_mismatched_check_head_is_unknown():
+    data = snapshot()
+    data.update(check_runs=[], statuses=[])
+    assert observed_ci(data) == "unknown"
+    data["check_runs"] = [dict(id=1, name="pytest", head_sha="wrong", status="completed", conclusion="failure")]
+    assert observed_ci(data) == "unknown"
+
+
+def test_history_is_explicit_and_must_match_the_latest_snapshot():
+    state = fresh("owner/repo", 7, "owner", 0, 30)
+    consume(state, snapshot(), 0)
+    with pytest.raises(ValueError, match="Reconciled history"):
+        request(state, state["head"], "initial", 1)
+    with pytest.raises(ValueError, match="Reconcile execution history"):
+        assess(state, state["head"], state["snapshot_id"], "clean", "satisfied", PROOF, "proof", now=1)
+    history(state, [cycle()], 1)
+    changed = snapshot()
+    changed["reviews"] = [dict(id=9, body="Additional evidence")]
+    consume(state, changed, 2)
+    with pytest.raises(ValueError, match="Reconcile execution history"):
+        assess(state, state["head"], state["snapshot_id"], "clean", "satisfied", PROOF, "proof", now=3)
+
+
+def test_rejected_requests_do_not_count_but_unknown_execution_stops():
+    state = active()
+    history(state, [cycle("rejected", status="rejected"), cycle("initial")], 1)
+    events = request(state, state["head"], "thorough", 2)
+    assert not state["review_hold"] and events[0]["counters"]["cycles"] == 2
+    uncertain = deepcopy(state["cycles"])
+    uncertain[-1]["status"] = "unknown"
+    assert history(state, uncertain, 3)[-1]["action"] == "notify_erik_and_stop"
+    assert state["status"] == "escalated"
+
+
+def test_three_cycles_same_head_hold_without_counting_each_comment():
+    state = active()
+    data = snapshot(finding=True)
+    data["inline_comments"] *= 5
+    consume(state, data, 1)
+    history(state, [cycle("one")], 1)
+    assert len(state["cycles"]) == 1 and not state["review_hold"]
+    third = cycle("three", status="acknowledged", at=3)
+    third["acknowledged_at"] = 4
+    history(state, [cycle("one"), cycle("two", at=2), third], 4)
+    assert state["review_hold"] and state["status"] == "active"
+    data["pr_end"]["body"] = "new observation during hold"
+    assert consume(state, data, 60)[0]["type"] == "evidence"
+    assert state["review_hold"] and state["status"] == "active"
+    assert consume(state, data, 904)[0]["action"] == "notify_erik_and_stop"
+
+
+def test_rejected_third_reservation_preserves_hold_without_losing_ledger():
+    state = active()
+    history(state, [cycle("one"), cycle("two", at=1)], 1)
+    request(state, state["head"], "thorough", 2)
+    rejected = deepcopy(state["cycles"])
+    rejected[-1]["status"] = "rejected"
+    events = history(state, rejected, 3)
+    assert state["review_hold"] and state["status"] == "escalated"
+    assert events[-1]["action"] == "notify_erik_and_stop"
+
+
+def test_third_reserved_cycle_completion_candidate_reports_once_and_never_merges():
+    state = active()
+    history(state, [cycle("one"), cycle("two", at=1)], 1)
+    request(state, state["head"], "thorough", 2)
+    data = snapshot()
+    data["pr_reactions"] = [dict(id=9, content="+1")]
+    data["actor_verification"].append(dict(source="pr_reactions", id=9, connector_verified=True))
+    events = consume(state, data, 60)
+    reports = [event for event in events if event["action"] == "notify_erik_and_stop"]
+    assert len(reports) == 1 and "candidate" in reports[0]["summary"]["reason"]
+    assert state["status"] == "escalated" and state["review_hold"]
+    assert state["review"] == "pending" and state["cycles"][-1]["status"] == "requested"
+    assert not any(event["action"] == "recheck_and_merge" for event in state["events"])
+    assert consume(state, data, 120) == []
+    assert request(state, state["head"], "thorough", 121) == []
+    assert judge(state, now=122) == []
+    assert len(state["requests"]) == 1
+
+
+@pytest.mark.parametrize("bad", [None, {**cycle(), "head": None}, {**cycle(), "status": []}])
+def test_malformed_execution_records_leave_history_unchanged(bad):
+    state = active()
+    before = deepcopy(state)
+    with pytest.raises(ValueError):
+        history(state, [bad], 1)
+    assert state == before
