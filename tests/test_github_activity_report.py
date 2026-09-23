@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 
+from scripts import github_activity_report as report_module
 from scripts.github_activity_report import ReportError, collect, render
 
 
@@ -88,17 +89,38 @@ def test_incomplete_search_fails_instead_of_reporting_zero(data):
 def test_review_on_pr_without_same_day_lifecycle_event_is_found_by_update():
     old = pr(13, author="manager-identity[bot]",
              created="2026-08-01T04:00:00Z", title="fix: old (#7549)")
+    old["updated_at"] = "2026-09-25T18:00:00Z"
+    later = pr(14, author="manager-identity[bot]",
+               created="2026-09-24T04:00:00Z", title="feat: later (#7549)")
 
     def api(path, fields):
         if path == "search/issues":
-            items = [old] if " updated:" in fields["q"] else []
+            items = [old, later] if " updated:>=2026-09-23T04:00:00Z" in fields["q"] else []
             return {"items": items, "total_count": len(items),
                     "incomplete_results": False}
-        return [{"id": 88, "submitted_at": "2026-09-23T18:00:00Z",
-                 "user": {"login": "eriksjaastad"}, "state": "APPROVED"}]
+        if path.endswith("/13/reviews"):
+            return [{"id": 88, "submitted_at": "2026-09-23T18:00:00Z",
+                     "user": {"login": "eriksjaastad"}, "state": "APPROVED"}]
+        return []
 
     report = collect("eriksjaastad", date(2026, 9, 23),
                      "America/New_York", api=api, cards={"7549"})
     assert len(report["pull_requests"]) == 1
     assert not report["pull_requests"][0]["opened"]
     assert report["pull_requests"][0]["reviews"][0]["actor"] == "eriksjaastad"
+
+
+def test_card_index_uses_unscoped_active_and_archived_views(monkeypatch):
+    calls = []
+
+    def run(command, timeout, *, cwd):
+        calls.append((command, cwd))
+        return "#7549 | Review | High | Report\n" if "--archived" not in command else (
+            "#7335 | Done | High | Historical card\n")
+
+    monkeypatch.setattr(report_module, "_run", run)
+    assert report_module._pt_cards() == {"7549", "7335"}
+    assert calls == [
+        (["pt", "tasks", "--all"], "/"),
+        (["pt", "tasks", "--all", "--archived"], "/"),
+    ]
