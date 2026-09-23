@@ -156,8 +156,8 @@ def _cycle_hold(state):
     if any(cycle["status"] == "unknown" for cycle in counted):
         _escalate(state, "Execution history is uncertain; ask Erik before another request")
     elif state["review_hold"] and (len(counted) > 3 or any(c["id"] == state["hold_cycle_id"]
-            and c["status"] in {"completed", "rejected"} for c in state["cycles"])):
-        _escalate(state, "Third GitHub review cycle requires Erik's direction, even when clean")
+            and c["status"] == "rejected" for c in state["cycles"])):
+        _escalate(state, "Review execution limit or rejected final request needs Erik's direction")
 
 
 def reconcile(state, cycles, evidence, summary, now, *, snapshot_id):
@@ -192,7 +192,9 @@ def reconcile(state, cycles, evidence, summary, now, *, snapshot_id):
         old = previous.get(cycle["id"])
         if cycle["status"] == "rejected" and (
                 cycle.get("acknowledged_at") is not None
-                or old and (old["status"] == "acknowledged" or old.get("acknowledged_at") is not None)):
+                or old and (old["status"] == "acknowledged" or old.get("acknowledged_at") is not None)
+                or any(r["cycle_id"] == cycle["id"] and r.get("acknowledged_at") is not None
+                       for r in state["requests"])):
             raise ValueError("Acknowledged executions cannot be reclassified as rejected requests")
         if old and (old["head"] != cycle["head"] or old["at"] != cycle["at"]
                     or old["status"] in {"completed", "rejected"} and old["status"] != cycle["status"]
@@ -264,9 +266,13 @@ def _request_wait(state, now):
         if (("reactions" in source and row.get("content") == "+1")
                 or source == "reviews" and row.get("state") in {"APPROVED", "COMMENTED", "CHANGES_REQUESTED"}):
             attempt["completed"] = True  # Candidate only: never grants clearance.
+    if "acknowledged_at" in attempt and cycle.get("acknowledged_at") is None:
+        cycle.update(status="acknowledged", acknowledged_at=attempt["acknowledged_at"])
+        state["history_snapshot_id"] = None
     if attempt.get("completed"):
-        if state["review_hold"] and attempt["cycle_id"] == state["hold_cycle_id"]:
-            _escalate(state, "Third-cycle completion candidate observed; Erik and the owner must inspect it, not a clean verdict")
+        if not attempt.get("candidate_notified"):
+            attempt["candidate_notified"] = True
+            _event(state, "completion_candidate", "assess_external_evidence")
         return
     if "acknowledged_at" in attempt:
         if now - attempt["acknowledged_at"] >= 900:
@@ -294,9 +300,7 @@ def consume(state, snapshot, now):
         if state["status"] != "escalated":
             _event(state, "evidence", "assess_external_evidence")
     pr = snapshot.get("pr_end") or {}
-    if state["status"] == "active" and state["review_hold"] and pr.get("state") == "closed":
-        _escalate(state, "PR closed during the third-cycle hold; report outcome to Erik")
-    elif state["status"] == "active" and pr.get("state") == "closed":
+    if state["status"] == "active" and pr.get("state") == "closed":
         state["status"] = "settled"
         _event(state, "closed", "none")
     elif state["status"] == "active" and pr.get("draft") and not state["review_hold"]:
@@ -322,20 +326,27 @@ def assess(state, head, snapshot_id, review, ci, evidence, summary, *, now=None)
     if review not in REVIEWS or ci not in CI:
         raise ValueError("Unknown review or CI assessment")
     _external(evidence, summary)
-    if state["review_hold"]:
-        raise ValueError("Third-cycle hold requires Erik; no clean merge handoff")
     if review == "clean" and state["history_snapshot_id"] != snapshot_id:
         raise ValueError("Reconcile execution history against this snapshot first")
+    if review == "clean" and state["review_hold"] and not any(
+            c["id"] == state["hold_cycle_id"] and c["head"] == head and c["status"] == "completed"
+            for c in state["cycles"]):
+        raise ValueError("Clean requires the completed third execution at the current head")
     if review == "clean" and (not any(c["head"] == head and c["status"] == "completed" for c in state["cycles"])
                              or any(c["status"] in {"requested", "acknowledged", "unknown"} for c in state["cycles"])):
         raise ValueError("Clean requires a completed current-head execution and no active or unknown attempts")
     if review == "clean" and state["snapshot"]["status"] != "complete":
         raise ValueError("Clean requires complete evidence collection")
+    pr = state["snapshot"].get("pr_end") or {}
+    if review == "clean" and ci in {"satisfied", "not_configured"} and (pr.get("state") != "open" or pr.get("draft") is not False):
+        raise ValueError("Merge handoff requires an open, ready PR")
     state.update(review=review, ci=ci, assessment=dict(head=head, snapshot_id=snapshot_id,
                  review=review, ci=ci, evidence=list(evidence), summary=summary))
     _event(state, "assessment", "wait")
     if review == "findings":
         _finding_head(state)
+    if state["review_hold"] and (review in {"findings", "ambiguous"} or review == "clean" and ci == "failed"):
+        _escalate(state, "Third review has findings, ambiguity, or failed CI; discuss patterns with Erik before more work")
     elif review == "clean" and ci in {"satisfied", "not_configured"}:
         state["status"] = "settled"
         _event(state, "ready", "recheck_and_merge")
