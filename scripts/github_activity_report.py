@@ -185,8 +185,8 @@ def collect(owner: str, day: date, zone_name: str, *, api=_api,
             "closed_unmerged": (closed is not None and merged is None and
                                 start <= closed < end),
             "open_as_of": item.get("state") == "open",
-            "card": card if cards is not None and card in cards else None,
-            "unverified_card": card if card and (cards is None or card not in cards) else None,
+            "card_ref": card,
+            "local_card_match": card in cards if card and cards is not None else None,
             "reviews": reviews,
         }
         if row["opened"] or row["merged"] or row["closed_unmerged"] or reviews:
@@ -196,6 +196,7 @@ def collect(owner: str, day: date, zone_name: str, *, api=_api,
         "window_utc": [start.isoformat(), end.isoformat()],
         "as_of_utc": datetime.now(timezone.utc).isoformat(),
         "candidate_queries": list(SEARCH_FIELDS),
+        "candidate_count": len(candidates),
         "pt_available": cards is not None,
         "review_cycles": None,
         "codex_subscription_analytics": (
@@ -230,9 +231,11 @@ def render(report: dict) -> str:
         f"{report['window_utc'][0]} to {report['window_utc'][1]}. "
         f"Repository owner: [`{report['owner']}`](https://github.com/{report['owner']}).",
         "",
-        f"**{len(rows)} distinct PRs in the candidate set; {opened} opened, "
+        f"**{len(rows)} distinct PR{'s' if len(rows) != 1 else ''} with activity "
+        f"(from {report['candidate_count']} queried candidates); {opened} opened, "
         f"{merged} merged, {closed} closed without merge; "
-        f"{review_count} submitted review objects on {reviewed_prs} distinct PRs.** "
+        f"{review_count} submitted review object{'s' if review_count != 1 else ''} "
+        f"on {reviewed_prs} distinct PR{'s' if reviewed_prs != 1 else ''}.** "
         "A PR may appear in more than one event count. Review objects are not "
         "Codex review executions.",
         "",
@@ -261,8 +264,12 @@ def render(report: dict) -> str:
               "Reviews today | PT card |",
               "| --- | --- | ---: | ---: | ---: | ---: | --- |"]
     for row in rows:
-        card = f"#{row['card']}" if row["card"] else (
-            f"#{row['unverified_card']} (unverified)" if row["unverified_card"] else "—")
+        card = "—"
+        if row["card_ref"]:
+            match = row["local_card_match"]
+            label = ("local match" if match else
+                     "no local match" if match is False else "PT unavailable")
+            card = f"#{row['card_ref']} ({label})"
         lines.append(
             f"| [{row['repo']}#{row['number']}]({row['url']}) | {row['author']} | "
             f"{int(row['opened'])} | {int(row['merged'])} | "
@@ -304,12 +311,13 @@ def render(report: dict) -> str:
         "- Distinct Codex review executions: **unknown** pending ai-memory "
         "#7413 and Project Tracker #7417. Multiple review objects can belong "
         "to one execution; a reaction-only completion can have no review object.",
-        "- PT linkage: a trailing `(#card)` in the PR title is verified "
-        "against unscoped `pt tasks --all` and `pt tasks --all --archived` "
-        "when available. It does not prove that "
-        "the PR delivered the full card. "
-        + ("The PT index was available." if report["pt_available"]
-           else "The PT index was unavailable; references are unverified."),
+        "- PT linkage: a trailing `(#card)` in the PR title is compared with "
+        "unscoped `pt tasks --all` and `pt tasks --all --archived` when "
+        "available. Display IDs are machine-local: even a local match is "
+        "not a verified cross-machine card identity or proof that the PR "
+        "delivered the card. "
+        + ("The local PT index was available." if report["pt_available"]
+           else "The local PT index was unavailable."),
         "- Codex subscription analytics: "
         + (f"Erik reported a code review count of "
            f"{report['codex_subscription_analytics']['reported_reviews']} "

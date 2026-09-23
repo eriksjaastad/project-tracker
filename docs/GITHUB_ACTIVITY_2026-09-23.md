@@ -1,33 +1,33 @@
 # GitHub activity: 2026-09-23 (America/New_York)
 
-Snapshot: 2026-09-23T22:38:11.358522+00:00. Window (UTC, end exclusive): 2026-09-23T04:00:00+00:00 to 2026-09-24T04:00:00+00:00. Repository owner: [`eriksjaastad`](https://github.com/eriksjaastad).
+Snapshot: 2026-09-23T22:48:49.681189+00:00. Window (UTC, end exclusive): 2026-09-23T04:00:00+00:00 to 2026-09-24T04:00:00+00:00. Repository owner: [`eriksjaastad`](https://github.com/eriksjaastad).
 
-**111 distinct PRs in the candidate set; 109 opened, 92 merged, 0 closed without merge; 89 submitted review objects on 39 distinct PRs.** A PR may appear in more than one event count. Review objects are not Codex review executions.
+**112 distinct PRs with activity (from 112 queried candidates); 110 opened, 98 merged, 0 closed without merge; 92 submitted review objects on 40 distinct PRs.** A PR may appear in more than one event count. Review objects are not Codex review executions.
 
 ## By PR author
 
 | GitHub actor | Opened | Merged | Closed unmerged |
 | --- | ---: | ---: | ---: |
-| architect-identity[bot] | 65 | 58 | 0 |
+| architect-identity[bot] | 65 | 63 | 0 |
 | eriksjaastad | 3 | 3 | 0 |
-| manager-identity[bot] | 41 | 31 | 0 |
+| manager-identity[bot] | 42 | 32 | 0 |
 
 ## By repository
 
 | Repository | Opened | Merged | Closed unmerged | Review objects |
 | --- | ---: | ---: | ---: | ---: |
 | [`eriksjaastad/Flo-Fi`](https://github.com/eriksjaastad/Flo-Fi/pulls) | 3 | 3 | 0 | 0 |
-| [`eriksjaastad/Portfolio-ai`](https://github.com/eriksjaastad/Portfolio-ai/pulls) | 3 | 2 | 0 | 2 |
-| [`eriksjaastad/agent-runtime-config`](https://github.com/eriksjaastad/agent-runtime-config/pulls) | 6 | 6 | 0 | 11 |
+| [`eriksjaastad/Portfolio-ai`](https://github.com/eriksjaastad/Portfolio-ai/pulls) | 3 | 3 | 0 | 2 |
+| [`eriksjaastad/agent-runtime-config`](https://github.com/eriksjaastad/agent-runtime-config/pulls) | 7 | 7 | 0 | 11 |
 | [`eriksjaastad/ai-journal`](https://github.com/eriksjaastad/ai-journal/pulls) | 1 | 1 | 0 | 0 |
-| [`eriksjaastad/ai-memory`](https://github.com/eriksjaastad/ai-memory/pulls) | 12 | 10 | 0 | 10 |
+| [`eriksjaastad/ai-memory`](https://github.com/eriksjaastad/ai-memory/pulls) | 12 | 10 | 0 | 11 |
 | [`eriksjaastad/ai-memory-replay`](https://github.com/eriksjaastad/ai-memory-replay/pulls) | 3 | 3 | 0 | 1 |
 | [`eriksjaastad/analyze-youtube-videos`](https://github.com/eriksjaastad/analyze-youtube-videos/pulls) | 2 | 2 | 0 | 0 |
 | [`eriksjaastad/auxesis-research-labs`](https://github.com/eriksjaastad/auxesis-research-labs/pulls) | 3 | 3 | 0 | 0 |
-| [`eriksjaastad/claude-user-config`](https://github.com/eriksjaastad/claude-user-config/pulls) | 7 | 5 | 0 | 7 |
+| [`eriksjaastad/claude-user-config`](https://github.com/eriksjaastad/claude-user-config/pulls) | 7 | 6 | 0 | 7 |
 | [`eriksjaastad/cortana-personal-ai`](https://github.com/eriksjaastad/cortana-personal-ai/pulls) | 2 | 2 | 0 | 0 |
 | [`eriksjaastad/eriksjaastad`](https://github.com/eriksjaastad/eriksjaastad/pulls) | 2 | 2 | 0 | 0 |
-| [`eriksjaastad/fci`](https://github.com/eriksjaastad/fci/pulls) | 4 | 3 | 0 | 2 |
+| [`eriksjaastad/fci`](https://github.com/eriksjaastad/fci/pulls) | 4 | 4 | 0 | 2 |
 | [`eriksjaastad/holoscape`](https://github.com/eriksjaastad/holoscape/pulls) | 5 | 5 | 0 | 2 |
 | [`eriksjaastad/hypocrisynow`](https://github.com/eriksjaastad/hypocrisynow/pulls) | 8 | 5 | 0 | 11 |
 | [`eriksjaastad/image-workflow`](https://github.com/eriksjaastad/image-workflow/pulls) | 3 | 3 | 0 | 0 |
@@ -35,10 +35,10 @@ Snapshot: 2026-09-23T22:38:11.358522+00:00. Window (UTC, end exclusive): 2026-09
 | [`eriksjaastad/land-tracker`](https://github.com/eriksjaastad/land-tracker/pulls) | 2 | 2 | 0 | 1 |
 | [`eriksjaastad/market-research`](https://github.com/eriksjaastad/market-research/pulls) | 8 | 8 | 0 | 6 |
 | [`eriksjaastad/muffinpanrecipes`](https://github.com/eriksjaastad/muffinpanrecipes/pulls) | 8 | 5 | 0 | 11 |
-| [`eriksjaastad/picasa2`](https://github.com/eriksjaastad/picasa2/pulls) | 4 | 3 | 0 | 1 |
-| [`eriksjaastad/project-tracker`](https://github.com/eriksjaastad/project-tracker/pulls) | 7 | 6 | 0 | 4 |
-| [`eriksjaastad/state-business-tax-skills`](https://github.com/eriksjaastad/state-business-tax-skills/pulls) | 2 | 1 | 0 | 1 |
-| [`eriksjaastad/synth-insight-labs`](https://github.com/eriksjaastad/synth-insight-labs/pulls) | 3 | 2 | 0 | 0 |
+| [`eriksjaastad/picasa2`](https://github.com/eriksjaastad/picasa2/pulls) | 4 | 4 | 0 | 1 |
+| [`eriksjaastad/project-tracker`](https://github.com/eriksjaastad/project-tracker/pulls) | 7 | 6 | 0 | 5 |
+| [`eriksjaastad/state-business-tax-skills`](https://github.com/eriksjaastad/state-business-tax-skills/pulls) | 2 | 2 | 0 | 1 |
+| [`eriksjaastad/synth-insight-labs`](https://github.com/eriksjaastad/synth-insight-labs/pulls) | 3 | 2 | 0 | 1 |
 | [`eriksjaastad/tax-organizer`](https://github.com/eriksjaastad/tax-organizer/pulls) | 3 | 3 | 0 | 0 |
 | [`eriksjaastad/tools`](https://github.com/eriksjaastad/tools/pulls) | 3 | 3 | 0 | 1 |
 | [`eriksjaastad/trading-copilot`](https://github.com/eriksjaastad/trading-copilot/pulls) | 2 | 2 | 0 | 0 |
@@ -48,82 +48,83 @@ Snapshot: 2026-09-23T22:38:11.358522+00:00. Window (UTC, end exclusive): 2026-09
 
 | GitHub actor | Submitted review objects |
 | --- | ---: |
-| chatgpt-codex-connector[bot] | 89 |
+| chatgpt-codex-connector[bot] | 92 |
 
 ## PR evidence
 
 | PR | Author | Opened | Merged | Closed unmerged | Reviews today | PT card |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | [eriksjaastad/Flo-Fi#24](https://github.com/eriksjaastad/Flo-Fi/pull/24) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/Flo-Fi#25](https://github.com/eriksjaastad/Flo-Fi/pull/25) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 |
-| [eriksjaastad/Flo-Fi#26](https://github.com/eriksjaastad/Flo-Fi/pull/26) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/Flo-Fi#25](https://github.com/eriksjaastad/Flo-Fi/pull/25) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 (local match) |
+| [eriksjaastad/Flo-Fi#26](https://github.com/eriksjaastad/Flo-Fi/pull/26) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/Portfolio-ai#10](https://github.com/eriksjaastad/Portfolio-ai/pull/10) | architect-identity[bot] | 1 | 1 | 0 | 1 | — |
-| [eriksjaastad/Portfolio-ai#11](https://github.com/eriksjaastad/Portfolio-ai/pull/11) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 |
-| [eriksjaastad/Portfolio-ai#12](https://github.com/eriksjaastad/Portfolio-ai/pull/12) | architect-identity[bot] | 1 | 0 | 0 | 1 | #7335 |
-| [eriksjaastad/agent-runtime-config#85](https://github.com/eriksjaastad/agent-runtime-config/pull/85) | manager-identity[bot] | 0 | 0 | 0 | 1 | #7215 |
+| [eriksjaastad/Portfolio-ai#11](https://github.com/eriksjaastad/Portfolio-ai/pull/11) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 (local match) |
+| [eriksjaastad/Portfolio-ai#12](https://github.com/eriksjaastad/Portfolio-ai/pull/12) | architect-identity[bot] | 1 | 1 | 0 | 1 | #7335 (local match) |
+| [eriksjaastad/agent-runtime-config#85](https://github.com/eriksjaastad/agent-runtime-config/pull/85) | manager-identity[bot] | 0 | 0 | 0 | 1 | #7215 (local match) |
 | [eriksjaastad/agent-runtime-config#92](https://github.com/eriksjaastad/agent-runtime-config/pull/92) | architect-identity[bot] | 1 | 1 | 0 | 3 | — |
 | [eriksjaastad/agent-runtime-config#93](https://github.com/eriksjaastad/agent-runtime-config/pull/93) | architect-identity[bot] | 1 | 1 | 0 | 2 | — |
 | [eriksjaastad/agent-runtime-config#94](https://github.com/eriksjaastad/agent-runtime-config/pull/94) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/agent-runtime-config#95](https://github.com/eriksjaastad/agent-runtime-config/pull/95) | architect-identity[bot] | 1 | 1 | 0 | 3 | #7213 |
-| [eriksjaastad/agent-runtime-config#96](https://github.com/eriksjaastad/agent-runtime-config/pull/96) | architect-identity[bot] | 1 | 1 | 0 | 2 | #7425 |
-| [eriksjaastad/agent-runtime-config#97](https://github.com/eriksjaastad/agent-runtime-config/pull/97) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/agent-runtime-config#95](https://github.com/eriksjaastad/agent-runtime-config/pull/95) | architect-identity[bot] | 1 | 1 | 0 | 3 | #7213 (local match) |
+| [eriksjaastad/agent-runtime-config#96](https://github.com/eriksjaastad/agent-runtime-config/pull/96) | architect-identity[bot] | 1 | 1 | 0 | 2 | #7425 (local match) |
+| [eriksjaastad/agent-runtime-config#97](https://github.com/eriksjaastad/agent-runtime-config/pull/97) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
+| [eriksjaastad/agent-runtime-config#98](https://github.com/eriksjaastad/agent-runtime-config/pull/98) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7128 (local match) |
 | [eriksjaastad/ai-journal#8](https://github.com/eriksjaastad/ai-journal/pull/8) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/ai-memory#163](https://github.com/eriksjaastad/ai-memory/pull/163) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7446 |
+| [eriksjaastad/ai-memory#163](https://github.com/eriksjaastad/ai-memory/pull/163) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7446 (local match) |
 | [eriksjaastad/ai-memory#164](https://github.com/eriksjaastad/ai-memory/pull/164) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/ai-memory#165](https://github.com/eriksjaastad/ai-memory/pull/165) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/ai-memory#166](https://github.com/eriksjaastad/ai-memory/pull/166) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7312 |
-| [eriksjaastad/ai-memory#167](https://github.com/eriksjaastad/ai-memory/pull/167) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7366 |
-| [eriksjaastad/ai-memory#168](https://github.com/eriksjaastad/ai-memory/pull/168) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7518 |
-| [eriksjaastad/ai-memory#169](https://github.com/eriksjaastad/ai-memory/pull/169) | manager-identity[bot] | 1 | 1 | 0 | 1 | #7435 |
+| [eriksjaastad/ai-memory#166](https://github.com/eriksjaastad/ai-memory/pull/166) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7312 (local match) |
+| [eriksjaastad/ai-memory#167](https://github.com/eriksjaastad/ai-memory/pull/167) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7366 (local match) |
+| [eriksjaastad/ai-memory#168](https://github.com/eriksjaastad/ai-memory/pull/168) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7518 (local match) |
+| [eriksjaastad/ai-memory#169](https://github.com/eriksjaastad/ai-memory/pull/169) | manager-identity[bot] | 1 | 1 | 0 | 1 | #7435 (local match) |
 | [eriksjaastad/ai-memory#170](https://github.com/eriksjaastad/ai-memory/pull/170) | architect-identity[bot] | 1 | 1 | 0 | 2 | — |
-| [eriksjaastad/ai-memory#171](https://github.com/eriksjaastad/ai-memory/pull/171) | manager-identity[bot] | 1 | 0 | 0 | 4 | #7413 |
-| [eriksjaastad/ai-memory#172](https://github.com/eriksjaastad/ai-memory/pull/172) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7318 |
-| [eriksjaastad/ai-memory#173](https://github.com/eriksjaastad/ai-memory/pull/173) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
-| [eriksjaastad/ai-memory#174](https://github.com/eriksjaastad/ai-memory/pull/174) | architect-identity[bot] | 1 | 0 | 0 | 3 | #7552 |
+| [eriksjaastad/ai-memory#171](https://github.com/eriksjaastad/ai-memory/pull/171) | manager-identity[bot] | 1 | 0 | 0 | 4 | #7413 (local match) |
+| [eriksjaastad/ai-memory#172](https://github.com/eriksjaastad/ai-memory/pull/172) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7318 (local match) |
+| [eriksjaastad/ai-memory#173](https://github.com/eriksjaastad/ai-memory/pull/173) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
+| [eriksjaastad/ai-memory#174](https://github.com/eriksjaastad/ai-memory/pull/174) | architect-identity[bot] | 1 | 0 | 0 | 4 | #7552 (local match) |
 | [eriksjaastad/ai-memory-replay#14](https://github.com/eriksjaastad/ai-memory-replay/pull/14) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/ai-memory-replay#15](https://github.com/eriksjaastad/ai-memory-replay/pull/15) | architect-identity[bot] | 1 | 1 | 0 | 1 | #7324 |
-| [eriksjaastad/ai-memory-replay#16](https://github.com/eriksjaastad/ai-memory-replay/pull/16) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
-| [eriksjaastad/analyze-youtube-videos#46](https://github.com/eriksjaastad/analyze-youtube-videos/pull/46) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7446 |
-| [eriksjaastad/analyze-youtube-videos#47](https://github.com/eriksjaastad/analyze-youtube-videos/pull/47) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/ai-memory-replay#15](https://github.com/eriksjaastad/ai-memory-replay/pull/15) | architect-identity[bot] | 1 | 1 | 0 | 1 | #7324 (local match) |
+| [eriksjaastad/ai-memory-replay#16](https://github.com/eriksjaastad/ai-memory-replay/pull/16) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
+| [eriksjaastad/analyze-youtube-videos#46](https://github.com/eriksjaastad/analyze-youtube-videos/pull/46) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7446 (local match) |
+| [eriksjaastad/analyze-youtube-videos#47](https://github.com/eriksjaastad/analyze-youtube-videos/pull/47) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/auxesis-research-labs#21](https://github.com/eriksjaastad/auxesis-research-labs/pull/21) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/auxesis-research-labs#22](https://github.com/eriksjaastad/auxesis-research-labs/pull/22) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 |
-| [eriksjaastad/auxesis-research-labs#23](https://github.com/eriksjaastad/auxesis-research-labs/pull/23) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/auxesis-research-labs#22](https://github.com/eriksjaastad/auxesis-research-labs/pull/22) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 (local match) |
+| [eriksjaastad/auxesis-research-labs#23](https://github.com/eriksjaastad/auxesis-research-labs/pull/23) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/claude-user-config#101](https://github.com/eriksjaastad/claude-user-config/pull/101) | architect-identity[bot] | 1 | 1 | 0 | 1 | — |
-| [eriksjaastad/claude-user-config#102](https://github.com/eriksjaastad/claude-user-config/pull/102) | architect-identity[bot] | 1 | 0 | 0 | 6 | #7410 |
+| [eriksjaastad/claude-user-config#102](https://github.com/eriksjaastad/claude-user-config/pull/102) | architect-identity[bot] | 1 | 0 | 0 | 6 | #7410 (local match) |
 | [eriksjaastad/claude-user-config#103](https://github.com/eriksjaastad/claude-user-config/pull/103) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/claude-user-config#104](https://github.com/eriksjaastad/claude-user-config/pull/104) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/claude-user-config#105](https://github.com/eriksjaastad/claude-user-config/pull/105) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/claude-user-config#106](https://github.com/eriksjaastad/claude-user-config/pull/106) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7128 |
-| [eriksjaastad/claude-user-config#107](https://github.com/eriksjaastad/claude-user-config/pull/107) | architect-identity[bot] | 1 | 0 | 0 | 0 | #7335 |
+| [eriksjaastad/claude-user-config#106](https://github.com/eriksjaastad/claude-user-config/pull/106) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7128 (local match) |
+| [eriksjaastad/claude-user-config#107](https://github.com/eriksjaastad/claude-user-config/pull/107) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/cortana-personal-ai#30](https://github.com/eriksjaastad/cortana-personal-ai/pull/30) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/cortana-personal-ai#31](https://github.com/eriksjaastad/cortana-personal-ai/pull/31) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/cortana-personal-ai#31](https://github.com/eriksjaastad/cortana-personal-ai/pull/31) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/eriksjaastad#41](https://github.com/eriksjaastad/eriksjaastad/pull/41) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/eriksjaastad#42](https://github.com/eriksjaastad/eriksjaastad/pull/42) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 |
+| [eriksjaastad/eriksjaastad#42](https://github.com/eriksjaastad/eriksjaastad/pull/42) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 (local match) |
 | [eriksjaastad/fci#3](https://github.com/eriksjaastad/fci/pull/3) | architect-identity[bot] | 1 | 1 | 0 | 1 | — |
-| [eriksjaastad/fci#4](https://github.com/eriksjaastad/fci/pull/4) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 |
-| [eriksjaastad/fci#5](https://github.com/eriksjaastad/fci/pull/5) | architect-identity[bot] | 1 | 1 | 0 | 1 | #7320 |
-| [eriksjaastad/fci#6](https://github.com/eriksjaastad/fci/pull/6) | architect-identity[bot] | 1 | 0 | 0 | 0 | #7335 |
+| [eriksjaastad/fci#4](https://github.com/eriksjaastad/fci/pull/4) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 (local match) |
+| [eriksjaastad/fci#5](https://github.com/eriksjaastad/fci/pull/5) | architect-identity[bot] | 1 | 1 | 0 | 1 | #7320 (local match) |
+| [eriksjaastad/fci#6](https://github.com/eriksjaastad/fci/pull/6) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/holoscape#173](https://github.com/eriksjaastad/holoscape/pull/173) | eriksjaastad | 0 | 1 | 0 | 0 | — |
 | [eriksjaastad/holoscape#175](https://github.com/eriksjaastad/holoscape/pull/175) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/holoscape#176](https://github.com/eriksjaastad/holoscape/pull/176) | eriksjaastad | 1 | 1 | 0 | 1 | — |
 | [eriksjaastad/holoscape#177](https://github.com/eriksjaastad/holoscape/pull/177) | eriksjaastad | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/holoscape#178](https://github.com/eriksjaastad/holoscape/pull/178) | eriksjaastad | 1 | 0 | 0 | 1 | — |
-| [eriksjaastad/holoscape#179](https://github.com/eriksjaastad/holoscape/pull/179) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/holoscape#179](https://github.com/eriksjaastad/holoscape/pull/179) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/hypocrisynow#179](https://github.com/eriksjaastad/hypocrisynow/pull/179) | manager-identity[bot] | 1 | 1 | 0 | 1 | — |
 | [eriksjaastad/hypocrisynow#180](https://github.com/eriksjaastad/hypocrisynow/pull/180) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/hypocrisynow#181](https://github.com/eriksjaastad/hypocrisynow/pull/181) | manager-identity[bot] | 1 | 1 | 0 | 3 | — |
 | [eriksjaastad/hypocrisynow#182](https://github.com/eriksjaastad/hypocrisynow/pull/182) | manager-identity[bot] | 1 | 0 | 0 | 3 | — |
 | [eriksjaastad/hypocrisynow#183](https://github.com/eriksjaastad/hypocrisynow/pull/183) | manager-identity[bot] | 1 | 1 | 0 | 1 | — |
-| [eriksjaastad/hypocrisynow#184](https://github.com/eriksjaastad/hypocrisynow/pull/184) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/hypocrisynow#184](https://github.com/eriksjaastad/hypocrisynow/pull/184) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/hypocrisynow#185](https://github.com/eriksjaastad/hypocrisynow/pull/185) | manager-identity[bot] | 1 | 0 | 0 | 2 | — |
 | [eriksjaastad/hypocrisynow#186](https://github.com/eriksjaastad/hypocrisynow/pull/186) | manager-identity[bot] | 1 | 0 | 0 | 1 | — |
 | [eriksjaastad/image-workflow#93](https://github.com/eriksjaastad/image-workflow/pull/93) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/image-workflow#94](https://github.com/eriksjaastad/image-workflow/pull/94) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 |
-| [eriksjaastad/image-workflow#95](https://github.com/eriksjaastad/image-workflow/pull/95) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/image-workflow#94](https://github.com/eriksjaastad/image-workflow/pull/94) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 (local match) |
+| [eriksjaastad/image-workflow#95](https://github.com/eriksjaastad/image-workflow/pull/95) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/job-search#7](https://github.com/eriksjaastad/job-search/pull/7) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/job-search#8](https://github.com/eriksjaastad/job-search/pull/8) | manager-identity[bot] | 1 | 0 | 0 | 18 | — |
 | [eriksjaastad/land-tracker#29](https://github.com/eriksjaastad/land-tracker/pull/29) | architect-identity[bot] | 1 | 1 | 0 | 1 | — |
-| [eriksjaastad/land-tracker#30](https://github.com/eriksjaastad/land-tracker/pull/30) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/land-tracker#30](https://github.com/eriksjaastad/land-tracker/pull/30) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/market-research#16](https://github.com/eriksjaastad/market-research/pull/16) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/market-research#17](https://github.com/eriksjaastad/market-research/pull/17) | manager-identity[bot] | 1 | 1 | 0 | 1 | — |
 | [eriksjaastad/market-research#18](https://github.com/eriksjaastad/market-research/pull/18) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
@@ -131,7 +132,7 @@ Snapshot: 2026-09-23T22:38:11.358522+00:00. Window (UTC, end exclusive): 2026-09
 | [eriksjaastad/market-research#20](https://github.com/eriksjaastad/market-research/pull/20) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/market-research#21](https://github.com/eriksjaastad/market-research/pull/21) | manager-identity[bot] | 1 | 1 | 0 | 2 | — |
 | [eriksjaastad/market-research#22](https://github.com/eriksjaastad/market-research/pull/22) | manager-identity[bot] | 1 | 1 | 0 | 3 | — |
-| [eriksjaastad/market-research#23](https://github.com/eriksjaastad/market-research/pull/23) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/market-research#23](https://github.com/eriksjaastad/market-research/pull/23) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/muffinpanrecipes#128](https://github.com/eriksjaastad/muffinpanrecipes/pull/128) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/muffinpanrecipes#129](https://github.com/eriksjaastad/muffinpanrecipes/pull/129) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/muffinpanrecipes#130](https://github.com/eriksjaastad/muffinpanrecipes/pull/130) | manager-identity[bot] | 1 | 1 | 0 | 1 | — |
@@ -139,31 +140,31 @@ Snapshot: 2026-09-23T22:38:11.358522+00:00. Window (UTC, end exclusive): 2026-09
 | [eriksjaastad/muffinpanrecipes#132](https://github.com/eriksjaastad/muffinpanrecipes/pull/132) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/muffinpanrecipes#133](https://github.com/eriksjaastad/muffinpanrecipes/pull/133) | manager-identity[bot] | 1 | 0 | 0 | 4 | — |
 | [eriksjaastad/muffinpanrecipes#134](https://github.com/eriksjaastad/muffinpanrecipes/pull/134) | manager-identity[bot] | 1 | 0 | 0 | 4 | — |
-| [eriksjaastad/muffinpanrecipes#135](https://github.com/eriksjaastad/muffinpanrecipes/pull/135) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/muffinpanrecipes#135](https://github.com/eriksjaastad/muffinpanrecipes/pull/135) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/picasa2#3](https://github.com/eriksjaastad/picasa2/pull/3) | architect-identity[bot] | 1 | 1 | 0 | 1 | — |
-| [eriksjaastad/picasa2#4](https://github.com/eriksjaastad/picasa2/pull/4) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 |
-| [eriksjaastad/picasa2#5](https://github.com/eriksjaastad/picasa2/pull/5) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7319 |
-| [eriksjaastad/picasa2#6](https://github.com/eriksjaastad/picasa2/pull/6) | architect-identity[bot] | 1 | 0 | 0 | 0 | #7335 |
-| [eriksjaastad/project-tracker#201](https://github.com/eriksjaastad/project-tracker/pull/201) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7446 |
-| [eriksjaastad/project-tracker#202](https://github.com/eriksjaastad/project-tracker/pull/202) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7396 |
-| [eriksjaastad/project-tracker#203](https://github.com/eriksjaastad/project-tracker/pull/203) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7406 |
-| [eriksjaastad/project-tracker#204](https://github.com/eriksjaastad/project-tracker/pull/204) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7543 |
-| [eriksjaastad/project-tracker#205](https://github.com/eriksjaastad/project-tracker/pull/205) | manager-identity[bot] | 1 | 1 | 0 | 2 | #7540 |
-| [eriksjaastad/project-tracker#206](https://github.com/eriksjaastad/project-tracker/pull/206) | architect-identity[bot] | 1 | 1 | 0 | 1 | #7335 |
-| [eriksjaastad/project-tracker#207](https://github.com/eriksjaastad/project-tracker/pull/207) | manager-identity[bot] | 1 | 0 | 0 | 1 | #7549 |
+| [eriksjaastad/picasa2#4](https://github.com/eriksjaastad/picasa2/pull/4) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 (local match) |
+| [eriksjaastad/picasa2#5](https://github.com/eriksjaastad/picasa2/pull/5) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7319 (local match) |
+| [eriksjaastad/picasa2#6](https://github.com/eriksjaastad/picasa2/pull/6) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
+| [eriksjaastad/project-tracker#201](https://github.com/eriksjaastad/project-tracker/pull/201) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7446 (local match) |
+| [eriksjaastad/project-tracker#202](https://github.com/eriksjaastad/project-tracker/pull/202) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7396 (local match) |
+| [eriksjaastad/project-tracker#203](https://github.com/eriksjaastad/project-tracker/pull/203) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7406 (local match) |
+| [eriksjaastad/project-tracker#204](https://github.com/eriksjaastad/project-tracker/pull/204) | manager-identity[bot] | 1 | 1 | 0 | 0 | #7543 (local match) |
+| [eriksjaastad/project-tracker#205](https://github.com/eriksjaastad/project-tracker/pull/205) | manager-identity[bot] | 1 | 1 | 0 | 2 | #7540 (local match) |
+| [eriksjaastad/project-tracker#206](https://github.com/eriksjaastad/project-tracker/pull/206) | architect-identity[bot] | 1 | 1 | 0 | 1 | #7335 (local match) |
+| [eriksjaastad/project-tracker#207](https://github.com/eriksjaastad/project-tracker/pull/207) | manager-identity[bot] | 1 | 0 | 0 | 2 | #7549 (local match) |
 | [eriksjaastad/state-business-tax-skills#12](https://github.com/eriksjaastad/state-business-tax-skills/pull/12) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/state-business-tax-skills#13](https://github.com/eriksjaastad/state-business-tax-skills/pull/13) | architect-identity[bot] | 1 | 0 | 0 | 1 | #7335 |
+| [eriksjaastad/state-business-tax-skills#13](https://github.com/eriksjaastad/state-business-tax-skills/pull/13) | architect-identity[bot] | 1 | 1 | 0 | 1 | #7335 (local match) |
 | [eriksjaastad/synth-insight-labs#23](https://github.com/eriksjaastad/synth-insight-labs/pull/23) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/synth-insight-labs#24](https://github.com/eriksjaastad/synth-insight-labs/pull/24) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 |
-| [eriksjaastad/synth-insight-labs#25](https://github.com/eriksjaastad/synth-insight-labs/pull/25) | manager-identity[bot] | 1 | 0 | 0 | 0 | #7335 |
+| [eriksjaastad/synth-insight-labs#24](https://github.com/eriksjaastad/synth-insight-labs/pull/24) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7324 (local match) |
+| [eriksjaastad/synth-insight-labs#25](https://github.com/eriksjaastad/synth-insight-labs/pull/25) | manager-identity[bot] | 1 | 0 | 0 | 1 | #7335 (local match) |
 | [eriksjaastad/tax-organizer#129](https://github.com/eriksjaastad/tax-organizer/pull/129) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
 | [eriksjaastad/tax-organizer#130](https://github.com/eriksjaastad/tax-organizer/pull/130) | manager-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/tax-organizer#131](https://github.com/eriksjaastad/tax-organizer/pull/131) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/tax-organizer#131](https://github.com/eriksjaastad/tax-organizer/pull/131) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/tools#71](https://github.com/eriksjaastad/tools/pull/71) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/tools#72](https://github.com/eriksjaastad/tools/pull/72) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7318 |
-| [eriksjaastad/tools#73](https://github.com/eriksjaastad/tools/pull/73) | architect-identity[bot] | 1 | 1 | 0 | 1 | #7335 |
+| [eriksjaastad/tools#72](https://github.com/eriksjaastad/tools/pull/72) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7318 (local match) |
+| [eriksjaastad/tools#73](https://github.com/eriksjaastad/tools/pull/73) | architect-identity[bot] | 1 | 1 | 0 | 1 | #7335 (local match) |
 | [eriksjaastad/trading-copilot#40](https://github.com/eriksjaastad/trading-copilot/pull/40) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
-| [eriksjaastad/trading-copilot#41](https://github.com/eriksjaastad/trading-copilot/pull/41) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 |
+| [eriksjaastad/trading-copilot#41](https://github.com/eriksjaastad/trading-copilot/pull/41) | architect-identity[bot] | 1 | 1 | 0 | 0 | #7335 (local match) |
 | [eriksjaastad/wedding-rsvp#1](https://github.com/eriksjaastad/wedding-rsvp/pull/1) | architect-identity[bot] | 1 | 1 | 0 | 0 | — |
 
 ## Review-object evidence
@@ -178,7 +179,7 @@ Snapshot: 2026-09-23T22:38:11.358522+00:00. Window (UTC, end exclusive): 2026-09
 - [eriksjaastad/ai-memory#169](https://github.com/eriksjaastad/ai-memory/pull/169): [5294372367](https://github.com/eriksjaastad/ai-memory/pull/169#pullrequestreview-5294372367) (chatgpt-codex-connector[bot])
 - [eriksjaastad/ai-memory#170](https://github.com/eriksjaastad/ai-memory/pull/170): [5295475146](https://github.com/eriksjaastad/ai-memory/pull/170#pullrequestreview-5295475146) (chatgpt-codex-connector[bot]), [5295560800](https://github.com/eriksjaastad/ai-memory/pull/170#pullrequestreview-5295560800) (chatgpt-codex-connector[bot])
 - [eriksjaastad/ai-memory#171](https://github.com/eriksjaastad/ai-memory/pull/171): [5296305549](https://github.com/eriksjaastad/ai-memory/pull/171#pullrequestreview-5296305549) (chatgpt-codex-connector[bot]), [5296487172](https://github.com/eriksjaastad/ai-memory/pull/171#pullrequestreview-5296487172) (chatgpt-codex-connector[bot]), [5296612561](https://github.com/eriksjaastad/ai-memory/pull/171#pullrequestreview-5296612561) (chatgpt-codex-connector[bot]), [5297020715](https://github.com/eriksjaastad/ai-memory/pull/171#pullrequestreview-5297020715) (chatgpt-codex-connector[bot])
-- [eriksjaastad/ai-memory#174](https://github.com/eriksjaastad/ai-memory/pull/174): [5297402422](https://github.com/eriksjaastad/ai-memory/pull/174#pullrequestreview-5297402422) (chatgpt-codex-connector[bot]), [5297467504](https://github.com/eriksjaastad/ai-memory/pull/174#pullrequestreview-5297467504) (chatgpt-codex-connector[bot]), [5297510935](https://github.com/eriksjaastad/ai-memory/pull/174#pullrequestreview-5297510935) (chatgpt-codex-connector[bot])
+- [eriksjaastad/ai-memory#174](https://github.com/eriksjaastad/ai-memory/pull/174): [5297402422](https://github.com/eriksjaastad/ai-memory/pull/174#pullrequestreview-5297402422) (chatgpt-codex-connector[bot]), [5297467504](https://github.com/eriksjaastad/ai-memory/pull/174#pullrequestreview-5297467504) (chatgpt-codex-connector[bot]), [5297510935](https://github.com/eriksjaastad/ai-memory/pull/174#pullrequestreview-5297510935) (chatgpt-codex-connector[bot]), [5297614784](https://github.com/eriksjaastad/ai-memory/pull/174#pullrequestreview-5297614784) (chatgpt-codex-connector[bot])
 - [eriksjaastad/ai-memory-replay#15](https://github.com/eriksjaastad/ai-memory-replay/pull/15): [5296631492](https://github.com/eriksjaastad/ai-memory-replay/pull/15#pullrequestreview-5296631492) (chatgpt-codex-connector[bot])
 - [eriksjaastad/claude-user-config#101](https://github.com/eriksjaastad/claude-user-config/pull/101): [5286989366](https://github.com/eriksjaastad/claude-user-config/pull/101#pullrequestreview-5286989366) (chatgpt-codex-connector[bot])
 - [eriksjaastad/claude-user-config#102](https://github.com/eriksjaastad/claude-user-config/pull/102): [5295348965](https://github.com/eriksjaastad/claude-user-config/pull/102#pullrequestreview-5295348965) (chatgpt-codex-connector[bot]), [5295482603](https://github.com/eriksjaastad/claude-user-config/pull/102#pullrequestreview-5295482603) (chatgpt-codex-connector[bot]), [5295691086](https://github.com/eriksjaastad/claude-user-config/pull/102#pullrequestreview-5295691086) (chatgpt-codex-connector[bot]), [5296322474](https://github.com/eriksjaastad/claude-user-config/pull/102#pullrequestreview-5296322474) (chatgpt-codex-connector[bot]), [5296736295](https://github.com/eriksjaastad/claude-user-config/pull/102#pullrequestreview-5296736295) (chatgpt-codex-connector[bot]), [5297107818](https://github.com/eriksjaastad/claude-user-config/pull/102#pullrequestreview-5297107818) (chatgpt-codex-connector[bot])
@@ -204,19 +205,17 @@ Snapshot: 2026-09-23T22:38:11.358522+00:00. Window (UTC, end exclusive): 2026-09
 - [eriksjaastad/picasa2#3](https://github.com/eriksjaastad/picasa2/pull/3): [5287337016](https://github.com/eriksjaastad/picasa2/pull/3#pullrequestreview-5287337016) (chatgpt-codex-connector[bot])
 - [eriksjaastad/project-tracker#205](https://github.com/eriksjaastad/project-tracker/pull/205): [5296035242](https://github.com/eriksjaastad/project-tracker/pull/205#pullrequestreview-5296035242) (chatgpt-codex-connector[bot]), [5296118483](https://github.com/eriksjaastad/project-tracker/pull/205#pullrequestreview-5296118483) (chatgpt-codex-connector[bot])
 - [eriksjaastad/project-tracker#206](https://github.com/eriksjaastad/project-tracker/pull/206): [5297221732](https://github.com/eriksjaastad/project-tracker/pull/206#pullrequestreview-5297221732) (chatgpt-codex-connector[bot])
-- [eriksjaastad/project-tracker#207](https://github.com/eriksjaastad/project-tracker/pull/207): [5297566002](https://github.com/eriksjaastad/project-tracker/pull/207#pullrequestreview-5297566002) (chatgpt-codex-connector[bot])
+- [eriksjaastad/project-tracker#207](https://github.com/eriksjaastad/project-tracker/pull/207): [5297566002](https://github.com/eriksjaastad/project-tracker/pull/207#pullrequestreview-5297566002) (chatgpt-codex-connector[bot]), [5297655438](https://github.com/eriksjaastad/project-tracker/pull/207#pullrequestreview-5297655438) (chatgpt-codex-connector[bot])
 - [eriksjaastad/state-business-tax-skills#13](https://github.com/eriksjaastad/state-business-tax-skills/pull/13): [5297571365](https://github.com/eriksjaastad/state-business-tax-skills/pull/13#pullrequestreview-5297571365) (chatgpt-codex-connector[bot])
+- [eriksjaastad/synth-insight-labs#25](https://github.com/eriksjaastad/synth-insight-labs/pull/25): [5297638346](https://github.com/eriksjaastad/synth-insight-labs/pull/25#pullrequestreview-5297638346) (chatgpt-codex-connector[bot])
 - [eriksjaastad/tools#73](https://github.com/eriksjaastad/tools/pull/73): [5297139252](https://github.com/eriksjaastad/tools/pull/73#pullrequestreview-5297139252) (chatgpt-codex-connector[bot])
 
 ## Still open among candidate PRs
 
-- [eriksjaastad/Portfolio-ai#12](https://github.com/eriksjaastad/Portfolio-ai/pull/12) — chore: remove PR label-only check (#7335)
 - [eriksjaastad/agent-runtime-config#85](https://github.com/eriksjaastad/agent-runtime-config/pull/85) — fix: preserve reviewed adapter variants during recovery (#7215)
 - [eriksjaastad/ai-memory#171](https://github.com/eriksjaastad/ai-memory/pull/171) — feat: preserve attributable GitHub review history (#7413)
 - [eriksjaastad/ai-memory#174](https://github.com/eriksjaastad/ai-memory/pull/174) — docs: define protected GitHub history archive (#7552)
 - [eriksjaastad/claude-user-config#102](https://github.com/eriksjaastad/claude-user-config/pull/102) — fix: allow unused input fd and inactive ripgrep preprocessor (#7410)
-- [eriksjaastad/claude-user-config#107](https://github.com/eriksjaastad/claude-user-config/pull/107) — chore: retire CUC PR label check (#7335)
-- [eriksjaastad/fci#6](https://github.com/eriksjaastad/fci/pull/6) — chore: remove PR label-only check (#7335)
 - [eriksjaastad/holoscape#178](https://github.com/eriksjaastad/holoscape/pull/178) — Add burst broker throughput regression coverage
 - [eriksjaastad/hypocrisynow#182](https://github.com/eriksjaastad/hypocrisynow/pull/182) — feat: recover RSS bodies without re-extracting prior claims
 - [eriksjaastad/hypocrisynow#185](https://github.com/eriksjaastad/hypocrisynow/pull/185) — feat: add reviewed funding report publication API
@@ -225,9 +224,7 @@ Snapshot: 2026-09-23T22:38:11.358522+00:00. Window (UTC, end exclusive): 2026-09
 - [eriksjaastad/muffinpanrecipes#131](https://github.com/eriksjaastad/muffinpanrecipes/pull/131) — feat: calibrate conversation voice judge with reference panel
 - [eriksjaastad/muffinpanrecipes#133](https://github.com/eriksjaastad/muffinpanrecipes/pull/133) — feat: add offline three-week memory chain harness
 - [eriksjaastad/muffinpanrecipes#134](https://github.com/eriksjaastad/muffinpanrecipes/pull/134) — feat: add guarded character-memory writing pilot
-- [eriksjaastad/picasa2#6](https://github.com/eriksjaastad/picasa2/pull/6) — chore: remove PR label-only check (#7335)
 - [eriksjaastad/project-tracker#207](https://github.com/eriksjaastad/project-tracker/pull/207) — feat: report cross-identity GitHub activity (#7549)
-- [eriksjaastad/state-business-tax-skills#13](https://github.com/eriksjaastad/state-business-tax-skills/pull/13) — chore: remove PR label-only check (#7335)
 - [eriksjaastad/synth-insight-labs#25](https://github.com/eriksjaastad/synth-insight-labs/pull/25) — chore: remove PR label-only check (#7335)
 
 ## Source coverage and limits
@@ -236,8 +233,8 @@ Snapshot: 2026-09-23T22:38:11.358522+00:00. Window (UTC, end exclusive): 2026-09
 - Reviews: paginated GitHub PR review objects for those candidate PRs, filtered by submitted time. Reviews on PRs absent from the candidate set are not measured. Review comments, issue comments, reactions, requested reviews, and Codex completion summaries are not counted.
 - Actor attribution: opened, merged, and closed PR totals are grouped by the PR author; this report does not identify the person or bot who clicked merge or close. Review totals use the review object's actor.
 - Distinct Codex review executions: **unknown** pending ai-memory #7413 and Project Tracker #7417. Multiple review objects can belong to one execution; a reaction-only completion can have no review object.
-- PT linkage: a trailing `(#card)` in the PR title is verified against unscoped `pt tasks --all` and `pt tasks --all --archived` when available. It does not prove that the PR delivered the full card. The PT index was available.
-- Codex subscription analytics: Erik reported a code review count of 1 in the Codex UI for 'today'; the exact UI period, export, and counting rule are unavailable. GitHub shows 89 submitted review objects on 39 candidate PRs in the stated window. This is a visible discrepancy between different, non-equivalent measures, not a computed missing-review count.
+- PT linkage: a trailing `(#card)` in the PR title is compared with unscoped `pt tasks --all` and `pt tasks --all --archived` when available. Display IDs are machine-local: even a local match is not a verified cross-machine card identity or proof that the PR delivered the card. The local PT index was available.
+- Codex subscription analytics: Erik reported a code review count of 1 in the Codex UI for 'today'; the exact UI period, export, and counting rule are unavailable. GitHub shows 92 submitted review objects on 40 candidate PRs in the stated window. This is a visible discrepancy between different, non-equivalent measures, not a computed missing-review count.
 - Counts are events and PRs, not features, lines of code, labor, GitHub personal-profile credit, or model authorship. No identity migration or historical rewrite was performed.
 
 Reproduce from this repository: `$HOME/.local/bin/uv run scripts/github_activity_report.py --date 2026-09-23 --timezone America/New_York --owner eriksjaastad --codex-reported-reviews 1`. A later run can differ because the day may still be in progress or GitHub indexing/state changed.
