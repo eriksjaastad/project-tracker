@@ -46,6 +46,10 @@ def _response(raw):
         if not separator or not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", key):
             raise EvidenceError("shape", "Malformed GitHub HTTP header")
         key, value = key.lower(), value.strip()
+        # Only these fields affect cached evidence or pagination. Unused
+        # fields (including repeated Vary/Set-Cookie) need no normalization.
+        if key not in {"etag", "link"}:
+            continue
         if key in headers and key != "link":
             raise EvidenceError("shape", "Ambiguous duplicate GitHub HTTP header")
         headers[key] = headers[key] + ", " + value if key in headers else value

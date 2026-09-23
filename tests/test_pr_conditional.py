@@ -192,3 +192,41 @@ def test_deadline_can_be_reset_and_timeout_never_serves_stale(tmp_path):
     transport.run = timeout
     with pytest.raises(EvidenceError, match="timed out"):
         transport.get(FIRST)
+
+
+def test_unused_repeated_headers_do_not_break_200_or_304(tmp_path):
+    repeated = [("Vary", "Accept"), ("vary", "Authorization"),
+                ("Set-Cookie", "synthetic=a"), ("Set-Cookie", "synthetic=b"),
+                ("X-Proxy-Trace", "one"), ("X-Proxy-Trace", "two")]
+    runner = Runner(
+        (FIRST, response(body=[{"id": 1}], headers=[("ETag", '"v1"'), *repeated])),
+        (FIRST, response(304, headers=repeated)),
+    )
+    transport = ConditionalGhaTransport(tmp_path, run=runner)
+    assert transport.get(FIRST) == [{"id": 1}]
+    assert transport.get(FIRST) == [{"id": 1}]
+    assert 'If-None-Match: "v1"' in runner.calls[1][0]
+    assert not runner.responses
+
+
+def test_repeated_link_headers_retain_all_relations(tmp_path):
+    runner = Runner(
+        (FIRST, response(body=[], headers=[("Link", LINK),
+            ("link", f'<https://api.github.com/{SECOND}>; rel="last"')])),
+        (SECOND, response(body=[{"id": 2}])),
+    )
+    assert ConditionalGhaTransport(tmp_path, run=runner).get(FIRST, paginate=True) == [[], [{"id": 2}]]
+    assert not runner.responses
+
+
+@pytest.mark.parametrize("status", [200, 304])
+def test_repeated_etag_remains_an_ambiguity_error(tmp_path, status):
+    runner = Runner(
+        (FIRST, response(body=[{"id": 1}], headers=[("ETag", '"v1"')])),
+        (FIRST, response(status, body=[{"id": 2}], headers=[("ETag", '"v1"'), ("etag", '"v2"')])),
+    )
+    transport = ConditionalGhaTransport(tmp_path, run=runner)
+    assert transport.get(FIRST) == [{"id": 1}]
+    with pytest.raises(EvidenceError):
+        transport.get(FIRST)
+    assert len(runner.calls) == 2
