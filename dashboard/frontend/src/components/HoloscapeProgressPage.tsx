@@ -30,21 +30,29 @@ const charts: Array<{ title: string; note: string; source: keyof HoloscapeSeries
     { key: 'ci_pending', label: 'Pending', color: '#ffcc66' },
     { key: 'ci_other', label: 'Other', color: '#aeb4c6' },
   ] },
-  { title: 'Hermes and DeepSeek sessions', note: 'Daily starts by session kind. The DeepSeek CLI is separate from Hermes’s native delegates.', source: 'hermes', lines: [
+  { title: 'Hermes manager sessions', note: 'Daily manager session starts.', source: 'hermes', lines: [
     { key: 'manager_sessions', label: 'Manager', color: '#68b5ff' },
+  ] },
+  { title: 'Delegate and DeepSeek sessions', note: 'Daily worker starts. DeepSeek CLI is separate from Hermes’s native delegates.', source: 'hermes', lines: [
     { key: 'delegate_sessions', label: 'Hermes delegates', color: '#c2a5ff' },
     { key: 'deepseek_cli_sessions', label: 'DeepSeek CLI', color: '#ffcc66' },
   ] },
-  { title: 'Session time', note: 'Summed minutes for completed sessions; concurrent sessions may overlap.', source: 'hermes', lines: [
+  { title: 'Manager session time', note: 'Summed manager minutes for completed sessions; concurrent sessions may overlap.', source: 'hermes', lines: [
     { key: 'manager_session_minutes', label: 'Manager minutes', color: '#68b5ff' },
+  ] },
+  { title: 'Worker session time', note: 'Summed worker minutes for completed sessions; concurrent sessions may overlap.', source: 'hermes', lines: [
     { key: 'delegate_session_minutes', label: 'Delegate minutes', color: '#c2a5ff' },
     { key: 'deepseek_cli_session_minutes', label: 'DeepSeek CLI minutes', color: '#ffcc66' },
   ] },
-  { title: 'Token volume', note: 'Input and output tokens by recorded session kind. Counts are not dollars.', source: 'hermes', lines: [
+  { title: 'Manager tokens', note: 'Daily input and output tokens recorded for Hermes manager sessions.', source: 'hermes', lines: [
     { key: 'manager_input_tokens', label: 'Manager input', color: '#68b5ff' },
     { key: 'manager_output_tokens', label: 'Manager output', color: '#3d7fcc' },
+  ] },
+  { title: 'Delegate tokens', note: 'Daily input and output tokens recorded for Hermes native delegates.', source: 'hermes', lines: [
     { key: 'delegate_input_tokens', label: 'Delegate input', color: '#c2a5ff' },
     { key: 'delegate_output_tokens', label: 'Delegate output', color: '#8d68d0' },
+  ] },
+  { title: 'DeepSeek CLI tokens', note: 'Daily input and output tokens; separate scale from Hermes. Counts are not dollars.', source: 'hermes', lines: [
     { key: 'deepseek_cli_input_tokens', label: 'DeepSeek input', color: '#ffcc66' },
     { key: 'deepseek_cli_output_tokens', label: 'DeepSeek output', color: '#d8993b' },
   ] },
@@ -83,7 +91,7 @@ function SeriesChart({ title, note, source, lines, rows }: {
         <LineChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
           <CartesianGrid stroke="#364052" strokeDasharray="3 3" />
           <XAxis dataKey="date" tickFormatter={displayDate} stroke="#acb5c3" minTickGap={16} />
-          <YAxis stroke="#acb5c3" width={52} allowDecimals={title === 'Session time'} />
+          <YAxis stroke="#acb5c3" width={52} allowDecimals={title.endsWith('session time')} />
           <Tooltip labelFormatter={value => `${String(value)} · ${title}`} contentStyle={{ background: '#1e2530', border: '1px solid #47536a' }} />
           <Legend />
           {lines.map(line => <Line key={line.key} type="linear" dataKey={line.key} name={line.label}
