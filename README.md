@@ -60,7 +60,7 @@ pt sync-project project-tracker       # Refresh one project only
 
 ## CI
 
-CI runs the test suite (`.github/workflows/tests.yml`) and requires a type label (`feature`, `bug`, `chore`, etc.). Local preflight precedes publication; the exact-head Codex GitHub review and CI gates are defined by `pt info get pr_merge_policy`.
+CI runs the test suite (`.github/workflows/tests.yml`) and no longer enforces type labels. Local preflight precedes publication; the exact-head Codex GitHub review and CI gates are defined by `pt info get pr_merge_policy`. Follow the current PR procedure for authoring requirements until its separate label-rule update lands.
 
 After opening or updating a PR, start `pt pr settle` and keep the owning agent
 attached to its event stream. Follow the [PR settle runbook](docs/PR_SETTLE.md)
