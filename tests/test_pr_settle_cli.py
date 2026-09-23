@@ -182,3 +182,39 @@ def test_completed_clean_third_review_hands_back_merge_without_human_hold(storag
     assert saved["events"][-1]["action"] == "recheck_and_merge"
     assert len(saved["cycles"]) == 3
     assert not any(event["action"] == "notify_erik_and_stop" for event in saved["events"])
+
+
+@pytest.mark.parametrize("change", ["acknowledgment", "head"])
+def test_failed_request_keeps_fresh_observation_without_another_reservation(storage, monkeypatch, change):
+    monkeypatch.setattr(cli.time, "time", lambda: 100)
+    state = cli.engine.fresh(storage.repo, 7, storage.owner, 0, 180)
+    current = snapshot()
+    current["pr_end"]["state"] = "open"
+    cli.engine.consume(state, current, 10)
+    url = "https://github.com/owner/repo/pull/7"
+    cli.engine.reconcile(state, [], [url], "No prior executions", 10, snapshot_id=state["snapshot_id"])
+    cli.engine.request(state, "a" * 40, "initial", 11)
+    storage.save(state)
+    observed = deepcopy(current)
+    if change == "acknowledgment":
+        observed["pr_reactions"] = [dict(id=77, content="eyes", created_at="1970-01-01T00:01:30Z")]
+        observed["actor_verification"] = [dict(source="pr_reactions", id=77, connector_verified=True)]
+    else:
+        observed["head_sha"] = "b" * 40
+    monkeypatch.setattr(cli, "collect", lambda *a, **kw: observed)
+    result = CliRunner().invoke(cli.pr_group, ["request", "7", "--repo", "owner/repo", "--owner", "agent-1",
+        "--head", "a" * 40, "--kind", "thorough"])
+    assert result.exit_code != 0 and "assess_external_evidence" in result.output
+    saved = storage.load()
+    assert saved["snapshot"] == observed and saved["polls"] == 2
+    assert saved["events"][-1]["type"] == "evidence"
+    assert len(saved["requests"]) == len(saved["cycles"]) == 1
+    if change == "acknowledgment":
+        assert saved["cycles"][0]["status"] == "acknowledged"
+        rejected = deepcopy(saved["cycles"])
+        rejected[0]["status"] = "rejected"
+        with pytest.raises(ValueError, match="Acknowledged executions"):
+            cli.engine.reconcile(saved, rejected, [url], "Wrongly rejected", 101,
+                                 snapshot_id=saved["snapshot_id"])
+    else:
+        assert saved["head"] == "b" * 40
