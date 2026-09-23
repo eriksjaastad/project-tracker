@@ -60,4 +60,8 @@ pt sync-project project-tracker       # Refresh one project only
 
 ## CI
 
-CI runs the test suite (`.github/workflows/tests.yml`) and requires a type label (`feature`, `bug`, `chore`, etc.). Code review runs locally via the `code-reviewer` sub-agent before a PR is opened — the remote Claude review workflow was removed in `0afb5a2`, and there is no auto-merge.
+CI runs the test suite (`.github/workflows/tests.yml`) and requires a type label (`feature`, `bug`, `chore`, etc.). Local preflight precedes publication; the exact-head Codex GitHub review and CI gates are defined by `pt info get pr_merge_policy`.
+
+After opening or updating a PR, start `pt pr settle` and keep the owning agent
+attached to its event stream. Follow the [PR settle runbook](docs/PR_SETTLE.md)
+for evidence assessment, review limits, hold/stop controls and merge handoff.
