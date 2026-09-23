@@ -44,22 +44,46 @@ def test_paginated_github_api_flattens_every_page(monkeypatch):
     monkeypatch.setattr(progress.subprocess, "run", fake_run)
     assert len(progress._gha_json(["repos/x/y/pulls/1/commits?per_page=100"], paginated=True)) == 101
 
+    def fake_run_objects(cmd, **kwargs):
+        return SimpleNamespace(returncode=0, stdout=json.dumps([
+            {"workflow_runs": [{"id": 1}]}, {"workflow_runs": [{"id": 2}]},
+        ]))
 
-def test_github_marks_merges_separately_from_experiment_commits(monkeypatch):
+    monkeypatch.setattr(progress.subprocess, "run", fake_run_objects)
+    assert len(progress._gha_json(["repos/x/y/actions/runs"], paginated=True,
+                                  page_key="workflow_runs")) == 2
+
+
+def test_github_tracks_later_pr_work_and_ci_failures(monkeypatch):
     commit = lambda stamp: {"commit": {"committer": {"date": stamp}}}
 
-    def fake_api(args, *, paginated=False):
+    def fake_api(args, *, paginated=False, page_key=None):
         path = args[0]
         if path.endswith("/pulls/173"):
             return {"state": "closed", "merged": True, "head": {"sha": "abc"},
                     "created_at": "2026-09-19T14:35:20Z", "merged_at": "2026-09-23T19:24:42Z"}
         if "/commits?" in path:
-            return [commit("2026-09-20T02:00:00Z"), commit("2026-09-20T15:00:00Z")]
+            return ([{**commit("2026-09-20T02:00:00Z"), "sha": "first"},
+                     {**commit("2026-09-20T15:00:00Z"), "sha": "second"}]
+                    if "/173/" in path else
+                    [{**commit("2026-09-24T12:00:00Z"), "sha": "later"}])
         if "/reviews?" in path:
-            return []
+            return [] if "/173/" in path else [
+                {"submitted_at": "2026-09-24T13:00:00Z", "state": "COMMENTED"}]
+        if "/actions/runs?" in path:
+            assert page_key == "workflow_runs"
+            return ([{"id": 1, "name": "check-label", "status": "completed",
+                      "conclusion": "failure", "created_at": "2026-09-20T12:00:00Z"},
+                     {"id": 2, "name": "check-label", "status": "completed",
+                      "conclusion": "success", "created_at": "2026-09-23T18:00:00Z"}]
+                    if "branch=experiment" in path else
+                    [{"id": 3, "name": "pytest", "status": "in_progress",
+                      "conclusion": None, "created_at": "2026-09-24T14:00:00Z"}])
         return [
-            {"created_at": "2026-09-19T14:35:20Z", "merged_at": "2026-09-23T19:24:42Z"},
-            {"created_at": "2026-09-21T14:00:00Z", "merged_at": None},
+            {"number": 173, "head": {"ref": "experiment"},
+             "created_at": "2026-09-19T14:35:20Z", "merged_at": "2026-09-23T19:24:42Z"},
+            {"number": 176, "head": {"ref": "next-branch"},
+             "created_at": "2026-09-24T14:00:00Z", "merged_at": None},
         ]
 
     monkeypatch.setattr(progress, "_gha_json", fake_api)
@@ -68,6 +92,12 @@ def test_github_marks_merges_separately_from_experiment_commits(monkeypatch):
     assert data["daily"]["2026-09-19"]["commits"] == 1  # 02:00 UTC is prior NY day
     assert data["daily"]["2026-09-20"]["commits"] == 1
     assert data["daily"]["2026-09-23"]["prs_merged"] == 1
+    assert data["daily"]["2026-09-24"]["commits"] == 1
+    assert data["daily"]["2026-09-24"]["github_reviews"] == 1
+    assert data["daily"]["2026-09-20"]["ci_failure"] == 1
+    assert data["daily"]["2026-09-23"]["ci_success"] == 1
+    assert data["daily"]["2026-09-24"]["ci_pending"] == 1
+    assert data["pr"]["workflow_names"] == ["check-label", "pytest"]
     assert sum(day["prs_opened"] for day in data["daily"].values()) == 2
 
 
