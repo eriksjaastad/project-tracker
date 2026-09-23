@@ -16,7 +16,8 @@ def cycle(id="initial-observed", head="a" * 40, status="completed", at=0):
 
 def history(state, cycles=None, now=0):
     return reconcile(state, state["cycles"] if cycles is None else cycles, PROOF,
-                     "Owner reconciled the complete execution history", now)
+                     "Owner reconciled the complete execution history", now,
+                     snapshot_id=state["snapshot_id"])
 
 
 def snapshot(head="a" * 40, finding=False):
@@ -307,3 +308,63 @@ def test_malformed_execution_records_leave_history_unchanged(bad):
     with pytest.raises(ValueError):
         history(state, [bad], 1)
     assert state == before
+
+
+def test_stale_history_cannot_stamp_a_new_snapshot_or_authorize_a_request():
+    state = active()
+    inspected = state["snapshot_id"]
+    prepared = [cycle()]
+    changed = snapshot()
+    changed["reviews"] = [dict(id=99, commit_id=state["head"], state="COMMENTED")]
+    consume(state, changed, 1)
+    before = deepcopy(state)
+    with pytest.raises(ValueError, match="inspected current snapshot"):
+        reconcile(state, prepared, PROOF, "Prepared before the new observation", 2,
+                  snapshot_id=inspected)
+    assert state == before
+    with pytest.raises(ValueError, match="Reconciled history"):
+        request(state, state["head"], "thorough", 3)
+    history(state, prepared, 4)
+    assert request(state, state["head"], "thorough", 5)[0]["action"] == "owner_trigger_reserved_request"
+
+
+@pytest.mark.parametrize("intermediate_unknown", [False, True])
+def test_acknowledged_execution_cannot_be_removed_from_count(intermediate_unknown):
+    state = active()
+    acknowledged = cycle("first", status="acknowledged")
+    acknowledged["acknowledged_at"] = 1
+    history(state, [acknowledged], 1)
+    if intermediate_unknown:
+        acknowledged["status"] = "unknown"
+        history(state, [acknowledged], 2)
+    rejected = {**acknowledged, "status": "rejected"}
+    before = deepcopy(state)
+    with pytest.raises(ValueError, match="Acknowledged executions"):
+        history(state, [rejected], 3)
+    assert state == before
+    # Removing the timestamp cannot erase the already recorded acknowledgment either.
+    rejected.pop("acknowledged_at")
+    with pytest.raises(ValueError, match="Acknowledged executions"):
+        history(state, [rejected], 3)
+    assert state == before
+
+
+def test_new_rejected_record_cannot_contain_acknowledgment_evidence():
+    state = active()
+    before = deepcopy(state)
+    with pytest.raises(ValueError, match="Acknowledged executions"):
+        history(state, [{**cycle(status="rejected"), "acknowledged_at": 0}], 1)
+    assert state == before
+
+
+def test_requested_then_confirmed_rejected_does_not_count_as_execution():
+    state = active()
+    request(state, state["head"], "initial", 1)
+    rejected = deepcopy(state["cycles"])
+    rejected[0]["status"] = "rejected"
+    events = history(state, rejected, 2)
+    assert state["status"] == "active" and not state["review_hold"]
+    assert events[-1]["counters"]["cycles"] == 0
+    events = request(state, state["head"], "initial", 3)
+    assert events[0]["counters"]["cycles"] == 1
+    assert len(state["cycles"]) == 2 and state["cycles"][0]["status"] == "rejected"
