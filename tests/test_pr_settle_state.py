@@ -440,3 +440,38 @@ def test_requested_then_confirmed_rejected_does_not_count_as_execution():
     events = request(state, state["head"], "initial", 3)
     assert events[0]["counters"]["cycles"] == 1
     assert len(state["cycles"]) == 2 and state["cycles"][0]["status"] == "rejected"
+
+
+@pytest.mark.parametrize("source,fields,ack", [
+    ("issue_comments", {"body": "Connect your GitHub account to use Codex."}, False),
+    ("issue_comments", {"body": "Unrelated update"}, False),
+    ("pr_reactions", {"content": "heart"}, False),
+    ("pr_reactions", {"content": "eyes"}, True),
+    ("comment_reactions:82", {"content": "+1"}, True),
+    ("reviews", {"commit_id": "a" * 40, "state": "COMMENTED"}, True),
+    ("reviews", {"commit_id": "a" * 40, "state": "PENDING"}, True),
+    ("reviews", {"commit_id": "b" * 40, "state": "COMMENTED"}, False),
+])
+@pytest.mark.parametrize("preexisting", [False, True])
+def test_only_new_acknowledgment_shapes_make_rejection_impossible(source, fields, ack, preexisting):
+    state, data = active(), snapshot()
+    rows = data["comment_reactions"].setdefault("82", []) if source.startswith("comment_reactions:") else data.setdefault(source, [])
+    row = {"id": 90, **fields}
+    data["actor_verification"].append(dict(source=source, id=90, connector_verified=True))
+    if preexisting:
+        rows.append({**row, "body": "Pre-request object"})
+    consume(state, data, 1)
+    history(state, now=1)
+    request(state, state["head"], "initial", 2)
+    rows[:] = [{**row, "body": fields.get("body", "Updated object")}]
+    consume(state, data, 60)
+    acknowledged = ack and not preexisting
+    assert ("acknowledged_at" in state["cycles"][0]) is acknowledged
+    rejected = deepcopy(state["cycles"])
+    rejected[0].update(status="rejected")
+    if acknowledged:
+        with pytest.raises(ValueError, match="Acknowledged executions"):
+            history(state, rejected, 61)
+    else:
+        assert history(state, rejected, 61)[-1]["counters"]["cycles"] == 0
+        assert state["status"] == "active"
