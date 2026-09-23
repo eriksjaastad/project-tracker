@@ -1,4 +1,4 @@
-"""Keep GitHub subprocess collection off the dashboard's request thread."""
+"""Keep slow source collection off the dashboard's request thread."""
 
 import logging
 import math
@@ -9,13 +9,13 @@ logger = logging.getLogger(__name__)
 
 
 class GitHubCache:
-    """One collector per process; readers never wait for GitHub.
+    """One collector per process; readers never wait for its source.
 
     Keep the last successful snapshot on refresh failures and throttle retries.
     The daemon worker follows the dashboard's existing background-thread model.
     """
 
-    def __init__(self, ttl=300, retry_delay=60, clock=monotonic):
+    def __init__(self, ttl=300, retry_delay=60, clock=monotonic, label="GitHub"):
         self._ttl = ttl
         self._retry_delay = retry_delay
         self._clock = clock
@@ -25,6 +25,7 @@ class GitHubCache:
         self._next_attempt = 0
         self._refreshing = False
         self._error = None
+        self._label = label
 
     def read(self, fetch):
         with self._lock:
@@ -38,7 +39,7 @@ class GitHubCache:
                         name="github-refresh",
                     ).start()
                 except Exception:
-                    logger.exception("Could not start GitHub refresh")
+                    logger.exception("Could not start %s refresh", self._label)
                     self._failed(now)
 
             return {
@@ -53,7 +54,7 @@ class GitHubCache:
             }
 
     def _failed(self, now):
-        self._error = "GitHub refresh failed. Retrying shortly."
+        self._error = f"{self._label} refresh failed. Retrying shortly."
         self._next_attempt = now + self._retry_delay
         self._refreshing = False
 
@@ -63,7 +64,7 @@ class GitHubCache:
             if not isinstance(data, dict) or data.get("error"):
                 raise ValueError("GitHub collector did not return a successful snapshot")
         except Exception:
-            logger.exception("GitHub refresh failed")
+            logger.exception("%s refresh failed", self._label)
             with self._lock:
                 self._failed(self._clock())
         else:

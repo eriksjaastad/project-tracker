@@ -630,6 +630,24 @@ class ProjectTrackerOps:
         finally:
             conn.close()
 
+    def task_history_events(self, start_iso: str, project_id: str) -> list[dict]:
+        """Read dated status events for one project's progress charts.
+
+        Keep the original timestamps: the dashboard converts them to one
+        display timezone alongside GitHub and Hermes events.
+        """
+        conn = self._tracker_conn()
+        try:
+            rows = conn.execute(
+                "SELECT timestamp, event_type, old_status, new_status "
+                "FROM task_history WHERE project_id = ? AND timestamp >= ? "
+                "ORDER BY timestamp",
+                (project_id, start_iso),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
     # -- backup and restore -------------------------------------------------
 
     _BACKUP_RETENTION_DAYS = 30
