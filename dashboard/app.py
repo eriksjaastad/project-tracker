@@ -3487,6 +3487,70 @@ async def get_api_cost_stats(
     }
 
 
+# --- Jobs API Endpoints (#7396) ---
+
+class JobSubmissionRequest(BaseModel):
+    submitted_at: Optional[str] = None
+    resume_path: Optional[str] = None
+    cover_letter_path: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@app.get("/api/jobs")
+async def list_open_jobs():
+    try:
+        return {"jobs": DatabaseManager().get_open_jobs()}
+    except Exception:
+        logger.exception("Failed to list open jobs")
+        raise HTTPException(status_code=500, detail="Failed to list jobs")
+
+
+@app.get("/api/jobs/submissions")
+async def list_job_submissions():
+    try:
+        return {"jobs": DatabaseManager().get_submitted_jobs()}
+    except Exception:
+        logger.exception("Failed to list job submissions")
+        raise HTTPException(status_code=500, detail="Failed to list submissions")
+
+
+@app.get("/api/jobs/stats")
+async def job_stats():
+    try:
+        return DatabaseManager().get_job_stats()
+    except Exception:
+        logger.exception("Failed to read job stats")
+        raise HTTPException(status_code=500, detail="Failed to read job stats")
+
+
+@app.delete("/api/jobs/{job_id}")
+async def dismiss_job(job_id: int):
+    try:
+        job = DatabaseManager().soft_delete_job(job_id)
+    except Exception:
+        logger.exception("Failed to dismiss job %s", job_id)
+        raise HTTPException(status_code=500, detail="Failed to dismiss job")
+    if job is None:
+        raise HTTPException(status_code=404, detail="Open job not found")
+    return {"job": job}
+
+
+@app.post("/api/jobs/{job_id}/submissions", status_code=201)
+async def record_job_submission(job_id: int, payload: JobSubmissionRequest):
+    try:
+        submission = DatabaseManager().add_job_submission(
+            job_id, **payload.model_dump()
+        )
+    except ValueError:
+        raise
+    except Exception:
+        logger.exception("Failed to record submission for job %s", job_id)
+        raise HTTPException(status_code=500, detail="Failed to record submission")
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Open job not found")
+    return {"submission": submission}
+
+
 # --- Ideas API Endpoints (Task #4583) ---
 
 class IdeaCreateRequest(BaseModel):
