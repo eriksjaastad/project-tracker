@@ -136,6 +136,13 @@ NAVIGATION_ITEMS = [
         "navigation_type": "spa",
     },
     {
+        "id": "holoscape",
+        "label": "Holoscape",
+        "href": "/holoscape",
+        "match_prefixes": ["/holoscape"],
+        "navigation_type": "spa",
+    },
+    {
         "id": "calendar",
         "label": "Calendar",
         "href": "/calendar",
@@ -255,6 +262,7 @@ async def serve_spa_shell(request: Request):
 @app.get("/kanban", response_class=HTMLResponse)
 @app.get("/kanban/{project}", response_class=HTMLResponse)
 @app.get("/agentic", response_class=HTMLResponse)
+@app.get("/holoscape", response_class=HTMLResponse)
 @app.get("/calendar", response_class=HTMLResponse)
 @app.get("/agent-chat", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
