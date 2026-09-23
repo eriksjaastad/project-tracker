@@ -21,18 +21,22 @@ def snapshot():
 
 
 def test_foreground_delivery_is_durable_and_can_be_acknowledged(storage, monkeypatch):
-    monkeypatch.setattr(cli, "collect", lambda *a, **kw: snapshot())
+    def collect(*args, **kwargs):
+        assert kwargs["request_comment_ids"] == [82]
+        return snapshot()
+    monkeypatch.setattr(cli, "collect", collect)
     monkeypatch.setenv("PT_CALLER_CWD", "/synthetic/owner-repo")
     seen = []
     monkeypatch.setattr(cli, "ConditionalGhaTransport", lambda cwd: seen.append(cwd) or type("Transport", (), {})())
     args = ["7", "--repo", "owner/repo", "--owner", "agent-1"]
     runner = CliRunner()
-    result = runner.invoke(cli.pr_group, ["settle", *args])
+    result = runner.invoke(cli.pr_group, ["settle", *args, "--request-comment-id", "82"])
     assert result.exit_code == 0, result.output
     events = [json.loads(line) for line in result.output.splitlines()]
     assert events[-1]["type"] == "closed" and events[-1]["head"] == "a" * 40
     assert str(seen[0]) == "/synthetic/owner-repo"
     assert storage.load()["events"] == events
+    assert storage.load()["request_comment_ids"] == [82]
     assert runner.invoke(cli.pr_group, ["acknowledge", *args, "--event", str(events[-1]["seq"])]).exit_code == 0
     assert runner.invoke(cli.pr_group, ["settle", *args]).output == ""
 
@@ -184,24 +188,34 @@ def test_completed_clean_third_review_hands_back_merge_without_human_hold(storag
     assert not any(event["action"] == "notify_erik_and_stop" for event in saved["events"])
 
 
-@pytest.mark.parametrize("change", ["acknowledgment", "head"])
+@pytest.mark.parametrize("change", ["acknowledgment", "comment_acknowledgment", "head"])
 def test_failed_request_keeps_fresh_observation_without_another_reservation(storage, monkeypatch, change):
     monkeypatch.setattr(cli.time, "time", lambda: 100)
     state = cli.engine.fresh(storage.repo, 7, storage.owner, 0, 180)
     current = snapshot()
     current["pr_end"]["state"] = "open"
+    current["comment_reactions"] = {"82": []}
+    state["request_comment_ids"] = [82]
     cli.engine.consume(state, current, 10)
     url = "https://github.com/owner/repo/pull/7"
     cli.engine.reconcile(state, [], [url], "No prior executions", 10, snapshot_id=state["snapshot_id"])
     cli.engine.request(state, "a" * 40, "initial", 11)
     storage.save(state)
     observed = deepcopy(current)
-    if change == "acknowledgment":
-        observed["pr_reactions"] = [dict(id=77, content="eyes", created_at="1970-01-01T00:01:30Z")]
-        observed["actor_verification"] = [dict(source="pr_reactions", id=77, connector_verified=True)]
+    if change != "head":
+        reaction = dict(id=77, content="eyes", created_at="1970-01-01T00:01:30Z")
+        source = "comment_reactions:82" if change == "comment_acknowledgment" else "pr_reactions"
+        if change == "comment_acknowledgment":
+            observed["comment_reactions"]["82"] = [reaction]
+        else:
+            observed["pr_reactions"] = [reaction]
+        observed["actor_verification"] = [dict(source=source, id=77, connector_verified=True)]
     else:
         observed["head_sha"] = "b" * 40
-    monkeypatch.setattr(cli, "collect", lambda *a, **kw: observed)
+    def collect(*args, **kwargs):
+        assert kwargs["request_comment_ids"] == [82]
+        return observed
+    monkeypatch.setattr(cli, "collect", collect)
     result = CliRunner().invoke(cli.pr_group, ["request", "7", "--repo", "owner/repo", "--owner", "agent-1",
         "--head", "a" * 40, "--kind", "thorough"])
     assert result.exit_code != 0 and "assess_external_evidence" in result.output
@@ -209,7 +223,7 @@ def test_failed_request_keeps_fresh_observation_without_another_reservation(stor
     assert saved["snapshot"] == observed and saved["polls"] == 2
     assert saved["events"][-1]["type"] == "evidence"
     assert len(saved["requests"]) == len(saved["cycles"]) == 1
-    if change == "acknowledgment":
+    if change != "head":
         assert saved["cycles"][0]["status"] == "acknowledged"
         rejected = deepcopy(saved["cycles"])
         rejected[0]["status"] = "rejected"
@@ -218,3 +232,93 @@ def test_failed_request_keeps_fresh_observation_without_another_reservation(stor
                                  snapshot_id=saved["snapshot_id"])
     else:
         assert saved["head"] == "b" * 40
+
+
+def test_comment_acknowledgment_poll_after_five_minutes_preserves_active_execution(storage, monkeypatch):
+    monkeypatch.setattr(cli.time, "time", lambda: 303)
+    state = cli.engine.fresh(storage.repo, 7, storage.owner, 0, 180)
+    current = snapshot()
+    current.update(pr_end={"state": "open", "draft": False}, comment_reactions={"82": []})
+    cli.engine.consume(state, current, 1)
+    cli.engine.reconcile(state, [], ["https://github.com/owner/repo/pull/7"], "No prior execution", 1,
+                         snapshot_id=state["snapshot_id"])
+    cli.engine.request(state, "a" * 40, "initial", 2)
+    state.update(status="held", request_comment_ids=[82])
+    storage.save(state)
+    observed = deepcopy(current)
+    observed["comment_reactions"]["82"] = [dict(id=77, content="eyes", created_at="1970-01-01T00:01:00Z")]
+    observed["actor_verification"] = [dict(source="comment_reactions:82", id=77, connector_verified=True)]
+    def collect(*args, **kwargs):
+        assert kwargs["request_comment_ids"] == [82]
+        return observed
+    def pause(_seconds):
+        state = storage.load()
+        assert state["status"] == "active" and state["cycles"][0]["status"] == "acknowledged"
+        state["status"] = "held"
+        storage.save(state)
+    monkeypatch.setattr(cli, "collect", collect)
+    monkeypatch.setattr(cli.time, "sleep", pause)
+    result = CliRunner().invoke(cli.pr_group, ["settle", "7", "--repo", "owner/repo", "--owner", "agent-1", "--resume"])
+    assert result.exit_code == 0, result.output
+    assert storage.load()["cycles"][0]["acknowledged_at"] == 60
+    assert "notify_erik_and_stop" not in result.output
+
+
+def test_resume_adds_comment_ids_without_resetting_history_or_deadline(storage, monkeypatch):
+    monkeypatch.setattr(cli.time, "time", lambda: 100)
+    state = cli.engine.fresh(storage.repo, 7, storage.owner, 0, 180)
+    current = snapshot()
+    current["pr_end"]["state"] = "open"
+    cli.engine.consume(state, current, 1)
+    assert state["snapshot_id"] is not None
+    state.update(status="held", polls=7, request_comment_ids=[82])
+    storage.save(state)
+    def collect(*args, **kwargs):
+        assert kwargs["request_comment_ids"] == [82, 99]
+        assert storage.load()["snapshot_id"] is None  # Old evidence cannot clear newly added sources.
+        return snapshot()
+    monkeypatch.setattr(cli, "collect", collect)
+    args = ["7", "--repo", "owner/repo", "--owner", "agent-1"]
+    result = CliRunner().invoke(cli.pr_group, ["settle", *args, "--resume", "--request-comment-id", "99", "--request-comment-id", "82"])
+    assert result.exit_code == 0, result.output
+    saved = storage.load()
+    assert saved["polls"] == 8 and saved["deadline"] == state["deadline"]
+    assert CliRunner().invoke(cli.pr_group, ["settle", *args]).exit_code == 0
+    assert storage.load()["request_comment_ids"] == [82, 99]
+    assert storage.load()["polls"] == 8
+
+
+@pytest.mark.parametrize("bad", [None, "82", [0], [-1], [True], ["82"]])
+def test_invalid_persisted_comment_ids_fail_without_rewrite(storage, bad):
+    state = cli.engine.fresh(storage.repo, 7, storage.owner, 0, 180)
+    state["request_comment_ids"] = bad
+    storage.save(state)
+    before = storage.path.read_text()
+    with pytest.raises(click.ClickException, match="Corrupt"):
+        storage.load()
+    assert storage.path.read_text() == before
+
+
+@pytest.mark.parametrize("options", [["--request-comment-id", "0"], ["--request-comment-id", "-1"],
+    ["--hold", "--request-comment-id", "82"], ["--stop", "--request-comment-id", "82"]])
+def test_invalid_comment_options_never_start_or_ignore_configuration(storage, options):
+    result = CliRunner().invoke(cli.pr_group, ["settle", "7", "--repo", "owner/repo", "--owner", "agent-1", *options])
+    assert result.exit_code != 0 and not storage.path.exists()
+
+
+def test_request_rejects_configuration_changed_during_collection(storage, monkeypatch):
+    state = cli.engine.fresh(storage.repo, 7, storage.owner, 0, 180)
+    state["request_comment_ids"] = [82]
+    storage.save(state)
+    def collect(*args, **kwargs):
+        assert kwargs["request_comment_ids"] == [82]
+        newer = storage.load()
+        newer["request_comment_ids"] = [82, 99]
+        storage.save(newer)
+        return snapshot()
+    monkeypatch.setattr(cli, "collect", collect)
+    result = CliRunner().invoke(cli.pr_group, ["request", "7", "--repo", "owner/repo", "--owner", "agent-1",
+        "--head", "a" * 40, "--kind", "initial"])
+    assert result.exit_code != 0 and "configuration changed" in result.output
+    saved = storage.load()
+    assert saved["request_comment_ids"] == [82, 99] and saved["snapshot"] is None and saved["requests"] == []
