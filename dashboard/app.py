@@ -2802,6 +2802,16 @@ async def agentic_summary(days: int = 30, project_id: Optional[str] = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to build agentic summary"
         )
+
+
+@app.get("/api/holoscape/series")
+async def holoscape_series():
+    """Source-labeled daily progress for the temporary Holoscape page."""
+    from dashboard.holoscape_progress import progress_snapshot
+
+    return progress_snapshot()
+
+
 # --- Agentic Markers API (#5009) ---
 
 MARKERS_PATH = Path(__file__).parent.parent / "data" / "agentic_markers.json"
