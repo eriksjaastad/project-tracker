@@ -1,11 +1,14 @@
 # PR settle monitor
 
 After opening a ready PR or updating its head, start the foreground monitor and
-keep the owning agent attached until the work settles. This is the normal PR
-follow-through for project-tracker; other floor managers can use the same `pt`
-command from their repository. Read `pt info get pr_merge_policy` first; the
+keep the owning agent attached while GitHub-visible evidence (CI, head moves,
+optional GitHub review objects) is still in flight. This is the project-tracker
+follow-through helper; other floor managers can use the same `pt` command from
+their repository. Read `pt info get pr_merge_policy` first; the
 [shared policy](https://github.com/eriksjaastad/agent-runtime-config/blob/main/docs/pr-review-policy.md)
-still controls review requests, evidence, CI and merging.
+still controls review requests, evidence, CI and merging. Independent local
+code-reviewer clearance plus satisfied CI is enough to merge under that policy;
+settle does not add a separate GitHub-review gate.
 
 ## Start and respond
 
@@ -45,10 +48,12 @@ not the meaning of arbitrary review prose or whether a supplied URL proves the
 claim. The owner must establish those facts. Missing collection sources prevent
 a clean assessment. New evidence on the same head also invalidates an assessment.
 
-`recheck_and_merge` means the monitoring handoff is settled. The PR may still be
-open. Re-read current GitHub head, findings, CI, holds and approval requirements,
-then use the policy's normal merge commit pinned to the reviewed full SHA. The
-monitor never merges, requests reviews or changes draft state.
+`recheck_and_merge` means the GitHub-evidence monitoring handoff is settled. The
+PR may still be open. Re-read current GitHub head, findings, CI, holds and
+approval requirements, then use the policy's normal merge commit pinned to the
+reviewed full SHA. Local-only clearance that never entered the GitHub ledger
+reaches the same merge command without this handoff (see below). The monitor
+never merges, requests reviews or changes draft state.
 
 ## Execution history and review requests
 
@@ -69,6 +74,14 @@ you inspected, repeatable `--evidence` GitHub URLs, and `--summary` explaining
 the reconciliation. Do **not** record a purely local code-reviewer cycle there
 by inventing GitHub URLs; that can create a false three-cycle hold. A changed
 snapshot requires reading the new evidence before reconciling again.
+
+When clearance is local-only (no GitHub review objects), `pt pr assess` cannot
+emit a GitHub-ledger `clean` / `recheck_and_merge` handoff — that path still
+requires a completed current-head GitHub execution in the ledger. In that case
+stop settle once CI and other GitHub-visible gates are known, keep the local
+cycle record in PR/task notes (or the publication-marker path), and merge with
+the policy's normal exact-head command. Do not invent GitHub cycles just to
+satisfy settle.
 Each execution record has a stable `id`, full `head`, `status` (`requested`,
 `acknowledged`, `completed`, `rejected`, `unknown`), numeric Unix `at`, GitHub
 `evidence` URLs and a `summary`. An acknowledged record also requires its
