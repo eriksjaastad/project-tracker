@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { PageShell } from './PageShell';
 import { Spinner } from './Spinner';
 import { Notification } from './Notification';
+import { JobStatsChart } from './JobStatsChart';
+import { CategoryTable } from './CategoryTable';
 import './JobsPage.css';
 
 interface Job {
@@ -23,13 +25,22 @@ interface CompanyGroup {
   jobs: Job[];
 }
 
+interface JobStats {
+  jobs_per_day: Array<{ date: string; count: number }>;
+  submissions_per_day: Array<{ date: string; count: number }>;
+  categories: Array<{ category: string; count: number }>;
+}
+
 export function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [stats, setStats] = useState<JobStats | null>(null);
+  const [statsError, setStatsError] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     loadJobs();
+    loadStats();
   }, []);
 
   async function loadJobs() {
@@ -45,6 +56,20 @@ export function JobsPage() {
       setNotification({ message: 'Failed to load jobs', type: 'error' });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadStats() {
+    try {
+      const response = await fetch('/api/jobs/stats');
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      setStats(data);
+    } catch (error) {
+      console.error('Failed to load job stats:', error);
+      setStatsError(true);
     }
   }
 
@@ -82,6 +107,13 @@ export function JobsPage() {
           type={notification.type}
           onClose={() => setNotification(null)}
         />
+      )}
+
+      {stats && !statsError && (
+        <>
+          <JobStatsChart stats={stats} />
+          <CategoryTable categories={stats.categories} />
+        </>
       )}
 
       {loading ? (
