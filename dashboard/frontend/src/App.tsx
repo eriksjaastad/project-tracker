@@ -6,6 +6,7 @@ import { AgenticDashboard } from './components/AgenticDashboard';
 import { CalendarPage } from './components/CalendarPage';
 import { AgentChatPage } from './components/AgentChatPage';
 import { HoloscapeProgressPage } from './components/HoloscapeProgressPage';
+import { JobsPage } from './components/JobsPage';
 import './App.css';
 
 function App() {
@@ -21,6 +22,7 @@ function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/agent-chat" element={<AgentChatPage />} />
           <Route path="/holoscape" element={<HoloscapeProgressPage />} />
+          <Route path="/jobs" element={<JobsPage />} />
           <Route path="*" element={<Navigate to="/kanban" replace />} />
         </Routes>
       </div>
