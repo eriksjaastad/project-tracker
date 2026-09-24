@@ -52,12 +52,13 @@ monitor never merges, requests reviews or changes draft state.
 
 ## Execution history and review requests
 
-The review policy counts **distinct GitHub Codex executions**,
-including the initial review. It does not count findings, commits or the number
-of review/comment/reaction objects. The owner must reconcile the complete history
-before requesting another review or recording clean clearance. For a newly ready
-PR, include its initial execution; for inherited work, carry its existing history
-forward. Never reset the count by changing agents, branches or PRs.
+The review policy counts **independent local review cycles** (distinct code-reviewer
+subagent runs on exact committed HEAD), including the initial review. It does not
+count findings, commits or the number of review/comment/reaction objects. The owner
+must reconcile the complete history before requesting another review or recording
+clean clearance. For a newly ready PR, include its initial execution; for inherited
+work, carry its existing history forward. Never reset the count by changing agents,
+branches or PRs.
 
 Use `pt pr history` with the target arguments, `--ledger` pointing to a JSON array,
 `--snapshot` set to the digest you inspected, repeatable `--evidence` GitHub URLs

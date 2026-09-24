@@ -259,7 +259,7 @@ Use this cue when ordering/packing cards into PR chunks or deciding if a card mu
 > in sync with its registry-declared authoring surface. Refresh through the
 > shared-rule rollout; do not hand-copy rules into individual projects.
 
-These rules apply to Codex and Claude local reviewers and GitHub Codex review.
+These rules apply to independent local code-reviewer subagents (Codex and Claude).
 Codex is primary; Claude remains supported. This block contains the essential
 checks for in-repository review without requiring workstation files. Additional
 local detail: [full protocol](https://github.com/eriksjaastad/agent-runtime-config/blob/main/docs/code-review-protocol.md).
@@ -308,14 +308,15 @@ Read propagation sources first, execution-critical code next, then reference doc
   a repeated regression family requires reassessing the approach, not another
   isolated patch. Local preflight also consumes resources and must stay bounded.
 
-### Three GitHub review cycles: assess the result
+### Three independent local review cycles: assess the result
 
-Keep automatic GitHub Codex review on. The initial execution counts. Persist the
-work item's distinct review cycles, request/acknowledgement evidence, head SHAs
-and outcomes in its PR/task notes. Multiple comments or reactions from one cycle
-are not multiple reviews. Count acknowledged failed/stalled executions; resolve
-uncertain history before triggering another. Follow the full PR policy's counting
-rules before pushes, ready transitions, requests, retries and merges.
+Spin up an independent local code-reviewer subagent on the exact committed HEAD.
+The initial execution counts. Persist the work item's distinct review cycles,
+request/acknowledgement evidence, head SHAs and outcomes in its PR/task notes.
+Multiple comments or reactions from one cycle are not multiple reviews. Count
+acknowledged failed/stalled executions; resolve uncertain history before triggering
+another. Follow the full PR policy's counting rules before pushes, ready transitions,
+requests, retries and merges.
 
 The third cycle may be requested after fixes and preflight. At that request or
 detection of an automatic third cycle, all agents on that work item stop edits,
@@ -337,11 +338,10 @@ finding/clean-result format. Review itself needs no workstation-tool access.
 
 Publishing/merging agents follow the complete [PR review and merge policy](https://github.com/eriksjaastad/agent-runtime-config/blob/main/docs/pr-review-policy.md),
 also mirrored in `pt info get pr_merge_policy` and `~/projects/Project-workflow.md`.
-A local PASS is preflight only. GitHub clearance must identify the current head
-and clear findings; pending, stale, missing or ambiguous evidence is insufficient.
-Qualifying clean summaries or fresh observed-cycle thumbs-up can count under the
-full policy. If that policy is unavailable, stop publication/merging, not review.
-Third-review findings require a human discussion; clean third-review clearance
-follows the normal merge gates. An authorized exception is recorded as an
-exception, never as PASS.
+A local PASS is preflight only. Independent local code-reviewer clearance must
+identify the current head and clear findings; pending, stale, missing or ambiguous
+evidence is insufficient. Qualifying clean summaries can count under the full policy.
+If that policy is unavailable, stop publication/merging, not review. Third-review
+findings require a human discussion; clean third-review clearance follows the normal
+merge gates. An authorized exception is recorded as an exception, never as PASS.
 <!-- END runtime-doctor:shared:code-review-rules -->
