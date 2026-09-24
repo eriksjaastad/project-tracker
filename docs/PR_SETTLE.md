@@ -61,8 +61,10 @@ The review policy counts **independent local review cycles** (distinct code-revi
 subagent runs on exact committed HEAD), including the initial review. It does not
 count findings, commits or the number of review/comment/reaction objects. Persist
 each local cycle in the work item's PR/task notes with request/acknowledgement
-evidence, the exact full head SHA, and PASS/FAIL (or the publication-marker /
-verdict path `pre-pr-review.py` recognizes). Reconcile that complete history
+evidence, the exact full head SHA, and PASS/FAIL. Keep the publication-marker /
+verdict path `pre-pr-review.py` recognizes as additional clearance evidence for
+that head—not a substitute for the cycle history later agents need. Reconcile
+that complete history
 before requesting another review or recording clean clearance. For a newly ready
 PR, include its initial execution; for inherited work, carry its existing history
 forward. Never reset the count by changing agents, branches or PRs.
@@ -79,7 +81,8 @@ When clearance is local-only (no GitHub review objects), `pt pr assess` cannot
 emit a GitHub-ledger `clean` / `recheck_and_merge` handoff — that path still
 requires a completed current-head GitHub execution in the ledger. In that case
 stop settle once CI and other GitHub-visible gates are known, keep the local
-cycle record in PR/task notes (or the publication-marker path), and merge with
+cycle record in PR/task notes (with the publication-marker as additional
+clearance evidence), and merge with
 the policy's normal exact-head command. Do not invent GitHub cycles just to
 satisfy settle.
 Each execution record has a stable `id`, full `head`, `status` (`requested`,
