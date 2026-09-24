@@ -1,4 +1,4 @@
-<!-- GENERATED FROM: ~/projects/project-tracker/CLAUDE.md -->
+<!-- GENERATED FROM: CLAUDE.md -->
 <!-- DO NOT EDIT DIRECTLY. Edit CLAUDE.md and run instruction-writer . --changed claude --write from the project directory -->
 
 # CLAUDE.md - project-tracker
@@ -320,21 +320,20 @@ requests, retries and merges.
 
 The third cycle may be requested after fixes and preflight. At that request or
 detection of an automatic third cycle, all agents on that work item stop edits,
-commits, pushes, draft/ready flips, further review requests and merges. Let that
-review finish. A clean third review on the unchanged recorded head may merge
-when CI and all other gates pass, without extra approval solely for its count.
-If findings remain, report the PR, SHA, findings, cycle evidence and recurring
-patterns to Erik; stop further fixes or requests until he directs the next step.
-Pending, unknown, ambiguous or stale evidence is not clearance; existing wait
-limits and unrelated user holds still apply. Do not reset the count by
-changing agents/sessions/branches or splitting/recreating the PR. A fourth cycle
-requires Erik's explicit direction; this never waives correctness or CI.
+commits, pushes, further review requests and merges. Let that review finish.
+A clean third review on the unchanged recorded head may merge when CI and all
+other gates pass, without extra approval solely for its count. If findings remain,
+report the PR, SHA, findings, cycle evidence and recurring patterns to Erik; stop
+further fixes or requests until he directs the next step. Pending, unknown,
+ambiguous or stale evidence is not clearance; existing wait limits and unrelated
+user holds still apply. Do not reset the count by changing agents/sessions/branches
+or splitting/recreating the PR. A fourth cycle requires Erik's explicit direction;
+this never waives correctness or CI.
 
 ### Verdict and publication
 
-Local/delegated verdicts end PASS or FAIL with the exact reviewed commit SHA;
-a new commit requires fresh review. GitHub reviewers use the integration's normal
-finding/clean-result format. Review itself needs no workstation-tool access.
+Independent review verdicts end PASS or FAIL with the exact reviewed commit SHA;
+a new commit requires fresh review. Review itself needs no workstation-tool access.
 
 Publishing/merging agents follow the complete [PR review and merge policy](https://github.com/eriksjaastad/agent-runtime-config/blob/main/docs/pr-review-policy.md),
 also mirrored in `pt info get pr_merge_policy` and `~/projects/Project-workflow.md`.
