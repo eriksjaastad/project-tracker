@@ -1,5 +1,8 @@
 """Job import from JSONL: idempotency, raw retention, multi-role contract."""
 
+import json
+import subprocess
+import sys
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -191,8 +194,6 @@ def test_valid_sources_and_categories_constants() -> None:
 
 def test_import_coalesce_behavior_for_optional_fields(db) -> None:
     """Upsert COALESCE logic: new null values don't erase existing data."""
-    import json
-    
     # First import with all fields populated
     first = db.upsert_job(
         company="Acme", title="Engineer", url="https://example.test/coalesce",
@@ -217,3 +218,127 @@ def test_import_coalesce_behavior_for_optional_fields(db) -> None:
     assert second["location"] == "Remote"
     assert second["posted_date"] == "2026-09-20"
     assert second["raw"] == "Initial posting text"
+
+
+def test_cli_import_success_output(tmp_path: Path) -> None:
+    """End-to-end CLI test: successful import shows correct output."""
+    jsonl = tmp_path / "success.jsonl"
+    jsonl.write_text(
+        '{"company": "Test Co", "title": "Engineer", "url": "https://example.test/cli1", "source": "manual"}\n'
+    )
+    
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl)],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent
+    )
+    
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "✓ Imported 1 job(s)" in result.stdout
+    assert str(jsonl) in result.stdout
+
+
+def test_cli_import_json_output(tmp_path: Path) -> None:
+    """End-to-end CLI test: --json flag produces valid JSON envelope."""
+    jsonl = tmp_path / "json_mode.jsonl"
+    jsonl.write_text(
+        '{"company": "Widget", "title": "Designer", "url": "https://example.test/cli2", "source": "hn"}\n'
+    )
+    
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl), "--json"],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent
+    )
+    
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    response = json.loads(result.stdout)
+    assert response["ok"] is True
+    assert response["command"] == "jobs.import"
+    assert response["result"]["imported"] == 1
+    assert response["result"]["errors"] == 0
+
+
+def test_cli_import_malformed_jsonl_error(tmp_path: Path) -> None:
+    """End-to-end CLI test: malformed JSONL produces error messages."""
+    jsonl = tmp_path / "malformed.jsonl"
+    jsonl.write_text(
+        '{"company": "Good", "title": "Engineer", "url": "https://example.test/cli3", "source": "manual"}\n'
+        '{broken json here}\n'
+        '{"company": "Also Good", "title": "Designer", "url": "https://example.test/cli4", "source": "hn"}\n'
+    )
+    
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl)],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent
+    )
+    
+    assert result.returncode == 1
+    assert "✓ Imported 2 job(s)" in result.stdout
+    assert "✗ 1 error(s):" in result.stderr
+    assert "line 2:" in result.stderr
+    assert "invalid JSON" in result.stderr
+
+
+def test_cli_import_missing_required_fields_error(tmp_path: Path) -> None:
+    """End-to-end CLI test: missing required fields consolidated into one error."""
+    jsonl = tmp_path / "missing_fields.jsonl"
+    jsonl.write_text(
+        '{"title": "Engineer", "url": "https://example.test/cli5"}\n'
+        '{"company": "Widget"}\n'
+    )
+    
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl)],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent
+    )
+    
+    assert result.returncode == 1
+    assert "✗ 2 error(s):" in result.stderr
+    assert "line 1:" in result.stderr
+    assert "missing required fields:" in result.stderr
+    assert "company" in result.stderr and "source" in result.stderr
+    assert "line 2:" in result.stderr
+
+
+def test_cli_import_many_errors_truncated(tmp_path: Path) -> None:
+    """End-to-end CLI test: more than 10 errors triggers truncation message."""
+    jsonl = tmp_path / "many_errors.jsonl"
+    lines = ['{broken}' for _ in range(15)]
+    jsonl.write_text('\n'.join(lines) + '\n')
+    
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl)],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent
+    )
+    
+    assert result.returncode == 1
+    assert "✗ 15 error(s):" in result.stderr
+    assert "... and 5 more error(s)" in result.stderr
+
+
+def test_cli_import_nonexistent_file_error(tmp_path: Path) -> None:
+    """End-to-end CLI test: nonexistent file produces IO error."""
+    nonexistent = tmp_path / "does_not_exist.jsonl"
+    
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(nonexistent)],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent
+    )
+    
+    assert result.returncode == 2
+    assert "does not exist" in result.stderr.lower() or "no such file" in result.stderr.lower()
+
+
+def test_cli_import_dry_run_mode(tmp_path: Path) -> None:
+    """End-to-end CLI test: --dry-run validates without writing to database."""
+    jsonl = tmp_path / "dry_run.jsonl"
+    jsonl.write_text(
+        '{"company": "Dry Run Co", "title": "Tester", "url": "https://example.test/dry", "source": "manual"}\n'
+    )
+    
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl), "--dry-run"],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent
+    )
+    
+    assert result.returncode == 0
+    assert "DRY RUN: Would import 1 job(s)" in result.stdout

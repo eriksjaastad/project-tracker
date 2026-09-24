@@ -5586,14 +5586,17 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
                     continue
                 
                 # Validate required fields
-                for field in ("company", "title", "url", "source"):
-                    if field not in record or not record[field]:
-                        errors.append({
-                            "line": line_num,
-                            "reason": f"missing required field: {field}",
-                            "data": record,
-                        })
-                        continue
+                missing_fields = [
+                    f for f in ("company", "title", "url", "source")
+                    if f not in record or not record[f]
+                ]
+                if missing_fields:
+                    errors.append({
+                        "line": line_num,
+                        "reason": f"missing required fields: {', '.join(missing_fields)}",
+                        "data": record,
+                    })
+                    continue
                 
                 source = record.get("source")
                 if source not in JOB_SOURCES:
