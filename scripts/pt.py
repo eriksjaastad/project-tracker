@@ -5542,6 +5542,155 @@ def _diff_porcelain(
     return added, modified
 
 
+@click.group(name="jobs", invoke_without_command=True)
+@click.pass_context
+def jobs_group(ctx: click.Context) -> None:
+    """Manage local job listings and submissions."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@jobs_group.command(name="import")
+@click.argument("jsonl_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--dry-run", is_flag=True, help="Parse and validate without writing to database")
+@click.option("--json", "json_output", is_flag=True, help="Emit JSON envelope")
+def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
+    """Import job listings from JSONL file.
+    
+    Each line must be a JSON object with required fields: company, title, url, source.
+    Optional fields: location, posted_date, category, raw.
+    
+    Upserts jobs by URL (unique key). Preserves first_seen, deleted_at, and existing
+    raw text on conflict. See docs/JOB_IMPORT_CONTRACT.md for full contract.
+    """
+    from db.jobs import JOB_CATEGORIES, JOB_SOURCES
+    
+    errors: list[dict] = []
+    imported: list[dict] = []
+    skipped: list[dict] = []
+    
+    try:
+        with jsonl_path.open("r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    errors.append({
+                        "line": line_num,
+                        "reason": f"invalid JSON: {exc}",
+                        "data": line[:100],
+                    })
+                    continue
+                
+                # Validate required fields
+                missing_fields = [
+                    f for f in ("company", "title", "url", "source")
+                    if f not in record or not record[f]
+                ]
+                if missing_fields:
+                    errors.append({
+                        "line": line_num,
+                        "reason": f"missing required fields: {', '.join(missing_fields)}",
+                        "data": record,
+                    })
+                    continue
+                
+                source = record.get("source")
+                if source not in JOB_SOURCES:
+                    errors.append({
+                        "line": line_num,
+                        "reason": f"invalid source: {source!r}; must be one of {list(JOB_SOURCES)}",
+                        "data": record,
+                    })
+                    continue
+                
+                category = record.get("category", "Other")
+                if category not in JOB_CATEGORIES:
+                    errors.append({
+                        "line": line_num,
+                        "reason": f"invalid category: {category!r}; must be one of {list(JOB_CATEGORIES)}",
+                        "data": record,
+                    })
+                    continue
+                
+                if dry_run:
+                    imported.append({"line": line_num, "url": record["url"]})
+                    continue
+                
+                try:
+                    db = DatabaseManager()
+                    job = db.upsert_job(
+                        company=record["company"],
+                        title=record["title"],
+                        url=record["url"],
+                        source=source,
+                        location=record.get("location"),
+                        posted_date=record.get("posted_date"),
+                        category=category,
+                        raw=record.get("raw"),
+                    )
+                    imported.append({
+                        "line": line_num,
+                        "url": record["url"],
+                        "job_id": job["id"],
+                    })
+                except ValueError as exc:
+                    errors.append({
+                        "line": line_num,
+                        "reason": str(exc),
+                        "data": record,
+                    })
+                except Exception as exc:
+                    errors.append({
+                        "line": line_num,
+                        "reason": f"database error: {exc}",
+                        "data": record,
+                    })
+    except Exception as exc:
+        if json_output:
+            _emit_json({
+                "schema_version": PT_JSON_SCHEMA_VERSION,
+                "ok": False,
+                "command": "jobs.import",
+                "error": {"type": "io_error", "message": str(exc)},
+            })
+        else:
+            click.echo(f"Error reading {jsonl_path}: {exc}", err=True)
+        sys.exit(1)
+    
+    if json_output:
+        _emit_json({
+            "schema_version": PT_JSON_SCHEMA_VERSION,
+            "ok": len(errors) == 0,
+            "command": "jobs.import",
+            "result": {
+                "imported": len(imported),
+                "errors": len(errors),
+                "dry_run": dry_run,
+                "details": {
+                    "imported": imported,
+                    "errors": errors,
+                },
+            },
+        })
+    else:
+        if dry_run:
+            click.echo(f"DRY RUN: Would import {len(imported)} job(s) from {jsonl_path}")
+        else:
+            click.echo(f"✓ Imported {len(imported)} job(s) from {jsonl_path}")
+        
+        if errors:
+            click.echo(f"✗ {len(errors)} error(s):", err=True)
+            for err in errors[:10]:
+                click.echo(f"  line {err['line']}: {err['reason']}", err=True)
+            if len(errors) > 10:
+                click.echo(f"  ... and {len(errors) - 10} more error(s)", err=True)
+            sys.exit(1)
+
+
 @click.group(name="migration", invoke_without_command=True)
 @click.pass_context
 def migration_group(ctx: click.Context) -> None:
@@ -6114,6 +6263,7 @@ cli.add_command(skills_group)
 cli.add_command(db_group)
 cli.add_command(sync_group)
 cli.add_command(handoff_group)
+cli.add_command(jobs_group)
 cli.add_command(migration_group)
 
 def main() -> NoReturn:
