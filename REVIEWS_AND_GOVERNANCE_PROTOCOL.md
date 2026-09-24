@@ -34,14 +34,14 @@ inputs. Name relevant behavior that passing tests never exercise. Separate
 observations from inference and untested concerns.
 
 Pin a local or delegated verdict to the exact reviewed commit. A local PASS is
-preflight evidence only; GitHub Codex clearance on the unchanged recorded head
-and green CI remain separate merge gates. Keep automatic GitHub review enabled.
-Persist distinct review executions, including failed or stalled ones, across
-sessions and PRs for the same work item. At the third execution, freeze edits,
-pushes and further requests until its result is known. A clean third review may
-merge if all gates pass. Findings on the third require discussion with Erik
-before more fixes or another request. Do not reset the count by changing agent,
-branch or PR. The shared PR policy defines the detailed evidence and wait rules.
+preflight evidence only; independent local code-reviewer clearance on the unchanged
+recorded head and green CI remain separate merge gates. Persist distinct review
+cycles, including failed or stalled ones, across sessions and PRs for the same work
+item. At the third cycle, freeze edits, pushes and further requests until its result
+is known. A clean third review may merge if all gates pass. Findings on the third
+require discussion with Erik before more fixes or another request. Do not reset the
+count by changing agent, branch or PR. The shared PR policy defines the detailed
+evidence and wait rules.
 
 ## Safety and authorization
 
