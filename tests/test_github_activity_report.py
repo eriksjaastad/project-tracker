@@ -55,6 +55,13 @@ def test_cross_identity_events_and_reviews_are_not_confused_with_cycles():
                 {"id": 78, "submitted_at": "2026-09-22T13:00:00Z",
                  "user": {"login": "eriksjaastad"}, "state": "APPROVED"},
             ]
+        if path.endswith("/11/events"):
+            return [
+                {"event": "merged", "created_at": "2026-09-23T15:00:00Z"},
+                {"event": "closed", "created_at": "2026-09-23T15:00:01Z"},
+            ]
+        if path.endswith("/12/events"):
+            return [{"event": "closed", "created_at": "2026-09-23T16:00:00Z"}]
         return []
 
     report = collect("eriksjaastad", date(2026, 9, 23),
@@ -77,6 +84,8 @@ def test_cross_identity_events_and_reviews_are_not_confused_with_cycles():
     assert "architect-identity[bot]" in markdown
     assert "eriksjaastad" in markdown
     assert "Still open among candidate PRs" in markdown
+    assert "`uv run scripts/github_activity_report.py" in markdown
+    assert "$HOME/.local/bin/uv" not in markdown
 
 
 @pytest.mark.parametrize("data", [
@@ -113,6 +122,41 @@ def test_review_on_pr_without_same_day_lifecycle_event_is_found_by_update():
     assert not report["pull_requests"][0]["opened"]
     assert report["pull_requests"][0]["reviews"][0]["actor"] == "eriksjaastad"
     assert "1 distinct PR with activity (from 2 queried candidates)" in render(report)
+
+
+def test_close_event_survives_reopen_and_merge_close_is_excluded():
+    reopened = pr(15, author="manager-identity[bot]",
+                  created="2026-09-20T04:00:00Z", state="open")
+    reopened["updated_at"] = "2026-09-25T18:00:00Z"
+    later_merged = pr(16, author="manager-identity[bot]",
+                      created="2026-09-20T04:00:00Z",
+                      closed="2026-09-23T20:00:00Z",
+                      merged="2026-09-23T20:00:00Z", state="closed")
+
+    def api(path, fields):
+        if path == "search/issues":
+            items = [reopened, later_merged] if " updated:" in fields["q"] else []
+            return {"items": items, "total_count": len(items),
+                    "incomplete_results": False}
+        if path.endswith("/15/events"):
+            return [
+                {"event": "closed", "created_at": "2026-09-23T15:00:00Z"},
+                {"event": "reopened", "created_at": "2026-09-24T15:00:00Z"},
+            ]
+        if path.endswith("/16/events"):
+            return [
+                {"event": "closed", "created_at": "2026-09-23T14:00:00Z"},
+                {"event": "reopened", "created_at": "2026-09-23T15:00:00Z"},
+                {"event": "merged", "created_at": "2026-09-23T20:00:00Z"},
+                {"event": "closed", "created_at": "2026-09-23T20:00:01Z"},
+            ]
+        return []
+
+    report = collect("eriksjaastad", date(2026, 9, 23),
+                     "America/New_York", api=api, cards=set())
+    assert [row["closed_unmerged"] for row in report["pull_requests"]] == [True, True]
+    assert [row["merged"] for row in report["pull_requests"]] == [False, True]
+    assert "2 closed without merge" in render(report)
 
 
 def test_card_index_uses_unscoped_active_and_archived_views(monkeypatch):

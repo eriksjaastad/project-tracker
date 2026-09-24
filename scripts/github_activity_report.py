@@ -144,7 +144,6 @@ def collect(owner: str, day: date, zone_name: str, *, api=_api,
     for (repo, number), item in sorted(candidates.items()):
         pull = item["pull_request"]
         created = _instant(item.get("created_at"))
-        closed = _instant(item.get("closed_at"))
         merged = _instant(pull.get("merged_at"))
         if created is None:
             raise ReportError(f"Missing creation time for {repo}#{number}")
@@ -176,14 +175,42 @@ def collect(owner: str, day: date, zone_name: str, *, api=_api,
                 break
         else:
             raise ReportError(f"Review pagination exceeded 100 pages for {repo}#{number}")
+        lifecycle = []
+        for page in range(1, 101):
+            batch = api(f"repos/{repo}/issues/{number}/events",
+                        {"per_page": "100", "page": str(page)})
+            if not isinstance(batch, list):
+                raise ReportError(f"Invalid lifecycle events for {repo}#{number}")
+            for event in batch:
+                if event.get("event") in {"closed", "merged", "reopened"}:
+                    when = _instant(event.get("created_at"))
+                    if when is None:
+                        raise ReportError(f"Missing lifecycle time for {repo}#{number}")
+                    lifecycle.append((event["event"], when))
+            if len(batch) < 100:
+                break
+        else:
+            raise ReportError(f"Lifecycle pagination exceeded 100 pages for {repo}#{number}")
+        # A merge emits a merged event followed by a closed event, sometimes
+        # one second later. Earlier closes remain visible after a reopen.
+        merged_closure_pending = False
+        closed_unmerged = False
+        for kind, when in sorted(lifecycle, key=lambda entry: entry[1]):
+            if kind == "merged":
+                merged_closure_pending = True
+            elif kind == "reopened":
+                merged_closure_pending = False
+            elif kind == "closed":
+                if not merged_closure_pending and start <= when < end:
+                    closed_unmerged = True
+                merged_closure_pending = False
         row = {
             "repo": repo, "number": number, "title": title,
             "url": item.get("html_url") or f"https://github.com/{repo}/pull/{number}",
             "author": (item.get("user") or {}).get("login") or "(deleted account)",
             "opened": start <= created < end,
             "merged": merged is not None and start <= merged < end,
-            "closed_unmerged": (closed is not None and merged is None and
-                                start <= closed < end),
+            "closed_unmerged": closed_unmerged,
             "open_as_of": item.get("state") == "open",
             "card_ref": card,
             "local_card_match": card in cards if card and cards is not None else None,
@@ -305,6 +332,10 @@ def render(report: dict) -> str:
         "filtered by submitted time. Reviews on PRs absent from the candidate "
         "set are not measured. Review comments, issue comments, reactions, "
         "requested reviews, and Codex completion summaries are not counted.",
+        "- Closed without merge: paginated issue lifecycle events for candidate "
+        "PRs. A merge's `merged` then `closed` pair is excluded; a previous "
+        "unmerged close remains counted after a reopen. The total counts "
+        "distinct PRs with at least one such close in the window.",
         "- Actor attribution: opened, merged, and closed PR totals are grouped "
         "by the PR author; this report does not identify the person or bot "
         "who clicked merge or close. Review totals use the review object's actor.",
@@ -334,7 +365,7 @@ def render(report: dict) -> str:
         "migration or historical rewrite was performed.",
         "",
         "Reproduce from this repository: "
-        f"`$HOME/.local/bin/uv run scripts/github_activity_report.py "
+        f"`uv run scripts/github_activity_report.py "
         f"--date {report['date']} --timezone {report['timezone']} "
         f"--owner {report['owner']}"
         + (f" --codex-reported-reviews "
