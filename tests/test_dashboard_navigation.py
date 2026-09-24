@@ -34,6 +34,7 @@ def test_navigation_api_returns_shared_contract():
         "holoscape",
         "calendar",
         "agent-chat",
+        "jobs",
         "graph",
         "memory",
     ]
