@@ -54,16 +54,21 @@ monitor never merges, requests reviews or changes draft state.
 
 The review policy counts **independent local review cycles** (distinct code-reviewer
 subagent runs on exact committed HEAD), including the initial review. It does not
-count findings, commits or the number of review/comment/reaction objects. The owner
-must reconcile the complete history before requesting another review or recording
-clean clearance. For a newly ready PR, include its initial execution; for inherited
-work, carry its existing history forward. Never reset the count by changing agents,
-branches or PRs.
+count findings, commits or the number of review/comment/reaction objects. Persist
+each local cycle in the work item's PR/task notes with request/acknowledgement
+evidence, the exact full head SHA, and PASS/FAIL (or the publication-marker /
+verdict path `pre-pr-review.py` recognizes). Reconcile that complete history
+before requesting another review or recording clean clearance. For a newly ready
+PR, include its initial execution; for inherited work, carry its existing history
+forward. Never reset the count by changing agents, branches or PRs.
 
-Use `pt pr history` with the target arguments, `--ledger` pointing to a JSON array,
-`--snapshot` set to the digest you inspected, repeatable `--evidence` GitHub URLs
-and `--summary` explaining the reconciliation. A changed snapshot requires reading
-the new evidence before reconciling again.
+`pt pr history` remains the settle CLI's **GitHub-evidence ledger**. Use it only
+for executions that have GitHub request/acknowledgement objects. Pass the target
+arguments, `--ledger` pointing to a JSON array, `--snapshot` set to the digest
+you inspected, repeatable `--evidence` GitHub URLs, and `--summary` explaining
+the reconciliation. Do **not** record a purely local code-reviewer cycle there
+by inventing GitHub URLs; that can create a false three-cycle hold. A changed
+snapshot requires reading the new evidence before reconciling again.
 Each execution record has a stable `id`, full `head`, `status` (`requested`,
 `acknowledged`, `completed`, `rejected`, `unknown`), numeric Unix `at`, GitHub
 `evidence` URLs and a `summary`. An acknowledged record also requires its
