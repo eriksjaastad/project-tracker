@@ -164,6 +164,13 @@ NAVIGATION_ITEMS = [
         "navigation_type": "spa",
     },
     {
+        "id": "jobs-submitted",
+        "label": "Submissions",
+        "href": "/jobs/submitted",
+        "match_prefixes": ["/jobs/submitted"],
+        "navigation_type": "spa",
+    },
+    {
         "id": "graph",
         "label": "Graph",
         "href": "/graph",
@@ -273,6 +280,7 @@ async def serve_spa_shell(request: Request):
 @app.get("/calendar", response_class=HTMLResponse)
 @app.get("/agent-chat", response_class=HTMLResponse)
 @app.get("/jobs", response_class=HTMLResponse)
+@app.get("/jobs/submitted", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
     return await serve_spa_shell(request)
