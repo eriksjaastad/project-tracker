@@ -24,6 +24,14 @@ vi.mock('./Notification', () => ({
   Notification: ({ message }: { message: string }) => <div role="alert">{message}</div>,
 }));
 
+vi.mock('./JobStatsChart', () => ({
+  JobStatsChart: () => <div data-testid="job-stats-chart">Job Stats Chart</div>,
+}));
+
+vi.mock('./CategoryTable', () => ({
+  CategoryTable: () => <div data-testid="category-table">Category Table</div>,
+}));
+
 describe('JobsPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -258,5 +266,44 @@ describe('JobsPage', () => {
     });
 
     expect(screen.getByText('Undeletable Job')).toBeInTheDocument();
+  });
+
+  it('loads and displays job stats chart when stats are available', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jobs: [] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          jobs_per_day: [{ date: '2026-09-20', count: 5 }],
+          submissions_per_day: [{ date: '2026-09-21', count: 2 }],
+          categories: [{ category: 'Frontend/React', count: 3 }],
+        }),
+      } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('job-stats-chart')).toBeInTheDocument();
+      expect(screen.getByTestId('category-table')).toBeInTheDocument();
+    });
+  });
+
+  it('handles stats loading failure gracefully', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jobs: [] }),
+      } as Response)
+      .mockRejectedValueOnce(new Error('Stats unavailable'));
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('job-stats-chart')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('category-table')).not.toBeInTheDocument();
+    });
   });
 });
