@@ -1,0 +1,148 @@
+.code-review-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+}
+
+.code-review-unavailable {
+  background-color: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 2rem;
+  margin: 1rem 0;
+  text-align: center;
+}
+
+.code-review-unavailable p {
+  margin: 0.5rem 0;
+}
+
+.code-review-hint {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.code-review-hint code {
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+}
+
+.code-review-controls {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background-color: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.code-review-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.code-review-controls select {
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--background);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.code-review-controls select:hover {
+  border-color: var(--accent);
+}
+
+.code-review-chart {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  background-color: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.code-review-chart-heading {
+  margin-bottom: 1rem;
+}
+
+.code-review-chart-heading h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.25rem;
+  color: var(--text-primary);
+}
+
+.code-review-chart-heading p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.code-review-plot {
+  width: 100%;
+  height: 300px;
+  margin-top: 1rem;
+}
+
+.code-review-chart-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.code-review-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem;
+  text-align: center;
+}
+
+.code-review-stat-value {
+  font-size: 3rem;
+  font-weight: bold;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+}
+
+.code-review-stat-label {
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+.code-review-comparison {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.code-review-comparison-item {
+  padding: 1.5rem;
+  background-color: var(--background);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.code-review-comparison-item h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.code-review-comparison-item p {
+  margin: 0.5rem 0;
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}

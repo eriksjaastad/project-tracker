@@ -171,6 +171,13 @@ NAVIGATION_ITEMS = [
         "navigation_type": "spa",
     },
     {
+        "id": "code-reviews",
+        "label": "Code Reviews",
+        "href": "/code-reviews",
+        "match_prefixes": ["/code-reviews"],
+        "navigation_type": "spa",
+    },
+    {
         "id": "graph",
         "label": "Graph",
         "href": "/graph",
@@ -281,6 +288,7 @@ async def serve_spa_shell(request: Request):
 @app.get("/agent-chat", response_class=HTMLResponse)
 @app.get("/jobs", response_class=HTMLResponse)
 @app.get("/jobs/submitted", response_class=HTMLResponse)
+@app.get("/code-reviews", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
     return await serve_spa_shell(request)
@@ -4086,6 +4094,188 @@ def _fetch_github_data() -> Dict:
         "fetched_at": datetime.utcnow().isoformat() + "Z",
         "cached": False,
     }
+
+
+@app.get("/api/code-review-metrics")
+async def api_code_review_metrics(
+    days: int = Query(default=90, ge=1, le=365),
+    repo: Optional[str] = Query(default=None),
+):
+    """Return code-review metrics from ai-memory's brain.db.
+
+    Aggregates data from code_reviews and code_review_findings tables to provide:
+    - Rounds per PR and findings per round trends
+    - Severity distribution
+    - Time-to-first-review and inter-round latency
+    - Merged-head-never-reviewed count
+    - Reviewer comparison (when #7416 is implemented)
+
+    Query params:
+        days: lookback window (1-365, default 90)
+        repo: optional filter to one repository
+
+    Returns empty state if brain.db is absent or tables don't exist yet.
+    Read-only — never writes to brain.db.
+    """
+    projects_root = Path.home() / "projects"
+    brain_db = projects_root / "ai-memory" / "brain.db"
+
+    empty = {
+        "available": False,
+        "message": "brain.db not found or tables not yet created",
+        "rounds_per_pr": [],
+        "findings_per_round": [],
+        "severity_distribution": [],
+        "time_to_first_review": [],
+        "inter_round_latency": [],
+        "merged_never_reviewed": 0,
+        "reviewer_comparison": None,
+        "repos": [],
+        "window": {"days": days, "repo": repo},
+    }
+
+    if not brain_db.is_file():
+        return empty
+
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=days - 1)
+    start_iso = start_date.isoformat()
+
+    try:
+        uri = f"file:{brain_db}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=2.0)
+        conn.row_factory = sqlite3.Row
+        try:
+            # Check if tables exist
+            tables_check = conn.execute(
+                """
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name IN ('code_reviews', 'code_review_findings')
+                """
+            ).fetchall()
+
+            if len(tables_check) < 2:
+                return empty
+
+            # Build WHERE clause for repo filter
+            repo_filter = ""
+            base_params = [start_iso]
+            if repo:
+                repo_filter = " AND repo = ?"
+                base_params.append(repo)
+
+            # 1. Rounds per PR trend over time
+            rounds_per_pr_rows = conn.execute(
+                f"""
+                SELECT DATE(created_at) as date, 
+                       pr_url,
+                       MAX(round_number) as rounds
+                FROM code_reviews
+                WHERE DATE(created_at) >= ?{repo_filter}
+                GROUP BY pr_url, DATE(created_at)
+                ORDER BY date ASC
+                """,
+                base_params,
+            ).fetchall()
+
+            # Aggregate by date
+            rounds_by_date = {}
+            for row in rounds_per_pr_rows:
+                date = row["date"]
+                if date not in rounds_by_date:
+                    rounds_by_date[date] = []
+                rounds_by_date[date].append(row["rounds"])
+
+            rounds_per_pr = [
+                {
+                    "date": date,
+                    "avg_rounds": round(sum(rounds) / len(rounds), 2) if rounds else 0,
+                    "pr_count": len(rounds),
+                }
+                for date, rounds in sorted(rounds_by_date.items())
+            ]
+
+            # 2. Findings per round
+            findings_per_round_rows = conn.execute(
+                f"""
+                SELECT cr.round_number, COUNT(crf.id) as finding_count
+                FROM code_reviews cr
+                LEFT JOIN code_review_findings crf ON cr.id = crf.review_id
+                WHERE DATE(cr.created_at) >= ?{repo_filter}
+                GROUP BY cr.round_number
+                ORDER BY cr.round_number ASC
+                """,
+                base_params,
+            ).fetchall()
+
+            findings_per_round = [
+                {"round": row["round_number"], "avg_findings": row["finding_count"]}
+                for row in findings_per_round_rows
+            ]
+
+            # 3. Severity distribution
+            severity_rows = conn.execute(
+                f"""
+                SELECT crf.severity, COUNT(*) as count
+                FROM code_review_findings crf
+                JOIN code_reviews cr ON cr.id = crf.review_id
+                WHERE DATE(cr.created_at) >= ?{repo_filter}
+                GROUP BY crf.severity
+                ORDER BY count DESC
+                """,
+                base_params,
+            ).fetchall()
+
+            severity_distribution = [
+                {"severity": row["severity"] or "unspecified", "count": row["count"]}
+                for row in severity_rows
+            ]
+
+            # 4. Time to first review (placeholder - needs pr_created_at in schema)
+            time_to_first_review = []
+
+            # 5. Inter-round latency (placeholder - needs timestamps per round)
+            inter_round_latency = []
+
+            # 6. Merged never reviewed count (placeholder - needs merged_at, reviewed flags)
+            merged_never_reviewed = 0
+
+            # 7. Reviewer comparison (from #7416 - not yet implemented)
+            reviewer_comparison = {
+                "available": False,
+                "message": "Reviewer comparison pending #7416 implementation",
+            }
+
+            # Get available repos
+            repos_rows = conn.execute(
+                """
+                SELECT DISTINCT repo 
+                FROM code_reviews 
+                WHERE repo IS NOT NULL 
+                ORDER BY repo
+                """
+            ).fetchall()
+            repos_list = [row["repo"] for row in repos_rows]
+
+            return {
+                "available": True,
+                "rounds_per_pr": rounds_per_pr,
+                "findings_per_round": findings_per_round,
+                "severity_distribution": severity_distribution,
+                "time_to_first_review": time_to_first_review,
+                "inter_round_latency": inter_round_latency,
+                "merged_never_reviewed": merged_never_reviewed,
+                "reviewer_comparison": reviewer_comparison,
+                "repos": repos_list,
+                "window": {"days": days, "repo": repo},
+            }
+
+        finally:
+            conn.close()
+
+    except Exception as exc:
+        logger.warning("Failed to read code-review metrics from brain.db: %s", exc)
+        return empty
 
 
 @app.get("/api/github")
