@@ -37,6 +37,7 @@ export function JobsPage() {
   const [stats, setStats] = useState<JobStats | null>(null);
   const [statsError, setStatsError] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [queuingPrompts, setQueuingPrompts] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     loadJobs();
@@ -86,6 +87,30 @@ export function JobsPage() {
     } catch (error) {
       console.error('Failed to delete job:', error);
       setNotification({ message: 'Failed to dismiss job', type: 'error' });
+    }
+  }
+
+  async function handleQueuePrompt(jobId: number) {
+    setQueuingPrompts(prev => new Set(prev).add(jobId));
+    try {
+      const response = await fetch(`/api/jobs/${jobId}/agent-prompt`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(data.detail || `HTTP ${response.status}`);
+      }
+      setNotification({ message: 'Agent prompt queued successfully', type: 'success' });
+    } catch (error) {
+      console.error('Failed to queue agent prompt:', error);
+      const message = error instanceof Error ? error.message : 'Failed to queue agent prompt';
+      setNotification({ message, type: 'error' });
+    } finally {
+      setQueuingPrompts(prev => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
     }
   }
 
@@ -149,13 +174,24 @@ export function JobsPage() {
                       )}
                       <span className="job-category">{job.category}</span>
                     </div>
-                    <button
-                      className="job-delete-btn"
-                      onClick={() => handleDelete(job.id)}
-                      aria-label={`Dismiss ${job.title}`}
-                    >
-                      ×
-                    </button>
+                    <div className="job-actions">
+                      <button
+                        className="job-agent-btn"
+                        onClick={() => handleQueuePrompt(job.id)}
+                        disabled={queuingPrompts.has(job.id)}
+                        aria-label={`Queue agent prompt for ${job.title}`}
+                        title="Queue agent to tailor resume and cover letter"
+                      >
+                        {queuingPrompts.has(job.id) ? '...' : '🤖'}
+                      </button>
+                      <button
+                        className="job-delete-btn"
+                        onClick={() => handleDelete(job.id)}
+                        aria-label={`Dismiss ${job.title}`}
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

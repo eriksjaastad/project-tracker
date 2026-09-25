@@ -119,3 +119,83 @@ def test_upsert_preserves_first_seen_and_rejects_unbounded_categories(db):
     import pytest
     with pytest.raises(ValueError, match="invalid job category"):
         db.upsert_job(company="A", title="B", url="https://example.test/new", source="manual", category="Novel")
+
+
+def test_agent_prompt_endpoint_composes_correct_prompt(db, mocker):
+    """Agent prompt endpoint queues message with job details and house rules (card #7400)."""
+    import pytest
+    client = TestClient(app)
+    job = _job(db, "agent-test", "Backend")
+    
+    mock_run_agent = mocker.patch("dashboard.app.run_agent_command")
+    from discovery.agent_registry import CommandResult
+    mock_run_agent.return_value = CommandResult(
+        success=True, output="Message sent", error="", return_code=0, duration_ms=100, command="pt message send"
+    )
+    
+    response = client.post(f"/api/jobs/{job['id']}/agent-prompt")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+    assert data["job_id"] == job["id"]
+    
+    mock_run_agent.assert_called_once()
+    args = mock_run_agent.call_args
+    assert args[0][0] == "pt"
+    assert args[0][1] == "message"
+    
+    prompt_arg = args[0][2]
+    assert prompt_arg.startswith('send "')
+    prompt_body = prompt_arg[6:-1]
+    
+    assert f"Company: Company agent-test" in prompt_body
+    assert f"Title: Engineer agent-test" in prompt_body
+    assert job["url"] in prompt_body
+    assert "never send resume-general.md as-is" in prompt_body
+    assert "resume-general-senior.md ONLY for genuinely senior roles" in prompt_body
+    assert "never name the current client" in prompt_body
+    assert "a confidential digital-media client" in prompt_body
+    assert "Never invent a fact" in prompt_body
+    assert "keyboard characters only, no em dashes" in prompt_body
+    assert "No GitHub link in the contact line" in prompt_body
+
+
+def test_agent_prompt_rejects_nonexistent_job(db):
+    client = TestClient(app)
+    response = client.post("/api/jobs/999999/agent-prompt")
+    assert response.status_code == 404
+
+
+def test_agent_prompt_rejects_submitted_job(db):
+    client = TestClient(app)
+    job = _job(db, "submitted-check")
+    client.post(
+        f"/api/jobs/{job['id']}/submissions",
+        json={"submitted_at": "2026-09-25T10:00:00+00:00"},
+    )
+    response = client.post(f"/api/jobs/{job['id']}/agent-prompt")
+    assert response.status_code == 404
+
+
+def test_agent_prompt_rejects_dismissed_job(db):
+    client = TestClient(app)
+    job = _job(db, "dismissed-check")
+    client.delete(f"/api/jobs/{job['id']}")
+    response = client.post(f"/api/jobs/{job['id']}/agent-prompt")
+    assert response.status_code == 404
+
+
+def test_agent_prompt_handles_command_failure(db, mocker):
+    import pytest
+    client = TestClient(app)
+    job = _job(db, "cmd-failure")
+    
+    mock_run_agent = mocker.patch("dashboard.app.run_agent_command")
+    from discovery.agent_registry import CommandResult
+    mock_run_agent.return_value = CommandResult(
+        success=False, output="", error="Agent not available", return_code=1, duration_ms=10, command=""
+    )
+    
+    response = client.post(f"/api/jobs/{job['id']}/agent-prompt")
+    assert response.status_code == 500
+    assert "Failed to queue agent prompt" in response.json()["detail"]

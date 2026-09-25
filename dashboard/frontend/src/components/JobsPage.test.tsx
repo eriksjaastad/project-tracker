@@ -306,4 +306,153 @@ describe('JobsPage', () => {
       expect(screen.queryByTestId('category-table')).not.toBeInTheDocument();
     });
   });
+
+  it('queues agent prompt and shows success notification', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        jobs: [
+          {
+            id: 10,
+            company: 'Test Inc',
+            title: 'Senior Engineer',
+            url: 'https://example.com/job10',
+            location: 'Remote',
+            posted_date: '2026-09-25',
+            first_seen: '2026-09-25',
+            category: 'Backend',
+            source: 'manual',
+            deleted_at: null,
+            raw: null,
+          },
+        ],
+      }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Senior Engineer')).toBeInTheDocument();
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        job_id: 10,
+        message: 'Agent prompt queued successfully',
+      }),
+    } as Response);
+
+    const agentButton = screen.getByLabelText('Queue agent prompt for Senior Engineer');
+    await user.click(agentButton);
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/jobs/10/agent-prompt', { method: 'POST' });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Agent prompt queued successfully');
+    });
+  });
+
+  it('shows error when agent prompt queueing fails', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        jobs: [
+          {
+            id: 11,
+            company: 'Error Inc',
+            title: 'Test Job',
+            url: 'https://example.com/job11',
+            location: 'Remote',
+            posted_date: '2026-09-25',
+            first_seen: '2026-09-25',
+            category: 'Other',
+            source: 'manual',
+            deleted_at: null,
+            raw: null,
+          },
+        ],
+      }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Test Job')).toBeInTheDocument();
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({ detail: 'Failed to queue agent prompt: Agent not available' }),
+    } as Response);
+
+    const agentButton = screen.getByLabelText('Queue agent prompt for Test Job');
+    await user.click(agentButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Failed to queue agent prompt: Agent not available');
+    });
+  });
+
+  it('disables agent button while queueing prompt', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        jobs: [
+          {
+            id: 12,
+            company: 'Test Corp',
+            title: 'Engineer',
+            url: 'https://example.com/job12',
+            location: 'Remote',
+            posted_date: '2026-09-25',
+            first_seen: '2026-09-25',
+            category: 'Backend',
+            source: 'manual',
+            deleted_at: null,
+            raw: null,
+          },
+        ],
+      }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Engineer')).toBeInTheDocument();
+    });
+
+    vi.mocked(fetch).mockImplementationOnce(() => 
+      new Promise(resolve => setTimeout(() => 
+        resolve({
+          ok: true,
+          json: async () => ({ success: true, job_id: 12, message: 'Queued' }),
+        } as Response),
+        100
+      ))
+    );
+
+    const agentButton = screen.getByLabelText('Queue agent prompt for Engineer');
+    expect(agentButton).not.toBeDisabled();
+
+    await user.click(agentButton);
+
+    expect(agentButton).toBeDisabled();
+    expect(agentButton).toHaveTextContent('...');
+
+    await waitFor(() => {
+      expect(agentButton).not.toBeDisabled();
+      expect(agentButton).toHaveTextContent('🤖');
+    });
+  });
 });

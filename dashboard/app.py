@@ -3593,6 +3593,55 @@ async def record_job_submission(job_id: int, payload: JobSubmissionRequest):
     return {"submission": submission}
 
 
+@app.post("/api/jobs/{job_id}/agent-prompt")
+async def queue_job_agent_prompt(request: Request, job_id: int):
+    """Queue an agent prompt to tailor resume and cover letter for a job.
+    
+    Card #7400: Composes a prompt with job details and house rules, then
+    queues it via pt message send. The receiving agent drafts materials
+    under review; this endpoint never sends anything to employers.
+    """
+    _require_local_admin_request(request)
+    
+    db = DatabaseManager()
+    jobs = [j for j in db.get_open_jobs() if j["id"] == job_id]
+    if not jobs:
+        raise HTTPException(status_code=404, detail="Job not found or already submitted/dismissed")
+    
+    job = jobs[0]
+    
+    prompt = f"""Tailor resume and cover letter for this job posting:
+
+Company: {job['company']}
+Title: {job['title']}
+URL: {job['url']}
+
+House rules for job-search materials:
+- Fork the base resume into job-search/applications/{job['company']}/ - never send resume-general.md as-is
+- resume-general.md is the mid-level default; resume-general-senior.md ONLY for genuinely senior roles on a team with a lead above him
+- Never name the current client (it is 'a confidential digital-media client'), never name the industry
+- Never invent a fact - missing facts stay as visible [BRACKETS]
+- Keyboard characters only, no em dashes
+- No GitHub link in the contact line
+
+Review the posting at the URL above and create tailored materials following these rules."""
+    
+    result = run_agent_command("pt", "message", f'send "{prompt}"')
+    
+    if not result.success:
+        logger.error("Failed to queue agent prompt for job %s: %s", job_id, result.error)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to queue agent prompt: {result.error or 'Unknown error'}"
+        )
+    
+    return {
+        "success": True,
+        "job_id": job_id,
+        "message": "Agent prompt queued successfully"
+    }
+
+
 # --- Ideas API Endpoints (Task #4583) ---
 
 class IdeaCreateRequest(BaseModel):
