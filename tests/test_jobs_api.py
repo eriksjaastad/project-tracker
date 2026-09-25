@@ -119,3 +119,129 @@ def test_upsert_preserves_first_seen_and_rejects_unbounded_categories(db):
     import pytest
     with pytest.raises(ValueError, match="invalid job category"):
         db.upsert_job(company="A", title="B", url="https://example.test/new", source="manual", category="Novel")
+
+
+def test_agent_prompt_endpoint_composes_correct_prompt(db, monkeypatch):
+    """Agent prompt endpoint queues message with job details and house rules (card #7400)."""
+    import shlex
+    from discovery.agent_registry import CommandResult, get_agent_command
+    
+    client = TestClient(app)
+    job = _job(db, "agent-test", "Backend")
+    
+    captured_calls = []
+    def mock_run_agent(agent_name, command_name, args):
+        captured_calls.append((agent_name, command_name, args))
+        return CommandResult(
+            success=True, output="Message sent", error="", return_code=0, duration_ms=100, command="pt message send"
+        )
+    
+    monkeypatch.setattr("dashboard.app.run_agent_command", mock_run_agent)
+    
+    response = client.post(f"/api/jobs/{job['id']}/agent-prompt")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+    assert data["job_id"] == job["id"]
+    
+    assert len(captured_calls) == 1
+    agent_name, command_name, args = captured_calls[0]
+    assert agent_name == "pt"
+    assert command_name == "message"
+    
+    assert get_agent_command("pt", "message") is not None, "pt message command must be registered"
+    
+    argv_parts = shlex.split(args)
+    assert len(argv_parts) == 2, f"Expected ['send', <prompt>], got {argv_parts}"
+    assert argv_parts[0] == "send"
+    prompt_body = argv_parts[1]
+    
+    assert f"Company: Company agent-test" in prompt_body
+    assert f"Title: Engineer agent-test" in prompt_body
+    assert job["url"] in prompt_body
+    assert "never send resume-general.md as-is" in prompt_body
+    assert "resume-general-senior.md ONLY for genuinely senior roles" in prompt_body
+    assert "Never name the current client" in prompt_body
+    assert "a confidential digital-media client" in prompt_body
+    assert "Never invent a fact" in prompt_body
+    assert "Keyboard characters only, no em dashes" in prompt_body
+    assert "No GitHub link in the contact line" in prompt_body
+
+
+def test_agent_prompt_handles_special_chars_in_company_title(db, monkeypatch):
+    """Prompt quoting must handle embedded quotes and special characters safely."""
+    import shlex
+    from discovery.agent_registry import CommandResult
+    
+    client = TestClient(app)
+    job = db.upsert_job(
+        company='Tech "Innovators" Inc.',
+        title='Senior $Engineer (Full-Stack)',
+        url="https://example.test/special-chars",
+        source="manual",
+        category="Other",
+    )
+    
+    captured_calls = []
+    def mock_run_agent(agent_name, command_name, args):
+        captured_calls.append((agent_name, command_name, args))
+        return CommandResult(
+            success=True, output="", error="", return_code=0, duration_ms=10, command=""
+        )
+    
+    monkeypatch.setattr("dashboard.app.run_agent_command", mock_run_agent)
+    
+    response = client.post(f"/api/jobs/{job['id']}/agent-prompt")
+    assert response.status_code == 200, response.text
+    
+    agent_name, command_name, args = captured_calls[0]
+    argv_parts = shlex.split(args)
+    assert len(argv_parts) == 2
+    assert argv_parts[0] == "send"
+    prompt = argv_parts[1]
+    
+    assert 'Tech "Innovators" Inc.' in prompt
+    assert 'Senior $Engineer (Full-Stack)' in prompt
+
+
+def test_agent_prompt_rejects_nonexistent_job(db):
+    client = TestClient(app)
+    response = client.post("/api/jobs/999999/agent-prompt")
+    assert response.status_code == 404
+
+
+def test_agent_prompt_rejects_submitted_job(db):
+    client = TestClient(app)
+    job = _job(db, "submitted-check")
+    client.post(
+        f"/api/jobs/{job['id']}/submissions",
+        json={"submitted_at": "2026-09-25T10:00:00+00:00"},
+    )
+    response = client.post(f"/api/jobs/{job['id']}/agent-prompt")
+    assert response.status_code == 404
+
+
+def test_agent_prompt_rejects_dismissed_job(db):
+    client = TestClient(app)
+    job = _job(db, "dismissed-check")
+    client.delete(f"/api/jobs/{job['id']}")
+    response = client.post(f"/api/jobs/{job['id']}/agent-prompt")
+    assert response.status_code == 404
+
+
+def test_agent_prompt_handles_command_failure(db, monkeypatch):
+    from discovery.agent_registry import CommandResult
+    
+    client = TestClient(app)
+    job = _job(db, "cmd-failure")
+    
+    def mock_run_agent(agent_name, command_name, args):
+        return CommandResult(
+            success=False, output="", error="Agent not available", return_code=1, duration_ms=10, command=""
+        )
+    
+    monkeypatch.setattr("dashboard.app.run_agent_command", mock_run_agent)
+    
+    response = client.post(f"/api/jobs/{job['id']}/agent-prompt")
+    assert response.status_code == 500
+    assert "Failed to queue agent prompt" in response.json()["detail"]
