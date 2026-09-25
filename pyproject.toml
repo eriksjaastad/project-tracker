@@ -31,5 +31,12 @@ test = [
 [project.scripts]
 "./pt launch" = "scripts.pt:cli"
 
+[tool.setuptools]
+py-modules = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scripts*", "db*", "discovery*", "dashboard*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
