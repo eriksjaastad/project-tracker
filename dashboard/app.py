@@ -21,6 +21,7 @@ import re
 import sqlite3
 import json
 import uuid
+import shlex
 from time import monotonic as _monotonic, time as _time
 
 import numpy as np
@@ -3626,7 +3627,7 @@ House rules for job-search materials:
 
 Review the posting at the URL above and create tailored materials following these rules."""
     
-    result = run_agent_command("pt", "message", f'send "{prompt}"')
+    result = run_agent_command("pt", "message", "send " + shlex.quote(prompt))
     
     if not result.success:
         logger.error("Failed to queue agent prompt for job %s: %s", job_id, result.error)

@@ -49,6 +49,7 @@ def _init_agents():
         commands=[
             AgentCommand("scan", "Full project scan", ""),
             AgentCommand("list", "List tracked projects", ""),
+            AgentCommand("message", "Agent Chat - send and read messages", ""),
         ]
     )
 
