@@ -36,6 +36,7 @@ def test_navigation_api_returns_shared_contract():
         "agent-chat",
         "jobs",
         "jobs-submitted",
+        "code-reviews",
         "graph",
         "memory",
     ]
