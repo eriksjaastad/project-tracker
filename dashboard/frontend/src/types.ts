@@ -218,6 +218,7 @@ export interface AgenticSummaryResponse {
   };
   series: AgenticSeriesEntry[];
   markers: AgenticMarker[];
+  markers_error?: string | null;
   date_range: {
     start: string;
     end: string;

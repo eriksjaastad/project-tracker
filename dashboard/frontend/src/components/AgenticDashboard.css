@@ -183,7 +183,8 @@
 .marker-add-form input[type="text"]:nth-child(2) { flex: 1; min-width: 160px; }
 .marker-add-form input[type="text"]:nth-child(3) { flex: 0 1 140px; }
 
-.markers-empty {
+.markers-empty,
+.markers-unreadable {
   color: var(--muted);
   font-size: 0.9rem;
   padding: var(--space-md) 0;

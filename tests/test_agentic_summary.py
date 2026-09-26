@@ -112,6 +112,7 @@ def test_agentic_summary_aggregates_rates_series_and_markers(local_backend, monk
         {"date": "2026-03-10", "review_bounces": 1, "review_promotions": 0, "review_entries": 0},
     ]
     assert payload["markers"] == [{"date": "2026-03-08", "label": "Workflow change"}]
+    assert payload["markers_error"] is None
     assert payload["date_range"] == {"start": "2026-03-08", "end": "2026-03-10"}
 
 
@@ -157,5 +158,25 @@ def test_agentic_summary_handles_invalid_days_and_malformed_markers(local_backen
         "promotion_rate": 0.0,
     }
     assert payload["markers"] == []
+    assert payload["markers_error"] is not None
+    assert "invalid JSON" in payload["markers_error"]
     assert payload["date_range"] == {"start": "2026-02-09", "end": "2026-03-10"}
     assert len(payload["series"]) == 30
+
+
+def test_agentic_summary_reports_markers_error_for_non_utf8_markers_file(
+    local_backend, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    _setup_db(local_backend)
+    _freeze_now(monkeypatch, dashboard_app, datetime(2026, 3, 10, 12, 0, 0))
+    markers_file = tmp_path / "agentic_markers.json"
+    markers_file.write_bytes(b"\xff\xfe[")
+    monkeypatch.setattr(dashboard_app, "MARKERS_PATH", markers_file)
+
+    response = TestClient(dashboard_app.app).get("/api/agentic/summary?days=3")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["markers"] == []
+    assert payload["markers_error"] is not None
+    assert "not valid UTF-8" in payload["markers_error"]

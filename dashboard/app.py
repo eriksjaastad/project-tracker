@@ -2876,18 +2876,15 @@ async def agentic_summary(days: int = 30, project_id: Optional[str] = None):
 
         row_map = {row["date"]: row for row in rows}
 
-        marker_path = Path(__file__).parent.parent / "data" / "agentic_markers.json"
         markers = []
-        if marker_path.exists():
-            try:
-                marker_data = json.loads(marker_path.read_text())
-                if isinstance(marker_data, list):
-                    markers = [
-                        m for m in marker_data
-                        if isinstance(m, dict) and m.get("date") and m.get("label")
-                    ]
-            except Exception as e:
-                logger.warning(f"Failed to load agentic markers: {e}")
+        markers_error = None
+        try:
+            markers = [
+                m for m in _load_markers()
+                if isinstance(m, dict) and m.get("date") and m.get("label")
+            ]
+        except MarkersUnreadable as exc:
+            markers_error = str(exc)
         series = []
         totals = {"review_bounces": 0, "review_promotions": 0, "review_entries": 0}
 
@@ -2926,6 +2923,7 @@ async def agentic_summary(days: int = 30, project_id: Optional[str] = None):
             },
             "series": series,
             "markers": filtered_markers,
+            "markers_error": markers_error,
             "date_range": {"start": start_date.isoformat(), "end": end_date.isoformat()},
             "project_id": project_id,
         }
@@ -2950,16 +2948,40 @@ async def holoscape_series():
 MARKERS_PATH = Path(__file__).parent.parent / "data" / "agentic_markers.json"
 
 
+class MarkersUnreadable(Exception):
+    """The markers file exists but cannot be read as a JSON list."""
+
+
 def _load_markers() -> list:
-    """Load markers from disk, returning empty list on any error."""
+    """Load markers from disk.
+
+    A missing file is the valid empty state. A present-but-unreadable file
+    (OSError, invalid UTF-8, invalid JSON, or JSON that is not a list) raises
+    MarkersUnreadable instead of returning []: treating corruption as an
+    empty inbox would let the next POST overwrite every existing marker.
+    """
     if not MARKERS_PATH.exists():
         return []
     try:
         data = json.loads(MARKERS_PATH.read_text())
-        return data if isinstance(data, list) else []
-    except Exception as e:
-        logger.warning("Failed to load markers from %s: %s", MARKERS_PATH, e)
-        return []
+    except OSError as exc:
+        logger.error("Markers file %s cannot be read: %s", MARKERS_PATH, exc)
+        raise MarkersUnreadable(f"cannot read {MARKERS_PATH}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        logger.error("Markers file %s is not valid UTF-8: %s", MARKERS_PATH, exc)
+        raise MarkersUnreadable(f"{MARKERS_PATH} is not valid UTF-8: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        logger.error("Markers file %s contains invalid JSON: %s", MARKERS_PATH, exc)
+        raise MarkersUnreadable(f"invalid JSON in {MARKERS_PATH}: {exc}") from exc
+    if not isinstance(data, list):
+        logger.error(
+            "Markers file %s contains a JSON %s, not a list",
+            MARKERS_PATH, type(data).__name__,
+        )
+        raise MarkersUnreadable(
+            f"{MARKERS_PATH} contains a JSON {type(data).__name__}, not a list"
+        )
+    return data
 
 
 def _save_markers(markers: list) -> None:
@@ -2999,14 +3021,24 @@ def _validate_marker_fields(date: Optional[str], label: Optional[str]) -> None:
 @app.get("/api/agentic/markers")
 async def get_markers():
     """Return all agentic markers."""
-    return {"markers": _load_markers()}
+    try:
+        return {"markers": _load_markers()}
+    except MarkersUnreadable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
 
 
 @app.post("/api/agentic/markers", status_code=201)
 async def create_marker(req: MarkerCreateRequest):
     """Create a new agentic marker."""
     _validate_marker_fields(req.date, req.label)
-    markers = _load_markers()
+    try:
+        markers = _load_markers()
+    except MarkersUnreadable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
     marker = {
         "id": str(uuid.uuid4()),
         "date": req.date,
@@ -3024,7 +3056,12 @@ async def create_marker(req: MarkerCreateRequest):
 async def update_marker(marker_id: str, req: MarkerUpdateRequest):
     """Update an existing agentic marker by id."""
     _validate_marker_fields(req.date, req.label)
-    markers = _load_markers()
+    try:
+        markers = _load_markers()
+    except MarkersUnreadable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
     for m in markers:
         if m.get("id") == marker_id:
             if req.date is not None:
@@ -3042,7 +3079,12 @@ async def update_marker(marker_id: str, req: MarkerUpdateRequest):
 @app.delete("/api/agentic/markers/{marker_id}", status_code=204)
 async def delete_marker(marker_id: str):
     """Delete an agentic marker by id."""
-    markers = _load_markers()
+    try:
+        markers = _load_markers()
+    except MarkersUnreadable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
     updated = [m for m in markers if m.get("id") != marker_id]
     if len(updated) == len(markers):
         raise HTTPException(status_code=404, detail="Marker not found")
