@@ -14,6 +14,43 @@ let overlayPanStart = { x: 0, y: 0 };
 let overlayPanMoved = false;
 let overlayRafId = null;
 let overlayShowLabels = false;
+let overlayUserInteracted = false;
+let overlayAutoFitHandled = false;
+let overlaySimTickCount = 0;
+const OVERLAY_FIT_TICK_FALLBACK = 600;
+
+// Server-side caps for /api/ai-memory. The user can double these via the
+// "Show more" control; the choice is persisted in localStorage.
+const OVERLAY_DEFAULT_MAX_NODES = 1500;
+const OVERLAY_DEFAULT_MAX_EDGES = 5000;
+const OVERLAY_MAX_NODES_CAP = 20000;
+const OVERLAY_MAX_EDGES_CAP = 300000;
+const OVERLAY_EDGE_STALL_THRESHOLD = 50000;
+let overlayMaxNodes = getOverlayMaxNodes();
+let overlayMaxEdges = getOverlayMaxEdges();
+
+function getOverlayMaxNodes() {
+    try {
+        const saved = parseInt(localStorage.getItem('overlay-max-nodes'), 10);
+        if (saved >= 50 && saved <= OVERLAY_MAX_NODES_CAP) return saved;
+    } catch (_) { /* localStorage unavailable */ }
+    return OVERLAY_DEFAULT_MAX_NODES;
+}
+
+function getOverlayMaxEdges() {
+    try {
+        const saved = parseInt(localStorage.getItem('overlay-max-edges'), 10);
+        if (saved >= 100 && saved <= OVERLAY_MAX_EDGES_CAP) return saved;
+    } catch (_) { /* localStorage unavailable */ }
+    return OVERLAY_DEFAULT_MAX_EDGES;
+}
+
+function saveOverlayLimits() {
+    try {
+        localStorage.setItem('overlay-max-nodes', String(overlayMaxNodes));
+        localStorage.setItem('overlay-max-edges', String(overlayMaxEdges));
+    } catch (_) { /* localStorage unavailable */ }
+}
 
 // Node colors by type
 const NODE_COLORS = {
@@ -83,6 +120,14 @@ async function loadOverlay(forceReload = false, clusterMode = 'auto') {
         return;
     }
 
+    // Each fresh (re)load gets one auto-fit once the simulation settles.
+    // Pans/zooms after this point set overlayUserInteracted, which cancels it.
+    // Any interaction from a previous load must not block the refit.
+    overlayUserInteracted = false;
+    overlayAutoFitHandled = false;
+    overlaySimTickCount = 0;
+    if (overlaySimulation) overlaySimulation.stop();
+
     // Set up min-mentions slider listener (once)
     const slider = document.getElementById('overlay-min-mentions');
     if (slider && !slider.dataset.bound) {
@@ -98,10 +143,10 @@ async function loadOverlay(forceReload = false, clusterMode = 'auto') {
         });
     }
 
-    // Fetch ai-memory graph with min_mentions filter
+    // Fetch ai-memory graph with min_mentions filter and server-side caps
     const minMentions = getOverlayMinMentions();
     try {
-        const resp = await fetch(`/api/ai-memory?min_mentions=${minMentions}&cluster=${clusterMode}`);
+        const resp = await fetch(`/api/ai-memory?min_mentions=${minMentions}&cluster=${clusterMode}&max_nodes=${overlayMaxNodes}&max_edges=${overlayMaxEdges}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         overlayData = await resp.json();
     } catch (e) {
@@ -115,7 +160,7 @@ async function loadOverlay(forceReload = false, clusterMode = 'auto') {
     if (!overlayData.nodes || overlayData.nodes.length === 0) {
         if (status) {
             status.style.display = 'block';
-            document.getElementById('overlay-waiting').textContent = 'ai-memory graph is empty. Run: brain.py graph build';
+            document.getElementById('overlay-waiting').textContent = 'ai-memory graph is empty — see the build status above, or use the manual rebuild command.';
         }
         return;
     }
@@ -127,8 +172,9 @@ async function loadOverlay(forceReload = false, clusterMode = 'auto') {
     // Filter edges to only those with valid source/target
     overlayData.edges = overlayData.edges.filter(e => nodeMap.has(e.source) && nodeMap.has(e.target));
 
-    // Update overlay stats
+    // Update overlay stats and Show more control
     updateOverlayStats();
+    updateOverlayShowMore();
 
     // Run d3 force layout
     const w = overlayCanvas.width;
@@ -147,7 +193,16 @@ async function loadOverlay(forceReload = false, clusterMode = 'auto') {
         .force('center', d3.forceCenter(w / 2, h / 2))
         .force('collision', d3.forceCollide(d => overlayNodeRadius(d) + 2))
         .alphaDecay(0.02)
-        .on('tick', renderOverlay);
+        .on('tick', () => {
+            overlaySimTickCount += 1;
+            renderOverlay();
+            // Fallback for simulations that never fully settle (e.g. reheated
+            // by a drag): fit once after N ticks even without an end event.
+            if (!overlayAutoFitHandled && overlaySimTickCount >= OVERLAY_FIT_TICK_FALLBACK) {
+                overlaySimulationSettled();
+            }
+        })
+        .on('end', overlaySimulationSettled);
 
     setupOverlayInteraction();
 
@@ -161,51 +216,80 @@ async function loadOverlay(forceReload = false, clusterMode = 'auto') {
         });
     }
 
-    // Reset view button
+    // Reset view button — same fit logic the auto-fit uses on load.
     const resetBtn = document.getElementById('overlay-reset-view');
     if (resetBtn && !resetBtn.dataset.bound) {
         resetBtn.dataset.bound = '1';
-        resetBtn.addEventListener('click', () => {
-            overlayTransform = { x: 0, y: 0, k: 1 };
-            renderOverlay();
+        resetBtn.addEventListener('click', overlayFitToScreen);
+    }
+
+    // Show more: double the server-side caps and reload
+    const showMoreBtn = document.getElementById('overlay-show-more');
+    if (showMoreBtn && !showMoreBtn.dataset.bound) {
+        showMoreBtn.dataset.bound = '1';
+        showMoreBtn.addEventListener('click', () => {
+            overlayMaxNodes = Math.min(overlayMaxNodes * 2, OVERLAY_MAX_NODES_CAP);
+            overlayMaxEdges = Math.min(overlayMaxEdges * 2, OVERLAY_MAX_EDGES_CAP);
+            saveOverlayLimits();
+            overlayLoaded = false;
+            if (overlaySimulation) overlaySimulation.stop();
+            loadOverlay(true);
         });
     }
 
     overlayLoaded = true;
 }
 
-// Top-level rebuild handler for the overlay button (wired via inline onclick
-// in memory.html so it's not dependent on loadOverlay()'s binding path).
-async function rebuildAiMemoryGraph() {
-    const rebuildBtn = document.getElementById('overlay-rebuild');
-    if (rebuildBtn) {
-        rebuildBtn.disabled = true;
-        rebuildBtn.textContent = '⏳ Rebuilding...';
+function updateOverlayShowMore() {
+    const btn = document.getElementById('overlay-show-more');
+    const warning = document.getElementById('overlay-show-more-warning');
+    if (!btn) return;
+
+    const truncated = !!(overlayData.stats && overlayData.stats.truncated);
+    const canGrow = overlayMaxNodes < OVERLAY_MAX_NODES_CAP || overlayMaxEdges < OVERLAY_MAX_EDGES_CAP;
+    const showBtn = truncated && canGrow;
+    btn.classList.toggle('hidden', !showBtn);
+
+    if (warning) {
+        const nextEdges = Math.min(overlayMaxEdges * 2, OVERLAY_MAX_EDGES_CAP);
+        warning.classList.toggle('hidden', !(showBtn && nextEdges > OVERLAY_EDGE_STALL_THRESHOLD));
     }
-    if (typeof ptToast === 'function') ptToast('Rebuild started…', 'info');
+}
+
+async function loadAiMemoryBuildStatus() {
+    const el = document.getElementById('ai-memory-build-status-text');
+    if (!el) return;
     try {
-        const resp = await fetch('/api/ai-memory/rebuild', { method: 'POST' });
-        const data = await resp.json();
-        if (!resp.ok || !data.job_id) {
-            throw new Error(data.message || `HTTP ${resp.status}`);
-        }
-        const job = await ptPollRebuild(data.job_id);
-        if (job.status !== 'done') {
-            throw new Error(job.error || 'rebuild failed');
-        }
-        overlayLoaded = false;
-        if (overlaySimulation) overlaySimulation.stop();
-        loadOverlay(true);
-        if (typeof ptToast === 'function') ptToast('Graph rebuilt ✓', 'success');
-    } catch (e) {
-        if (typeof ptToast === 'function') ptToast(`Rebuild failed: ${e.message}`, 'error');
-        else alert(`Rebuild failed: ${e.message}`);
-    } finally {
-        if (rebuildBtn) {
-            rebuildBtn.disabled = false;
-            rebuildBtn.textContent = '🔄 Rebuild Graph';
-        }
+        const resp = await fetch('/api/ai-memory/build-status');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        el.textContent = formatBuildStatus(await resp.json());
+    } catch (_) {
+        el.textContent = 'Graph build status unavailable';
     }
+}
+
+function formatBuildStatus(data) {
+    if (!data || data.state === 'unknown') return 'Graph build status unknown';
+    const when = data.started_at ? new Date(data.started_at) : null;
+    const dateStr = when && !isNaN(when)
+        ? when.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+        : 'unknown date';
+    let text = data.state === 'failed' ? `Last graph build failed ${dateStr}` : `Graph last built ${dateStr}`;
+    if (data.started_at && data.finished_at) {
+        const seconds = (new Date(data.finished_at) - new Date(data.started_at)) / 1000;
+        if (seconds > 0) text += ` (took ${formatBuildDuration(seconds)})`;
+    }
+    text += ` by the weekly job · next ${data.schedule || 'Mon 10:00'}`;
+    if (data.state === 'failed' && data.exit_status != null) text += ` (exit ${data.exit_status})`;
+    return text;
+}
+
+function formatBuildDuration(totalSeconds) {
+    const minutes = Math.round(totalSeconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
 }
 
 function updateOverlayStats() {
@@ -227,13 +311,74 @@ function updateOverlayStats() {
     // Populate sidebar stats
     const statsEl = document.getElementById('overlay-stats');
     if (statsEl) {
-        let statsHtml = `<strong>${stats.total_nodes || overlayData.nodes.length}</strong> nodes · <strong>${stats.total_edges || overlayData.edges.length}</strong> edges`;
+        const shownNodes = stats.nodes_shown ?? stats.total_nodes ?? overlayData.nodes.length;
+        const shownEdges = stats.edges_shown ?? stats.total_edges ?? overlayData.edges.length;
+        const availNodes = stats.total_nodes_available ?? shownNodes;
+        const availEdges = stats.total_edges_available ?? shownEdges;
+        let statsHtml;
+        if (stats.truncated) {
+            statsHtml = `Showing <strong>${shownNodes.toLocaleString()}</strong> of ${availNodes.toLocaleString()} nodes · <strong>${shownEdges.toLocaleString()}</strong> of ${availEdges.toLocaleString()} strongest connections`;
+        } else {
+            statsHtml = `<strong>${shownNodes.toLocaleString()}</strong> nodes · <strong>${shownEdges.toLocaleString()}</strong> edges`;
+        }
         if (stats.clustered) {
             const clusterCount = overlayData.nodes.filter(n => n.is_cluster).length;
             statsHtml += ` · <em>${clusterCount} clusters</em>`;
         }
         statsEl.innerHTML = statsHtml;
     }
+}
+
+function overlaySimulationSettled() {
+    if (overlayAutoFitHandled) return;
+    overlayAutoFitHandled = true;
+    // The user took control of the view while the simulation was still
+    // running — leave their pan/zoom alone instead of snapping the graph.
+    if (overlayUserInteracted) return;
+    overlayFitToScreen();
+}
+
+// Fit the current node positions (plus their radii) into the canvas viewport.
+// Shared by the auto-fit-on-settle path and the "Fit to Screen" button.
+function overlayFitToScreen() {
+    if (!overlayCanvas || !overlayData.nodes || overlayData.nodes.length === 0) return;
+    const w = overlayCanvas.width;
+    const h = overlayCanvas.height;
+    if (!w || !h) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of overlayData.nodes) {
+        if (n.x == null || n.y == null) continue;
+        const r = overlayNodeRadius(n);
+        if (n.x - r < minX) minX = n.x - r;
+        if (n.y - r < minY) minY = n.y - r;
+        if (n.x + r > maxX) maxX = n.x + r;
+        if (n.y + r > maxY) maxY = n.y + r;
+    }
+    if (minX === Infinity) return;
+
+    const boundsWidth = maxX - minX;
+    const boundsHeight = maxY - minY;
+
+    if (boundsWidth === 0 && boundsHeight === 0) {
+        // Degenerate layout (e.g. a single node): center it at full scale.
+        overlayTransform = { x: w / 2 - minX, y: h / 2 - minY, k: 1 };
+        renderOverlay();
+        return;
+    }
+
+    // Same padding convention as memory_svg.js svgFitToScreen: leave 15% of
+    // the viewport as a margin so the graph doesn't touch the edges.
+    const padding = 0.85;
+    let scale = Math.min(w / boundsWidth, h / boundsHeight) * padding;
+    // Keep the fitted scale within the same range the wheel zoom allows.
+    scale = Math.max(0.1, Math.min(5, scale));
+    if (!isFinite(scale) || scale <= 0) scale = 1;
+
+    const midX = (minX + maxX) / 2;
+    const midY = (minY + maxY) / 2;
+    overlayTransform = { x: w / 2 - scale * midX, y: h / 2 - scale * midY, k: scale };
+    renderOverlay();
 }
 
 function renderOverlay() {
@@ -352,6 +497,15 @@ function renderOverlay() {
 function setupOverlayInteraction() {
     if (!overlayCanvas) return;
 
+    // Bind the pan/zoom/hover handlers exactly once per canvas element.
+    // loadOverlay() calls this after every fetch, including "Show more"
+    // reloads, so without this guard each reload would stack an identical
+    // set of listeners and pan speed would double per reload. The handlers
+    // close over the module-level overlay* variables, which are reassigned
+    // in place on reload, so they keep working across reloads.
+    if (overlayCanvas.dataset.interactionBound) return;
+    overlayCanvas.dataset.interactionBound = '1';
+
     overlayCanvas.addEventListener('mousemove', e => {
         const rect = overlayCanvas.getBoundingClientRect();
         const mx = (e.clientX - rect.left - overlayTransform.x) / overlayTransform.k;
@@ -364,6 +518,7 @@ function setupOverlayInteraction() {
             overlayTransform.x += dx;
             overlayTransform.y += dy;
             overlayPanStart = { x: e.clientX, y: e.clientY };
+            if (overlayPanMoved) overlayUserInteracted = true;
             renderOverlay();
             return;
         }
@@ -422,6 +577,7 @@ function setupOverlayInteraction() {
 
     overlayCanvas.addEventListener('wheel', e => {
         e.preventDefault();
+        overlayUserInteracted = true;
         const rect = overlayCanvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
@@ -515,3 +671,6 @@ function closeOverlayDetail() {
     overlaySelected = null;
     renderOverlay();
 }
+
+// Populate the header build-status line on page load (memory.html only).
+loadAiMemoryBuildStatus();

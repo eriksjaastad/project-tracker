@@ -22,11 +22,17 @@
         <button onclick="switchView('heatmap')" id="tab-heatmap" class="tab-btn">🌡️ Heatmap</button>
         <button onclick="switchView('list')" id="tab-list" class="tab-btn">📋 List</button>
     </div>
-    <button class="shell-copy-pill" title="Click to copy"
-            onclick="ptCopyCommand('cd ~/projects/ai-memory &amp;&amp; doppler run --project ai-memory --config dev -- uv run brain.py graph build')">
-        <span class="label">📋 Rebuild:</span>
-        <code>cd ~/projects/ai-memory &amp;&amp; doppler run --project ai-memory --config dev -- uv run brain.py graph build</code>
-    </button>
+    <div class="ai-memory-build-status">
+        <span class="build-status-text" id="ai-memory-build-status-text">Graph build status…</span>
+        <span class="build-status-actions">
+            <button class="shell-copy-pill" title="Click to copy manual rebuild command"
+                    onclick="ptCopyCommand('cd ~/projects/ai-memory &amp;&amp; doppler run --project ai-memory --config dev -- uv run brain.py graph build --force')">
+                <span class="label">📋 Manual:</span>
+                <code>brain.py graph build --force</code>
+            </button>
+            <span class="build-status-note">takes about 2.5 hours</span>
+        </span>
+    </div>
 </div>
 {% endblock %}
 
@@ -126,6 +132,10 @@
             </div>
             <div class="memory-stats" id="overlay-stats">
                 <!-- Filled by JS -->
+            </div>
+            <div class="overlay-show-more-group">
+                <p id="overlay-show-more-warning" class="overlay-warning hidden">⚠️ Showing more than 50,000 edges may stall your browser.</p>
+                <button id="overlay-show-more" class="btn-small hidden">Show more</button>
             </div>
             <button id="overlay-reset-view" class="btn-small">Fit to Screen</button>
         </div>
