@@ -11,7 +11,7 @@ import subprocess
 import threading
 import httpx
 
-from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File, BackgroundTasks, Query
+from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -1749,6 +1749,72 @@ async def get_memory_graph_data(
         return JSONResponse({"error": f"Error reading memory data: {e}"}, status_code=500)
 
 
+def _parse_bounded_int_param(request: Request, name: str, default: int, lo: int, hi: int):
+    """Parse an integer query param with a default, clamped to [lo, hi].
+
+    Returns (value, error_message). A non-integer value yields an error
+    message so the caller can return a 400 instead of silently falling back
+    to the default. Out-of-range integer values are clamped into the
+    documented range.
+    """
+    raw = request.query_params.get(name)
+    if raw is None:
+        return default, None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None, f"{name} must be an integer (got {raw!r})"
+    return max(lo, min(hi, value)), None
+
+
+# Final edge query shared by the shown-edge select and the available-edge
+# count. Endpoints are remapped through _cluster_map (dust -> cluster) and
+# then required to land inside _kept_ids (populated with either the shown
+# node ids or the available node ids before the cap).
+_AI_MEMORY_EDGE_FROM = """
+    FROM graph_edges e
+    LEFT JOIN _cluster_map cm_s ON e.source_node_id = cm_s.id
+    LEFT JOIN _cluster_map cm_t ON e.target_node_id = cm_t.id
+    WHERE COALESCE(cm_s.cluster_id, e.source_node_id) IN (SELECT id FROM _kept_ids)
+      AND COALESCE(cm_t.cluster_id, e.target_node_id) IN (SELECT id FROM _kept_ids)
+      AND COALESCE(cm_s.cluster_id, e.source_node_id) != COALESCE(cm_t.cluster_id, e.target_node_id)
+"""
+
+_AI_MEMORY_EDGE_SELECT = (
+    "SELECT COALESCE(cm_s.cluster_id, e.source_node_id) AS source, "
+    "COALESCE(cm_t.cluster_id, e.target_node_id) AS target, e.type, e.weight "
+    + _AI_MEMORY_EDGE_FROM
+    + " ORDER BY e.weight DESC LIMIT ?"
+)
+
+_AI_MEMORY_EDGE_COUNT = (
+    "SELECT COUNT(*) FROM ("
+    "SELECT COALESCE(cm_s.cluster_id, e.source_node_id) AS source, "
+    "COALESCE(cm_t.cluster_id, e.target_node_id) AS target, e.type "
+    + _AI_MEMORY_EDGE_FROM
+    + " GROUP BY 1, 2, 3)"
+)
+
+_AI_MEMORY_DEGREE_SQL = """
+    SELECT node_id, SUM(cnt) AS degree FROM (
+        SELECT e.source_node_id AS node_id, COUNT(*) AS cnt
+        FROM graph_edges e
+        INNER JOIN _visible_ids s ON e.source_node_id = s.id
+        INNER JOIN _visible_ids t ON e.target_node_id = t.id
+        GROUP BY e.source_node_id
+        UNION ALL
+        SELECT e.target_node_id AS node_id, COUNT(*) AS cnt
+        FROM graph_edges e
+        INNER JOIN _visible_ids s ON e.source_node_id = s.id
+        INNER JOIN _visible_ids t ON e.target_node_id = t.id
+        GROUP BY e.target_node_id
+    ) GROUP BY node_id
+"""
+
+_AI_MEMORY_BUILD_RECEIPT = "com.ai-memory.weekly-graph-build.json"
+_AI_MEMORY_BUILD_SCHEDULE = "Mondays 10:00"
+
+
 @app.get("/api/ai-memory")
 @app.get("/api/knowledge-graph")  # legacy alias
 async def get_ai_memory_graph(request: Request):
@@ -1759,8 +1825,29 @@ async def get_ai_memory_graph(request: Request):
                       Edges where either endpoint is filtered out are also removed.
         cluster:      "auto" (default) clusters dust nodes when total > 2000,
                       "off" disables clustering, "on" forces it.
+        max_nodes:    Cap on returned nodes after clustering (default 1500,
+                      clamped to 50..20000). Non-integer values are a 400.
+        max_edges:    Cap on returned edges after node selection (default 5000,
+                      clamped to 100..300000). Edges are ordered by weight DESC
+                      so the strongest edges survive. Non-integer values are a 400.
+
+    Stats: total_nodes / total_edges are the SHOWN counts (same as nodes_shown
+    / edges_shown). total_nodes_available / total_edges_available describe the
+    graph after min_mentions + clustering but before the max_nodes / max_edges
+    caps, and truncated is True when the response omits part of that graph.
     """
-    min_mentions = int(request.query_params.get("min_mentions", 1))
+    try:
+        min_mentions = int(request.query_params.get("min_mentions", 1))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "min_mentions must be an integer"}, status_code=400)
+
+    max_nodes, err = _parse_bounded_int_param(request, "max_nodes", 1500, 50, 20000)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    max_edges, err = _parse_bounded_int_param(request, "max_edges", 5000, 100, 300000)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+
     cluster_mode = request.query_params.get("cluster", "auto")
     projects_root = config_projects_root()
     brain_db_path = projects_root / "ai-memory" / "brain.db"
@@ -1777,34 +1864,69 @@ async def get_ai_memory_graph(request: Request):
                 (min_mentions,)
             ).fetchall()]
 
-            node_ids = {n["id"] for n in nodes}
-
-            # Optimized edge query: use a temp table to filter in SQL instead of
-            # fetching all 80K+ edges and filtering in Python.
+            # Degree per visible node, computed in SQL so we never materialize
+            # the full edge set just to cluster dust nodes.
             conn.execute("CREATE TEMP TABLE _visible_ids (id INTEGER PRIMARY KEY)")
-            conn.executemany("INSERT INTO _visible_ids VALUES (?)", [(nid,) for nid in node_ids])
-            edges = [dict(r) for r in conn.execute(
-                "SELECT e.source_node_id as source, e.target_node_id as target, e.type, e.weight "
-                "FROM graph_edges e "
-                "INNER JOIN _visible_ids s ON e.source_node_id = s.id "
-                "INNER JOIN _visible_ids t ON e.target_node_id = t.id"
-            ).fetchall()]
+            conn.executemany("INSERT INTO _visible_ids VALUES (?)", [(n["id"],) for n in nodes])
+            degree_rows = conn.execute(_AI_MEMORY_DEGREE_SQL).fetchall()
+            degree = {row["node_id"]: row["degree"] for row in degree_rows}
 
-        # Server-side clustering: aggregate low-value nodes into type-based clusters
-        should_cluster = (
-            cluster_mode == "on"
-            or (cluster_mode == "auto" and len(nodes) > 2000)
-        )
-        if should_cluster:
-            nodes, edges = _cluster_dust_nodes(nodes, edges)
+            # Server-side clustering: aggregate low-value nodes into type-based clusters
+            should_cluster = (
+                cluster_mode == "on"
+                or (cluster_mode == "auto" and len(nodes) > 2000)
+            )
+            if should_cluster:
+                nodes, cluster_id_map = _cluster_dust_nodes(nodes, degree)
+            else:
+                cluster_id_map = {}
+
+            total_nodes_available = len(nodes)
+            # Keep the top max_nodes nodes by size (mention_count; cluster
+            # nodes count by their size).
+            nodes.sort(key=lambda n: n["size"], reverse=True)
+            shown_nodes = nodes[:max_nodes]
+            shown_ids = {n["id"] for n in shown_nodes}
+
+            conn.execute("CREATE TEMP TABLE _cluster_map (id INTEGER PRIMARY KEY, cluster_id INTEGER)")
+            conn.executemany("INSERT INTO _cluster_map VALUES (?, ?)", list(cluster_id_map.items()))
+            conn.execute("CREATE TEMP TABLE _kept_ids (id INTEGER PRIMARY KEY)")
+            conn.executemany("INSERT INTO _kept_ids VALUES (?)", [(nid,) for nid in shown_ids])
+
+            edges = [dict(r) for r in conn.execute(_AI_MEMORY_EDGE_SELECT, (max_edges,)).fetchall()]
+
+            # Remapping dust endpoints onto a cluster can collapse distinct DB
+            # edges into the same (source, target, type) triple; keep the first,
+            # which is the strongest because the query orders by weight DESC.
+            seen_edge_keys = set()
+            deduped_edges = []
+            for e in edges:
+                key = (e["source"], e["target"], e["type"])
+                if key in seen_edge_keys:
+                    continue
+                seen_edge_keys.add(key)
+                deduped_edges.append(e)
+            edges = deduped_edges
+
+            # Count the available edges (same remap/dedup rules, before caps).
+            conn.execute("DELETE FROM _kept_ids")
+            conn.executemany("INSERT INTO _kept_ids VALUES (?)", [(n["id"],) for n in nodes])
+            total_edges_available = conn.execute(_AI_MEMORY_EDGE_COUNT).fetchone()[0]
+
+        truncated = (len(shown_nodes) < total_nodes_available) or (len(edges) < total_edges_available)
 
         return {
-            "nodes": nodes,
+            "nodes": shown_nodes,
             "edges": edges,
             "stats": {
-                "total_nodes": len(nodes),
+                "total_nodes": len(shown_nodes),
                 "total_edges": len(edges),
                 "clustered": should_cluster,
+                "total_nodes_available": total_nodes_available,
+                "total_edges_available": total_edges_available,
+                "nodes_shown": len(shown_nodes),
+                "edges_shown": len(edges),
+                "truncated": truncated,
             }
         }
     except Exception as e:
@@ -1812,30 +1934,67 @@ async def get_ai_memory_graph(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-def _cluster_dust_nodes(nodes: list[dict], edges: list[dict]) -> tuple[list[dict], list[dict]]:
+@app.get("/api/ai-memory/build-status")
+async def get_ai_memory_build_status():
+    """Read-only status of the weekly ai-memory graph build.
+
+    Reads the cron receipt written by the Monday 10:00 job
+    (com.ai-memory.weekly-graph-build). "unknown" when the receipt is
+    missing, unreadable or invalid — never presented as fresh.
+    """
+    receipt_path = (
+        config_projects_root()
+        / "ai-memory"
+        / "logs"
+        / "cron"
+        / _AI_MEMORY_BUILD_RECEIPT
+    )
+    unknown = {
+        "state": "unknown",
+        "started_at": None,
+        "finished_at": None,
+        "exit_status": None,
+        "invocation": None,
+        "schedule": _AI_MEMORY_BUILD_SCHEDULE,
+    }
+    try:
+        if not receipt_path.is_file():
+            return unknown
+        with open(receipt_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return unknown
+        exit_status = data.get("exit_status")
+        if isinstance(exit_status, bool) or not isinstance(exit_status, int):
+            return unknown
+        return {
+            "state": "ok" if exit_status == 0 else "failed",
+            "started_at": data.get("started_at") if isinstance(data.get("started_at"), str) else None,
+            "finished_at": data.get("finished_at") if isinstance(data.get("finished_at"), str) else None,
+            "exit_status": exit_status,
+            "invocation": data.get("invocation") if isinstance(data.get("invocation"), str) else None,
+            "schedule": _AI_MEMORY_BUILD_SCHEDULE,
+        }
+    except (OSError, ValueError):
+        return unknown
+
+
+def _cluster_dust_nodes(nodes: list[dict], degree: dict) -> tuple[list[dict], dict]:
     """Collapse low-signal nodes into per-type aggregate clusters.
 
     Dust = mention_count <= 2 AND degree <= 5. These get grouped by type
     into a single cluster node per type, reducing rendered node count.
+    Returns (nodes_with_clusters, {dust_node_id: cluster_id}).
     """
     from collections import defaultdict
 
-    # Count degree per node
-    degree = defaultdict(int)
-    for e in edges:
-        degree[e["source"]] += 1
-        degree[e["target"]] += 1
-
-    # Identify dust nodes
-    dust_ids = set()
     dust_by_type = defaultdict(list)
     for n in nodes:
         if n["size"] <= 2 and degree.get(n["id"], 0) <= 5:
-            dust_ids.add(n["id"])
             dust_by_type[n["type"]].append(n)
 
-    if not dust_ids:
-        return nodes, edges
+    if not dust_by_type:
+        return nodes, {}
 
     # Build cluster nodes (negative IDs to avoid collisions)
     cluster_id_map = {}  # dust node id -> cluster id
@@ -1859,48 +2018,7 @@ def _cluster_dust_nodes(nodes: list[dict], edges: list[dict]) -> tuple[list[dict
     # Keep non-dust nodes + add cluster nodes
     kept_nodes = [n for n in nodes if n["id"] not in cluster_id_map]
     kept_nodes.extend(cluster_nodes)
-
-    # Rewrite edges: remap dust endpoints to their cluster
-    seen_edges = set()
-    kept_edges = []
-    for e in edges:
-        src = cluster_id_map.get(e["source"], e["source"])
-        tgt = cluster_id_map.get(e["target"], e["target"])
-        if src == tgt:
-            continue  # skip self-loops within a cluster
-        edge_key = (src, tgt, e["type"])
-        if edge_key in seen_edges:
-            continue  # deduplicate
-        seen_edges.add(edge_key)
-        kept_edges.append({"source": src, "target": tgt, "type": e["type"], "weight": e["weight"]})
-
-    return kept_nodes, kept_edges
-
-
-@app.post("/api/ai-memory/rebuild")
-async def rebuild_ai_memory_graph(background_tasks: BackgroundTasks):
-    """Trigger a rebuild of the ai-memory knowledge graph (runs in background).
-
-    Returns a job_id the frontend can poll via /api/rebuild-status/{job_id}.
-    """
-    def _rebuild_brain_graph():
-        projects_root = config_projects_root()
-        brain_py = projects_root / "ai-memory" / "brain.py"
-        result = subprocess.run(
-            ["doppler", "run", "--project", "ai-memory", "--config", "dev",
-             "--", "uv", "run", str(brain_py), "graph", "build"],
-            cwd=str(projects_root / "ai-memory"),
-            timeout=300,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"brain.py graph build exited {result.returncode}: {result.stderr[-500:]}")
-        logger.info("ai-memory graph rebuild complete")
-
-    job_id = _create_rebuild_job("ai_memory_graph")
-    background_tasks.add_task(_run_tracked_rebuild, job_id, _rebuild_brain_graph)
-    return {"status": "rebuilding", "message": "Graph rebuild started in background", "job_id": job_id}
+    return kept_nodes, cluster_id_map
 
 
 @app.get("/api/memory/types")
