@@ -29,6 +29,7 @@ def test_navigation_api_returns_shared_contract():
     assert payload["title"] == "Project Tracker"
     assert [item["id"] for item in payload["items"]] == [
         "dashboard",
+        "morning",
         "kanban",
         "agentic",
         "holoscape",
