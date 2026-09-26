@@ -123,6 +123,13 @@ NAVIGATION_ITEMS = [
         "navigation_type": "spa",
     },
     {
+        "id": "morning",
+        "label": "Morning",
+        "href": "/morning",
+        "match_prefixes": ["/morning"],
+        "navigation_type": "spa",
+    },
+    {
         "id": "kanban",
         "label": "Kanban",
         "href": "/kanban",
@@ -290,6 +297,7 @@ async def serve_spa_shell(request: Request):
 @app.get("/jobs", response_class=HTMLResponse)
 @app.get("/jobs/submitted", response_class=HTMLResponse)
 @app.get("/code-reviews", response_class=HTMLResponse)
+@app.get("/morning", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
     return await serve_spa_shell(request)
@@ -3641,6 +3649,18 @@ Review the posting at the URL above and create tailored materials following thes
         "job_id": job_id,
         "message": "Agent prompt queued successfully"
     }
+
+
+# --- Morning warm-up API Endpoint (#7616) ---
+
+@app.get("/api/morning")
+async def get_morning_snapshot():
+    try:
+        from dashboard.morning import morning_snapshot, MorningPlanError
+        return morning_snapshot()
+    except MorningPlanError as exc:
+        logger.error("Failed to load morning plan: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc))
 
 
 # --- Ideas API Endpoints (Task #4583) ---

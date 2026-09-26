@@ -9,6 +9,7 @@ import { HoloscapeProgressPage } from './components/HoloscapeProgressPage';
 import { JobsPage } from './components/JobsPage';
 import { JobsSubmittedPage } from './components/JobsSubmittedPage';
 import { CodeReviewMetricsPage } from './components/CodeReviewMetricsPage';
+import { MorningPage } from './components/MorningPage';
 import './App.css';
 
 function App() {
@@ -27,6 +28,7 @@ function App() {
           <Route path="/jobs" element={<JobsPage />} />
           <Route path="/jobs/submitted" element={<JobsSubmittedPage />} />
           <Route path="/code-reviews" element={<CodeReviewMetricsPage />} />
+          <Route path="/morning" element={<MorningPage />} />
           <Route path="*" element={<Navigate to="/kanban" replace />} />
         </Routes>
       </div>
