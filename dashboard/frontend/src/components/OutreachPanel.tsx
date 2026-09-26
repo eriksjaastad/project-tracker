@@ -46,24 +46,48 @@ export function OutreachPanel() {
   const editingIdRef = useRef<number | null>(null);
   editingIdRef.current = editingId;
 
+  // Rows with an in-flight action request (Contacted / Replied / Delete). A
+  // row's action buttons are disabled while one is running, and the handlers
+  // drop duplicate clicks so a double-click can never send two requests.
+  const [busyRows, setBusyRows] = useState<Set<number>>(() => new Set());
+  const busyRowsRef = useRef<Set<number>>(new Set());
+
+  // Rows with an in-flight rename. Other actions wait for the pending rename
+  // instead of being blocked by it (see waitForPendingRename), but the name
+  // still cannot enter edit mode again until the rename has landed.
+  const [renamingRows, setRenamingRows] = useState<Set<number>>(() => new Set());
+  const renamingRowsRef = useRef<Set<number>>(new Set());
+
+  // The add form can only have one in-flight request at a time.
+  const [addInFlight, setAddInFlight] = useState(false);
+  const addInFlightRef = useRef(false);
+
   // Per-row serialization of mutating requests. A rename sent by blur-to-save
   // is kept here so a Contacted / Replied / Delete click on the same row can
   // wait for it before sending its own request; otherwise the two responses
   // race and whichever lands last wins, even if it is stale.
   const renamePromisesRef = useRef<Map<number, Promise<void>>>(new Map());
-  // Per-row request sequence numbers. Every mutating request stamps the row;
-  // a response is only applied when its sequence number is still the newest,
-  // so a slow stale response can never overwrite fresher state.
-  const requestSeqRef = useRef<Map<number, number>>(new Map());
 
-  function nextRequestSeq(id: number): number {
-    const seq = (requestSeqRef.current.get(id) ?? 0) + 1;
-    requestSeqRef.current.set(id, seq);
-    return seq;
+  function setRowBusy(id: number, busy: boolean): void {
+    const next = new Set(busyRowsRef.current);
+    if (busy) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+    busyRowsRef.current = next;
+    setBusyRows(next);
   }
 
-  function isLatestRequest(id: number, seq: number): boolean {
-    return requestSeqRef.current.get(id) === seq;
+  function setRowRenaming(id: number, renaming: boolean): void {
+    const next = new Set(renamingRowsRef.current);
+    if (renaming) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+    renamingRowsRef.current = next;
+    setRenamingRows(next);
   }
 
   async function waitForPendingRename(id: number): Promise<void> {
@@ -108,10 +132,35 @@ export function OutreachPanel() {
     }
   }
 
+  // After a failed action the server is the only source of truth: show the
+  // error, then re-fetch and render the server's list so the UI can never stay
+  // out of step with the DB. If the reload also fails, keep the last list and
+  // say so in the error.
+  async function resyncAfterError(message: string): Promise<void> {
+    try {
+      const response = await fetch('/api/outreach/contacts');
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(
+          errorMessage(payload, `Failed to reload contacts (HTTP ${response.status})`)
+        );
+      }
+      const data = await response.json();
+      setContacts(data.contacts || []);
+    } catch (err) {
+      console.error('Failed to reload outreach contacts after an error:', err);
+      const reloadMessage = err instanceof Error ? err.message : 'Failed to reload contacts';
+      setError(`${message} Could not reload contacts: ${reloadMessage}`);
+    }
+  }
+
   async function handleAdd(event: FormEvent) {
     event.preventDefault();
+    if (addInFlightRef.current) return;
     const trimmed = name.trim();
     if (!trimmed) return;
+    addInFlightRef.current = true;
+    setAddInFlight(true);
     try {
       const response = await fetch('/api/outreach/contacts', {
         method: 'POST',
@@ -128,11 +177,17 @@ export function OutreachPanel() {
       setError(null);
     } catch (err) {
       console.error('Failed to add outreach contact:', err);
-      setError(err instanceof Error ? err.message : 'Failed to add contact');
+      const message = err instanceof Error ? err.message : 'Failed to add contact';
+      setError(message);
+      await resyncAfterError(message);
+    } finally {
+      addInFlightRef.current = false;
+      setAddInFlight(false);
     }
   }
 
   function startEdit(contact: OutreachContact) {
+    if (busyRowsRef.current.has(contact.id) || renamingRowsRef.current.has(contact.id)) return;
     editingIdRef.current = contact.id;
     setEditingId(contact.id);
     setEditingValue(contact.name);
@@ -158,7 +213,7 @@ export function OutreachPanel() {
   }
 
   function renameContact(id: number, nextName: string): Promise<void> {
-    const seq = nextRequestSeq(id);
+    setRowRenaming(id, true);
     const promise = (async () => {
       try {
         const response = await fetch(`/api/outreach/contacts/${id}`, {
@@ -171,17 +226,17 @@ export function OutreachPanel() {
           throw new Error(errorMessage(payload, `Failed to rename contact (HTTP ${response.status})`));
         }
         const data = await response.json();
-        if (isLatestRequest(id, seq)) {
-          setContacts((prev) =>
-            (prev ?? []).map((contact) => (contact.id === id ? data.contact : contact))
-          );
-          setError(null);
-        }
+        setContacts((prev) =>
+          (prev ?? []).map((contact) => (contact.id === id ? data.contact : contact))
+        );
+        setError(null);
       } catch (err) {
         console.error('Failed to rename outreach contact:', err);
-        if (isLatestRequest(id, seq)) {
-          setError(err instanceof Error ? err.message : 'Failed to rename contact');
-        }
+        const message = err instanceof Error ? err.message : 'Failed to rename contact';
+        setError(message);
+        await resyncAfterError(message);
+      } finally {
+        setRowRenaming(id, false);
       }
     })();
     renamePromisesRef.current.set(id, promise);
@@ -195,9 +250,10 @@ export function OutreachPanel() {
   }
 
   async function handleContacted(id: number) {
-    await waitForPendingRename(id);
-    const seq = nextRequestSeq(id);
+    if (busyRowsRef.current.has(id)) return;
+    setRowBusy(id, true);
     try {
+      await waitForPendingRename(id);
       const response = await fetch(`/api/outreach/contacts/${id}/contacted`, {
         method: 'POST',
       });
@@ -206,24 +262,25 @@ export function OutreachPanel() {
         throw new Error(errorMessage(payload, `Failed to mark contact (HTTP ${response.status})`));
       }
       const data = await response.json();
-      if (isLatestRequest(id, seq)) {
-        setContacts((prev) =>
-          (prev ?? []).map((contact) => (contact.id === id ? data.contact : contact))
-        );
-        setError(null);
-      }
+      setContacts((prev) =>
+        (prev ?? []).map((contact) => (contact.id === id ? data.contact : contact))
+      );
+      setError(null);
     } catch (err) {
       console.error('Failed to mark outreach contact as contacted:', err);
-      if (isLatestRequest(id, seq)) {
-        setError(err instanceof Error ? err.message : 'Failed to mark contact');
-      }
+      const message = err instanceof Error ? err.message : 'Failed to mark contact';
+      setError(message);
+      await resyncAfterError(message);
+    } finally {
+      setRowBusy(id, false);
     }
   }
 
   async function handleReplied(id: number) {
-    await waitForPendingRename(id);
-    const seq = nextRequestSeq(id);
+    if (busyRowsRef.current.has(id)) return;
+    setRowBusy(id, true);
     try {
+      await waitForPendingRename(id);
       const response = await fetch(`/api/outreach/contacts/${id}/replied`, {
         method: 'POST',
       });
@@ -231,22 +288,23 @@ export function OutreachPanel() {
         const payload = await response.json().catch(() => null);
         throw new Error(errorMessage(payload, `Failed to mark reply (HTTP ${response.status})`));
       }
-      if (isLatestRequest(id, seq)) {
-        setContacts((prev) => (prev ?? []).filter((contact) => contact.id !== id));
-        setError(null);
-      }
+      setContacts((prev) => (prev ?? []).filter((contact) => contact.id !== id));
+      setError(null);
     } catch (err) {
       console.error('Failed to mark outreach contact as replied:', err);
-      if (isLatestRequest(id, seq)) {
-        setError(err instanceof Error ? err.message : 'Failed to mark reply');
-      }
+      const message = err instanceof Error ? err.message : 'Failed to mark reply';
+      setError(message);
+      await resyncAfterError(message);
+    } finally {
+      setRowBusy(id, false);
     }
   }
 
   async function handleDelete(id: number) {
-    await waitForPendingRename(id);
-    const seq = nextRequestSeq(id);
+    if (busyRowsRef.current.has(id)) return;
+    setRowBusy(id, true);
     try {
+      await waitForPendingRename(id);
       const response = await fetch(`/api/outreach/contacts/${id}`, {
         method: 'DELETE',
       });
@@ -254,15 +312,15 @@ export function OutreachPanel() {
         const payload = await response.json().catch(() => null);
         throw new Error(errorMessage(payload, `Failed to delete contact (HTTP ${response.status})`));
       }
-      if (isLatestRequest(id, seq)) {
-        setContacts((prev) => (prev ?? []).filter((contact) => contact.id !== id));
-        setError(null);
-      }
+      setContacts((prev) => (prev ?? []).filter((contact) => contact.id !== id));
+      setError(null);
     } catch (err) {
       console.error('Failed to delete outreach contact:', err);
-      if (isLatestRequest(id, seq)) {
-        setError(err instanceof Error ? err.message : 'Failed to delete contact');
-      }
+      const message = err instanceof Error ? err.message : 'Failed to delete contact';
+      setError(message);
+      await resyncAfterError(message);
+    } finally {
+      setRowBusy(id, false);
     }
   }
 
@@ -330,6 +388,9 @@ export function OutreachPanel() {
                           type="button"
                           className="outreach-name"
                           onClick={() => startEdit(contact)}
+                          disabled={
+                            busyRows.has(contact.id) || renamingRows.has(contact.id)
+                          }
                         >
                           {contact.name}
                         </button>
@@ -338,6 +399,7 @@ export function OutreachPanel() {
                         type="button"
                         className="outreach-action"
                         onClick={() => handleContacted(contact.id)}
+                        disabled={busyRows.has(contact.id)}
                       >
                         Contacted
                       </button>
@@ -345,6 +407,7 @@ export function OutreachPanel() {
                         type="button"
                         className="outreach-action outreach-action--danger"
                         onClick={() => handleDelete(contact.id)}
+                        disabled={busyRows.has(contact.id)}
                       >
                         Delete
                       </button>
@@ -362,7 +425,7 @@ export function OutreachPanel() {
                   placeholder="Name or email"
                   aria-label="Name or email"
                 />
-                <button type="submit" className="outreach-add-btn">
+                <button type="submit" className="outreach-add-btn" disabled={addInFlight}>
                   Add
                 </button>
               </form>
@@ -376,6 +439,7 @@ export function OutreachPanel() {
                         type="button"
                         className="outreach-action"
                         onClick={() => handleReplied(contact.id)}
+                        disabled={busyRows.has(contact.id)}
                       >
                         Replied
                       </button>
