@@ -31,6 +31,7 @@ import subprocess
 
 import click
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 from rich.progress import Progress
 
@@ -1935,44 +1936,110 @@ def tasks_create(text, project, status, priority, prompt, category, description,
 @click.option("--priority", default=None, help="New priority")
 @click.option("--prompt", default=None, help="Agent prompt (execution instructions for AI)")
 @click.option("--review-comment", default=None, help="Reviewer feedback")
-@click.option("--notes", default=None, help="Internal notes/comments")
+@click.option("--notes", default=None, help="Replace the card's notes outright; refuses to overwrite existing non-empty notes unless --replace-notes is also passed")
+@click.option("--append-notes", default=None, help="Append a timestamped entry to the card's existing notes (never removes text)")
+@click.option("--replace-notes", is_flag=True, help="Allow --notes to overwrite existing non-empty notes")
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs (empty string clears)")
-def tasks_update(task_id, status, text, priority, prompt, review_comment, notes, blocked_by):
-    """Update an existing task."""
+def tasks_update(task_id, status, text, priority, prompt, review_comment, notes, blocked_by, append_notes, replace_notes):
+    """Update an existing task.
+
+    Notes are never silently replaced: --append-notes adds a stamped entry to
+    whatever is already there, while --notes only replaces the whole field
+    when the card has no notes yet or --replace-notes is passed explicitly.
+    """
+    if notes is not None and append_notes is not None:
+        console.print("[red]--notes and --append-notes are mutually exclusive; pass one or the other.[/red]")
+        sys.exit(1)
+    if replace_notes and notes is None:
+        console.print("[red]--replace-notes requires --notes.[/red]")
+        sys.exit(1)
+
     db = DatabaseManager()
     updates = {}
     if status:
         valid_statuses = ["Backlog", "To Do", "In Progress", "Review", "Done", "Cancelled"]
         if status not in valid_statuses:
-            console.print(f"[red]Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}[/red]"); return
+            console.print(f"[red]Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}[/red]"); sys.exit(1)
         updates["status"] = status
     if text is not None: updates["text"] = text
     if priority:
         if priority not in ["Critical", "High", "Medium", "Low"]:
-            console.print(f"[red]Invalid priority '{priority}'[/red]"); return
+            console.print(f"[red]Invalid priority '{priority}'[/red]"); sys.exit(1)
         updates["priority"] = priority
     if prompt is not None: updates["prompt"] = prompt
     if review_comment is not None: updates["review_comment"] = review_comment
-    if notes is not None: updates["notes"] = notes
     if blocked_by is not None:
         if blocked_by == "": updates["blocked_by"] = None
         else: updates["blocked_by"] = _parse_blocked_by(db, blocked_by)
-    if not updates:
-        console.print("[yellow]No updates specified. Use -s, -t, --priority, --prompt, --notes, or --blocked-by.[/yellow]"); return
+    if not updates and notes is None and append_notes is None:
+        console.print("[yellow]No updates specified. Use -s, -t, --priority, --prompt, --notes, --append-notes, --replace-notes, or --blocked-by.[/yellow]"); return
+
     task_id = _resolve_task_id(db, task_id)
-    if not db.get_task(task_id):
-        console.print(f"[red]Task #{task_id} not found[/red]"); return
+    task = db.get_task(task_id)
+    if not task:
+        console.print(f"[red]Task #{task_id} not found[/red]"); sys.exit(1)
+
+    if append_notes is not None:
+        existing = task.get("notes")
+        base = (existing or "").rstrip()
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        entry = f"[{stamp}] {append_notes}"
+        updates["notes"] = f"{base}\n\n{entry}" if base else entry
+    elif notes is not None:
+        existing_notes = task.get("notes")
+        if (existing_notes or "").strip() and not replace_notes:
+            console.print(
+                "[red]Refusing to replace the existing notes on task "
+                f"#{task_id}. Use --append-notes to add to them, or pass "
+                "--replace-notes with --notes to overwrite.[/red]"
+            )
+            sys.exit(1)
+        updates["notes"] = notes
+
     try:
-        db.update_task(task_id, **updates)
-        console.print(f"[green]Updated task #{task_id}[/green]")
-        for key, value in updates.items():
-            console.print(f"  {key}: {value}")
-        if "status" in updates:
-            task = db.get_task(task_id)
-            if task:
-                _notify_inbox(task_id, task["project_id"], updates["status"], task["text"])
+        db.update_task(task_id, notes_source="cli", **updates)
     except Exception as e:
         console.print(f"[red]Failed to update task #{task_id}: {e}[/red]")
+        sys.exit(1)
+
+    console.print(f"[green]Updated task #{task_id}[/green]")
+    for key, value in updates.items():
+        if key == "notes" and append_notes is not None:
+            value = entry
+        console.print(f"  {key}: {escape(str(value))}")
+    if "status" in updates:
+        task = db.get_task(task_id)
+        if task:
+            _notify_inbox(task_id, task["project_id"], updates["status"], task["text"])
+
+
+@tasks_group.command(name="notes-history")
+@click.argument("task_id", type=int)
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def tasks_notes_history(task_id, json_output):
+    """Show past versions of a task's notes, newest first."""
+    db = DatabaseManager()
+    task_id = _resolve_task_id(db, task_id)
+    task = db.get_task(task_id)
+    if not task:
+        console.print(f"[red]Task #{task_id} not found[/red]"); sys.exit(1)
+    rows = db.get_task_notes_history(task_id)
+    if json_output:
+        print(json.dumps(rows, indent=2))
+    elif not rows:
+        display_id = db.get_task_display_id(task_id) or task_id
+        console.print(f"[dim]No notes history for task #{display_id}.[/dim]")
+    else:
+        display_id = db.get_task_display_id(task_id) or task_id
+        console.print(f"Notes history for task #{display_id}:")
+        for row in rows:
+            console.print(
+                f"[{escape(str(row['timestamp']))}] ({escape(str(row['source']))})"
+            )
+            old = row["old_notes"] if row["old_notes"] is not None else "(empty)"
+            new = row["new_notes"] if row["new_notes"] is not None else "(empty)"
+            console.print(f"  old: {escape(old)}")
+            console.print(f"  new: {escape(new)}")
 
 
 @tasks_group.command(name="move")

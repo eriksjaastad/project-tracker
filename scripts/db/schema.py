@@ -1076,6 +1076,25 @@ def ensure_schema(cursor: Any) -> None:
         ON job_submissions(submitted_at)
     """)
 
+    # Notes audit trail. Also defined in migration 014 for databases already
+    # at schema version 9; keep both definitions in sync. Task deletes must
+    # not touch this table — the rows are evidence.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS task_notes_history (
+            id         INTEGER PRIMARY KEY NOT NULL,
+            task_id    INTEGER NOT NULL,
+            project_id TEXT NOT NULL,
+            old_notes  TEXT,
+            new_notes  TEXT,
+            source     TEXT NOT NULL DEFAULT 'unknown',
+            timestamp  TEXT NOT NULL
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_task_notes_history_task_timestamp
+        ON task_notes_history(task_id, timestamp)
+    """)
+
     # Update schema version
     cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (?, ?)", (CURRENT_SCHEMA_VERSION, datetime.now().isoformat()))
 

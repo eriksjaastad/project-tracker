@@ -2635,7 +2635,8 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
         HTTPException: 400 if validation fails, 404 if task not found
         
     Note:
-        Status changes are automatically recorded in task_history.
+        Status changes are automatically recorded in task_history. Notes
+        changes are automatically recorded in task_notes_history.
     """
     try:
         db = DatabaseManager()
@@ -2703,8 +2704,8 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
                 raise ValueError(f"Task with ID {task_id} not found")
             return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
         
-        # update_task handles history recording for status changes
-        task = db.update_task(task_id, **updates)
+        # update_task handles history recording for status and notes changes
+        task = db.update_task(task_id, notes_source="api", **updates)
         return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
     except ValueError:
         # Re-raise to be caught by error handler

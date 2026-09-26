@@ -85,6 +85,7 @@ LOCAL_ONLY_TABLES: frozenset[str] = frozenset({
     "handoffs",               # session-scoped unfinished-work / non-PR records (Phase D)
     "jobs",                   # laptop-local job-search feed and dashboard state (#7396)
     "job_submissions",        # local resume paths and repeat submission history (#7396)
+    "task_notes_history",     # all card writes happen on the laptop; Mini files cards over SSH to the laptop's pt
 })
 
 # Tables that sync even when the data-plane is paused. Used for sync
