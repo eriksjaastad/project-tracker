@@ -36,11 +36,18 @@ Usage:
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
 import hashlib
+
+# Make the repo root importable so the config helper resolves the same way in
+# any checkout, including git worktrees.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.config import projects_root
 
 # Optional imports for embeddings
 try:
@@ -59,7 +66,7 @@ except ImportError:
 # Configuration
 # ============================================================
 
-PROJECTS_ROOT = Path(__file__).resolve().parents[2]
+PROJECTS_ROOT = projects_root()
 AUDIT_DIR = Path(__file__).parent.parent / "data" / "doc_audit_v2"
 
 # Subdirectories

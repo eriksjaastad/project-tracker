@@ -25,6 +25,9 @@ def temp_brain_db(tmp_path, monkeypatch):
     redirect the endpoint to read from it via monkeypatching `Path.home`
     so `~/projects/ai-memory/brain.db` resolves into tmp_path."""
     home = tmp_path / "home"
+    # The dashboard's projects_root() is env-first; without this an inherited
+    # PROJECTS_ROOT would escape the HOME redirect and read the real brain.db.
+    monkeypatch.delenv("PROJECTS_ROOT", raising=False)
     (home / "projects" / "ai-memory").mkdir(parents=True)
     db_path = home / "projects" / "ai-memory" / "brain.db"
     conn = sqlite3.connect(str(db_path))
@@ -78,6 +81,7 @@ def test_api_cost_stats_empty_when_db_missing(tmp_path, monkeypatch):
     """Endpoint must not crash when brain.db is absent — returns the empty
     response shape."""
     nonexistent = tmp_path / "nowhere"
+    monkeypatch.delenv("PROJECTS_ROOT", raising=False)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: nonexistent))
     response = client.get("/api/api-cost-stats")
     assert response.status_code == 200

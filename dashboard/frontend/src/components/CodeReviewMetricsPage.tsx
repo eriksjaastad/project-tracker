@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   CartesianGrid,
   Legend,
@@ -59,11 +59,7 @@ export function CodeReviewMetricsPage() {
   const [days, setDays] = useState(90);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadMetrics();
-  }, [days, selectedRepo]);
-
-  async function loadMetrics() {
+  const loadMetrics = useCallback(async () => {
     try {
       const params = new URLSearchParams();
       params.append('days', String(days));
@@ -86,7 +82,11 @@ export function CodeReviewMetricsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [days, selectedRepo]);
+
+  useEffect(() => {
+    loadMetrics();
+  }, [loadMetrics]);
 
   if (loading) {
     return (
