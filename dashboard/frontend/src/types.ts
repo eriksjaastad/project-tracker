@@ -120,6 +120,7 @@ export interface NavigationItem {
   match_prefixes: string[];
   navigation_type: 'document' | 'spa';
   active?: boolean;
+  children?: NavigationItem[];
 }
 
 export interface NavigationResponse {

@@ -3,7 +3,7 @@
 import sys
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Iterator
 from datetime import datetime, timedelta, timezone
 import os
 import shutil
@@ -114,14 +114,11 @@ if frontend_dist.exists():
     app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
 
 NAVIGATION_TITLE = "Project Tracker"
+# Single source of truth for the shared navigation shell. Top-level order is
+# significant: six compact entries, four of them dropdown groups. Each leaf
+# keeps its original id/href/match_prefixes/navigation_type; only some labels
+# changed when the leaves moved inside a group (#7637).
 NAVIGATION_ITEMS = [
-    {
-        "id": "dashboard",
-        "label": "Dashboard",
-        "href": "/dashboard",
-        "match_prefixes": ["/dashboard", "/project"],
-        "navigation_type": "spa",
-    },
     {
         "id": "morning",
         "label": "Morning",
@@ -130,74 +127,105 @@ NAVIGATION_ITEMS = [
         "navigation_type": "spa",
     },
     {
-        "id": "kanban",
+        "id": "dashboard",
+        "label": "Dashboard",
+        "href": "/dashboard",
+        "match_prefixes": ["/dashboard", "/project"],
+        "navigation_type": "spa",
+    },
+    {
+        "id": "group-kanban",
         "label": "Kanban",
-        "href": "/kanban",
-        "match_prefixes": ["/kanban"],
-        "navigation_type": "spa",
+        "children": [
+            {
+                "id": "kanban",
+                "label": "Board",
+                "href": "/kanban",
+                "match_prefixes": ["/kanban"],
+                "navigation_type": "spa",
+            },
+            {
+                "id": "calendar",
+                "label": "Calendar",
+                "href": "/calendar",
+                "match_prefixes": ["/calendar"],
+                "navigation_type": "spa",
+            },
+        ],
     },
     {
-        "id": "agentic",
-        "label": "Agentic",
-        "href": "/agentic",
-        "match_prefixes": ["/agentic"],
-        "navigation_type": "spa",
-    },
-    {
-        "id": "holoscape",
-        "label": "Holoscape",
-        "href": "/holoscape",
-        "match_prefixes": ["/holoscape"],
-        "navigation_type": "spa",
-    },
-    {
-        "id": "calendar",
-        "label": "Calendar",
-        "href": "/calendar",
-        "match_prefixes": ["/calendar"],
-        "navigation_type": "spa",
-    },
-    {
-        "id": "agent-chat",
-        "label": "Agent Chat",
-        "href": "/agent-chat",
-        "match_prefixes": ["/agent-chat"],
-        "navigation_type": "spa",
-    },
-    {
-        "id": "jobs",
+        "id": "group-jobs",
         "label": "Jobs",
-        "href": "/jobs",
-        "match_prefixes": ["/jobs"],
-        "navigation_type": "spa",
+        "children": [
+            {
+                "id": "jobs",
+                "label": "Listings",
+                "href": "/jobs",
+                "match_prefixes": ["/jobs"],
+                "navigation_type": "spa",
+            },
+            {
+                "id": "jobs-submitted",
+                "label": "Submissions",
+                "href": "/jobs/submitted",
+                "match_prefixes": ["/jobs/submitted"],
+                "navigation_type": "spa",
+            },
+        ],
     },
     {
-        "id": "jobs-submitted",
-        "label": "Submissions",
-        "href": "/jobs/submitted",
-        "match_prefixes": ["/jobs/submitted"],
-        "navigation_type": "spa",
+        "id": "group-agents",
+        "label": "Agents",
+        "children": [
+            {
+                "id": "agent-chat",
+                "label": "Chat",
+                "href": "/agent-chat",
+                "match_prefixes": ["/agent-chat"],
+                "navigation_type": "spa",
+            },
+            {
+                "id": "agentic",
+                "label": "Autonomy",
+                "href": "/agentic",
+                "match_prefixes": ["/agentic"],
+                "navigation_type": "spa",
+            },
+            {
+                "id": "code-reviews",
+                "label": "Code reviews",
+                "href": "/code-reviews",
+                "match_prefixes": ["/code-reviews"],
+                "navigation_type": "spa",
+            },
+            {
+                "id": "holoscape",
+                "label": "Holoscape progress (temporary)",
+                "href": "/holoscape",
+                "match_prefixes": ["/holoscape"],
+                "navigation_type": "spa",
+            },
+        ],
     },
     {
-        "id": "code-reviews",
-        "label": "Code Reviews",
-        "href": "/code-reviews",
-        "match_prefixes": ["/code-reviews"],
-        "navigation_type": "spa",
-    },
-    {
-        "id": "graph",
-        "label": "Graph",
-        "href": "/graph",
-        "match_prefixes": ["/graph"],
-        "navigation_type": "document",
-    },
-    {
-        "id": "memory",
-        "label": "Memory 🧠",
-        "href": "/memory",
-        "match_prefixes": ["/memory"],
-        "navigation_type": "document",
+        "id": "group-memory",
+        "label": "Memory",
+        "children": [
+            {
+                "id": "memory",
+                "label": "Memory",
+                "href": "/memory",
+                "match_prefixes": ["/memory"],
+                "navigation_type": "document",
+            },
+            {
+                "id": "graph",
+                "label": "Graph",
+                "href": "/graph",
+                "match_prefixes": ["/graph"],
+                "navigation_type": "document",
+            },
+        ],
     },
 ]
 
@@ -212,13 +240,76 @@ def is_navigation_item_active(item: Dict[str, object], path: str) -> bool:
     return False
 
 
+def _longest_match_prefix_length(item: Dict[str, object], path: str) -> int:
+    """Return the length of the longest matching prefix, or -1 on no match."""
+    best = -1
+    for prefix in item.get("match_prefixes", []):
+        if not isinstance(prefix, str):
+            continue
+        if path == prefix or path.startswith(f"{prefix}/"):
+            best = max(best, len(prefix))
+    return best
+
+
+def iter_navigation_leaves(items: List[Dict[str, object]]) -> Iterator[Dict[str, object]]:
+    """Yield every leaf navigation item, descending into group children.
+
+    Kept as a helper because the leaves now live under `children` keys on the
+    four dropdown groups, while tests and other consumers still need to find a
+    leaf by id (holoscape, agent-chat, spa-shell bootstrap, ...).
+    """
+    for item in items:
+        children = item.get("children")
+        if children:
+            yield from iter_navigation_leaves(children)
+        else:
+            yield item
+
+
 def build_navigation(current_path: Optional[str] = None) -> List[Dict[str, object]]:
-    """Build navigation metadata for templates and API responses."""
+    """Build navigation metadata for templates and API responses.
+
+    Leaves keep today's flat shape. A group is emitted as a single top-level
+    item with `href`/`navigation_type` taken from its first child, the union of
+    its children's match prefixes (in order), and a `children` list where every
+    child carries its own `active` flag. The most specific matching child wins
+    so /jobs/submitted highlights Submissions rather than both Listings and
+    Submissions.
+    """
     nav_items: List[Dict[str, object]] = []
+    path = current_path or ""
     for item in NAVIGATION_ITEMS:
-        nav_item = dict(item)
-        nav_item["active"] = bool(current_path and is_navigation_item_active(item, current_path))
-        nav_items.append(nav_item)
+        children = item.get("children")
+        if children:
+            nav_item = dict(item)
+            first_child = children[0]
+            nav_item["href"] = first_child["href"]
+            nav_item["navigation_type"] = first_child["navigation_type"]
+            nav_item["match_prefixes"] = [
+                prefix
+                for child in children
+                for prefix in child.get("match_prefixes", [])
+                if isinstance(prefix, str)
+            ]
+            match_lengths = [
+                _longest_match_prefix_length(child, path) if path else -1
+                for child in children
+            ]
+            best_length = max(match_lengths)
+            child_items = []
+            for child, match_length in zip(children, match_lengths):
+                child_item = dict(child)
+                child_item["active"] = bool(
+                    path and match_length >= 0 and match_length == best_length
+                )
+                child_items.append(child_item)
+            nav_item["active"] = any(child_item["active"] for child_item in child_items)
+            nav_item["children"] = child_items
+            nav_items.append(nav_item)
+        else:
+            nav_item = dict(item)
+            nav_item["active"] = bool(path and is_navigation_item_active(item, path))
+            nav_items.append(nav_item)
     return nav_items
 
 

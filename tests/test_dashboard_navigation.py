@@ -1,9 +1,35 @@
 from fastapi.testclient import TestClient
 
-from dashboard.app import app, build_navigation, build_spa_shell_html
+from dashboard.app import (
+    app,
+    build_navigation,
+    build_spa_shell_html,
+    iter_navigation_leaves,
+)
 
 
 client = TestClient(app)
+
+
+def leaf_by_id(items, leaf_id):
+    """Find a leaf navigation item by id, descending through groups."""
+    return next(item for item in iter_navigation_leaves(items) if item["id"] == leaf_id)
+
+
+def group_by_id(items, group_id):
+    return next(item for item in items if item["id"] == group_id)
+
+
+def active_ids(items):
+    """Collect the ids of every active top-level item, group, and child."""
+    ids = []
+    for item in items:
+        if item.get("active"):
+            ids.append(item["id"])
+        for child in item.get("children", []):
+            if child.get("active"):
+                ids.append(child["id"])
+    return set(ids)
 
 
 def test_root_redirects_to_dashboard():
@@ -27,22 +53,50 @@ def test_navigation_api_returns_shared_contract():
 
     payload = response.json()
     assert payload["title"] == "Project Tracker"
-    assert [item["id"] for item in payload["items"]] == [
-        "dashboard",
+    items = payload["items"]
+    assert [item["id"] for item in items] == [
         "morning",
-        "kanban",
-        "agentic",
-        "holoscape",
-        "calendar",
-        "agent-chat",
-        "jobs",
-        "jobs-submitted",
-        "code-reviews",
-        "graph",
-        "memory",
+        "dashboard",
+        "group-kanban",
+        "group-jobs",
+        "group-agents",
+        "group-memory",
     ]
-    assert payload["items"][0]["href"] == "/dashboard"
-    assert payload["items"][1]["navigation_type"] == "spa"
+    assert items[0]["href"] == "/morning"
+    assert items[0]["navigation_type"] == "spa"
+
+    children_by_group = {
+        item["id"]: [child["id"] for child in item.get("children", [])]
+        for item in items
+    }
+    assert children_by_group["group-kanban"] == ["kanban", "calendar"]
+    assert children_by_group["group-jobs"] == ["jobs", "jobs-submitted"]
+    assert children_by_group["group-agents"] == ["agent-chat", "agentic", "code-reviews", "holoscape"]
+    assert children_by_group["group-memory"] == ["memory", "graph"]
+
+    for group in items:
+        if not group["id"].startswith("group-"):
+            continue
+        first_child = group["children"][0]
+        assert group["href"] == first_child["href"]
+        assert group["navigation_type"] == first_child["navigation_type"]
+        assert group["match_prefixes"] == [
+            prefix for child in group["children"] for prefix in child["match_prefixes"]
+        ]
+
+    leaves = {item["id"]: item for item in iter_navigation_leaves(items)}
+    assert leaves["morning"]["label"] == "Morning"
+    assert leaves["dashboard"]["label"] == "Dashboard"
+    assert leaves["kanban"]["label"] == "Board"
+    assert leaves["calendar"]["label"] == "Calendar"
+    assert leaves["jobs"]["label"] == "Listings"
+    assert leaves["jobs-submitted"]["label"] == "Submissions"
+    assert leaves["agent-chat"]["label"] == "Chat"
+    assert leaves["agentic"]["label"] == "Autonomy"
+    assert leaves["code-reviews"]["label"] == "Code reviews"
+    assert leaves["holoscape"]["label"] == "Holoscape progress (temporary)"
+    assert leaves["memory"]["label"] == "Memory"
+    assert leaves["graph"]["label"] == "Graph"
 
 
 def test_build_navigation_marks_expected_active_items():
@@ -50,8 +104,24 @@ def test_build_navigation_marks_expected_active_items():
     kanban_navigation = build_navigation("/kanban/project-tracker")
 
     assert next(item for item in project_navigation if item["id"] == "dashboard")["active"] is True
-    assert next(item for item in project_navigation if item["id"] == "kanban")["active"] is False
-    assert next(item for item in kanban_navigation if item["id"] == "kanban")["active"] is True
+    assert group_by_id(project_navigation, "group-kanban")["active"] is False
+    assert leaf_by_id(kanban_navigation, "kanban")["active"] is True
+    assert leaf_by_id(kanban_navigation, "calendar")["active"] is False
+    assert group_by_id(kanban_navigation, "group-kanban")["active"] is True
+
+
+def test_child_paths_activate_only_the_matching_group_and_child():
+    cases = {
+        "/jobs/submitted": {"group-jobs", "jobs-submitted"},
+        "/kanban/project-tracker": {"group-kanban", "kanban"},
+        "/graph": {"group-memory", "graph"},
+    }
+    for path, expected_ids in cases.items():
+        assert active_ids(build_navigation(path)) == expected_ids, path
+
+
+def test_project_path_still_activates_dashboard():
+    assert active_ids(build_navigation("/project/project-tracker")) == {"dashboard"}
 
 
 def test_graph_view_renders_shared_shell_navigation():
@@ -60,14 +130,35 @@ def test_graph_view_renders_shared_shell_navigation():
     assert response.status_code == 200
     body = response.text
     assert "Project Tracker" in body
+    assert "Morning" in body
     assert "Dashboard" in body
     assert "Kanban" in body
-    assert "Agentic" in body
-    assert "Calendar" in body
-    assert "Agent Chat" in body
-    assert "Graph" in body
+    assert "Jobs" in body
+    assert "Agents" in body
     assert "Memory" in body
+    assert 'href="/jobs/submitted"' in body
+    assert "Board" in body
+    assert "Calendar" in body
+    assert "Listings" in body
+    assert "Submissions" in body
+    assert "Chat" in body
+    assert "Autonomy" in body
+    assert "Code reviews" in body
+    assert "Holoscape progress (temporary)" in body
+    assert "Graph" in body
     assert "Project Graph" in body
+
+    # The Jinja nav mirrors the React nav: a real caret button per group,
+    # menu roles, and the JS that makes menus touch-openable.
+    assert (
+        '<button type="button" class="nav-caret" aria-haspopup="true" '
+        'aria-expanded="false" aria-label="Jobs menu">' in body
+    )
+    assert 'role="menu"' in body
+    assert '<script src="/static/nav.js" defer></script>' in body
+
+    nav_js = client.get("/static/nav.js")
+    assert nav_js.status_code == 200
 
 
 def test_build_spa_shell_html_bootstraps_backend_navigation_payload():
@@ -80,13 +171,14 @@ def test_build_spa_shell_html_bootstraps_backend_navigation_payload():
     assert '"href": "/agentic"' in rendered
     assert '"active": true' in rendered
 
+
 def test_agent_chat_spa_route_is_registered():
     """SPA shell is 200 when dist exists, 503 with the usual hint when it does not (CI)."""
     response = client.get("/agent-chat")
     assert response.status_code in (200, 503)
     if response.status_code == 200:
         assert "window.__PT_NAVIGATION__" in response.text
-        assert '"id": "agent-chat"' in response.text or "Agent Chat" in response.text
+        assert '"id": "agent-chat"' in response.text
     else:
         assert "Frontend not built" in response.text
 
@@ -95,9 +187,9 @@ def test_holoscape_spa_route_and_navigation():
     response = client.get("/holoscape")
     assert response.status_code in (200, 503)
     nav = client.get("/api/navigation").json()["items"]
-    item = next(item for item in nav if item["id"] == "holoscape")
+    item = leaf_by_id(nav, "holoscape")
     assert item["href"] == "/holoscape"
     assert item["navigation_type"] == "spa"
-    assert next(item for item in build_navigation("/holoscape") if item["id"] == "holoscape")["active"]
+    assert leaf_by_id(build_navigation("/holoscape"), "holoscape")["active"]
     if response.status_code == 200:
         assert '"id": "holoscape"' in response.text

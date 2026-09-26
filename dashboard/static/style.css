@@ -163,13 +163,13 @@ body {
 
 .navigation-links {
     display: flex;
-    gap: 1.5rem;
+    gap: 0.5rem;
     flex-wrap: wrap;
 }
 
 .nav-link {
     display: inline-block;
-    padding: 1rem 1.25rem;
+    padding: 1rem 0.75rem;
     color: var(--muted);
     text-decoration: none;
     font-size: 0.875rem;
@@ -187,6 +187,83 @@ body {
 .nav-link.active {
     color: var(--accent);
     border-bottom-color: var(--accent);
+}
+
+/* Dropdown groups — mirrors dashboard/frontend/src/components/Navigation.css */
+
+.nav-group {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* The caret sits right against its label. */
+.nav-group .nav-link {
+    padding-right: 0.3rem;
+}
+
+.nav-caret {
+    appearance: none;
+    background: none;
+    border: none;
+    padding: 1rem 0.25rem 1rem 0;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 0.8rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.nav-group:hover .nav-caret {
+    color: var(--accent);
+}
+
+.nav-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    min-width: 180px;
+    display: none;
+    flex-direction: column;
+    padding: 0.25rem 0;
+    background: var(--surface);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    z-index: 1000;
+}
+
+/* Sticky :hover on touch can keep the menu visible after a tap elsewhere, so
+   the hover fallback only applies on devices with a real hover-capable pointer.
+   The JS-driven .nav-group--open class handles click/touch/focus opening. */
+@media (hover: hover) {
+    .nav-group:hover .nav-menu {
+        display: flex;
+    }
+}
+
+.nav-group:focus-within .nav-menu,
+.nav-group--open .nav-menu {
+    display: flex;
+}
+
+.nav-menu-link {
+    display: block;
+    padding: 0.5rem 0.75rem;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.nav-menu-link:hover {
+    color: var(--accent);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.nav-menu-link.active {
+    color: var(--accent);
 }
 
 /* Main Content */
