@@ -60,11 +60,39 @@ function morningPayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function mockFetchOk(payload: unknown) {
-  vi.mocked(fetch).mockResolvedValueOnce({
+function okResponse(payload: unknown): Response {
+  return {
     ok: true,
     json: async () => payload,
-  } as Response);
+  } as Response;
+}
+
+function errorResponse(status: number, detail: string): Response {
+  return {
+    ok: false,
+    status,
+    json: async () => ({ detail }),
+  } as Response;
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  return typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+}
+
+function mockFetchByUrl(routes: Record<string, Response>) {
+  vi.mocked(fetch).mockImplementation(async (input) => {
+    const url = requestUrl(input);
+    const route = routes[url];
+    if (route) return route;
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+}
+
+function mockMorningAndEmptyContacts() {
+  mockFetchByUrl({
+    '/api/morning': okResponse(morningPayload()),
+    '/api/outreach/contacts': okResponse({ contacts: [] }),
+  });
 }
 
 describe('MorningPage', () => {
@@ -74,7 +102,7 @@ describe('MorningPage', () => {
   });
 
   it('renders the checklist, intro, today section, and HN snapshots', async () => {
-    mockFetchOk(morningPayload());
+    mockMorningAndEmptyContacts();
 
     render(<MorningPage />);
 
@@ -98,7 +126,7 @@ describe('MorningPage', () => {
   });
 
   it('persists checked steps to localStorage for the API date and survives re-render', async () => {
-    mockFetchOk(morningPayload());
+    mockMorningAndEmptyContacts();
 
     const { rerender } = render(<MorningPage />);
 
@@ -123,7 +151,7 @@ describe('MorningPage', () => {
 
   it('does not pre-check from a stored key for a different date', async () => {
     window.localStorage.setItem('morning-checklist:2026-09-25', JSON.stringify(['0']));
-    mockFetchOk(morningPayload());
+    mockMorningAndEmptyContacts();
 
     render(<MorningPage />);
 
@@ -136,11 +164,13 @@ describe('MorningPage', () => {
   });
 
   it('shows the API error detail when the fetch fails', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: false,
-      status: 503,
-      json: async () => ({ detail: 'Morning plan source not found: /tmp/job-search/README.md' }),
-    } as Response);
+    mockFetchByUrl({
+      '/api/morning': errorResponse(
+        503,
+        'Morning plan source not found: /tmp/job-search/README.md'
+      ),
+      '/api/outreach/contacts': okResponse({ contacts: [] }),
+    });
 
     render(<MorningPage />);
 
@@ -153,5 +183,22 @@ describe('MorningPage', () => {
     );
     expect(screen.queryByText('Replies')).not.toBeInTheDocument();
     expect(screen.queryByText('No morning plan to show right now.')).not.toBeInTheDocument();
+  });
+
+  it('still renders the outreach panel when the morning plan fails', async () => {
+    mockFetchByUrl({
+      '/api/morning': errorResponse(503, 'Morning plan source not found'),
+      '/api/outreach/contacts': okResponse({ contacts: [] }),
+    });
+
+    render(<MorningPage />);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Morning plan source not found');
+    expect(screen.getByRole('button', { name: /People to contact/ })).toBeInTheDocument();
+    expect(screen.getByLabelText('Name or email')).toBeInTheDocument();
   });
 });
