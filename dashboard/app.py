@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.attachment_paths import attachments_dir
 from db.manager import DatabaseManager
+from db.outreach import ContactStateConflictError
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
@@ -3827,8 +3828,12 @@ async def add_outreach_contact(payload: OutreachContactRequest):
 async def rename_outreach_contact(contact_id: int, payload: OutreachContactRequest):
     try:
         contact = DatabaseManager().rename_contact(contact_id, payload.name)
+    except ContactStateConflictError:
+        raise HTTPException(
+            status_code=409, detail="Contact cannot be renamed after being contacted or replied"
+        )
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid name or contact state")
+        raise HTTPException(status_code=400, detail="Name is required")
     except Exception:
         logger.exception("Failed to rename outreach contact %s", contact_id)
         raise HTTPException(status_code=500, detail="Failed to rename contact")

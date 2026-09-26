@@ -17,6 +17,7 @@ from db.crr_manifest import (  # noqa: E402
     assert_tables_classified,
 )
 from db.migration_runner import discover_migrations  # noqa: E402
+from db.outreach import ContactStateConflictError  # noqa: E402
 from db.schema import ensure_schema  # noqa: E402
 from dashboard.app import app  # noqa: E402
 
@@ -201,8 +202,23 @@ def test_rename_rejected_after_contacted(db) -> None:
     response = client.patch(
         f"/api/outreach/contacts/{contact['id']}", json={"name": "Nope"}
     )
-    assert response.status_code == 400
-    with pytest.raises(ValueError):
+    assert response.status_code == 409
+    with pytest.raises(ContactStateConflictError):
+        db.rename_contact(contact["id"], "Nope")
+
+
+def test_rename_rejected_after_replied(db) -> None:
+    client = _client()
+    contact = _add(client, "Done deal")
+    _contacted(client, contact["id"])
+    replied = client.post(f"/api/outreach/contacts/{contact['id']}/replied")
+    assert replied.status_code == 200, replied.text
+
+    response = client.patch(
+        f"/api/outreach/contacts/{contact['id']}", json={"name": "Nope"}
+    )
+    assert response.status_code == 409
+    with pytest.raises(ContactStateConflictError):
         db.rename_contact(contact["id"], "Nope")
 
 

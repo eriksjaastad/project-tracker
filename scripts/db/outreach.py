@@ -14,6 +14,14 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class ContactStateConflictError(ValueError):
+    """The contact's current state blocks the requested operation.
+
+    Subclasses ValueError so existing callers that treat any bad request as a
+    ValueError keep working, while the dashboard API can map this to 409.
+    """
+
+
 class OutreachMixin:
     """Outreach contact operations exposed through the shared DatabaseManager."""
 
@@ -69,7 +77,9 @@ class OutreachMixin:
             if row is None or row["deleted_at"] is not None:
                 return None
             if row["contacted_at"] is not None or row["replied_at"] is not None:
-                raise ValueError("contacted or replied contacts cannot be renamed")
+                raise ContactStateConflictError(
+                    "contacted or replied contacts cannot be renamed"
+                )
             conn.execute(
                 "UPDATE outreach_contacts SET name = ?, updated_at = ? WHERE id = ?",
                 (cleaned, _utc_now(), contact_id),

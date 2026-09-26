@@ -26,9 +26,23 @@ function jsonResponse(payload: unknown, status = 200): Response {
   } as Response;
 }
 
-function mockOutreachApi(initial: Contact[] = []) {
+interface MockOutreachApi {
+  patchCalls: Array<{ id: number; name: string }>;
+  contactedCalls: number[];
+  deleteCalls: number[];
+  resolvePatch: (index?: number) => void;
+}
+
+function mockOutreachApi(
+  initial: Contact[] = [],
+  options: { deferPatch?: boolean } = {}
+): MockOutreachApi {
   const contacts: StoredContact[] = initial.map((contact) => ({ ...contact }));
   let nextId = contacts.reduce((max, contact) => Math.max(max, contact.id), 0) + 1;
+  const patchCalls: Array<{ id: number; name: string }> = [];
+  const contactedCalls: number[] = [];
+  const deleteCalls: number[] = [];
+  const deferredPatches: Array<{ resolve: (response: Response) => void; response: Response }> = [];
 
   vi.mocked(fetch).mockImplementation(async (input, init) => {
     const url =
@@ -85,16 +99,32 @@ function mockOutreachApi(initial: Contact[] = []) {
         const name = String(body?.name ?? '').trim();
         if (!name) return jsonResponse({ detail: 'Name is required' }, 400);
         if (contact.contacted_at || contact.replied_at) {
-          return jsonResponse({ detail: 'Invalid name or contact state' }, 400);
+          return jsonResponse({ detail: 'Invalid name or contact state' }, 409);
         }
         contact.name = name;
+        patchCalls.push({ id, name });
+        if (options.deferPatch) {
+          // Snapshot the row exactly as the rename response would look when the
+          // server processed it: the new name, still uncontacted. The caller
+          // decides when this response lands, simulating a slow PATCH racing a
+          // fast Contacted/Delete request.
+          const response = jsonResponse({ contact: { ...contact } }, 200);
+          let resolve!: (value: Response) => void;
+          const promise = new Promise<Response>((res) => {
+            resolve = res;
+          });
+          deferredPatches.push({ resolve, response });
+          return promise;
+        }
         return jsonResponse({ contact }, 200);
       }
       if (method === 'DELETE') {
+        deleteCalls.push(id);
         contact.deleted_at = '2026-09-26T11:00:00+00:00';
         return jsonResponse({ contact }, 200);
       }
       if (method === 'POST' && action === 'contacted') {
+        contactedCalls.push(id);
         if (contact.contacted_at || contact.replied_at) {
           return jsonResponse({ detail: 'Contact cannot be marked contacted' }, 409);
         }
@@ -112,6 +142,19 @@ function mockOutreachApi(initial: Contact[] = []) {
 
     throw new Error(`Unexpected fetch: ${method} ${url}`);
   });
+
+  return {
+    patchCalls,
+    contactedCalls,
+    deleteCalls,
+    resolvePatch: (index = 0) => {
+      const deferred = deferredPatches[index];
+      if (!deferred) {
+        throw new Error(`No deferred PATCH #${index}`);
+      }
+      deferred.resolve(deferred.response);
+    },
+  };
 }
 
 function isBefore(element: Element, other: Element): boolean {
@@ -305,6 +348,82 @@ describe('OutreachPanel', () => {
         ([, init]) => (init?.method ?? 'GET').toUpperCase() === 'PATCH'
       )
     ).toBe(false);
+  });
+
+  it('serializes rename and Contacted so a late PATCH response cannot revert the row', async () => {
+    const user = userEvent.setup();
+    const api = mockOutreachApi(
+      [
+        { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+      ],
+      { deferPatch: true }
+    );
+    render(<OutreachPanel />);
+
+    await screen.findByText('Alice');
+    await user.click(screen.getByRole('button', { name: 'Alice' }));
+
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    await user.clear(editInput);
+    await user.type(editInput, 'Alicia');
+    // Clicking Contacted blurs the edit input first, so the PATCH rename and
+    // the POST /contacted fire back to back. The POST response resolves
+    // immediately; the PATCH response stays pending until the end.
+    await user.click(screen.getByRole('button', { name: 'Contacted' }));
+
+    await waitFor(() => {
+      expect(api.patchCalls).toHaveLength(1);
+    });
+    expect(api.patchCalls[0].name).toBe('Alicia');
+
+    // The POST /contacted must wait for the pending rename instead of racing it.
+    expect(api.contactedCalls).toHaveLength(0);
+
+    // The slow PATCH (still uncontacted, with the new name) lands last.
+    api.resolvePatch();
+
+    await waitFor(() => {
+      expect(api.contactedCalls).toHaveLength(1);
+      expect(within(contactedList()).getByText('Alicia')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Replied' })).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+    const row = within(contactedList()).getByText('Alicia').closest('li');
+    expect(row).toHaveClass('outreach-row--contacted');
+  });
+
+  it('serializes rename and Delete so a late PATCH response cannot resurrect the row', async () => {
+    const user = userEvent.setup();
+    const api = mockOutreachApi(
+      [
+        { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+      ],
+      { deferPatch: true }
+    );
+    render(<OutreachPanel />);
+
+    await screen.findByText('Alice');
+    await user.click(screen.getByRole('button', { name: 'Alice' }));
+
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    await user.clear(editInput);
+    await user.type(editInput, 'Alicia');
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(api.patchCalls).toHaveLength(1);
+    });
+    expect(api.patchCalls[0].name).toBe('Alicia');
+
+    // The DELETE must wait for the pending rename instead of racing it.
+    expect(api.deleteCalls).toHaveLength(0);
+    api.resolvePatch();
+
+    await waitFor(() => {
+      expect(api.deleteCalls).toHaveLength(1);
+      expect(screen.queryByText('Alicia')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText('Alice')).not.toBeInTheDocument();
   });
 
   it('moves a row below the input and shows Replied after Contacted', async () => {

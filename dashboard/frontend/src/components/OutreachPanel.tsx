@@ -46,6 +46,36 @@ export function OutreachPanel() {
   const editingIdRef = useRef<number | null>(null);
   editingIdRef.current = editingId;
 
+  // Per-row serialization of mutating requests. A rename sent by blur-to-save
+  // is kept here so a Contacted / Replied / Delete click on the same row can
+  // wait for it before sending its own request; otherwise the two responses
+  // race and whichever lands last wins, even if it is stale.
+  const renamePromisesRef = useRef<Map<number, Promise<void>>>(new Map());
+  // Per-row request sequence numbers. Every mutating request stamps the row;
+  // a response is only applied when its sequence number is still the newest,
+  // so a slow stale response can never overwrite fresher state.
+  const requestSeqRef = useRef<Map<number, number>>(new Map());
+
+  function nextRequestSeq(id: number): number {
+    const seq = (requestSeqRef.current.get(id) ?? 0) + 1;
+    requestSeqRef.current.set(id, seq);
+    return seq;
+  }
+
+  function isLatestRequest(id: number, seq: number): boolean {
+    return requestSeqRef.current.get(id) === seq;
+  }
+
+  async function waitForPendingRename(id: number): Promise<void> {
+    const pendingRename = renamePromisesRef.current.get(id);
+    if (!pendingRename) return;
+    try {
+      await pendingRename;
+    } catch {
+      // The rename already surfaced its own error; the action can still run.
+    }
+  }
+
   // Stable callback ref: React only invokes it when the edit input mounts or
   // unmounts, so focus + select happen once when a row enters edit mode instead
   // of on every render (which re-selected the text after each keystroke).
@@ -127,29 +157,46 @@ export function OutreachPanel() {
     renameContact(id, nextName);
   }
 
-  async function renameContact(id: number, nextName: string) {
-    try {
-      const response = await fetch(`/api/outreach/contacts/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: nextName }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(errorMessage(payload, `Failed to rename contact (HTTP ${response.status})`));
+  function renameContact(id: number, nextName: string): Promise<void> {
+    const seq = nextRequestSeq(id);
+    const promise = (async () => {
+      try {
+        const response = await fetch(`/api/outreach/contacts/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: nextName }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(errorMessage(payload, `Failed to rename contact (HTTP ${response.status})`));
+        }
+        const data = await response.json();
+        if (isLatestRequest(id, seq)) {
+          setContacts((prev) =>
+            (prev ?? []).map((contact) => (contact.id === id ? data.contact : contact))
+          );
+          setError(null);
+        }
+      } catch (err) {
+        console.error('Failed to rename outreach contact:', err);
+        if (isLatestRequest(id, seq)) {
+          setError(err instanceof Error ? err.message : 'Failed to rename contact');
+        }
       }
-      const data = await response.json();
-      setContacts((prev) =>
-        (prev ?? []).map((contact) => (contact.id === id ? data.contact : contact))
-      );
-      setError(null);
-    } catch (err) {
-      console.error('Failed to rename outreach contact:', err);
-      setError(err instanceof Error ? err.message : 'Failed to rename contact');
-    }
+    })();
+    renamePromisesRef.current.set(id, promise);
+    const cleanup = () => {
+      if (renamePromisesRef.current.get(id) === promise) {
+        renamePromisesRef.current.delete(id);
+      }
+    };
+    void promise.then(cleanup, cleanup);
+    return promise;
   }
 
   async function handleContacted(id: number) {
+    await waitForPendingRename(id);
+    const seq = nextRequestSeq(id);
     try {
       const response = await fetch(`/api/outreach/contacts/${id}/contacted`, {
         method: 'POST',
@@ -159,17 +206,23 @@ export function OutreachPanel() {
         throw new Error(errorMessage(payload, `Failed to mark contact (HTTP ${response.status})`));
       }
       const data = await response.json();
-      setContacts((prev) =>
-        (prev ?? []).map((contact) => (contact.id === id ? data.contact : contact))
-      );
-      setError(null);
+      if (isLatestRequest(id, seq)) {
+        setContacts((prev) =>
+          (prev ?? []).map((contact) => (contact.id === id ? data.contact : contact))
+        );
+        setError(null);
+      }
     } catch (err) {
       console.error('Failed to mark outreach contact as contacted:', err);
-      setError(err instanceof Error ? err.message : 'Failed to mark contact');
+      if (isLatestRequest(id, seq)) {
+        setError(err instanceof Error ? err.message : 'Failed to mark contact');
+      }
     }
   }
 
   async function handleReplied(id: number) {
+    await waitForPendingRename(id);
+    const seq = nextRequestSeq(id);
     try {
       const response = await fetch(`/api/outreach/contacts/${id}/replied`, {
         method: 'POST',
@@ -178,15 +231,21 @@ export function OutreachPanel() {
         const payload = await response.json().catch(() => null);
         throw new Error(errorMessage(payload, `Failed to mark reply (HTTP ${response.status})`));
       }
-      setContacts((prev) => (prev ?? []).filter((contact) => contact.id !== id));
-      setError(null);
+      if (isLatestRequest(id, seq)) {
+        setContacts((prev) => (prev ?? []).filter((contact) => contact.id !== id));
+        setError(null);
+      }
     } catch (err) {
       console.error('Failed to mark outreach contact as replied:', err);
-      setError(err instanceof Error ? err.message : 'Failed to mark reply');
+      if (isLatestRequest(id, seq)) {
+        setError(err instanceof Error ? err.message : 'Failed to mark reply');
+      }
     }
   }
 
   async function handleDelete(id: number) {
+    await waitForPendingRename(id);
+    const seq = nextRequestSeq(id);
     try {
       const response = await fetch(`/api/outreach/contacts/${id}`, {
         method: 'DELETE',
@@ -195,11 +254,15 @@ export function OutreachPanel() {
         const payload = await response.json().catch(() => null);
         throw new Error(errorMessage(payload, `Failed to delete contact (HTTP ${response.status})`));
       }
-      setContacts((prev) => (prev ?? []).filter((contact) => contact.id !== id));
-      setError(null);
+      if (isLatestRequest(id, seq)) {
+        setContacts((prev) => (prev ?? []).filter((contact) => contact.id !== id));
+        setError(null);
+      }
     } catch (err) {
       console.error('Failed to delete outreach contact:', err);
-      setError(err instanceof Error ? err.message : 'Failed to delete contact');
+      if (isLatestRequest(id, seq)) {
+        setError(err instanceof Error ? err.message : 'Failed to delete contact');
+      }
     }
   }
 
