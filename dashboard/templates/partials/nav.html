@@ -6,7 +6,19 @@
         </div>
         <div class="navigation-links">
             {% for item in nav_items %}
-            <a href="{{ item.href }}" class="nav-link {{ 'active' if item.active else '' }}">{{ item.label }}</a>
+                {% if item.children %}
+                <div class="nav-group" tabindex="-1">
+                    <a href="{{ item.href }}" class="nav-link {{ 'active' if item.active else '' }}">{{ item.label }}</a>
+                    <span class="nav-caret" aria-hidden="true">▾</span>
+                    <div class="nav-menu">
+                        {% for child in item.children %}
+                        <a href="{{ child.href }}" class="nav-menu-link {{ 'active' if child.active else '' }}">{{ child.label }}</a>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <a href="{{ item.href }}" class="nav-link {{ 'active' if item.active else '' }}">{{ item.label }}</a>
+                {% endif %}
             {% endfor %}
         </div>
     </div>
