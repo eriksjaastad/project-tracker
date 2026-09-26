@@ -19,7 +19,11 @@
 # they exist as muscle-memory shortcuts, not abstractions over the
 # underlying commands. If a target stops working, run the body directly.
 #
-# PYTHON resolves to the repo venv, and finds it from a git worktree too.
+# PYTHON resolves to the repo venv, and finds it from a git worktree too. It
+# backs the server/launch targets below. `test`/`test-fast` deliberately do NOT
+# use it: they run `uv run --extra test --python 3.13 python -m pytest` so make
+# runs exactly what CI runs — and a bare worktree `.venv` (which a governance
+# hook creates without pytest) cannot shadow it.
 #
 # It must be `.venv/`, not `venv/`. This repo runs on uv, and `uv run --project`
 # (which scripts/launch-dashboard.sh uses to serve the dashboard) creates and
@@ -31,8 +35,8 @@
 # uv resolves must stay the same one.
 #
 # A worktree has no .venv/ of its own, so a bare `.venv/bin/python` simply did
-# not exist there and every target failed on sight. The override was
-# documented, but three separate agents still tripped over it in one day --
+# not exist there and every PYTHON-based target failed on sight. The override
+# was documented, but three separate agents still tripped over it in one day --
 # and worktrees are the sanctioned way to do risky work (editing
 # ~/.claude/hooks/ in place blocks every concurrent agent's Bash calls the
 # moment the file is briefly unparseable). A tax on the safe workflow gets
@@ -57,6 +61,9 @@ PYTHON ?= $(shell \
 	  [ -x "$$root/.venv/bin/python" ] && printf '%s' "$$root/.venv/bin/python" \
 	  || printf '%s' python3; \
 	fi)
+# test/test-fast run exactly what CI runs. Override only if you need a custom
+# pytest invocation; the rest of the targets keep using $(PYTHON).
+PYTEST_CMD ?= uv run --extra test --python 3.13 python -m pytest
 HOST ?= 127.0.0.1
 PORT ?= 8000
 
@@ -107,10 +114,10 @@ build-frontend: frontend-deps  ## Frontend typecheck + build (tsc -b && vite bui
 	cd "$(FRONTEND)" && npm run build
 
 test:  ## Full pytest suite (no secrets needed — tests run offline).
-	"$(PYTHON)" -m pytest tests/ -q
+	$(PYTEST_CMD) tests/ -q
 
 test-fast:  ## Same suite, stop at the first failure.
-	"$(PYTHON)" -m pytest tests/ -q -x --no-header
+	$(PYTEST_CMD) tests/ -q -x --no-header
 
 dashboard:  ## Launch the dashboard in the foreground (doppler-wrapped by the script).
 	./scripts/launch-dashboard.sh

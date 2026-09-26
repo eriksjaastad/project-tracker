@@ -58,6 +58,17 @@ pt scan                               # Rescan projects directory
 pt sync-project project-tracker       # Refresh one project only
 ```
 
+Visual Kanban tests (`tests/test_kanban_visual.py`) need a one-time Playwright Chromium install: `uv run --extra test --python 3.13 playwright install chromium`.
+
+The frontend lint (`cd dashboard/frontend && npm run lint`) covers `src/` only — its eslint
+config ignores `dashboard/static/*.js` and exits 0. Lint those vanilla-JS files (M5) from the
+repo root instead, so the `no-redeclare` rule runs across the whole global scope:
+
+```bash
+dashboard/frontend/node_modules/.bin/eslint --no-config-lookup \
+  --rule '{"no-redeclare": "error"}' dashboard/static/<file>.js
+```
+
 ## CI
 
 CI runs the test suite (`.github/workflows/tests.yml`) and no longer enforces type labels. Local preflight precedes publication; the independent local code-reviewer on exact HEAD and CI gates are defined by `pt info get pr_merge_policy`. Follow the current PR procedure for authoring requirements until its separate label-rule update lands.

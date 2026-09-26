@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SEVEN_DAYS_MS, isWithinRecentWindow, timeAgo } from './DashboardPage';
+import { SEVEN_DAYS_MS, isWithinRecentWindow, timeAgo } from '../utils/recentActivity';
 
 describe('Recent Activity window (#7180)', () => {
   const now = Date.parse('2026-09-19T12:00:00Z');

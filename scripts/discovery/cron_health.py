@@ -3,14 +3,21 @@ Cron Health Monitor - Check if scheduled jobs are running.
 """
 import logging
 import os
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Projects root (configurable via environment variable)
-PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", Path(__file__).resolve().parents[3]))
+# Make the repo root importable so the config helper resolves the same way in
+# any checkout, including git worktrees.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from scripts.config import projects_root
+
+# Projects root (configurable via PROJECTS_ROOT environment variable)
+PROJECTS_ROOT = projects_root()
 
 # Known cron job log files (configurable via environment variables)
 # TODO: Populate this with actual cron jobs from crontab -l

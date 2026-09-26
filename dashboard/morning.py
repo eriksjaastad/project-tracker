@@ -7,11 +7,11 @@ request time, never hand-copied into code. Parsing produces inline-markdown
 
 from __future__ import annotations
 
-import os
 import re
 from datetime import date
 from pathlib import Path
 
+from scripts.config import projects_root as config_projects_root
 from scripts.logger import get_logger
 
 
@@ -33,7 +33,7 @@ _LINK_RE = re.compile(r"\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)")
 
 def projects_root() -> Path:
     """Return the portfolio projects root, honouring the same override as app.py."""
-    return Path(os.environ.get("PROJECTS_ROOT", str(Path.home() / "projects")))
+    return config_projects_root()
 
 
 def readme_path() -> Path:

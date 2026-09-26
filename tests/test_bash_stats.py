@@ -26,6 +26,9 @@ def _freeze_now(monkeypatch: pytest.MonkeyPatch, frozen_now: datetime) -> None:
 
 def _brain_db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("HOME", str(tmp_path))
+    # The dashboard's projects_root() is env-first; without this an inherited
+    # PROJECTS_ROOT would escape the HOME redirect and read the real brain.db.
+    monkeypatch.delenv("PROJECTS_ROOT", raising=False)
     brain_dir = tmp_path / "projects" / "ai-memory"
     brain_dir.mkdir(parents=True, exist_ok=True)
     return brain_dir / "brain.db"

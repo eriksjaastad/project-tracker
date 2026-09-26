@@ -7,11 +7,18 @@ Specifically scans the ai-journal to establish deep links between logs and proje
 import logging
 import re
 import json
+import sys
 from pathlib import Path
 from typing import Set
 
+# Make the repo root importable so the config helper resolves the same way in
+# any checkout, including git worktrees.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from scripts.config import projects_root
+
 # Configuration
-PROJECTS_ROOT = Path(__file__).resolve().parents[3]
+PROJECTS_ROOT = projects_root()
 JOURNAL_DIR = PROJECTS_ROOT / "ai-journal" / "entries"
 GRAPH_DATA = PROJECTS_ROOT / "project-tracker" / "data" / "graph.json"
 
