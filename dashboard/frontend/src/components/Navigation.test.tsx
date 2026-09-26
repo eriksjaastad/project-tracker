@@ -138,6 +138,39 @@ describe('Navigation', () => {
     expect(caret).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('opens a group menu on mouse pointerenter and closes it on pointerleave', () => {
+    renderNavigation('/kanban');
+
+    const caret = screen.getByRole('button', { name: 'Kanban menu' });
+    const group = caret.closest('.nav-group');
+    expect(group).not.toBeNull();
+
+    fireEvent.pointerEnter(group!, { pointerType: 'mouse' });
+    expect(caret).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('menuitem', { name: 'Board' })).toBeInTheDocument();
+
+    fireEvent.pointerLeave(group!, { pointerType: 'mouse' });
+    expect(caret).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('ignores touch pointerenter so a caret tap opens and a second tap closes', () => {
+    renderNavigation('/kanban');
+
+    const caret = screen.getByRole('button', { name: 'Kanban menu' });
+    const group = caret.closest('.nav-group');
+    expect(group).not.toBeNull();
+
+    // A real tap: touch pointerenter, then the browser's compatibility mouseenter, then click.
+    fireEvent.pointerEnter(group!, { pointerType: 'touch' });
+    fireEvent.mouseEnter(group!);
+    fireEvent.click(caret);
+    expect(caret).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('menuitem', { name: 'Board' })).toBeInTheDocument();
+
+    fireEvent.click(caret);
+    expect(caret).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('closes the open menu on Escape and returns focus to the caret', () => {
     renderNavigation('/kanban');
 
@@ -162,6 +195,20 @@ describe('Navigation', () => {
     fireEvent.click(jobsCaret);
     expect(kanbanCaret).toHaveAttribute('aria-expanded', 'false');
     expect(jobsCaret).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('closes the open menu on pointerdown outside the nav group but not on a menu item inside it', () => {
+    renderNavigation('/kanban');
+
+    const caret = screen.getByRole('button', { name: 'Kanban menu' });
+    fireEvent.click(caret);
+    expect(caret).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.pointerDown(screen.getByRole('menuitem', { name: 'Board' }));
+    expect(caret).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.pointerDown(document.body);
+    expect(caret).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('marks the Jobs parent and the Submissions item active on /jobs/submitted', () => {

@@ -203,10 +203,12 @@ body {
 }
 
 .nav-caret {
+    appearance: none;
     background: none;
     border: none;
     padding: 1rem 0.25rem 1rem 0;
     color: var(--muted);
+    font-family: inherit;
     font-size: 0.8rem;
     line-height: 1;
     cursor: pointer;
@@ -231,8 +233,17 @@ body {
     z-index: 1000;
 }
 
-.nav-group:hover .nav-menu,
-.nav-group:focus-within .nav-menu {
+/* Sticky :hover on touch can keep the menu visible after a tap elsewhere, so
+   the hover fallback only applies on devices with a real hover-capable pointer.
+   The JS-driven .nav-group--open class handles click/touch/focus opening. */
+@media (hover: hover) {
+    .nav-group:hover .nav-menu {
+        display: flex;
+    }
+}
+
+.nav-group:focus-within .nav-menu,
+.nav-group--open .nav-menu {
     display: flex;
 }
 

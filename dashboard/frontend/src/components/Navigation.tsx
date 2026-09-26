@@ -48,6 +48,7 @@ export function Navigation() {
   const openGroupId =
     openState.pathname === location.pathname ? openState.groupId : null;
   const caretRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const navRef = useRef<HTMLElement | null>(null);
   // When a focus event opens a group, the caret click that follows on the same
   // user action (mouse mousedown-focus, keyboard Enter after Tab) must not
   // immediately toggle it closed again.
@@ -77,6 +78,29 @@ export function Navigation() {
       controller.abort();
     };
   }, []);
+
+  useEffect(() => {
+    if (openGroupId === null) {
+      return undefined;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const openGroup = navRef.current?.querySelector('.nav-group--open');
+      if (!openGroup) {
+        return;
+      }
+      const target = event.target;
+      if (target instanceof Node && !openGroup.contains(target)) {
+        openedByFocusRef.current = false;
+        setOpenState((current) => ({ groupId: null, pathname: current.pathname }));
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [openGroupId]);
 
   function openGroupFromFocus(id: string) {
     if (suppressFocusOpenRef.current) {
@@ -124,7 +148,7 @@ export function Navigation() {
   }
 
   return (
-    <nav className="navigation">
+    <nav className="navigation" ref={navRef}>
       <div className="navigation-container">
         <div className="navigation-brand">
           <Link to="/dashboard" className="navigation-title" onClick={closeGroup}>
@@ -145,11 +169,17 @@ export function Navigation() {
                 <div
                   key={item.id}
                   className={groupClassName}
-                  onMouseEnter={() => {
+                  onPointerEnter={(event) => {
+                    if (event.pointerType !== 'mouse') {
+                      return;
+                    }
                     openedByFocusRef.current = false;
                     setOpenState({ groupId: item.id, pathname: location.pathname });
                   }}
-                  onMouseLeave={() => {
+                  onPointerLeave={(event) => {
+                    if (event.pointerType !== 'mouse') {
+                      return;
+                    }
                     if (open) {
                       closeGroup();
                     }

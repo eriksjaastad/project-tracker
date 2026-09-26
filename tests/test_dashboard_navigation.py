@@ -148,6 +148,18 @@ def test_graph_view_renders_shared_shell_navigation():
     assert "Graph" in body
     assert "Project Graph" in body
 
+    # The Jinja nav mirrors the React nav: a real caret button per group,
+    # menu roles, and the JS that makes menus touch-openable.
+    assert (
+        '<button type="button" class="nav-caret" aria-haspopup="true" '
+        'aria-expanded="false" aria-label="Jobs menu">' in body
+    )
+    assert 'role="menu"' in body
+    assert '<script src="/static/nav.js" defer></script>' in body
+
+    nav_js = client.get("/static/nav.js")
+    assert nav_js.status_code == 200
+
 
 def test_build_spa_shell_html_bootstraps_backend_navigation_payload():
     html = "<html><head></head><body><div id='root'></div></body></html>"
