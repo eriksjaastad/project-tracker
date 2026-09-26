@@ -1459,12 +1459,16 @@ class DatabaseManager:
     def update_task(
         self,
         task_id: int,
+        notes_source: Optional[str] = None,
         **updates
     ) -> Dict[str, Any]:
         """Update task fields.
         
         Args:
             task_id: Task ID
+            notes_source: Origin label for a task_notes_history row written by
+                this call ("cli", "api", ...). Not a column — never stored on
+                tasks. Defaults to "unknown" when a notes change is recorded.
             **updates: Fields to update (text, status, priority)
             
         Returns:
@@ -1582,6 +1586,35 @@ class DatabaseManager:
             with self._get_conn() as conn:
                 try:
                     cursor = conn.cursor()
+
+                    # Record a notes-history row in the same transaction when
+                    # notes actually change. The dashboard sends notes on every
+                    # save, so treating None and "" as equal keeps those no-ops
+                    # quiet; a real change writes one evidence row.
+                    if "notes" in updates:
+                        notes_row = cursor.execute(
+                            "SELECT notes FROM tasks WHERE id = ?", (task_id,)
+                        ).fetchone()
+                        old_notes = (
+                            notes_row["notes"] if notes_row else existing_task.get("notes")
+                        )
+                        new_notes = updates["notes"]
+                        old_notes_norm = "" if old_notes is None else old_notes
+                        new_notes_norm = "" if new_notes is None else new_notes
+                        if old_notes_norm != new_notes_norm:
+                            cursor.execute("""
+                                INSERT INTO task_notes_history
+                                    (task_id, project_id, old_notes, new_notes, source, timestamp)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            """, (
+                                task_id,
+                                existing_task["project_id"],
+                                old_notes,
+                                new_notes,
+                                notes_source or "unknown",
+                                now,
+                            ))
+
                     # Build UPDATE query
                     fields = []
                     values = []
@@ -1652,6 +1685,23 @@ class DatabaseManager:
 
             # Return updated task (already returned inside loop)
             return self.get_task(task_id)
+
+    def get_task_notes_history(self, task_id: int) -> List[Dict[str, Any]]:
+        """Return notes-history rows for a task, newest first.
+
+        Rows survive task deletion on purpose: they are evidence of what a
+        card's notes used to say, not children that should follow the card
+        into the bin.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, task_id, project_id, old_notes, new_notes, source, timestamp
+                FROM task_notes_history
+                WHERE task_id = ?
+                ORDER BY timestamp DESC, id DESC
+            """, (task_id,))
+            return [dict(row) for row in cursor.fetchall()]
 
     def get_subtasks(
         self, parent_id: int, include_archived: bool = False
