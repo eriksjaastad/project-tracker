@@ -14,7 +14,13 @@ from pathlib import Path
 
 import httpx
 import pytest
-from playwright.sync_api import Page, expect
+
+try:
+    from playwright.sync_api import Page, expect, sync_playwright
+except ImportError:  # playwright is an optional test extra; treat as "not available"
+    Page = None
+    expect = None
+    sync_playwright = None
 
 BASE_URL = "http://localhost:8000"
 
@@ -30,10 +36,36 @@ def _server_is_running() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not _server_is_running(),
-    reason="Dashboard server not running at localhost:8000",
-)
+def _chromium_available() -> bool:
+    """Return True when the Playwright Chromium for this playwright version is installed.
+
+    Detection reads ``p.chromium.executable_path`` and never launches a browser.
+    Any exception here is expected-absence handling: playwright not importable or
+    its driver failing means the browser is "not available", so the module skips
+    instead of erroring.
+    """
+    if sync_playwright is None:
+        return False
+    try:
+        with sync_playwright() as p:
+            return Path(p.chromium.executable_path).exists()
+    except Exception:
+        return False
+
+
+pytestmark = [
+    pytest.mark.skipif(
+        not _server_is_running(),
+        reason="Dashboard server not running at localhost:8000",
+    ),
+    pytest.mark.skipif(
+        not _chromium_available(),
+        reason=(
+            "Playwright Chromium not installed for this playwright version; "
+            "run: uv run --extra test --python 3.13 playwright install chromium"
+        ),
+    ),
+]
 
 
 def _capture_enabled() -> bool:

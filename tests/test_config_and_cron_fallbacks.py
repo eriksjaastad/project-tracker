@@ -49,6 +49,34 @@ def test_config_defaults_external_backup_dir_under_home(tmp_path, monkeypatch):
     assert reloaded.EXTERNAL_BACKUP_DIR == home_dir / ".project-tracker" / "backups"
 
 
+def test_projects_root_honours_env_override(tmp_path, monkeypatch):
+    import scripts.config as config
+
+    monkeypatch.setenv("PROJECTS_ROOT", str(tmp_path))
+
+    assert config.projects_root() == tmp_path
+
+
+def test_projects_root_empty_env_falls_back_to_home(tmp_path, monkeypatch):
+    import scripts.config as config
+
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setenv("PROJECTS_ROOT", "")
+
+    assert config.projects_root() == home_dir / "projects"
+
+
+def test_projects_root_unset_falls_back_to_home(tmp_path, monkeypatch):
+    import scripts.config as config
+
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.delenv("PROJECTS_ROOT", raising=False)
+
+    assert config.projects_root() == home_dir / "projects"
+
+
 def test_config_runtime_defaults_are_project_tracker_local(monkeypatch):
     import scripts.config as config
 

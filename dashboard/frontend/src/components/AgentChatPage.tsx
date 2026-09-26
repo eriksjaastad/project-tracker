@@ -20,7 +20,6 @@ export function AgentChatPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     fetch('/api/agent-chat/messages?limit=150')
       .then(async (res) => {
         if (!res.ok) {

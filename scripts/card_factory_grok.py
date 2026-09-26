@@ -47,10 +47,16 @@ from openai import OpenAI
 
 from api_trust_tracker import track  # cost-tracking wrapper (governance-required)
 
+# Make the repo root importable so the config helper resolves the same way in
+# any checkout, including git worktrees.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.config import projects_root
+
 # ── Paths (derived, never hardcoded — governance M1) ──────────────────────────
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_TRACKER = SCRIPT_DIR.parent
-PROJECTS_ROOT = PROJECT_TRACKER.parent
+PROJECTS_ROOT = projects_root()
 PT = PROJECT_TRACKER / "pt"
 SCAN_SCRIPT = SCRIPT_DIR / "card-factory-scan.py"
 LOG_DIR = PROJECT_TRACKER / "logs"

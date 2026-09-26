@@ -27,9 +27,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from playwright.sync_api import sync_playwright
 
+from scripts.config import projects_root
+
 
 # Configuration
-BRAIN_DB_PATH = Path(__file__).parent.parent.parent.parent / "ai-memory" / "brain.db"
+BRAIN_DB_PATH = projects_root() / "ai-memory" / "brain.db"
 SNAPSHOT_DIR = Path(__file__).parent.parent.parent / "data" / "memory-snapshots"
 SIMILARITY_THRESHOLD = 0.3  # Only show edges with similarity > 30%
 MAX_EDGES_PER_NODE = 10  # Limit edges to prevent visual clutter

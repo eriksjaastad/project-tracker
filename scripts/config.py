@@ -12,17 +12,28 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Base directory for projects (can be overridden by PT_PROJECTS_DIR or PROJECTS_ROOT env vars)
-_projects_root_env = os.getenv("PROJECTS_ROOT")
-if _projects_root_env and _projects_root_env.strip():
-    # Environment variable is set and non-empty
-    PROJECTS_BASE_DIR = Path(_projects_root_env).resolve()
-else:
-    # Environment variable is unset or empty - use default
-    PROJECTS_BASE_DIR = PROJECT_ROOT.parent
 
-# Validate that PROJECTS_ROOT exists
-if not PROJECTS_BASE_DIR.exists():
+def projects_root() -> Path:
+    """Return the portfolio projects root.
+
+    Honours ``PROJECTS_ROOT`` when it is set and non-empty; otherwise falls
+    back to ``~/projects``. This is deliberately env-first so a git worktree
+    (whose ``Path(__file__)``-relative idioms resolve inside ``.claude/``)
+    still finds the real portfolio root.
+    """
+    env_root = os.environ.get("PROJECTS_ROOT")
+    if env_root and env_root.strip():
+        return Path(env_root)
+    return Path.home() / "projects"
+
+
+# Base directory for projects (can be overridden by PROJECTS_ROOT env var)
+PROJECTS_BASE_DIR = projects_root()
+
+# Validate an explicit PROJECTS_ROOT override: pointing it at a missing
+# directory is a configuration error. The default ~/projects may legitimately
+# not exist yet (CI runners, fresh checkouts), so it is allowed to be absent.
+if os.environ.get("PROJECTS_ROOT", "").strip() and not PROJECTS_BASE_DIR.exists():
     raise ValueError(
         f"PROJECTS_ROOT path does not exist: {PROJECTS_BASE_DIR}\n"
         f"Please set PROJECTS_ROOT environment variable to a valid directory path."

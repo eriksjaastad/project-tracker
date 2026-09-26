@@ -101,7 +101,8 @@ def _reset_spy():
 
 @pytest.fixture
 def brain_db(tmp_path: Path) -> Path:
-    db_path = tmp_path / "brain.db"
+    db_path = tmp_path / "ai-memory" / "brain.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     setup_conn = sqlite3.connect(db_path)
     setup_conn.execute(
         "CREATE TABLE graph_nodes (id INTEGER PRIMARY KEY, type TEXT, name TEXT, "
@@ -141,14 +142,15 @@ def _request() -> Request:
 
 
 def _force_brain_db_present(monkeypatch: pytest.MonkeyPatch, db_path: Path, fail: bool):
-    """brain_db_path.exists() must be True for the try block to be reached.
+    """Redirect the endpoint's config_projects_root() to the fixture's tmp checkout.
 
-    The real path is derived from `Path(__file__).parent.parent.parent`,
-    which does not point at a real ai-memory checkout inside a worktree, so
-    the endpoint would otherwise short-circuit on the 404 branch before ever
-    calling sqlite3.connect.
+    The endpoint builds its brain.db path from `config_projects_root() /
+    "ai-memory" / "brain.db"`, so pointing the helper at tmp_path makes the
+    fixture's brain.db (at tmp_path/ai-memory/brain.db) the one the endpoint
+    sees — no real ~/projects/ai-memory checkout or global Path.exists patch
+    required.
     """
-    monkeypatch.setattr(Path, "exists", lambda self: True)
+    monkeypatch.setattr(dashboard_app, "config_projects_root", lambda: db_path.parent.parent)
     monkeypatch.setattr(sqlite3, "connect", _make_connect(db_path, fail=fail))
 
 

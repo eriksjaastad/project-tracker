@@ -48,7 +48,7 @@ from discovery.agent_registry import (
 from pydantic import BaseModel
 
 # Import config
-from scripts.config import PROJECTS_BASE_DIR, REINDEX_SCRIPT_PATH
+from scripts.config import PROJECTS_BASE_DIR, REINDEX_SCRIPT_PATH, projects_root as config_projects_root
 from scripts.utils.validation import get_blocked_card_reason, get_blocked_card_project_ids, is_card_creation_allowed
 
 from scripts.pt import rebuild_project_graph
@@ -1648,7 +1648,7 @@ async def get_memory_graph_data(
             and _graph_cache["params"] == cache_key):
         return _graph_cache["data"]
 
-    projects_root = Path(__file__).parent.parent.parent
+    projects_root = config_projects_root()
     brain_db_path = projects_root / "ai-memory" / "brain.db"
 
     if not brain_db_path.exists():
@@ -1762,7 +1762,7 @@ async def get_ai_memory_graph(request: Request):
     """
     min_mentions = int(request.query_params.get("min_mentions", 1))
     cluster_mode = request.query_params.get("cluster", "auto")
-    projects_root = Path(__file__).parent.parent.parent
+    projects_root = config_projects_root()
     brain_db_path = projects_root / "ai-memory" / "brain.db"
 
     if not brain_db_path.exists():
@@ -1884,7 +1884,7 @@ async def rebuild_ai_memory_graph(background_tasks: BackgroundTasks):
     Returns a job_id the frontend can poll via /api/rebuild-status/{job_id}.
     """
     def _rebuild_brain_graph():
-        projects_root = Path(__file__).parent.parent.parent
+        projects_root = config_projects_root()
         brain_py = projects_root / "ai-memory" / "brain.py"
         result = subprocess.run(
             ["doppler", "run", "--project", "ai-memory", "--config", "dev",
@@ -1911,7 +1911,7 @@ async def get_memory_types():
     """
     import sqlite3
 
-    projects_root = Path(__file__).parent.parent.parent
+    projects_root = config_projects_root()
     brain_db_path = projects_root / "ai-memory" / "brain.db"
 
     if not brain_db_path.exists():
@@ -1949,7 +1949,7 @@ async def get_memory_heatmap():
     """
     import sqlite3
 
-    projects_root = Path(__file__).parent.parent.parent
+    projects_root = config_projects_root()
     brain_db_path = projects_root / "ai-memory" / "brain.db"
 
     if not brain_db_path.exists():
@@ -3071,7 +3071,7 @@ async def get_tool_stats(
 
     Returns empty series if brain.db is absent or the table doesn't exist yet.
     """
-    projects_root = Path.home() / "projects"
+    projects_root = config_projects_root()
     brain_db = projects_root / "ai-memory" / "brain.db"
 
     empty = {
@@ -3190,7 +3190,7 @@ async def get_bash_stats(days: int = 30):
 
     Returns empty series if brain.db is absent or the table doesn't exist.
     """
-    projects_root = Path.home() / "projects"
+    projects_root = config_projects_root()
     brain_db = projects_root / "ai-memory" / "brain.db"
 
     empty_summary = {
@@ -3485,7 +3485,7 @@ async def get_api_cost_stats(
     Returns empty series if brain.db is absent, the table doesn't exist
     yet, or no rows match. Read-only — never modifies brain.db.
     """
-    projects_root = Path.home() / "projects"
+    projects_root = config_projects_root()
     brain_db = projects_root / "ai-memory" / "brain.db"
 
     empty = {
@@ -4051,7 +4051,7 @@ def _get_tracked_repo_names() -> List[str]:
                 continue
             # github-repos is a container — its children are the actual repos
             if pid == "github-repos":
-                github_repos_dir = Path(os.environ.get("PROJECTS_ROOT", str(Path.home() / "projects"))) / "github-repos"
+                github_repos_dir = config_projects_root() / "github-repos"
                 if github_repos_dir.is_dir():
                     for child in github_repos_dir.iterdir():
                         if child.is_dir() and not child.name.startswith(".") and not child.name.startswith("00_"):
@@ -4278,7 +4278,7 @@ async def api_code_review_metrics(
     Returns empty state if brain.db is absent or tables don't exist yet.
     Read-only — never writes to brain.db.
     """
-    projects_root = Path.home() / "projects"
+    projects_root = config_projects_root()
     brain_db = projects_root / "ai-memory" / "brain.db"
 
     empty = {

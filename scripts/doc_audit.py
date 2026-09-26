@@ -23,12 +23,19 @@ Usage:
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+# Make the repo root importable so the config helper resolves the same way in
+# any checkout, including git worktrees.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.config import projects_root
+
 # Paths
-PROJECTS_ROOT = Path(__file__).resolve().parents[2]
+PROJECTS_ROOT = projects_root()
 AUDIT_DIR = Path(__file__).parent.parent / "data" / "doc_audit"
 SUMMARIES_DIR = AUDIT_DIR / "summaries"
 REPORTS_DIR = AUDIT_DIR / "reports"
