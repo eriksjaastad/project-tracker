@@ -57,6 +57,7 @@ export function AgenticDashboard() {
   const [newLabel, setNewLabel] = useState('');
   const [newAgent, setNewAgent] = useState('');
   const [markerError, setMarkerError] = useState<string | null>(null);
+  const [markersUnreadable, setMarkersUnreadable] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState('');
   const [editLabel, setEditLabel] = useState('');
@@ -65,18 +66,25 @@ export function AgenticDashboard() {
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
+      // Projects and markers load independently: one failing must not drop the other.
       try {
-        const [projectData, markerData] = await Promise.all([
-          fetchProjects(controller.signal),
-          fetchMarkers(controller.signal),
-        ]);
+        const projectData = await fetchProjects(controller.signal);
         setProjects(projectData.slice().sort((a, b) => a.name.localeCompare(b.name)));
+      } catch (err) {
+        if (!isAbortError(err)) {
+          console.error('Failed to load projects:', err);
+        }
+      }
+      try {
+        const markerData = await fetchMarkers(controller.signal);
         setMarkers(markerData);
       } catch (err) {
-        if (isAbortError(err)) {
-          return;
+        if (!isAbortError(err)) {
+          const reason = err instanceof Error ? err.message : 'Failed to load markers';
+          setMarkerError(reason);
+          setMarkersUnreadable(true);
+          console.error('Failed to load markers:', err);
         }
-        console.error('Failed to load initial data:', err);
       }
     }
     load();
@@ -92,6 +100,10 @@ export function AgenticDashboard() {
         const days = timeRange === 'week' ? 7 : 30;
         const data = await fetchAgenticSummary(days, selectedProject, controller.signal);
         setSummary(data);
+        if (data.markers_error) {
+          setMarkerError(data.markers_error);
+          setMarkersUnreadable(true);
+        }
       } catch (err) {
         if (isAbortError(err)) {
           return;
@@ -573,114 +585,123 @@ export function AgenticDashboard() {
             metric shifts. <span className="marker-auto-hint">Auto markers from the sync daemon will appear here too.</span>
           </p>
 
-          {markerError && <div className="marker-error">{markerError}</div>}
+          {markerError && <div className="marker-error" role="alert">{markerError}</div>}
 
-          <div className="marker-add-form" id="marker-add-form">
-            <input
-              id="marker-date"
-              type="date"
-              value={newDate}
-              onChange={e => setNewDate(e.target.value)}
-              placeholder="Date"
-            />
-            <input
-              id="marker-label"
-              type="text"
-              value={newLabel}
-              maxLength={120}
-              onChange={e => setNewLabel(e.target.value)}
-              placeholder="Label (e.g. Added Mac Mini)"
-            />
-            <input
-              id="marker-agent"
-              type="text"
-              value={newAgent}
-              onChange={e => setNewAgent(e.target.value)}
-              placeholder="Agent (optional)"
-            />
-            <button
-              id="marker-add-btn"
-              type="button"
-              onClick={handleAddMarker}
-              className="btn-primary btn-small"
-            >
-              Add Marker
-            </button>
-          </div>
-
-          {markers.length === 0 ? (
-            <div className="markers-empty">No markers yet. Add one above to annotate the chart.</div>
+          {markersUnreadable ? (
+            <p className="markers-unreadable">
+              Marker editing is disabled while the markers file can't be read, so a new marker
+              can't overwrite the existing data.
+            </p>
           ) : (
-            <ul className="marker-list">
-              {markers.map(marker => (
-                <li key={marker.id} className="marker-row">
-                  {editingId === marker.id ? (
-                    <div className="marker-edit-row">
-                      <input
-                        type="date"
-                        value={editDate}
-                        onChange={e => setEditDate(e.target.value)}
-                      />
-                      <input
-                        type="text"
-                        value={editLabel}
-                        maxLength={120}
-                        onChange={e => setEditLabel(e.target.value)}
-                      />
-                      <input
-                        type="text"
-                        value={editAgent}
-                        placeholder="Agent (optional)"
-                        onChange={e => setEditAgent(e.target.value)}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleSaveEdit(marker.id)}
-                        className="btn-primary btn-small"
-                      >
-                        Save
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingId(null)}
-                        className="btn-small"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="marker-display-row">
-                      <span className="marker-date">{marker.date}</span>
-                      <span className="marker-label">{marker.label}</span>
-                      {marker.agent && <span className="marker-agent">{marker.agent}</span>}
-                      <span className={`marker-source marker-source--${marker.source}`}>
-                        {marker.source}
-                      </span>
-                      {marker.source === 'manual' && (
-                        <>
+            <>
+              <div className="marker-add-form" id="marker-add-form">
+                <input
+                  id="marker-date"
+                  type="date"
+                  value={newDate}
+                  onChange={e => setNewDate(e.target.value)}
+                  placeholder="Date"
+                />
+                <input
+                  id="marker-label"
+                  type="text"
+                  value={newLabel}
+                  maxLength={120}
+                  onChange={e => setNewLabel(e.target.value)}
+                  placeholder="Label (e.g. Added Mac Mini)"
+                />
+                <input
+                  id="marker-agent"
+                  type="text"
+                  value={newAgent}
+                  onChange={e => setNewAgent(e.target.value)}
+                  placeholder="Agent (optional)"
+                />
+                <button
+                  id="marker-add-btn"
+                  type="button"
+                  onClick={handleAddMarker}
+                  className="btn-primary btn-small"
+                >
+                  Add Marker
+                </button>
+              </div>
+
+              {markers.length === 0 ? (
+                <div className="markers-empty">No markers yet. Add one above to annotate the chart.</div>
+              ) : (
+                <ul className="marker-list">
+                  {markers.map(marker => (
+                    <li key={marker.id} className="marker-row">
+                      {editingId === marker.id ? (
+                        <div className="marker-edit-row">
+                          <input
+                            type="date"
+                            value={editDate}
+                            onChange={e => setEditDate(e.target.value)}
+                          />
+                          <input
+                            type="text"
+                            value={editLabel}
+                            maxLength={120}
+                            onChange={e => setEditLabel(e.target.value)}
+                          />
+                          <input
+                            type="text"
+                            value={editAgent}
+                            placeholder="Agent (optional)"
+                            onChange={e => setEditAgent(e.target.value)}
+                          />
                           <button
                             type="button"
-                            onClick={() => startEdit(marker)}
+                            onClick={() => handleSaveEdit(marker.id)}
+                            className="btn-primary btn-small"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(null)}
                             className="btn-small"
-                            title="Edit marker"
                           >
-                            Edit
+                            Cancel
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteMarker(marker.id)}
-                            className="btn-small btn-danger"
-                            title="Delete marker"
-                          >
-                            Delete
-                          </button>
-                        </>
+                        </div>
+                      ) : (
+                        <div className="marker-display-row">
+                          <span className="marker-date">{marker.date}</span>
+                          <span className="marker-label">{marker.label}</span>
+                          {marker.agent && <span className="marker-agent">{marker.agent}</span>}
+                          <span className={`marker-source marker-source--${marker.source}`}>
+                            {marker.source}
+                          </span>
+                          {marker.source === 'manual' && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(marker)}
+                                className="btn-small"
+                                title="Edit marker"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMarker(marker.id)}
+                                className="btn-small btn-danger"
+                                title="Delete marker"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
                       )}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
         </section>
 
