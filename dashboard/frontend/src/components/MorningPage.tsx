@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageShell } from './PageShell';
 import { Spinner } from './Spinner';
-import { Notification } from './Notification';
 import './MorningPage.css';
 
 interface Segment {
@@ -84,10 +83,7 @@ export function MorningPage() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<MorningData | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [notification, setNotification] = useState<{
-    message: string;
-    type: 'success' | 'error';
-  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadMorning();
@@ -109,10 +105,7 @@ export function MorningPage() {
       setChecked(new Set(readStoredChecks(morning.date)));
     } catch (error) {
       console.error('Failed to load morning plan:', error);
-      setNotification({
-        message: error instanceof Error ? error.message : 'Failed to load morning plan',
-        type: 'error',
-      });
+      setError(error instanceof Error ? error.message : 'Failed to load morning plan');
     } finally {
       setLoading(false);
     }
@@ -151,21 +144,13 @@ export function MorningPage() {
       subtitle={data ? formatDate(data.date) : 'Warm-up checklist'}
       contentWidth="narrow"
     >
-      {notification && (
-        <Notification
-          message={notification.message}
-          type={notification.type}
-          onClose={() => setNotification(null)}
-        />
-      )}
-
       {loading ? (
         <div className="morning-loading">
           <Spinner size="large" />
         </div>
       ) : !data || !hasSteps ? (
         <div className="morning-error">
-          <p>No morning plan to show right now.</p>
+          <p role="alert">{error ?? 'No morning plan to show right now.'}</p>
         </div>
       ) : (
         <div className="morning-container">

@@ -12,6 +12,11 @@ import re
 from datetime import date
 from pathlib import Path
 
+from scripts.logger import get_logger
+
+
+logger = get_logger(__name__)
+
 
 class MorningPlanError(RuntimeError):
     """Raised when the morning plan source is missing or cannot be parsed."""
@@ -22,7 +27,8 @@ GITHUB_BLOB_BASE = f"https://github.com/{JOB_SEARCH_REPO}/blob/main"
 
 _SECTION_HEADING = "## Standing morning plan"
 _NEXT_MORNING_HEADING = "### Next morning"
-_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
+# The target allows one level of balanced parentheses, e.g. .../Foo_(bar).
+_LINK_RE = re.compile(r"\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)")
 
 
 def projects_root() -> Path:
@@ -260,6 +266,8 @@ def load_hn_snapshots(snapshot_dir: Path, day: date) -> list[dict]:
             try:
                 text = path.read_text()
             except OSError:
+                # The page shows "Could not read file"; log why for whoever debugs it.
+                logger.exception("Could not read HN snapshot %s", path)
                 text = None
         snapshots.append({
             "kind": kind,

@@ -207,3 +207,32 @@ def test_fragment_only_link_points_at_the_readme():
     )
     link = next(s for s in plan["steps"][0]["description"] if s["type"] == "link")
     assert link["href"] == f"{GITHUB_BLOB_BASE}/README.md#the-rules"
+
+
+def test_link_target_with_parentheses_is_kept_whole():
+    plan = parse_morning_plan(
+        "## Standing morning plan\n\n"
+        "| # | Channel | Time | What happens |\n|---|---|---|---|\n"
+        "| 0 | Read | 2 min | See [Foo](https://en.wikipedia.org/wiki/Foo_(bar)) now. |\n"
+    )
+    description = plan["steps"][0]["description"]
+    link = next(s for s in description if s["type"] == "link")
+    assert link["href"] == "https://en.wikipedia.org/wiki/Foo_(bar)"
+    assert description[-1] == {"type": "text", "text": " now."}
+
+
+def test_unreadable_snapshot_is_present_but_textless_and_logged(tmp_path, monkeypatch, caplog):
+    day = date(2026, 9, 26)
+    (tmp_path / "hn-jobs-2026-09-26-freelance.txt").write_text("posting")
+
+    def refuse(self, *args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("pathlib.Path.read_text", refuse)
+    with caplog.at_level("ERROR"):
+        snapshots = load_hn_snapshots(tmp_path, day)
+
+    freelance = next(s for s in snapshots if s["kind"] == "freelance")
+    assert freelance["present"] is True
+    assert freelance["text"] is None
+    assert "Could not read HN snapshot" in caplog.text

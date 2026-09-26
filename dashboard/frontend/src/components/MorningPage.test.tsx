@@ -19,10 +19,6 @@ vi.mock('./Spinner', () => ({
   Spinner: () => <div>Loading...</div>,
 }));
 
-vi.mock('./Notification', () => ({
-  Notification: ({ message }: { message: string }) => <div role="alert">{message}</div>,
-}));
-
 function morningPayload(overrides: Record<string, unknown> = {}) {
   return {
     date: '2026-09-26',
@@ -156,5 +152,6 @@ describe('MorningPage', () => {
       'Morning plan source not found: /tmp/job-search/README.md'
     );
     expect(screen.queryByText('Replies')).not.toBeInTheDocument();
+    expect(screen.queryByText('No morning plan to show right now.')).not.toBeInTheDocument();
   });
 });
