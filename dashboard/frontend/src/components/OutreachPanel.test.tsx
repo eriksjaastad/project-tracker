@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,7 +35,9 @@ interface MockOutreachApiOptions {
   deferDelete?: boolean;
   deferAdd?: boolean;
   /** Simulates another tab having contacted the row first: POST /contacted returns 409 and the row is already contacted on the server. */
-  contactedConflict?: boolean;
+  contactedConflict?: boolean | ((id: number) => boolean);
+  /** Simulates a network failure: POST /contacted rejects instead of returning a response. */
+  contactedNetworkError?: boolean | ((id: number) => boolean);
 }
 
 interface MockOutreachApi {
@@ -44,6 +46,8 @@ interface MockOutreachApi {
   repliedCalls: number[];
   deleteCalls: number[];
   addCalls: number;
+  /** Highest number of concurrently pending fetch calls the component ever produced. */
+  readonly maxInFlight: number;
   resolvePatch: (index?: number) => void;
   resolve: (kind: 'contacted' | 'replied' | 'delete' | 'add', index?: number) => void;
 }
@@ -59,7 +63,17 @@ function mockOutreachApi(
   const repliedCalls: number[] = [];
   const deleteCalls: number[] = [];
   let addCalls = 0;
+  let inFlight = 0;
+  let maxInFlight = 0;
   const deferred: Array<{ kind: DeferredKind; resolve: (response: Response) => void; response: Response }> = [];
+
+  function track(response: Response | Promise<Response>): Promise<Response> {
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    return Promise.resolve(response).finally(() => {
+      inFlight -= 1;
+    });
+  }
 
   function defer(kind: DeferredKind, response: Response): Promise<Response> {
     return new Promise((resolve) => {
@@ -93,19 +107,21 @@ function mockOutreachApi(
             (a, b) =>
               (a.contacted_at ?? '').localeCompare(b.contacted_at ?? '') || a.id - b.id
           );
-        return jsonResponse({
-          contacts: [...uncontacted, ...contacted].map((contact) => ({
-            id: contact.id,
-            name: contact.name,
-            contacted_at: contact.contacted_at,
-            created_at: contact.created_at,
-          })),
-        });
+        return track(
+          jsonResponse({
+            contacts: [...uncontacted, ...contacted].map((contact) => ({
+              id: contact.id,
+              name: contact.name,
+              contacted_at: contact.contacted_at,
+              created_at: contact.created_at,
+            })),
+          })
+        );
       }
       if (method === 'POST') {
         addCalls += 1;
         const name = String(body?.name ?? '').trim();
-        if (!name) return jsonResponse({ detail: 'Name is required' }, 400);
+        if (!name) return track(jsonResponse({ detail: 'Name is required' }, 400));
         const contact: StoredContact = {
           id: nextId++,
           name,
@@ -114,8 +130,8 @@ function mockOutreachApi(
         };
         contacts.push(contact);
         const response = jsonResponse({ contact }, 201);
-        if (options.deferAdd) return defer('add', response);
-        return response;
+        if (options.deferAdd) return track(defer('add', response));
+        return track(response);
       }
     }
 
@@ -125,15 +141,15 @@ function mockOutreachApi(
       const action = match[2];
       const index = contacts.findIndex((contact) => contact.id === id);
       if (index === -1 || contacts[index].deleted_at) {
-        return jsonResponse({ detail: 'Contact not found' }, 404);
+        return track(jsonResponse({ detail: 'Contact not found' }, 404));
       }
       const contact = contacts[index];
 
       if (method === 'PATCH') {
         const name = String(body?.name ?? '').trim();
-        if (!name) return jsonResponse({ detail: 'Name is required' }, 400);
+        if (!name) return track(jsonResponse({ detail: 'Name is required' }, 400));
         if (contact.contacted_at || contact.replied_at) {
-          return jsonResponse({ detail: 'Invalid name or contact state' }, 409);
+          return track(jsonResponse({ detail: 'Invalid name or contact state' }, 409));
         }
         contact.name = name;
         patchCalls.push({ id, name });
@@ -143,40 +159,51 @@ function mockOutreachApi(
           // decides when this response lands, simulating a slow PATCH racing a
           // fast Contacted/Delete request.
           const response = jsonResponse({ contact: { ...contact } }, 200);
-          return defer('patch', response);
+          return track(defer('patch', response));
         }
-        return jsonResponse({ contact }, 200);
+        return track(jsonResponse({ contact }, 200));
       }
       if (method === 'DELETE') {
         deleteCalls.push(id);
         contact.deleted_at = '2026-09-26T11:00:00+00:00';
         const response = jsonResponse({ contact }, 200);
-        if (options.deferDelete) return defer('delete', response);
-        return response;
+        if (options.deferDelete) return track(defer('delete', response));
+        return track(response);
       }
       if (method === 'POST' && action === 'contacted') {
         contactedCalls.push(id);
-        if (options.contactedConflict) {
+        const networkError =
+          typeof options.contactedNetworkError === 'function'
+            ? options.contactedNetworkError(id)
+            : options.contactedNetworkError;
+        if (networkError) {
+          return track(Promise.reject(new Error('Network down')));
+        }
+        const conflict =
+          typeof options.contactedConflict === 'function'
+            ? options.contactedConflict(id)
+            : options.contactedConflict;
+        if (conflict) {
           contact.contacted_at = '2026-09-26T11:00:00+00:00';
-          return jsonResponse({ detail: 'Contact cannot be marked contacted' }, 409);
+          return track(jsonResponse({ detail: 'Contact cannot be marked contacted' }, 409));
         }
         if (contact.contacted_at || contact.replied_at) {
-          return jsonResponse({ detail: 'Contact cannot be marked contacted' }, 409);
+          return track(jsonResponse({ detail: 'Contact cannot be marked contacted' }, 409));
         }
         contact.contacted_at = '2026-09-26T11:00:00+00:00';
         const response = jsonResponse({ contact }, 200);
-        if (options.deferContacted) return defer('contacted', response);
-        return response;
+        if (options.deferContacted) return track(defer('contacted', response));
+        return track(response);
       }
       if (method === 'POST' && action === 'replied') {
         repliedCalls.push(id);
         if (!contact.contacted_at) {
-          return jsonResponse({ detail: 'Contact cannot be marked replied' }, 409);
+          return track(jsonResponse({ detail: 'Contact cannot be marked replied' }, 409));
         }
         contact.replied_at = '2026-09-26T12:00:00+00:00';
         const response = jsonResponse({ contact }, 200);
-        if (options.deferReplied) return defer('replied', response);
-        return response;
+        if (options.deferReplied) return track(defer('replied', response));
+        return track(response);
       }
     }
 
@@ -190,6 +217,9 @@ function mockOutreachApi(
     deleteCalls,
     get addCalls() {
       return addCalls;
+    },
+    get maxInFlight() {
+      return maxInFlight;
     },
     resolvePatch: (index = 0) => resolveDeferred('patch', index),
     resolve: (kind, index = 0) => resolveDeferred(kind, index),
@@ -206,6 +236,12 @@ function uncontactedList(): HTMLElement {
 
 function contactedList(): HTMLElement {
   return screen.getByRole('list', { name: 'Contacted' });
+}
+
+function rowOf(name: string): HTMLElement {
+  const row = screen.getByText(name).closest('li');
+  if (!row) throw new Error(`No row for ${name}`);
+  return row;
 }
 
 describe('OutreachPanel', () => {
@@ -740,5 +776,155 @@ describe('OutreachPanel', () => {
     });
     expect(api.addCalls).toBe(1);
     expect(input.value).toBe('');
+  });
+
+  it('serializes Contacted across rows: a later failure cannot resync over an earlier success', async () => {
+    const api = mockOutreachApi(
+      [
+        { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+        { id: 2, name: 'Bob', contacted_at: null, created_at: '2026-09-26T10:00:00+00:00' },
+      ],
+      { deferContacted: true, contactedConflict: (id) => id === 1 }
+    );
+    render(<OutreachPanel />);
+
+    await screen.findByText('Alice');
+    fireEvent.click(within(rowOf('Bob')).getByRole('button', { name: 'Contacted' }));
+    await waitFor(() => {
+      expect(api.contactedCalls).toEqual([2]);
+    });
+
+    fireEvent.click(within(rowOf('Alice')).getByRole('button', { name: 'Contacted' }));
+    // Flush microtasks so a concurrent implementation would reveal its second POST.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // B's POST is still pending, so A's POST must not be sent yet.
+    expect(api.contactedCalls).toEqual([2]);
+
+    api.resolve('contacted', 0);
+
+    await waitFor(() => {
+      expect(api.contactedCalls).toEqual([2, 1]);
+    });
+    await waitFor(() => {
+      expect(within(contactedList()).getByText('Bob')).toBeInTheDocument();
+      expect(within(contactedList()).getByText('Alice')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('list', { name: 'Not contacted' })).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Contact cannot be marked contacted');
+  });
+
+  it('runs exactly one request at a time and ends on the server state', async () => {
+    const user = userEvent.setup();
+    const api = mockOutreachApi(
+      [
+        { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+        { id: 2, name: 'Bob', contacted_at: null, created_at: '2026-09-26T10:00:00+00:00' },
+      ],
+      { deferPatch: true, deferContacted: true, deferDelete: true }
+    );
+    render(<OutreachPanel />);
+
+    await screen.findByText('Alice');
+    const aliceRow = rowOf('Alice');
+    const bobRow = rowOf('Bob');
+
+    await user.click(within(aliceRow).getByRole('button', { name: 'Alice' }));
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    await user.clear(editInput);
+    await user.type(editInput, 'Alicia');
+    // Blur fires before the click, so the PATCH rename is enqueued ahead of the
+    // Contacted POST; the Delete on Bob is enqueued behind both.
+    await user.click(within(aliceRow).getByRole('button', { name: 'Contacted' }));
+    await user.click(within(bobRow).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(api.patchCalls).toHaveLength(1);
+    });
+    expect(api.contactedCalls).toHaveLength(0);
+    expect(api.deleteCalls).toHaveLength(0);
+    expect(api.maxInFlight).toBe(1);
+
+    api.resolvePatch();
+    await waitFor(() => {
+      expect(api.contactedCalls).toHaveLength(1);
+    });
+    expect(api.deleteCalls).toHaveLength(0);
+    expect(api.maxInFlight).toBe(1);
+
+    api.resolve('contacted');
+    await waitFor(() => {
+      expect(api.deleteCalls).toHaveLength(1);
+    });
+    expect(api.maxInFlight).toBe(1);
+
+    api.resolve('delete');
+    await waitFor(() => {
+      expect(within(contactedList()).getByText('Alicia')).toBeInTheDocument();
+      expect(screen.queryByText('Bob')).not.toBeInTheDocument();
+    });
+    expect(api.maxInFlight).toBe(1);
+  });
+
+  it('still runs a queued action after its predecessor fails', async () => {
+    const api = mockOutreachApi(
+      [
+        { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+        { id: 2, name: 'Bob', contacted_at: null, created_at: '2026-09-26T10:00:00+00:00' },
+      ],
+      { contactedNetworkError: true, deferDelete: true }
+    );
+    render(<OutreachPanel />);
+
+    await screen.findByText('Alice');
+    fireEvent.click(within(rowOf('Alice')).getByRole('button', { name: 'Contacted' }));
+    fireEvent.click(within(rowOf('Bob')).getByRole('button', { name: 'Delete' }));
+
+    // The first request fails and surfaces its error...
+    await waitFor(() => {
+      expect(api.contactedCalls).toEqual([1]);
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network down');
+
+    // ...and the queued DELETE still runs instead of breaking the chain.
+    await waitFor(() => {
+      expect(api.deleteCalls).toEqual([2]);
+    });
+    api.resolve('delete');
+    await waitFor(() => {
+      expect(screen.queryByText('Bob')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+  });
+
+  it('shows a Saving indicator only while a request is queued or in flight', async () => {
+    const api = mockOutreachApi(
+      [
+        { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+      ],
+      { deferContacted: true }
+    );
+    render(<OutreachPanel />);
+
+    await screen.findByText('Alice');
+    await waitFor(() => {
+      expect(screen.queryByText('Saving…')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contacted' }));
+    await waitFor(() => {
+      expect(api.contactedCalls).toHaveLength(1);
+    });
+    expect(screen.getByText('Saving…')).toBeInTheDocument();
+
+    api.resolve('contacted');
+    await waitFor(() => {
+      expect(within(contactedList()).getByText('Alice')).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('Saving…')).not.toBeInTheDocument();
+    });
   });
 });
