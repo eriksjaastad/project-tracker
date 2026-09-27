@@ -35,6 +35,32 @@ function errorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+export const OUTREACH_REQUEST_TIMEOUT_MS = 20000;
+const OUTREACH_TIMEOUT_MESSAGE = 'Request timed out — reloading contacts';
+
+// Every contacts request goes through this helper so a fetch that never settles
+// (server hang, stalled connection, laptop sleep mid-request) cannot block the
+// panel-wide queue forever. The controller aborts after the timeout, the timer
+// is always cleared, and an abort caused by the timeout surfaces as the
+// ordinary timeout error the call sites already know how to display.
+function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OUTREACH_REQUEST_TIMEOUT_MS);
+  try {
+    return fetch(input, { ...init, signal: controller.signal })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          throw new Error(OUTREACH_TIMEOUT_MESSAGE);
+        }
+        throw error;
+      })
+      .finally(() => clearTimeout(timer));
+  } catch (error) {
+    clearTimeout(timer);
+    throw error;
+  }
+}
+
 export function OutreachPanel() {
   const [contacts, setContacts] = useState<OutreachContact[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -121,7 +147,7 @@ export function OutreachPanel() {
   useEffect(() => {
     void enqueue(async () => {
       try {
-        const response = await fetch('/api/outreach/contacts');
+        const response = await fetchWithTimeout('/api/outreach/contacts');
         if (!response.ok) {
           const payload = await response.json().catch(() => null);
           throw new Error(errorMessage(payload, `Failed to load contacts (HTTP ${response.status})`));
@@ -147,7 +173,7 @@ export function OutreachPanel() {
     (message: string): void => {
       void enqueue(async () => {
         try {
-          const response = await fetch('/api/outreach/contacts');
+          const response = await fetchWithTimeout('/api/outreach/contacts');
           if (!response.ok) {
             const payload = await response.json().catch(() => null);
             throw new Error(
@@ -175,7 +201,7 @@ export function OutreachPanel() {
     setAddInFlight(true);
     void enqueue(async () => {
       try {
-        const response = await fetch('/api/outreach/contacts', {
+        const response = await fetchWithTimeout('/api/outreach/contacts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: trimmed }),
@@ -230,7 +256,7 @@ export function OutreachPanel() {
     setRowRenaming(id, true);
     void enqueue(async () => {
       try {
-        const response = await fetch(`/api/outreach/contacts/${id}`, {
+        const response = await fetchWithTimeout(`/api/outreach/contacts/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: nextName }),
@@ -260,7 +286,7 @@ export function OutreachPanel() {
     setRowBusy(id, true);
     void enqueue(async () => {
       try {
-        const response = await fetch(`/api/outreach/contacts/${id}/contacted`, {
+        const response = await fetchWithTimeout(`/api/outreach/contacts/${id}/contacted`, {
           method: 'POST',
         });
         if (!response.ok) {
@@ -288,7 +314,7 @@ export function OutreachPanel() {
     setRowBusy(id, true);
     void enqueue(async () => {
       try {
-        const response = await fetch(`/api/outreach/contacts/${id}/replied`, {
+        const response = await fetchWithTimeout(`/api/outreach/contacts/${id}/replied`, {
           method: 'POST',
         });
         if (!response.ok) {
@@ -313,7 +339,7 @@ export function OutreachPanel() {
     setRowBusy(id, true);
     void enqueue(async () => {
       try {
-        const response = await fetch(`/api/outreach/contacts/${id}`, {
+        const response = await fetchWithTimeout(`/api/outreach/contacts/${id}`, {
           method: 'DELETE',
         });
         if (!response.ok) {

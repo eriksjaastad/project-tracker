@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { OutreachPanel } from './OutreachPanel';
+import { OUTREACH_REQUEST_TIMEOUT_MS, OutreachPanel } from './OutreachPanel';
 
 globalThis.fetch = vi.fn() as typeof fetch;
 
@@ -38,6 +38,10 @@ interface MockOutreachApiOptions {
   contactedConflict?: boolean | ((id: number) => boolean);
   /** Simulates a network failure: POST /contacted rejects instead of returning a response. */
   contactedNetworkError?: boolean | ((id: number) => boolean);
+  /** Simulates a server hang: POST /contacted never settles on its own and rejects with an AbortError when the request is aborted. */
+  hangContacted?: boolean | ((id: number) => boolean);
+  /** Simulates a server hang: every GET never settles on its own and rejects with an AbortError when the request is aborted. */
+  hangGet?: boolean;
 }
 
 interface MockOutreachApi {
@@ -81,6 +85,20 @@ function mockOutreachApi(
     });
   }
 
+  // A request that never settles on its own (server hang, stalled connection).
+  // It honours the caller's AbortSignal by rejecting with an AbortError when
+  // aborted, exactly like a real fetch whose signal fired.
+  function hang(signal: AbortSignal | null | undefined): Promise<Response> {
+    return new Promise<Response>((_resolve, reject) => {
+      const abortError = () => reject(new DOMException('The operation was aborted', 'AbortError'));
+      if (signal?.aborted) {
+        abortError();
+        return;
+      }
+      signal?.addEventListener('abort', abortError, { once: true });
+    });
+  }
+
   function resolveDeferred(kind: DeferredKind, index: number): void {
     const entry = deferred.filter((item) => item.kind === kind)[index];
     if (!entry) {
@@ -97,6 +115,7 @@ function mockOutreachApi(
 
     if (url === '/api/outreach/contacts') {
       if (method === 'GET') {
+        if (options.hangGet) return track(hang(init?.signal));
         const active = contacts.filter((contact) => !contact.deleted_at && !contact.replied_at);
         const uncontacted = active
           .filter((contact) => !contact.contacted_at)
@@ -172,6 +191,11 @@ function mockOutreachApi(
       }
       if (method === 'POST' && action === 'contacted') {
         contactedCalls.push(id);
+        const hangRequest =
+          typeof options.hangContacted === 'function'
+            ? options.hangContacted(id)
+            : options.hangContacted;
+        if (hangRequest) return track(hang(init?.signal));
         const networkError =
           typeof options.contactedNetworkError === 'function'
             ? options.contactedNetworkError(id)
@@ -244,10 +268,35 @@ function rowOf(name: string): HTMLElement {
   return row;
 }
 
+function fetchUrl(input: RequestInfo | URL): string {
+  return typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+}
+
+function getCallCount(): number {
+  return vi.mocked(fetch).mock.calls.filter(([input, init]) => {
+    return (
+      fetchUrl(input) === '/api/outreach/contacts' &&
+      (init?.method ?? 'GET').toUpperCase() === 'GET'
+    );
+  }).length;
+}
+
+async function flushAsync(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 describe('OutreachPanel', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('adds a contact via the Add button above the input', async () => {
@@ -926,5 +975,77 @@ describe('OutreachPanel', () => {
     await waitFor(() => {
       expect(screen.queryByText('Saving…')).not.toBeInTheDocument();
     });
+  });
+
+  it('times out a hung mutation, resyncs, and lets the queue continue', async () => {
+    vi.useFakeTimers();
+    const api = mockOutreachApi(
+      [
+        { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+        { id: 2, name: 'Bob', contacted_at: null, created_at: '2026-09-26T10:00:00+00:00' },
+      ],
+      { hangContacted: true, deferDelete: true }
+    );
+
+    await act(async () => {
+      render(<OutreachPanel />);
+    });
+    await flushAsync();
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getByText('Bob')).toBeInTheDocument();
+
+    fireEvent.click(within(rowOf('Alice')).getByRole('button', { name: 'Contacted' }));
+    fireEvent.click(within(rowOf('Bob')).getByRole('button', { name: 'Delete' }));
+    await flushAsync();
+
+    // Row 1's POST is hung and row 2's DELETE is queued behind it.
+    expect(api.contactedCalls).toEqual([1]);
+    expect(api.deleteCalls).toEqual([]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(OUTREACH_REQUEST_TIMEOUT_MS);
+    });
+
+    // The hung POST timed out and surfaced the timeout error.
+    expect(screen.getByRole('alert')).toHaveTextContent('Request timed out — reloading contacts');
+
+    // The queued DELETE was dispatched, so the queue was not blocked.
+    expect(api.deleteCalls).toEqual([2]);
+    expect(screen.getByText('Saving…')).toBeInTheDocument();
+
+    api.resolve('delete');
+    await flushAsync();
+
+    // The resync enqueued by the failed mutation ran, restoring server truth.
+    expect(getCallCount()).toBe(2);
+    expect(screen.queryByText('Bob')).not.toBeInTheDocument();
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.queryByText('Saving…')).not.toBeInTheDocument();
+  });
+
+  it('shows an error and keeps the Add form usable when the initial load times out', async () => {
+    vi.useFakeTimers();
+    mockOutreachApi([], { hangGet: true });
+
+    await act(async () => {
+      render(<OutreachPanel />);
+    });
+    expect(screen.getByText('Loading contacts...')).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(OUTREACH_REQUEST_TIMEOUT_MS);
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Request timed out — reloading contacts');
+    const input = screen.getByLabelText('Name or email') as HTMLInputElement;
+    expect(input).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add' })).not.toBeDisabled();
+
+    // A later successful action still works and fills the list.
+    fireEvent.change(input, { target: { value: 'Alice' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await flushAsync();
+    expect(within(uncontactedList()).getByText('Alice')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
