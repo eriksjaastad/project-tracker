@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageShell } from './PageShell';
 import { Spinner } from './Spinner';
+import { OutreachPanel } from './OutreachPanel';
 import './MorningPage.css';
 
 interface Segment {
@@ -144,6 +145,8 @@ export function MorningPage() {
       subtitle={data ? formatDate(data.date) : 'Warm-up checklist'}
       contentWidth="narrow"
     >
+      <OutreachPanel />
+
       {loading ? (
         <div className="morning-loading">
           <Spinner size="large" />

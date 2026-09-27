@@ -1095,6 +1095,25 @@ def ensure_schema(cursor: Any) -> None:
         ON task_notes_history(task_id, timestamp)
     """)
 
+    # Private outreach list for the Morning page. Also defined in migration 015
+    # for databases already at schema version 9; keep both definitions in sync.
+    # Rows are never hard-deleted — application delete is a soft delete.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS outreach_contacts (
+            id           INTEGER PRIMARY KEY NOT NULL,
+            name         TEXT NOT NULL,
+            created_at   TEXT NOT NULL,
+            contacted_at TEXT,
+            replied_at   TEXT,
+            deleted_at   TEXT,
+            updated_at   TEXT NOT NULL
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_outreach_contacts_deleted_replied
+        ON outreach_contacts(deleted_at, replied_at)
+    """)
+
     # Update schema version
     cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (?, ?)", (CURRENT_SCHEMA_VERSION, datetime.now().isoformat()))
 

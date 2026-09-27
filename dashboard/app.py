@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.attachment_paths import attachments_dir
 from db.manager import DatabaseManager
+from db.outreach import ContactStateConflictError
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
@@ -3901,6 +3902,102 @@ Review the posting at the URL above and create tailored materials following thes
         "job_id": job_id,
         "message": "Agent prompt queued successfully"
     }
+
+
+# --- Outreach contacts API Endpoints (#7641) ---
+
+class OutreachContactRequest(BaseModel):
+    name: str
+
+
+@app.get("/api/outreach/contacts")
+async def list_outreach_contacts():
+    try:
+        contacts = DatabaseManager().list_active_contacts()
+    except Exception:
+        logger.exception("Failed to list outreach contacts")
+        raise HTTPException(status_code=500, detail="Failed to list contacts")
+    return {
+        "contacts": [
+            {
+                "id": contact["id"],
+                "name": contact["name"],
+                "contacted_at": contact["contacted_at"],
+                "created_at": contact["created_at"],
+            }
+            for contact in contacts
+        ]
+    }
+
+
+@app.post("/api/outreach/contacts", status_code=201)
+async def add_outreach_contact(payload: OutreachContactRequest):
+    try:
+        contact = DatabaseManager().add_contact(payload.name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Name is required")
+    except Exception:
+        logger.exception("Failed to add outreach contact")
+        raise HTTPException(status_code=500, detail="Failed to add contact")
+    return {"contact": contact}
+
+
+@app.patch("/api/outreach/contacts/{contact_id}")
+async def rename_outreach_contact(contact_id: int, payload: OutreachContactRequest):
+    try:
+        contact = DatabaseManager().rename_contact(contact_id, payload.name)
+    except ContactStateConflictError:
+        raise HTTPException(
+            status_code=409, detail="Contact cannot be renamed after being contacted or replied"
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Name is required")
+    except Exception:
+        logger.exception("Failed to rename outreach contact %s", contact_id)
+        raise HTTPException(status_code=500, detail="Failed to rename contact")
+    if contact is None:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return {"contact": contact}
+
+
+@app.post("/api/outreach/contacts/{contact_id}/contacted")
+async def mark_outreach_contacted(contact_id: int):
+    try:
+        contact = DatabaseManager().mark_contacted(contact_id)
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Contact cannot be marked contacted")
+    except Exception:
+        logger.exception("Failed to mark outreach contact %s as contacted", contact_id)
+        raise HTTPException(status_code=500, detail="Failed to mark contacted")
+    if contact is None:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return {"contact": contact}
+
+
+@app.post("/api/outreach/contacts/{contact_id}/replied")
+async def mark_outreach_replied(contact_id: int):
+    try:
+        contact = DatabaseManager().mark_replied(contact_id)
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Contact cannot be marked replied")
+    except Exception:
+        logger.exception("Failed to mark outreach contact %s as replied", contact_id)
+        raise HTTPException(status_code=500, detail="Failed to mark replied")
+    if contact is None:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return {"contact": contact}
+
+
+@app.delete("/api/outreach/contacts/{contact_id}")
+async def soft_delete_outreach_contact(contact_id: int):
+    try:
+        contact = DatabaseManager().soft_delete_contact(contact_id)
+    except Exception:
+        logger.exception("Failed to delete outreach contact %s", contact_id)
+        raise HTTPException(status_code=500, detail="Failed to delete contact")
+    if contact is None:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return {"contact": contact}
 
 
 # --- Morning warm-up API Endpoint (#7616) ---
