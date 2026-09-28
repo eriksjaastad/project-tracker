@@ -79,8 +79,14 @@
   padding: var(--space-sm) var(--space-md);
 }
 
-.outreach-name {
+.outreach-name-cell {
+  position: relative;
   flex: 1;
+  min-width: 0;
+}
+
+.outreach-name {
+  width: 100%;
   text-align: left;
   background: none;
   padding: 0;
@@ -91,6 +97,38 @@
 .outreach-name:hover {
   background: none;
   text-decoration: underline;
+}
+
+/* Per-field save-status indicator (#7717): small text pinned to the top-right
+   corner of the name cell, above the name itself. */
+.outreach-status {
+  position: absolute;
+  top: -0.85rem;
+  right: 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.outreach-status-retry {
+  pointer-events: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--danger);
+  font-size: 0.7rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Fades "Saved" out before it's cleared. Only under no-preference: reduced
+   motion gets no animation — the text just clears. */
+@media (prefers-reduced-motion: no-preference) {
+  .outreach-status--fade {
+    opacity: 0;
+    transition: opacity 300ms ease-out;
+  }
 }
 
 .outreach-action {

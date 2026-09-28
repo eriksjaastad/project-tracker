@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import './OutreachPanel.css';
 
@@ -7,6 +7,31 @@ interface OutreachContact {
   name: string;
   contacted_at: string | null;
   created_at: string;
+}
+
+// Per-field (per-contact-name) save status, independent of the panel-wide
+// request queue. `value` is the field's unsaved/displayed value while a save
+// is pending or has failed — the source of truth for rendering takes this
+// over the server's `contact.name` whenever an entry exists here, so a failed
+// or in-flight rename is never silently overwritten by a resync or by another
+// row's action. `seq` guards against a stale response or a stale fade timer
+// (from an earlier save of the same field) clobbering a later one.
+interface FieldSaveState {
+  value: string;
+  status: 'saving' | 'saved' | 'error';
+  seq: number;
+  fading?: boolean;
+}
+
+const SAVED_DISPLAY_MS = 3000;
+const FADE_MS = 300;
+
+function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
 }
 
 const MINIMIZED_STORAGE_KEY = 'outreach-panel:minimized';
@@ -95,6 +120,26 @@ export function OutreachPanel() {
   const [addInFlight, setAddInFlight] = useState(false);
   const addInFlightRef = useRef(false);
 
+  // Per-contact-id save status for the name field (see FieldSaveState above).
+  const [fieldStates, setFieldStates] = useState<Map<number, FieldSaveState>>(() => new Map());
+  const fieldStatesRef = useRef<Map<number, FieldSaveState>>(new Map());
+  // The latest sequence number issued per contact id, so a stale response or a
+  // stale fade timer from an earlier save of the same field can recognize
+  // itself as stale and no-op instead of clobbering a later save.
+  const latestSeqRef = useRef<Map<number, number>>(new Map());
+  const seqCounterRef = useRef(0);
+  // "Saved" fade/clear timers per contact id, so a new save can cancel the
+  // previous save's pending timers outright (belt-and-suspenders alongside
+  // the seq check above).
+  const fieldTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>[]>>(new Map());
+
+  useEffect(
+    () => () => {
+      fieldTimersRef.current.forEach((timers) => timers.forEach((timer) => clearTimeout(timer)));
+    },
+    []
+  );
+
   const enqueue = useCallback((task: () => Promise<void>): Promise<void> => {
     setQueueDepth((depth) => depth + 1);
     const run = async (): Promise<void> => {
@@ -132,6 +177,65 @@ export function OutreachPanel() {
     }
     renamingRowsRef.current = next;
     setRenamingRows(next);
+  }
+
+  function setFieldState(id: number, state: FieldSaveState | null): void {
+    const next = new Map(fieldStatesRef.current);
+    if (state === null) {
+      next.delete(id);
+    } else {
+      next.set(id, state);
+    }
+    fieldStatesRef.current = next;
+    setFieldStates(next);
+  }
+
+  function clearFieldTimers(id: number): void {
+    const timers = fieldTimersRef.current.get(id);
+    if (timers) {
+      timers.forEach((timer) => clearTimeout(timer));
+      fieldTimersRef.current.delete(id);
+    }
+  }
+
+  // Drops a field's unsaved value entirely, reverting display to the server's
+  // name. Used only when the row itself no longer exists (404) or can no
+  // longer be renamed (409, contacted/replied elsewhere) — never for a
+  // transient failure, which must keep the typed value and offer retry.
+  function dropField(id: number): void {
+    clearFieldTimers(id);
+    setFieldState(id, null);
+  }
+
+  // Schedules the "Saved" indicator's fade-out and clear. Both timers check
+  // the seq against latestSeqRef before acting, so if a newer save of the
+  // same field started in the meantime, this stale timer no-ops instead of
+  // clobbering the newer save's state.
+  function scheduleFade(id: number, seq: number): void {
+    clearFieldTimers(id);
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const clear = () => {
+      if (latestSeqRef.current.get(id) === seq) {
+        setFieldState(id, null);
+      }
+    };
+    if (prefersReducedMotion()) {
+      timers.push(setTimeout(clear, SAVED_DISPLAY_MS));
+    } else {
+      timers.push(
+        setTimeout(() => {
+          if (latestSeqRef.current.get(id) !== seq) return;
+          const current = fieldStatesRef.current.get(id);
+          if (current) setFieldState(id, { ...current, fading: true });
+        }, SAVED_DISPLAY_MS - FADE_MS)
+      );
+      timers.push(setTimeout(clear, SAVED_DISPLAY_MS));
+    }
+    fieldTimersRef.current.set(id, timers);
+  }
+
+  function displayName(contact: OutreachContact): string {
+    return fieldStates.get(contact.id)?.value ?? contact.name;
   }
 
   // Stable callback ref: React only invokes it when the edit input mounts or
@@ -230,7 +334,7 @@ export function OutreachPanel() {
     if (busyRowsRef.current.has(contact.id) || renamingRowsRef.current.has(contact.id)) return;
     editingIdRef.current = contact.id;
     setEditingId(contact.id);
-    setEditingValue(contact.name);
+    setEditingValue(displayName(contact));
     setError(null);
   }
 
@@ -249,10 +353,22 @@ export function OutreachPanel() {
     }
     editingIdRef.current = null;
     setEditingId(null);
-    renameContact(id, nextName);
+    startRename(id, nextName);
   }
 
-  function renameContact(id: number, nextName: string): void {
+  // Kicks off a rename: shows "Saving…" for this field immediately (the field
+  // is considered saving from the moment it's queued, not just once in
+  // flight), then enqueues the PATCH on the panel-wide queue like every other
+  // action. `seq` is this attempt's sequence number for this contact id —
+  // handleRenameSuccess/Failure and scheduleFade's timers all check it against
+  // latestSeqRef before acting, so an outcome or timer from an earlier attempt
+  // can never clobber a later one for the same field.
+  function startRename(id: number, nextName: string): void {
+    const seq = seqCounterRef.current + 1;
+    seqCounterRef.current = seq;
+    latestSeqRef.current.set(id, seq);
+    clearFieldTimers(id);
+    setFieldState(id, { value: nextName, status: 'saving', seq });
     setRowRenaming(id, true);
     void enqueue(async () => {
       try {
@@ -263,22 +379,56 @@ export function OutreachPanel() {
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => null);
-          throw new Error(errorMessage(payload, `Failed to rename contact (HTTP ${response.status})`));
+          const message = errorMessage(payload, `Failed to rename contact (HTTP ${response.status})`);
+          handleRenameFailure(id, seq, nextName, message, response.status);
+          return;
         }
         const data = await response.json();
-        setContacts((prev) =>
-          (prev ?? []).map((contact) => (contact.id === id ? data.contact : contact))
-        );
-        setError(null);
+        handleRenameSuccess(id, seq, data.contact);
       } catch (err) {
         console.error('Failed to rename outreach contact:', err);
         const message = err instanceof Error ? err.message : 'Failed to rename contact';
-        setError(message);
-        resyncAfterError(message);
+        handleRenameFailure(id, seq, nextName, message, null);
       } finally {
         setRowRenaming(id, false);
       }
     });
+  }
+
+  function handleRenameSuccess(id: number, seq: number, contact: OutreachContact): void {
+    if (latestSeqRef.current.get(id) !== seq) return; // a later save has already superseded this response
+    setContacts((prev) => (prev ?? []).map((c) => (c.id === id ? contact : c)));
+    setError(null);
+    setFieldState(id, { value: contact.name, status: 'saved', seq });
+    scheduleFade(id, seq);
+  }
+
+  // 404 (row deleted) and 409 (row contacted/replied meanwhile, can no longer
+  // be renamed) are the only cases where the unsaved value is dropped — the
+  // row itself is gone or truthfully can't take this edit, so there's nothing
+  // to retry. Every other failure (500, network error, timeout) keeps the
+  // typed value and offers retry via the field's error state.
+  function handleRenameFailure(
+    id: number,
+    seq: number,
+    attemptedName: string,
+    message: string,
+    status: number | null
+  ): void {
+    if (latestSeqRef.current.get(id) !== seq) return; // a later save has already superseded this response
+    if (status === 404 || status === 409) {
+      dropField(id);
+    } else {
+      setFieldState(id, { value: attemptedName, status: 'error', seq });
+    }
+    setError(message);
+    resyncAfterError(message);
+  }
+
+  function retryRename(id: number): void {
+    const current = fieldStatesRef.current.get(id);
+    if (!current || current.status !== 'error') return;
+    startRename(id, current.value);
   }
 
   function handleContacted(id: number): void {
@@ -322,6 +472,7 @@ export function OutreachPanel() {
           throw new Error(errorMessage(payload, `Failed to mark reply (HTTP ${response.status})`));
         }
         setContacts((prev) => (prev ?? []).filter((contact) => contact.id !== id));
+        dropField(id);
         setError(null);
       } catch (err) {
         console.error('Failed to mark outreach contact as replied:', err);
@@ -347,6 +498,7 @@ export function OutreachPanel() {
           throw new Error(errorMessage(payload, `Failed to delete contact (HTTP ${response.status})`));
         }
         setContacts((prev) => (prev ?? []).filter((contact) => contact.id !== id));
+        dropField(id);
         setError(null);
       } catch (err) {
         console.error('Failed to delete outreach contact:', err);
@@ -368,6 +520,44 @@ export function OutreachPanel() {
   const uncontacted = (contacts ?? []).filter((contact) => contact.contacted_at === null);
   const contacted = (contacts ?? []).filter((contact) => contact.contacted_at !== null);
   const queueBusy = queueDepth > 0;
+
+  // True while any field has a save queued/in-flight or failed-and-unretried.
+  // "saved" (already landed on the server) does not count, even while its
+  // transient indicator is still visible.
+  const hasUnsavedWork = useMemo(
+    () => Array.from(fieldStates.values()).some((state) => state.status === 'saving' || state.status === 'error'),
+    [fieldStates]
+  );
+
+  useEffect(() => {
+    if (!hasUnsavedWork) return;
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [hasUnsavedWork]);
+
+  function renderFieldStatus(id: number) {
+    const state = fieldStates.get(id);
+    if (!state) return null;
+    return (
+      <span
+        className={`outreach-status${state.fading ? ' outreach-status--fade' : ''}`}
+        role="status"
+        aria-live="polite"
+      >
+        {state.status === 'saving' && 'Saving…'}
+        {state.status === 'saved' && 'Saved'}
+        {state.status === 'error' && (
+          <button type="button" className="outreach-status-retry" onClick={() => retryRename(id)}>
+            {"Couldn't save — retry"}
+          </button>
+        )}
+      </span>
+    );
+  }
 
   return (
     <section className="outreach-panel" aria-label="People to contact">
@@ -402,36 +592,41 @@ export function OutreachPanel() {
                 <ul className="outreach-list" aria-label="Not contacted">
                   {uncontacted.map((contact) => (
                     <li key={contact.id} className="outreach-row">
-                      {editingId === contact.id ? (
-                        <input
-                          type="text"
-                          className="outreach-edit-input"
-                          value={editingValue}
-                          onChange={(event) => setEditingValue(event.target.value)}
-                          onBlur={commitEdit}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault();
-                              commitEdit();
-                            } else if (event.key === 'Escape') {
-                              cancelEdit();
-                            }
-                          }}
-                          ref={focusEditInput}
-                          aria-label={`Edit name for ${contact.name}`}
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          className="outreach-name"
-                          onClick={() => startEdit(contact)}
-                          disabled={
-                            busyRows.has(contact.id) || renamingRows.has(contact.id)
-                          }
-                        >
-                          {contact.name}
-                        </button>
-                      )}
+                      <div className="outreach-name-cell">
+                        {editingId === contact.id ? (
+                          <input
+                            type="text"
+                            className="outreach-edit-input"
+                            value={editingValue}
+                            onChange={(event) => setEditingValue(event.target.value)}
+                            onBlur={commitEdit}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                commitEdit();
+                              } else if (event.key === 'Escape') {
+                                cancelEdit();
+                              }
+                            }}
+                            ref={focusEditInput}
+                            aria-label={`Edit name for ${displayName(contact)}`}
+                          />
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="outreach-name"
+                              onClick={() => startEdit(contact)}
+                              disabled={
+                                busyRows.has(contact.id) || renamingRows.has(contact.id)
+                              }
+                            >
+                              {displayName(contact)}
+                            </button>
+                            {renderFieldStatus(contact.id)}
+                          </>
+                        )}
+                      </div>
                       <button
                         type="button"
                         className="outreach-action"
@@ -471,7 +666,10 @@ export function OutreachPanel() {
                 <ul className="outreach-list" aria-label="Contacted">
                   {contacted.map((contact) => (
                     <li key={contact.id} className="outreach-row outreach-row--contacted">
-                      <span className="outreach-name">{contact.name}</span>
+                      <div className="outreach-name-cell">
+                        <span className="outreach-name">{displayName(contact)}</span>
+                        {renderFieldStatus(contact.id)}
+                      </div>
                       <button
                         type="button"
                         className="outreach-action"

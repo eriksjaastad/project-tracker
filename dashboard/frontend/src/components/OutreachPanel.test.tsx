@@ -42,6 +42,12 @@ interface MockOutreachApiOptions {
   hangContacted?: boolean | ((id: number) => boolean);
   /** Simulates a server hang: every GET never settles on its own and rejects with an AbortError when the request is aborted. */
   hangGet?: boolean;
+  /** Simulates a server-side failure (HTTP 500) on a PATCH rename. Indexed by call order across all PATCH attempts (successful or not). */
+  patchFailure?: boolean | ((callIndex: number) => boolean);
+  /** Simulates a network failure: PATCH rejects instead of returning a response. Indexed like patchFailure. */
+  patchNetworkError?: boolean | ((callIndex: number) => boolean);
+  /** Simulates a server hang on PATCH: never settles on its own, rejects with an AbortError when aborted. Indexed like patchFailure. */
+  hangPatch?: boolean | ((callIndex: number) => boolean);
 }
 
 interface MockOutreachApi {
@@ -170,8 +176,28 @@ function mockOutreachApi(
         if (contact.contacted_at || contact.replied_at) {
           return track(jsonResponse({ detail: 'Invalid name or contact state' }, 409));
         }
-        contact.name = name;
+        const callIndex = patchCalls.length;
         patchCalls.push({ id, name });
+
+        const hangThis =
+          typeof options.hangPatch === 'function' ? options.hangPatch(callIndex) : options.hangPatch;
+        if (hangThis) return track(hang(init?.signal));
+
+        const networkErrorThis =
+          typeof options.patchNetworkError === 'function'
+            ? options.patchNetworkError(callIndex)
+            : options.patchNetworkError;
+        if (networkErrorThis) return track(Promise.reject(new Error('Network down')));
+
+        const failThis =
+          typeof options.patchFailure === 'function' ? options.patchFailure(callIndex) : options.patchFailure;
+        if (failThis) {
+          const response = jsonResponse({ detail: 'Failed to rename contact' }, 500);
+          if (options.deferPatch) return track(defer('patch', response));
+          return track(response);
+        }
+
+        contact.name = name;
         if (options.deferPatch) {
           // Snapshot the row exactly as the rename response would look when the
           // server processed it: the new name, still uncontacted. The caller
@@ -1047,5 +1073,344 @@ describe('OutreachPanel', () => {
     await flushAsync();
     expect(within(uncontactedList()).getByText('Alice')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  // --- Per-field save-status indicator (#7717) ---
+  // NOTE: the panel header already renders a queue-wide "Saving…" indicator
+  // (outreach-saving) whenever any request is queued/in-flight, so every
+  // assertion below scopes its query to the row (`within(row)`) to avoid
+  // colliding with that unrelated, pre-existing indicator.
+
+  function rowFor(buttonName: string): HTMLElement {
+    const button = screen.getByRole('button', { name: buttonName }).closest('li');
+    if (!button) throw new Error(`No row for button "${buttonName}"`);
+    return button as HTMLElement;
+  }
+
+  it('shows "Saving…" only from commit until the response, then "Saved", then clears after the fade delay', async () => {
+    vi.useFakeTimers();
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      { deferPatch: true }
+    );
+
+    await act(async () => {
+      render(<OutreachPanel />);
+    });
+    await flushAsync();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alice' }));
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    fireEvent.change(editInput, { target: { value: 'Alicia' } });
+    fireEvent.blur(editInput);
+    await flushAsync();
+
+    const row = rowFor('Alicia');
+    // "Saved" must never appear before the response lands.
+    expect(within(row).getByText('Saving…')).toBeInTheDocument();
+    expect(within(row).queryByText('Saved')).not.toBeInTheDocument();
+
+    api.resolvePatch();
+    await flushAsync();
+
+    expect(within(row).getByText('Saved')).toBeInTheDocument();
+    expect(within(row).queryByText('Saving…')).not.toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect(within(row).queryByText('Saved')).not.toBeInTheDocument();
+    expect(within(row).queryByText('Saving…')).not.toBeInTheDocument();
+  });
+
+  it('shows a retry control on 500 failure, keeps the typed value, and recovers when retried', async () => {
+    vi.useFakeTimers();
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      { patchFailure: (callIndex) => callIndex === 0 }
+    );
+
+    await act(async () => {
+      render(<OutreachPanel />);
+    });
+    await flushAsync();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alice' }));
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    fireEvent.change(editInput, { target: { value: 'Alicia' } });
+    fireEvent.blur(editInput);
+    await flushAsync();
+
+    const row = rowFor('Alicia');
+    expect(within(row).getByRole('button', { name: "Couldn't save — retry" })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Alicia' })).toBeInTheDocument(); // typed value survived, not reverted
+
+    // The error persists well past the 3s "Saved" window — it never auto-clears.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(within(row).getByRole('button', { name: "Couldn't save — retry" })).toBeInTheDocument();
+
+    fireEvent.click(within(row).getByRole('button', { name: "Couldn't save — retry" }));
+    await flushAsync();
+
+    expect(api.patchCalls).toHaveLength(2);
+    expect(api.patchCalls[1]).toEqual({ id: 1, name: 'Alicia' });
+    // Note: under fake timers, `waitFor`'s internal polling relies on real
+    // timers and would hang forever here, so we assert directly once the
+    // microtask queue (flushAsync) has settled instead.
+    expect(within(row).getByText('Saved')).toBeInTheDocument();
+  });
+
+  it('shows a retry control on a network error and on a timeout', async () => {
+    vi.useFakeTimers();
+    mockOutreachApi(
+      [
+        { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+        { id: 2, name: 'Bob', contacted_at: null, created_at: '2026-09-26T10:00:00+00:00' },
+      ],
+      { patchNetworkError: (callIndex) => callIndex === 0, hangPatch: (callIndex) => callIndex === 1 }
+    );
+
+    await act(async () => {
+      render(<OutreachPanel />);
+    });
+    await flushAsync();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alice' }));
+    fireEvent.change(screen.getByLabelText('Edit name for Alice'), { target: { value: 'Alicia' } });
+    fireEvent.blur(screen.getByLabelText('Edit name for Alice'));
+    await flushAsync();
+    expect(within(rowFor('Alicia')).getByRole('button', { name: "Couldn't save — retry" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bob' }));
+    fireEvent.change(screen.getByLabelText('Edit name for Bob'), { target: { value: 'Bobby' } });
+    fireEvent.blur(screen.getByLabelText('Edit name for Bob'));
+    await flushAsync();
+    expect(within(rowFor('Bobby')).getByText('Saving…')).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(OUTREACH_REQUEST_TIMEOUT_MS);
+    });
+    expect(within(rowFor('Bobby')).getByRole('button', { name: "Couldn't save — retry" })).toBeInTheDocument();
+  });
+
+  it('does not let a stale fade timer from an earlier save clobber a later save of the same field', async () => {
+    // The panel-wide queue is strictly serial, so two PATCH responses for the
+    // same field can never literally arrive out of order over the network —
+    // the second request cannot even be sent until the first settles. The
+    // real same-field ordering hazard is the 3s "Saved" fade/clear timer,
+    // which runs on the wall clock independent of the queue: if a second save
+    // of the same field starts before that timer fires, the stale timer must
+    // not stomp the newer save's state. This test constructs exactly that:
+    // save #1 succeeds and schedules its fade timers, save #2 starts (kept
+    // pending) before they elapse, then we advance past when save #1's timers
+    // would have fired and assert save #2's state was not clobbered.
+    vi.useFakeTimers();
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      { deferPatch: true }
+    );
+
+    await act(async () => {
+      render(<OutreachPanel />);
+    });
+    await flushAsync();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alice' }));
+    fireEvent.change(screen.getByLabelText('Edit name for Alice'), { target: { value: 'Alicia' } });
+    fireEvent.blur(screen.getByLabelText('Edit name for Alice'));
+    await flushAsync();
+    api.resolvePatch(0);
+    await flushAsync();
+
+    let row = rowFor('Alicia');
+    expect(within(row).getByText('Saved')).toBeInTheDocument();
+
+    // 1s into the 3s "Saved" window, start a second save of the same field.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    fireEvent.click(within(row).getByRole('button', { name: 'Alicia' }));
+    fireEvent.change(within(row).getByLabelText('Edit name for Alicia'), { target: { value: 'Alicia Two' } });
+    fireEvent.blur(within(row).getByLabelText('Edit name for Alicia'));
+    await flushAsync();
+
+    row = rowFor('Alicia Two');
+    expect(within(row).getByText('Saving…')).toBeInTheDocument();
+
+    // Advance past when save #1's fade/clear timers would have fired
+    // (originally due at +3000ms from save #1, i.e. +2000ms from here).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+
+    // Save #2's PATCH is still deferred/pending — the stale timer from save #1
+    // must not have cleared or reverted it.
+    expect(within(row).getByText('Saving…')).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Alicia Two' })).toBeInTheDocument();
+
+    api.resolvePatch(1);
+    await flushAsync();
+    expect(within(row).getByText('Saved')).toBeInTheDocument();
+  });
+
+  it('click-away Contacted after a failed rename: Contacted still waits for the rename, and the contacted-list row shows the truthful retry state', async () => {
+    const user = userEvent.setup();
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      { patchFailure: true, deferPatch: true }
+    );
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    await user.click(screen.getByRole('button', { name: 'Alice' }));
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    await user.clear(editInput);
+    await user.type(editInput, 'Alicia');
+    // user-event's click blurs the input first, so the PATCH is enqueued ahead
+    // of the POST /contacted.
+    await user.click(screen.getByRole('button', { name: 'Contacted' }));
+
+    await waitFor(() => {
+      expect(api.patchCalls).toHaveLength(1);
+    });
+    // Contacted must wait for the (failing, deliberately still-pending) rename
+    // to settle before it fires.
+    expect(api.contactedCalls).toHaveLength(0);
+
+    api.resolvePatch();
+
+    await waitFor(() => {
+      expect(api.contactedCalls).toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(within(contactedList()).getByText('Alicia')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('list', { name: 'Not contacted' })).not.toBeInTheDocument();
+    const row = within(contactedList()).getByText('Alicia').closest('li') as HTMLElement;
+    expect(within(row).getByRole('button', { name: "Couldn't save — retry" })).toBeInTheDocument();
+  });
+
+  it('warns before leaving while a save is in flight, and stops warning once it succeeds', async () => {
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      { deferPatch: true }
+    );
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    function dispatchBeforeUnload(): Event {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event;
+    }
+
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alice' }));
+    fireEvent.change(screen.getByLabelText('Edit name for Alice'), { target: { value: 'Alicia' } });
+    fireEvent.blur(screen.getByLabelText('Edit name for Alice'));
+    await flushAsync();
+
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(true);
+
+    api.resolvePatch();
+    await flushAsync();
+
+    // Succeeded — no longer warns, even while "Saved" is still visible.
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(false);
+  });
+
+  it('keeps warning before leaving the page while a rename has failed', async () => {
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      { patchFailure: true }
+    );
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alice' }));
+    fireEvent.change(screen.getByLabelText('Edit name for Alice'), { target: { value: 'Alicia' } });
+    fireEvent.blur(screen.getByLabelText('Edit name for Alice'));
+    await waitFor(() => {
+      expect(api.patchCalls).toHaveLength(1);
+    });
+
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('renders the status text in an aria-live region', async () => {
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      { deferPatch: true }
+    );
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alice' }));
+    fireEvent.change(screen.getByLabelText('Edit name for Alice'), { target: { value: 'Alicia' } });
+    fireEvent.blur(screen.getByLabelText('Edit name for Alice'));
+    await flushAsync();
+
+    const row = rowFor('Alicia');
+    const savingText = within(row).getByText('Saving…');
+    expect(savingText.closest('[aria-live="polite"]')).not.toBeNull();
+
+    api.resolvePatch();
+    await flushAsync();
+
+    const savedText = within(row).getByText('Saved');
+    expect(savedText.closest('[aria-live="polite"]')).not.toBeNull();
+  });
+
+  it('applies no fade class under prefers-reduced-motion — the text simply clears', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockReturnValue({
+        matches: true,
+        media: '(prefers-reduced-motion: reduce)',
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })
+    );
+
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      { deferPatch: true }
+    );
+
+    await act(async () => {
+      render(<OutreachPanel />);
+    });
+    await flushAsync();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alice' }));
+    fireEvent.change(screen.getByLabelText('Edit name for Alice'), { target: { value: 'Alicia' } });
+    fireEvent.blur(screen.getByLabelText('Edit name for Alice'));
+    await flushAsync();
+    api.resolvePatch();
+    await flushAsync();
+
+    const row = rowFor('Alicia');
+    expect(within(row).getByText('Saved').className).not.toMatch(/fade/);
+
+    // Right up to (but not past) the clear point: under reduced motion there
+    // is no separate fade sub-state, so the class never appears at any point.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2900);
+    });
+    expect(within(row).getByText('Saved').className).not.toMatch(/fade/);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(within(row).queryByText('Saved')).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
   });
 });
