@@ -6,9 +6,10 @@ optional GitHub review objects) is still in flight. This is the project-tracker
 follow-through helper; other floor managers can use the same `pt` command from
 their repository. Read `pt info get pr_merge_policy` first; the
 [shared policy](https://github.com/eriksjaastad/agent-runtime-config/blob/main/docs/pr-review-policy.md)
-still controls review requests, evidence, CI and merging. Independent local
-code-reviewer clearance plus satisfied CI is enough to merge under that policy;
-settle does not add a separate GitHub-review gate.
+still controls review requests, evidence, CI and merging. A PASS from a separate
+local Codex reviewer process on the exact committed HEAD (never the implementing
+agent) plus satisfied CI is enough to merge under that policy; settle does not
+add a separate GitHub-review gate.
 
 ## Start and respond
 
@@ -57,25 +58,22 @@ never merges, requests reviews or changes draft state.
 
 ## Execution history and review requests
 
-The review policy counts **independent local review cycles** (distinct code-reviewer
-subagent runs on exact committed HEAD), including the initial review. It does not
-count findings, commits or the number of review/comment/reaction objects. Persist
-each local cycle in the work item's PR/task notes with request/acknowledgement
-evidence, the exact full head SHA, and PASS/FAIL. Keep the publication-marker /
-verdict path `pre-pr-review.py` recognizes as additional clearance evidence for
-that head—not a substitute for the cycle history later agents need. Reconcile
-that complete history
-before requesting another review or recording clean clearance. For a newly ready
-PR, include its initial execution; for inherited work, carry its existing history
-forward. Never reset the count by changing agents, branches or PRs.
+Record each **independent local Codex review** (a separate reviewer process on
+the exact committed HEAD) in the work item's PR/task notes: the exact full head
+SHA, PASS/FAIL and findings. Keep the publication-marker / verdict path
+`pre-pr-review.py` recognizes as additional clearance evidence for that head—not
+a substitute for the review history later agents need. For inherited work, carry
+its existing history forward. The shared policy sets no fixed limit on local
+review cycles: a new commit needs a fresh review, and when the same root cause
+returns, reassess the approach and coverage before requesting another one.
 
 `pt pr history` remains the settle CLI's **GitHub-evidence ledger**. Use it only
 for executions that have GitHub request/acknowledgement objects. Pass the target
 arguments, `--ledger` pointing to a JSON array, `--snapshot` set to the digest
 you inspected, repeatable `--evidence` GitHub URLs, and `--summary` explaining
-the reconciliation. Do **not** record a purely local code-reviewer cycle there
-by inventing GitHub URLs; that can create a false three-cycle hold. A changed
-snapshot requires reading the new evidence before reconciling again.
+the reconciliation. Do **not** record a purely local Codex review there by
+inventing GitHub URLs; that can falsely trigger the tool's third-execution hold.
+A changed snapshot requires reading the new evidence before reconciling again.
 
 When clearance is local-only (no GitHub review objects), `pt pr assess` cannot
 emit a GitHub-ledger `clean` / `recheck_and_merge` handoff — that path still
@@ -127,13 +125,18 @@ Use `pt pr history` to reconcile acknowledgment with external creation/baseline
 proof; adding the ID alone cannot attribute it to an execution. A thumbs-up alone
 never grants clearance; head lookups and commit/push history still need inspection.
 
+The limits below are enforced by the settle tool on its GitHub-evidence ledger
+(`scripts/pr_settle_state.py`). The shared policy itself no longer sets a fixed
+review-cycle limit; whether the tool keeps its third-execution hold is tracked
+on card #7735.
+
 At five silent minutes, stop and ask Erik to resolve whether an execution began.
-There is no automatic silent retry. The canonical policy permits a retry only
-with affirmative evidence of rejection/no execution, a known count below the
-hold and no active attempt. An acknowledged but incomplete review gets fifteen
+There is no automatic silent retry. The tool permits a retry only with
+affirmative evidence of rejection/no execution, a known count below the hold
+and no active attempt. An acknowledged but incomplete review gets fifteen
 minutes before escalation. These limits never establish approval.
 
-**A clean third review can merge; a third review with remaining findings stops.**
+**A clean third ledger execution can merge; one with remaining findings stops.**
 While the third execution runs, stop edits, commits, pushes and further review
 requests. If reserving the third request, perform only that recorded trigger.
 Read its completed result and reconcile the execution ledger against the current
