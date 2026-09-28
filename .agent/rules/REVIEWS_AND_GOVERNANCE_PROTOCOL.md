@@ -32,7 +32,7 @@ Audit files in order of their potential to infect the ecosystem:
 ## 🏛️ Part 2: The Two-Layer Defense Model
 
 ### Layer 1: Robotic Scan (Gatekeeper)
-Mechanical checks (hardcoded paths, secrets, silent errors) run via the user-scope `code-reviewer` subagent and PreToolUse hooks (`bash-validator.py`, `secrets-scanner.py`, `absolute-path-check.py`). A single "FAIL" blocks the AI/Human review. The previous `pre_review_scan.sh` wrapper was retired in audit Phase E/F.
+Mechanical checks (hardcoded paths, secrets, silent errors) run in the independent local Codex review of the exact committed HEAD — a separate process, never the implementing agent — and in PreToolUse hooks (`bash-validator.py`, `secrets-scanner.py`, `absolute-path-check.py`). A single "FAIL" blocks the AI/Human review. The previous `pre_review_scan.sh` wrapper was retired in audit Phase E/F.
 
 ### Layer 2: Cognitive Audit (Architect Work)
 AI Architects focus on judgment-heavy tasks that automation misses:
@@ -225,7 +225,7 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 ---
 
 ## 🛠️ Immediate Action Items
-- [x] **Task 1:** ~~Finalize `scripts/pre_review_scan.sh` as the mandatory Gate 0.~~ Retired in audit Phase F; Gate 0 now lives in user-scope hooks + `code-reviewer` subagent.
+- [x] **Task 1:** ~~Finalize `scripts/pre_review_scan.sh` as the mandatory Gate 0.~~ Retired in audit Phase F; Gate 0 now lives in user-scope hooks + the independent local Codex review.
 - [ ] **Task 2:** Refactor `test_scripts_follow_standards.py` to `test_ecosystem_dna_integrity.py`.
 - [ ] **Task 3:** Establish the "Vault" protocol for the local `.env` record of API keys.
 - [x] **Task 4:** Implement `scripts/audit_all_projects.py` for ecosystem-wide placeholder scanning.

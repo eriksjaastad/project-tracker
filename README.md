@@ -71,7 +71,7 @@ dashboard/frontend/node_modules/.bin/eslint --no-config-lookup \
 
 ## CI
 
-CI runs the test suite (`.github/workflows/tests.yml`) and no longer enforces type labels. Local preflight precedes publication; the independent local code-reviewer on exact HEAD and CI gates are defined by `pt info get pr_merge_policy`. Follow the current PR procedure for authoring requirements until its separate label-rule update lands.
+CI runs the test suite (`.github/workflows/tests.yml`) and no longer enforces type labels. Local preflight precedes publication; review by a separate local Codex reviewer process on the exact committed HEAD (the implementer never reviews its own work) and the CI gates are defined by `pt info get pr_merge_policy`. Follow the current PR procedure for authoring requirements until its separate label-rule update lands.
 
 After opening or updating a PR, start `pt pr settle` and keep the owning agent
 attached to its event stream. Follow the [PR settle runbook](docs/PR_SETTLE.md)

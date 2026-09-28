@@ -1,6 +1,6 @@
 # Ecosystem governance and review protocol
 
-Updated: 2026-09-23. Rehomed from project-scaffolding on 2026-09-18.
+Updated: 2026-09-28. Rehomed from project-scaffolding on 2026-09-18.
 
 This document adds project governance and evaluation guidance. The current
 review rules live in the shared `AGENTS.md` block and the
@@ -9,8 +9,9 @@ Publishing and merging follow the
 [PR review and merge policy](https://github.com/eriksjaastad/agent-runtime-config/blob/main/docs/pr-review-policy.md),
 also installed as `pt info get pr_merge_policy`. When this document and those
 sources disagree about review cycles, evidence or gates, follow the shared
-sources. Codex is primary; the same standards apply to Claude local reviewers.
-Installing instructions is evidence of delivery, not evidence that a review
+sources. Review is performed by a separate local Codex reviewer process on the
+exact committed HEAD; the implementing agent or process never reviews its own
+work. Installing instructions is evidence of delivery, not evidence that a review
 found every relevant defect.
 
 ## What to review
@@ -34,14 +35,12 @@ inputs. Name relevant behavior that passing tests never exercise. Separate
 observations from inference and untested concerns.
 
 Pin a local or delegated verdict to the exact reviewed commit. A local PASS is
-preflight evidence only; independent local code-reviewer clearance on the unchanged
-recorded head and green CI remain separate merge gates. Persist distinct review
-cycles, including failed or stalled ones, across sessions and PRs for the same work
-item. At the third cycle, freeze edits, pushes and further requests until its result
-is known. A clean third review may merge if all gates pass. Findings on the third
-require discussion with Erik before more fixes or another request. Do not reset the
-count by changing agent, branch or PR. The shared PR policy defines the detailed
-evidence and wait rules.
+preflight evidence only; independent Codex review clearance on the unchanged
+recorded head and satisfied CI remain separate merge gates. A new commit
+invalidates the prior PASS and needs a fresh review. When the same root cause
+returns, reassess the approach and coverage before another example-specific
+patch; a finding never becomes a PASS through elapsed time or repeated requests.
+The shared PR policy defines the detailed evidence, feedback and landing rules.
 
 ## Safety and authorization
 
