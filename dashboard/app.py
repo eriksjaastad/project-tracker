@@ -3948,7 +3948,7 @@ async def rename_outreach_contact(contact_id: int, payload: OutreachContactReque
         contact = DatabaseManager().rename_contact(contact_id, payload.name)
     except ContactStateConflictError:
         raise HTTPException(
-            status_code=409, detail="Contact cannot be renamed after being contacted or replied"
+            status_code=409, detail="Contact cannot be renamed after being replied"
         )
     except ValueError:
         raise HTTPException(status_code=400, detail="Name is required")
