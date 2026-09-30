@@ -66,7 +66,7 @@ class OutreachMixin:
             return dict(row)
 
     def rename_contact(self, contact_id: int, name: str) -> dict[str, Any] | None:
-        """Rename an uncontacted contact; contacted/replied rows are immutable."""
+        """Rename an active contact, contacted or not; replied rows are immutable."""
         cleaned = name.strip()
         if not cleaned:
             raise ValueError("name is required")
@@ -76,10 +76,8 @@ class OutreachMixin:
             ).fetchone()
             if row is None or row["deleted_at"] is not None:
                 return None
-            if row["contacted_at"] is not None or row["replied_at"] is not None:
-                raise ContactStateConflictError(
-                    "contacted or replied contacts cannot be renamed"
-                )
+            if row["replied_at"] is not None:
+                raise ContactStateConflictError("replied contacts cannot be renamed")
             conn.execute(
                 "UPDATE outreach_contacts SET name = ?, updated_at = ? WHERE id = ?",
                 (cleaned, _utc_now(), contact_id),

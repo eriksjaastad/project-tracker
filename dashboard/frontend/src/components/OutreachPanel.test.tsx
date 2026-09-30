@@ -173,7 +173,7 @@ function mockOutreachApi(
       if (method === 'PATCH') {
         const name = String(body?.name ?? '').trim();
         if (!name) return track(jsonResponse({ detail: 'Name is required' }, 400));
-        if (contact.contacted_at || contact.replied_at) {
+        if (contact.replied_at) {
           return track(jsonResponse({ detail: 'Invalid name or contact state' }, 409));
         }
         const callIndex = patchCalls.length;
@@ -402,6 +402,38 @@ describe('OutreachPanel', () => {
         ([, init]) => (init?.method ?? 'GET').toUpperCase() === 'PATCH'
       )
     ).toBe(true);
+  });
+
+  it('edits a contacted name in place and saves on blur, keeping it contacted', async () => {
+    const user = userEvent.setup();
+    const api = mockOutreachApi([
+      {
+        id: 1,
+        name: 'Sabina',
+        contacted_at: '2026-09-28T14:30:00+00:00',
+        created_at: '2026-09-28T14:24:00+00:00',
+      },
+    ]);
+    render(<OutreachPanel />);
+
+    await user.click(await screen.findByRole('button', { name: 'Sabina' }));
+
+    const editInput = screen.getByLabelText('Edit name for Sabina') as HTMLInputElement;
+    expect(document.activeElement).toBe(editInput);
+    expect(within(contactedList()).getByLabelText('Edit name for Sabina')).toBe(editInput);
+    await user.clear(editInput);
+    await user.type(editInput, 'Sabina Park');
+    await user.tab();
+
+    await waitFor(() => {
+      expect(within(contactedList()).getByRole('button', { name: 'Sabina Park' })).toBeInTheDocument();
+    });
+    expect(screen.queryByLabelText('Edit name for Sabina')).not.toBeInTheDocument();
+    expect(api.patchCalls).toEqual([{ id: 1, name: 'Sabina Park' }]);
+    expect(within(contactedList()).getByRole('button', { name: 'Replied' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('Saved');
+    });
   });
 
   it('types a full rename character by character and saves it on blur', async () => {

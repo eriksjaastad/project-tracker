@@ -155,6 +155,11 @@
   opacity: 0.6;
 }
 
+/* Full opacity while a contacted name is being edited, so the input is legible. */
+.outreach-row--contacted:focus-within {
+  opacity: 1;
+}
+
 .outreach-row--contacted .outreach-name {
   color: var(--muted);
 }

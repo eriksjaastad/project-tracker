@@ -194,17 +194,24 @@ def test_rename_strips_updates_and_handles_unknown_or_empty(db) -> None:
     assert db.rename_contact(999999, "Ghost") is None
 
 
-def test_rename_rejected_after_contacted(db) -> None:
+def test_rename_allowed_after_contacted(db) -> None:
     client = _client()
     contact = _add(client, "Reach out")
-    _contacted(client, contact["id"])
+    contacted_at = _contacted(client, contact["id"])["contacted_at"]
 
     response = client.patch(
-        f"/api/outreach/contacts/{contact['id']}", json={"name": "Nope"}
+        f"/api/outreach/contacts/{contact['id']}", json={"name": "  Reached out  "}
     )
-    assert response.status_code == 409
-    with pytest.raises(ContactStateConflictError):
-        db.rename_contact(contact["id"], "Nope")
+    assert response.status_code == 200, response.text
+    renamed = response.json()["contact"]
+    assert renamed["name"] == "Reached out"
+    assert renamed["contacted_at"] == contacted_at
+    assert renamed["replied_at"] is None
+
+    listed = client.get("/api/outreach/contacts").json()["contacts"]
+    assert [(row["name"], row["contacted_at"]) for row in listed] == [
+        ("Reached out", contacted_at)
+    ]
 
 
 def test_rename_rejected_after_replied(db) -> None:

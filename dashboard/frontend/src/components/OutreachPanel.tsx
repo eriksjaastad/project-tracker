@@ -200,7 +200,7 @@ export function OutreachPanel() {
 
   // Drops a field's unsaved value entirely, reverting display to the server's
   // name. Used only when the row itself no longer exists (404) or can no
-  // longer be renamed (409, contacted/replied elsewhere) — never for a
+  // longer be renamed (409, replied elsewhere) — never for a
   // transient failure, which must keep the typed value and offer retry.
   function dropField(id: number): void {
     clearFieldTimers(id);
@@ -403,8 +403,8 @@ export function OutreachPanel() {
     scheduleFade(id, seq);
   }
 
-  // 404 (row deleted) and 409 (row contacted/replied meanwhile, can no longer
-  // be renamed) are the only cases where the unsaved value is dropped — the
+  // 404 (row deleted) and 409 (row replied meanwhile, can no longer be
+  // renamed) are the only cases where the unsaved value is dropped — the
   // row itself is gone or truthfully can't take this edit, so there's nothing
   // to retry. Every other failure (500, network error, timeout) keeps the
   // typed value and offers retry via the field's error state.
@@ -559,6 +559,46 @@ export function OutreachPanel() {
     );
   }
 
+  // Every active row's name, contacted or not, is click-to-edit: clicking
+  // swaps it for an input, and blur (or Enter) saves and swaps back.
+  function renderNameCell(contact: OutreachContact) {
+    return (
+      <div className="outreach-name-cell">
+        {editingId === contact.id ? (
+          <input
+            type="text"
+            className="outreach-edit-input"
+            value={editingValue}
+            onChange={(event) => setEditingValue(event.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitEdit();
+              } else if (event.key === 'Escape') {
+                cancelEdit();
+              }
+            }}
+            ref={focusEditInput}
+            aria-label={`Edit name for ${displayName(contact)}`}
+          />
+        ) : (
+          <>
+            <button
+              type="button"
+              className="outreach-name"
+              onClick={() => startEdit(contact)}
+              disabled={busyRows.has(contact.id) || renamingRows.has(contact.id)}
+            >
+              {displayName(contact)}
+            </button>
+            {renderFieldStatus(contact.id)}
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <section className="outreach-panel" aria-label="People to contact">
       <h2 className="outreach-header">
@@ -592,41 +632,7 @@ export function OutreachPanel() {
                 <ul className="outreach-list" aria-label="Not contacted">
                   {uncontacted.map((contact) => (
                     <li key={contact.id} className="outreach-row">
-                      <div className="outreach-name-cell">
-                        {editingId === contact.id ? (
-                          <input
-                            type="text"
-                            className="outreach-edit-input"
-                            value={editingValue}
-                            onChange={(event) => setEditingValue(event.target.value)}
-                            onBlur={commitEdit}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter') {
-                                event.preventDefault();
-                                commitEdit();
-                              } else if (event.key === 'Escape') {
-                                cancelEdit();
-                              }
-                            }}
-                            ref={focusEditInput}
-                            aria-label={`Edit name for ${displayName(contact)}`}
-                          />
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              className="outreach-name"
-                              onClick={() => startEdit(contact)}
-                              disabled={
-                                busyRows.has(contact.id) || renamingRows.has(contact.id)
-                              }
-                            >
-                              {displayName(contact)}
-                            </button>
-                            {renderFieldStatus(contact.id)}
-                          </>
-                        )}
-                      </div>
+                      {renderNameCell(contact)}
                       <button
                         type="button"
                         className="outreach-action"
@@ -666,10 +672,7 @@ export function OutreachPanel() {
                 <ul className="outreach-list" aria-label="Contacted">
                   {contacted.map((contact) => (
                     <li key={contact.id} className="outreach-row outreach-row--contacted">
-                      <div className="outreach-name-cell">
-                        <span className="outreach-name">{displayName(contact)}</span>
-                        {renderFieldStatus(contact.id)}
-                      </div>
+                      {renderNameCell(contact)}
                       <button
                         type="button"
                         className="outreach-action"
