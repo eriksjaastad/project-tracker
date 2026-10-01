@@ -1445,4 +1445,168 @@ describe('OutreachPanel', () => {
 
     vi.unstubAllGlobals();
   });
+
+  // --- resyncAfterError message separation (#7721) ---
+
+  it('separates the action error and the resync error into two sentences', async () => {
+    mockOutreachApi([
+      { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+    ]);
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    // Both the Contacted POST and the resync GET it triggers fail the same
+    // way a real `fetch` rejects: "Failed to fetch", with no punctuation of
+    // its own. The combined banner must read as two sentences, not
+    // "Failed to fetch Could not reload contacts: Failed to fetch".
+    vi.mocked(fetch)
+      .mockImplementationOnce(async () => {
+        throw new Error('Failed to fetch');
+      })
+      .mockImplementationOnce(async () => {
+        throw new Error('Failed to fetch');
+      });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contacted' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Failed to fetch. Could not reload contacts: Failed to fetch.'
+      );
+    });
+  });
+
+  it('does not double a period when the first error message already ends with one', async () => {
+    mockOutreachApi([
+      { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+    ]);
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ detail: 'Failed to mark contact.' }, 500))
+      .mockImplementationOnce(async () => {
+        throw new Error('Failed to fetch');
+      });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contacted' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Failed to mark contact. Could not reload contacts: Failed to fetch.'
+      );
+    });
+    expect(screen.getByRole('alert').textContent).not.toMatch(/\.\./);
+  });
+
+  // --- #7723 follow-ups ---
+
+  it('queues a retry PATCH behind an already in-flight Contacted action for the same row', async () => {
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      { patchFailure: (callIndex) => callIndex === 0, deferContacted: true }
+    );
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alice' }));
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    fireEvent.change(editInput, { target: { value: 'Alicia' } });
+    fireEvent.blur(editInput);
+
+    await waitFor(() => {
+      expect(api.patchCalls).toHaveLength(1);
+    });
+    const row = rowFor('Alicia');
+    const retryButton = within(row).getByRole('button', { name: "Couldn't save — retry" });
+
+    // Queue a Contacted action for the same row; the queue starts running it
+    // right away (the response stays deferred).
+    fireEvent.click(screen.getByRole('button', { name: 'Contacted' }));
+    await waitFor(() => {
+      expect(api.contactedCalls).toHaveLength(1);
+    });
+
+    // Click retry while Contacted is still in flight. The retry's PATCH must
+    // be appended to the FIFO queue behind the already-running Contacted
+    // action, not race ahead of it.
+    fireEvent.click(retryButton);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api.patchCalls).toHaveLength(1); // retry has not been sent yet
+
+    api.resolve('contacted');
+    await waitFor(() => {
+      expect(api.patchCalls).toHaveLength(2);
+    });
+    expect(api.patchCalls[1]).toEqual({ id: 1, name: 'Alicia' });
+    await waitFor(() => {
+      expect(within(contactedList()).getByText('Saved')).toBeInTheDocument();
+    });
+  });
+
+  it('drops the unsaved rename and shows the server name when a rename fails with 404 (row deleted elsewhere)', async () => {
+    const user = userEvent.setup();
+    mockOutreachApi([
+      { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+    ]);
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    await user.click(screen.getByRole('button', { name: 'Alice' }));
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    await user.clear(editInput);
+    await user.type(editInput, 'Alicia');
+
+    // The row was deleted by another client between load and this PATCH.
+    vi.mocked(fetch).mockImplementationOnce(async () =>
+      jsonResponse({ detail: 'Contact not found' }, 404)
+    );
+    await user.tab();
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Contact not found');
+    });
+    // dropField: the unsaved value is gone, replaced by the server's name via
+    // the resync, with no retry control (there's nothing to retry).
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Alice' })).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Alicia')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: "Couldn't save — retry" })).not.toBeInTheDocument();
+  });
+
+  it('drops the unsaved rename and shows the server name when a rename fails with 409 (row replied elsewhere)', async () => {
+    const user = userEvent.setup();
+    mockOutreachApi([
+      { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+    ]);
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    await user.click(screen.getByRole('button', { name: 'Alice' }));
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    await user.clear(editInput);
+    await user.type(editInput, 'Alicia');
+
+    // The row was replied to (from another tab) between load and this PATCH.
+    vi.mocked(fetch).mockImplementationOnce(async () =>
+      jsonResponse({ detail: 'Invalid name or contact state' }, 409)
+    );
+    await user.tab();
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Invalid name or contact state');
+    });
+    // dropField: the unsaved value is gone, replaced by the server's name via
+    // the resync, with no retry control (a reply can't be renamed through).
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Alice' })).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Alicia')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: "Couldn't save — retry" })).not.toBeInTheDocument();
+  });
 });
