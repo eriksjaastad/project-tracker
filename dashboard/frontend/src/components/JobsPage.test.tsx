@@ -29,8 +29,26 @@ vi.mock('./JobStatsChart', () => ({
 }));
 
 vi.mock('./CategoryTable', () => ({
-  CategoryTable: () => <div data-testid="category-table">Category Table</div>,
+  CategoryTable: ({ categories }: { categories: Array<{ category: string; count: number }> }) => (
+    <div data-testid="category-table">
+      {categories.map(cat => (
+        <span key={cat.category} data-testid={`category-count-${cat.category}`}>
+          {cat.category}: {cat.count}
+        </span>
+      ))}
+    </div>
+  ),
 }));
+
+// Creates a promise this test controls the resolution of, so it can
+// interleave two in-flight requests in a specific order.
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(res => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 describe('JobsPage', () => {
   beforeEach(() => {
@@ -561,6 +579,349 @@ describe('JobsPage', () => {
 
     expect(screen.getByText('Unsubmittable Job')).toBeInTheDocument();
     expect(submitButton).not.toBeDisabled();
+  });
+
+  it('removes both rows when two submits overlap and resolve out of order', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        jobs: [
+          {
+            id: 30,
+            company: 'Overlap Inc',
+            title: 'Job A',
+            url: 'https://example.com/jobA',
+            location: 'Remote',
+            posted_date: '2026-09-25',
+            first_seen: '2026-09-25',
+            category: 'Backend',
+            source: 'manual',
+            deleted_at: null,
+            raw: null,
+          },
+          {
+            id: 31,
+            company: 'Overlap Inc',
+            title: 'Job B',
+            url: 'https://example.com/jobB',
+            location: 'Remote',
+            posted_date: '2026-09-25',
+            first_seen: '2026-09-25',
+            category: 'Backend',
+            source: 'manual',
+            deleted_at: null,
+            raw: null,
+          },
+        ],
+      }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Job A')).toBeInTheDocument();
+      expect(screen.getByText('Job B')).toBeInTheDocument();
+    });
+
+    const submitA = deferred<Response>();
+    const submitB = deferred<Response>();
+    const statsRefresh = { ok: true, json: async () => ({ jobs_per_day: [], submissions_per_day: [], categories: [] }) } as Response;
+
+    vi.mocked(fetch).mockImplementation((url: string | URL | Request) => {
+      if (url === '/api/jobs/30/submissions') return submitA.promise;
+      if (url === '/api/jobs/31/submissions') return submitB.promise;
+      if (url === '/api/jobs/stats') return Promise.resolve(statsRefresh);
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+
+    await user.click(screen.getByLabelText('Mark Job A as submitted'));
+    await user.click(screen.getByLabelText('Mark Job B as submitted'));
+
+    // Resolve the second submission first, then the first — the opposite
+    // of request order — to prove removal doesn't depend on resolve order.
+    submitB.resolve({
+      ok: true,
+      json: async () => ({ submission: { id: 2, job_id: 31 } }),
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Job B')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Job A')).toBeInTheDocument();
+
+    submitA.resolve({
+      ok: true,
+      json: async () => ({ submission: { id: 1, job_id: 30 } }),
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Job A')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText('Job B')).not.toBeInTheDocument();
+  });
+
+  it('removes both rows when a submit and a delete overlap on different jobs', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        jobs: [
+          {
+            id: 32,
+            company: 'Mixed Co',
+            title: 'Job To Submit',
+            url: 'https://example.com/jobSubmit',
+            location: 'Remote',
+            posted_date: '2026-09-25',
+            first_seen: '2026-09-25',
+            category: 'Backend',
+            source: 'manual',
+            deleted_at: null,
+            raw: null,
+          },
+          {
+            id: 33,
+            company: 'Mixed Co',
+            title: 'Job To Delete',
+            url: 'https://example.com/jobDelete',
+            location: 'Remote',
+            posted_date: '2026-09-25',
+            first_seen: '2026-09-25',
+            category: 'Backend',
+            source: 'manual',
+            deleted_at: null,
+            raw: null,
+          },
+        ],
+      }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Job To Submit')).toBeInTheDocument();
+      expect(screen.getByText('Job To Delete')).toBeInTheDocument();
+    });
+
+    const submitReq = deferred<Response>();
+    const deleteReq = deferred<Response>();
+    const statsRefresh = { ok: true, json: async () => ({ jobs_per_day: [], submissions_per_day: [], categories: [] }) } as Response;
+
+    vi.mocked(fetch).mockImplementation((url: string | URL | Request, options?: RequestInit) => {
+      if (url === '/api/jobs/32/submissions') return submitReq.promise;
+      if (url === '/api/jobs/33' && options?.method === 'DELETE') return deleteReq.promise;
+      if (url === '/api/jobs/stats') return Promise.resolve(statsRefresh);
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+
+    await user.click(screen.getByLabelText('Mark Job To Submit as submitted'));
+    await user.click(screen.getByLabelText('Dismiss Job To Delete'));
+
+    // The delete (issued second) resolves first.
+    deleteReq.resolve({
+      ok: true,
+      json: async () => ({ job: { id: 33, deleted_at: '2026-09-26T00:00:00Z' } }),
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Job To Delete')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Job To Submit')).toBeInTheDocument();
+
+    submitReq.resolve({
+      ok: true,
+      json: async () => ({ submission: { id: 3, job_id: 32 } }),
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Job To Submit')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText('Job To Delete')).not.toBeInTheDocument();
+  });
+
+  it('refetches stats after a successful submit and the displayed count changes', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          jobs: [
+            {
+              id: 40,
+              company: 'Stats Co',
+              title: 'Countable Job',
+              url: 'https://example.com/job40',
+              location: 'Remote',
+              posted_date: '2026-09-25',
+              first_seen: '2026-09-25',
+              category: 'Backend',
+              source: 'manual',
+              deleted_at: null,
+              raw: null,
+            },
+          ],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          jobs_per_day: [],
+          submissions_per_day: [],
+          categories: [{ category: 'Backend', count: 5 }],
+        }),
+      } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('category-count-Backend')).toHaveTextContent('Backend: 5');
+    });
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ submission: { id: 5, job_id: 40 } }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          jobs_per_day: [],
+          submissions_per_day: [{ date: '2026-09-25', count: 1 }],
+          categories: [{ category: 'Backend', count: 4 }],
+        }),
+      } as Response);
+
+    await user.click(screen.getByLabelText('Mark Countable Job as submitted'));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/jobs/stats');
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('category-count-Backend')).toHaveTextContent('Backend: 4');
+    });
+
+    const statsCalls = vi.mocked(fetch).mock.calls.filter(([url]) => url === '/api/jobs/stats');
+    expect(statsCalls).toHaveLength(2);
+  });
+
+  it('discards a stale stats response that resolves after a newer refresh', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          jobs: [
+            {
+              id: 41,
+              company: 'Race Co',
+              title: 'Job One',
+              url: 'https://example.com/job41',
+              location: 'Remote',
+              posted_date: '2026-09-25',
+              first_seen: '2026-09-25',
+              category: 'Backend',
+              source: 'manual',
+              deleted_at: null,
+              raw: null,
+            },
+            {
+              id: 42,
+              company: 'Race Co',
+              title: 'Job Two',
+              url: 'https://example.com/job42',
+              location: 'Remote',
+              posted_date: '2026-09-25',
+              first_seen: '2026-09-25',
+              category: 'Backend',
+              source: 'manual',
+              deleted_at: null,
+              raw: null,
+            },
+          ],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          jobs_per_day: [],
+          submissions_per_day: [],
+          categories: [{ category: 'Backend', count: 9 }],
+        }),
+      } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('category-count-Backend')).toHaveTextContent('Backend: 9');
+    });
+
+    const submitOne = deferred<Response>();
+    const submitTwo = deferred<Response>();
+    const staleStats = deferred<Response>();
+    const freshStats = deferred<Response>();
+    let statsCallCount = 0;
+
+    vi.mocked(fetch).mockImplementation((url: string | URL | Request) => {
+      if (url === '/api/jobs/41/submissions') return submitOne.promise;
+      if (url === '/api/jobs/42/submissions') return submitTwo.promise;
+      if (url === '/api/jobs/stats') {
+        statsCallCount += 1;
+        return statsCallCount === 1 ? staleStats.promise : freshStats.promise;
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+
+    await user.click(screen.getByLabelText('Mark Job One as submitted'));
+    submitOne.resolve({
+      ok: true,
+      json: async () => ({ submission: { id: 10, job_id: 41 } }),
+    } as Response);
+    // Let handleSubmit's continuation run far enough to issue the first
+    // (older) stats refresh before the second submit issues the next one.
+    await waitFor(() => expect(statsCallCount).toBe(1));
+
+    await user.click(screen.getByLabelText('Mark Job Two as submitted'));
+    submitTwo.resolve({
+      ok: true,
+      json: async () => ({ submission: { id: 11, job_id: 42 } }),
+    } as Response);
+    await waitFor(() => expect(statsCallCount).toBe(2));
+
+    // The newer (second) request resolves first with the fresh count...
+    freshStats.resolve({
+      ok: true,
+      json: async () => ({
+        jobs_per_day: [],
+        submissions_per_day: [],
+        categories: [{ category: 'Backend', count: 7 }],
+      }),
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('category-count-Backend')).toHaveTextContent('Backend: 7');
+    });
+
+    // ...and the older request's stale response arrives late. It must not
+    // overwrite the fresher count that already landed.
+    staleStats.resolve({
+      ok: true,
+      json: async () => ({
+        jobs_per_day: [],
+        submissions_per_day: [],
+        categories: [{ category: 'Backend', count: 999 }],
+      }),
+    } as Response);
+
+    // Give the stale response's continuation a chance to run, then assert
+    // it did not win.
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(screen.getByTestId('category-count-Backend')).toHaveTextContent('Backend: 7');
   });
 
   it('disables agent button while queueing prompt', async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageShell } from './PageShell';
 import { Spinner } from './Spinner';
 import { Notification } from './Notification';
@@ -39,6 +39,10 @@ export function JobsPage() {
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [queuingPrompts, setQueuingPrompts] = useState<Set<number>>(new Set());
   const [submittingJobs, setSubmittingJobs] = useState<Set<number>>(new Set());
+  // Guards loadStats() against out-of-order responses: only the response
+  // whose requestId still matches the latest-issued call is applied, so an
+  // older refresh that happens to resolve late can never clobber a newer one.
+  const statsRequestIdRef = useRef(0);
 
   useEffect(() => {
     loadJobs();
@@ -62,16 +66,25 @@ export function JobsPage() {
   }
 
   async function loadStats() {
+    const requestId = ++statsRequestIdRef.current;
     try {
       const response = await fetch('/api/jobs/stats');
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
       const data = await response.json();
+      if (requestId !== statsRequestIdRef.current) {
+        // A newer refresh was issued after this one; that call owns the
+        // final state, so this stale response is dropped on the floor.
+        return;
+      }
       setStats(data);
+      setStatsError(false);
     } catch (error) {
       console.error('Failed to load job stats:', error);
-      setStatsError(true);
+      if (requestId === statsRequestIdRef.current) {
+        setStatsError(true);
+      }
     }
   }
 
@@ -83,8 +96,14 @@ export function JobsPage() {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      setJobs(jobs.filter(job => job.id !== jobId));
+      // Functional update: a concurrent submit/delete on another row may
+      // still be in flight, so filtering against a captured `jobs` snapshot
+      // would resurrect whatever that other request already removed.
+      setJobs(prev => prev.filter(job => job.id !== jobId));
       setNotification({ message: 'Job dismissed', type: 'success' });
+      // Dismissing a job changes the open-category counts; refresh so the
+      // chart/table don't keep showing the pre-dismissal snapshot.
+      loadStats();
     } catch (error) {
       console.error('Failed to delete job:', error);
       setNotification({ message: 'Failed to dismiss job', type: 'error' });
@@ -105,8 +124,13 @@ export function JobsPage() {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      setJobs(jobs.filter(job => job.id !== jobId));
+      // Same reasoning as handleDelete: use the latest state, not a snapshot
+      // captured when this handler started.
+      setJobs(prev => prev.filter(job => job.id !== jobId));
       setNotification({ message: 'Job marked as submitted', type: 'success' });
+      // A submission moves the job out of the open-category counts and into
+      // submissions_per_day; refresh so the stats panel reflects that.
+      loadStats();
     } catch (error) {
       console.error('Failed to submit job:', error);
       setNotification({ message: 'Failed to submit job', type: 'error' });
