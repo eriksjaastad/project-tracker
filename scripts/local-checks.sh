@@ -2,29 +2,35 @@
 # Local checks for project-tracker (#7828): the pytest and frontend jobs of
 # .github/workflows/tests.yml.
 #
-# The shared pre-push (claude-user-config hooks/git-local-checks.py) runs this
-# in a fresh worktree of the pushed commit, with LOCAL_CHECKS_SHA and
-# LOCAL_CHECKS_BASE set, and bounds the whole run (LOCAL_CHECKS_TIMEOUT,
-# default 30 minutes). Run it by hand from a checkout to check that checkout's
-# HEAD; with no base, every check runs.
+# Only the shared runner (claude-user-config hooks/git-local-checks.py) runs
+# this: on every push, and by hand with `~/.claude/hooks/git-local-checks.py
+# --head`. It checks the commit out in a fresh worktree, sets the
+# LOCAL_CHECKS_* variables (with no base, every check runs) and bounds the run.
 #
-# pytest runs in its own environment under ~/.cache/local-checks, never the
-# repo's .venv. The frontend job runs in a throwaway export of dashboard/
-# against a clone of installed node_modules (this checkout's, else the main
-# checkout's), and never installs packages: Erik's shell blocks unaudited
-# npm ci/install as a supply-chain risk. What npm ci would reject fails here
-# too: package.json out of step with package-lock.json, or installed packages
-# that differ from the lockfile. The message says how to install deliberately.
+# pytest syncs its own environment inside this throwaway worktree. The frontend
+# job runs in a throwaway export of dashboard/ against a clone of the installed
+# node_modules (from the checkout the push came from, else the main checkout;
+# a symlinked node_modules is resolved first) and never installs packages:
+# Erik's shell blocks unaudited npm ci/install as a supply-chain risk. What npm
+# ci would reject fails here too (a package.json range the lockfile does not
+# satisfy, or installed packages that differ from the lockfile), with how to
+# install deliberately.
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
 
-UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
-sha="$(git rev-parse HEAD)"
-if [ -n "${LOCAL_CHECKS_SHA:-}" ] && [ "$sha" != "$(git rev-parse "$LOCAL_CHECKS_SHA^{commit}")" ]; then
-    echo "local checks: this checkout is at $sha, not the pushed $LOCAL_CHECKS_SHA" >&2
+if [ "${LOCAL_CHECKS_CLEAN:-}" != 1 ]; then
+    echo "local checks: run them with the shared runner, which checks HEAD in a fresh worktree:" >&2
+    echo "  ~/.claude/hooks/git-local-checks.py --head" >&2
     exit 2
 fi
-venv="$HOME/.cache/local-checks/project-tracker/venv"
+cd "$(git rev-parse --show-toplevel)"
+sha="$(git rev-parse HEAD)"
+if [ "$sha" != "$(git rev-parse "${LOCAL_CHECKS_SHA}^{commit}")" ]; then
+    echo "local checks: this checkout is at $sha, not $LOCAL_CHECKS_SHA" >&2
+    exit 2
+fi
+echo "local checks: $sha in $(pwd -P)"
+
+UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
 
 # True when any given path changed since LOCAL_CHECKS_BASE; always true without
 # one. If the diff itself fails, say so and treat every path as changed, so a
@@ -54,7 +60,19 @@ check() {
 # A check nothing else depends on: its failure is recorded, and the run goes on.
 step() { check "$@" || true; }
 
-py() { UV_PROJECT_ENVIRONMENT="$venv" "$UV" "$@"; }
+# The installed node_modules to clone, as a real directory: the checkout the
+# push came from when it has one, else the main checkout. Prints the expected
+# path, for the caller to report, when neither has one.
+modules_dir() {
+    local root rel="dashboard/frontend/node_modules"
+    for root in "${LOCAL_CHECKS_ROOT:-}" "$(git worktree list --porcelain | sed -n '1s/^worktree //p')"; do
+        if [ -n "$root" ] && [ -f "$root/$rel/.package-lock.json" ]; then
+            (cd "$root/$rel" && pwd -P)
+            return 0
+        fi
+    done
+    echo "${LOCAL_CHECKS_ROOT:-$(pwd -P)}/$rel"
+}
 
 # Copy installed node_modules into the checkout under test. An APFS clone
 # (cp -c) is near-instant and shares disk blocks; a symlink would let build
@@ -64,7 +82,7 @@ clone_tree() {
 }
 
 # Exit 0 when node_modules ($1) holds what package-lock.json in $2 pins and the
-# lockfile agrees with package.json in $2, as npm ci requires; else say why.
+# lockfile satisfies package.json in $2, as npm ci requires; else say why.
 installed_matches_lock() {
     node -e '
         const fs = require("fs"), path = require("path");
@@ -78,11 +96,27 @@ installed_matches_lock() {
             console.log(`cannot compare installed packages with the lockfile: ${err.message}`);
             process.exit(2);
         }
+        // semver from the installed tree; without it, ranges must match the lockfile exactly.
+        let semver = null;
+        try {
+            semver = require(path.join(path.dirname(path.resolve(process.argv[1])), "semver"));
+        } catch (err) {
+            semver = null;
+        }
         const bad = [];
-        const sorted = o => JSON.stringify(Object.keys(o || {}).sort().map(k => [k, o[k]]));
+        const root = lock[""] || {};
         for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
-            if (sorted(manifest[field]) !== sorted((lock[""] || {})[field])) {
-                bad.push(`package.json ${field} does not match package-lock.json`);
+            const want = manifest[field] || {}, locked = root[field] || {};
+            for (const name of new Set([...Object.keys(want), ...Object.keys(locked)])) {
+                if (!(name in want) || !(name in locked)) {
+                    bad.push(`${name}: in ${name in want ? "package.json" : "package-lock.json"} ${field} only`);
+                    continue;
+                }
+                if (want[name] === locked[name]) continue;
+                const entry = lock[`node_modules/${name}`];
+                if (!(semver && entry && semver.validRange(want[name]) && semver.satisfies(entry.version, want[name]))) {
+                    bad.push(`${name}: package.json wants ${want[name]}, package-lock.json resolves ${entry ? entry.version : "nothing"}`);
+                }
             }
         }
         for (const [key, want] of Object.entries(lock)) {
@@ -96,8 +130,8 @@ installed_matches_lock() {
     ' "$1/.package-lock.json" "$2/package-lock.json" "$2/package.json"
 }
 
-if check "sync test dependencies" py sync -q --extra test --python 3.13; then
-    step "pytest" py run --no-sync --python 3.13 python -m pytest tests/ -q -p no:cacheprovider
+if check "sync test dependencies" "$UV" sync -q --extra test --python 3.13; then
+    step "pytest" "$UV" run --no-sync --python 3.13 python -m pytest tests/ -q -p no:cacheprovider
 fi
 
 if changed dashboard/ .github/workflows/tests.yml; then
@@ -105,11 +139,7 @@ if changed dashboard/ .github/workflows/tests.yml; then
     trap 'rm -rf "$tmp"' EXIT
     git archive "$sha" dashboard | tar -x -C "$tmp"
     frontend="$tmp/dashboard/frontend"
-    modules="$(pwd -P)/dashboard/frontend/node_modules"
-    if [ ! -f "$modules/.package-lock.json" ]; then
-        main_root="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
-        modules="$main_root/dashboard/frontend/node_modules"
-    fi
+    modules="$(modules_dir)"
     want="$(cat "$frontend/.nvmrc")"
     have="$(node --version | sed 's/^v//; s/\..*//')"
     if [ "$have" != "${want%%.*}" ]; then
