@@ -3,6 +3,7 @@ import type { TaskStatus, TaskPriority, Project, Task, TaskType } from '../types
 import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
 import { fetchProjects, fetchTaskPolicy, fetchTasks, isAbortError } from '../api';
 import { Spinner } from './Spinner';
+import { ACCEPTANCE_CRITERIA_HINT, ACCEPTANCE_CRITERIA_TEMPLATE, hasAcceptanceCriteria } from '../utils/checklist';
 import './TaskForm.css';
 
 interface TaskFormProps {
@@ -12,6 +13,7 @@ interface TaskFormProps {
     status: TaskStatus;
     priority: TaskPriority | null;
     taskType: TaskType;
+    notes: string;
     parentId?: number | null;
     blockedBy?: number[] | null;
   }) => Promise<void>;
@@ -27,6 +29,7 @@ export function TaskForm({
   initialStatus = 'Backlog',
 }: TaskFormProps) {
   const [text, setText] = useState('');
+  const [notes, setNotes] = useState(ACCEPTANCE_CRITERIA_TEMPLATE);
   const [projectId, setProjectId] = useState(initialProjectId || '');
   const [status, setStatus] = useState<TaskStatus>(initialStatus);
   const [priority, setPriority] = useState<TaskPriority | null>(null);
@@ -102,6 +105,11 @@ export function TaskForm({
       return;
     }
 
+    if (!hasAcceptanceCriteria(notes)) {
+      setError(ACCEPTANCE_CRITERIA_HINT);
+      return;
+    }
+
     // Parse blocked_by
     let blockedBy: number[] | null = null;
     if (blockedByInput.trim()) {
@@ -129,11 +137,13 @@ export function TaskForm({
         status,
         priority,
         taskType,
+        notes: notes.trim(),
         parentId,
         blockedBy,
       });
       // Reset form on success
       setText('');
+      setNotes(ACCEPTANCE_CRITERIA_TEMPLATE);
       setPriority(null);
       setTaskType('manual');
       setParentId(null);
@@ -186,6 +196,27 @@ export function TaskForm({
           <strong>PR sizing:</strong> Aim for ~500 substantive changed lines per PR, plus/minus.
           Not a hard gate. Keep related work bundled when coherent.
           Excludes generated files, lockfiles, vendored code, snapshots.
+        </div>
+      </div>
+
+      <div className="task-form-field">
+        <label htmlFor="task-acceptance-criteria" className="task-form-label">
+          Acceptance Criteria <span className="required">*</span>
+        </label>
+        <textarea
+          id="task-acceptance-criteria"
+          className="task-form-textarea"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="- [ ] How will completion be verified?"
+          rows={3}
+          required
+          disabled={loading}
+        />
+        <div className="task-form-hint">
+          At least one <code>- [ ] &lt;how completion is verified&gt;</code> checklist
+          line is required. A heading alone doesn't count. For a proposal, state the
+          decision/approval criterion instead, e.g. "- [ ] Approve if X; reject if Y".
         </div>
       </div>
 

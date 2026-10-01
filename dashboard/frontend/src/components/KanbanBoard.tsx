@@ -216,6 +216,7 @@ export function KanbanBoard() {
     status: TaskStatus;
     priority: TaskPriority | null;
     taskType: TaskType;
+    notes: string;
     parentId?: number | null;
     blockedBy?: number[] | null;
   }) => {
@@ -228,7 +229,8 @@ export function KanbanBoard() {
         data.taskType,
         undefined,
         data.parentId,
-        data.blockedBy
+        data.blockedBy,
+        data.notes
       );
       setTasks(prev => [...prev, newTask]);
       setShowTaskForm(false);

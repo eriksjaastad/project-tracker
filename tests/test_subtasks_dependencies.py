@@ -78,7 +78,10 @@ def test_cli_create_subtask_and_blocked_by(tmp_path: Path, monkeypatch: pytest.M
     runner = CliRunner()
     subtask_result = runner.invoke(
         tasks_group,
-        ["create", "CLI subtask", "-p", project_id, "--parent", str(parent["id"])]
+        [
+            "create", "CLI subtask", "-p", project_id, "--parent", str(parent["id"]),
+            "-d", "- [ ] Subtask work is reviewed and merged",
+        ]
     )
     assert subtask_result.exit_code == 0
 
@@ -87,7 +90,10 @@ def test_cli_create_subtask_and_blocked_by(tmp_path: Path, monkeypatch: pytest.M
 
     blocked_result = runner.invoke(
         tasks_group,
-        ["create", "CLI blocked", "-p", project_id, "--blocked-by", str(blocker["id"])]
+        [
+            "create", "CLI blocked", "-p", project_id, "--blocked-by", str(blocker["id"]),
+            "-d", "- [ ] Blocker resolves and this card becomes unblocked",
+        ]
     )
     assert blocked_result.exit_code == 0
 

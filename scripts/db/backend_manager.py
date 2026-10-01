@@ -22,6 +22,7 @@ from .pt_id import next_id as pt_next_id
 from scripts.utils.validation import (
     BlockedTaskProjectError,
     get_blocked_card_reason,
+    validate_acceptance_criteria,
     validate_task_input,
     validate_task_text,
     validate_status,
@@ -1141,7 +1142,17 @@ class DatabaseManager:
         sequence_order: Optional[int] = None,
         created_by: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create a new task.
+        """Create a new task — the low-level DB primitive.
+
+        This is the permissive primitive used internally (test fixtures,
+        migrations, maintenance scripts) and does NOT require acceptance
+        criteria in ``notes``. Every user/agent-facing card-creation surface
+        (``pt tasks create``, ``POST /api/tasks``, the ``kanban_add_task``
+        MCP tool) must go through ``create_card()`` instead, which enforces
+        acceptance criteria (#7608) before delegating here. See
+        ``validate_acceptance_criteria()`` in scripts/utils/validation.py
+        for the full rationale on why that check lives at the call sites
+        rather than inside this method.
 
         Args:
             text: Task description (1-1000 characters)
@@ -1263,6 +1274,30 @@ class DatabaseManager:
 
             # Return the created task
             return self.get_task(task_id)
+
+    def create_card(self, **kwargs) -> Dict[str, Any]:
+        """Create a new Kanban card — the enforcing entry point (#7608).
+
+        Every user/agent-facing card-creation surface (``pt tasks create``,
+        ``POST /api/tasks``, the ``kanban_add_task`` MCP tool) calls this
+        instead of ``add_task()`` directly. It requires at least one
+        concrete acceptance-criterion checklist line in ``notes`` — see
+        ``validate_acceptance_criteria()`` — then delegates to ``add_task()``
+        for everything else. No task_type is exempt, including "proposal";
+        subtasks (parent_id set) are not exempt either.
+
+        Accepts the exact same keyword arguments as ``add_task()`` (notes
+        is required in practice, though still a keyword for signature
+        symmetry) and returns the same task dictionary.
+
+        Raises:
+            ValueError: If acceptance criteria are missing/malformed, or for
+                any reason add_task() itself would raise.
+        """
+        is_valid, error_message = validate_acceptance_criteria(kwargs.get("notes"))
+        if not is_valid:
+            raise ValueError(error_message)
+        return self.add_task(**kwargs)
 
     def _resolve_default_task_category(
         self,

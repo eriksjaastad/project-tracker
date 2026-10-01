@@ -1764,7 +1764,7 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
         pt tasks --all                 # Include completed tasks
         pt tasks --archived            # Show archived Done cards
         pt tasks --proposals           # Show only proposals
-        pt tasks create "Fix bug" -p myproject
+        pt tasks create "Fix bug" -p myproject -d "- [ ] pytest tests/test_foo.py passes"
 
     """
     if ctx.invoked_subcommand is not None: return
@@ -1873,7 +1873,7 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
 @click.option("--priority", default=None, help="Priority: Critical, High, Medium, Low")
 @click.option("--prompt", default=None, help="Agent prompt (execution instructions for AI)")
 @click.option("--category", default=None, help="Task category label (defaults from project portfolio metadata)")
-@click.option("-d", "--description", default=None, help="Rich description / acceptance criteria (stored in notes field)")
+@click.option("-d", "--description", default=None, help="Acceptance criteria (required) plus any rich description — stored in notes field. Must include at least one '- [ ] <how completion is verified>' checklist line.")
 @click.option("--parent", type=int, default=None, help="Parent task ID (creates subtask)")
 @click.option("--blocked-by", default=None, help="Comma-separated task IDs that block this task")
 @click.option("--proposal", is_flag=True, help="Create as a proposal (hidden from default listing until approved)")
@@ -1882,7 +1882,17 @@ def tasks_create(text, project, status, priority, prompt, category, description,
     """Create a new task.
 
     Auto-detects project from current directory.
-    
+
+    \b
+    Acceptance criteria (required, #7608): -d/--description must include at
+    least one '- [ ] <how completion is verified>' checklist line — a
+    heading alone doesn't count. Subtasks and --proposal cards are not
+    exempt; for a proposal, state the decision/approval criterion instead,
+    e.g. '- [ ] Approve if X; reject if Y'.
+
+        pt tasks create "Fix flaky retry" -p myproject \\
+            -d "- [ ] pytest tests/test_retry.py passes"
+
     \b
     PR sizing: Aim for ~500 substantive changed lines per PR, plus/minus.
     Not a hard gate. Keep related work bundled when coherent.
@@ -1913,7 +1923,7 @@ def tasks_create(text, project, status, priority, prompt, category, description,
         if prompt: final_prompt = prompt.rstrip() + WORKFLOW_FOOTER
         task_type = "proposal" if proposal else None
         resolved_created_by = created_by if created_by else _resolve_created_by()
-        task = db.add_task(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, task_type=task_type, category=category, parent_id=parent, blocked_by=blocked_by_json, notes=description, created_by=resolved_created_by)
+        task = db.create_card(text=text, project_id=project_id, status=status, priority=priority, prompt=final_prompt, task_type=task_type, category=category, parent_id=parent, blocked_by=blocked_by_json, notes=description, created_by=resolved_created_by)
         msg = f"[green]Created {'proposal' if proposal else 'task'} #{task['id']}: {text[:50]}{'...' if len(text) > 50 else ''}[/green]"
         if description: msg += f" [dim](+ description)[/dim]"
         if parent: msg += f" [dim](subtask of #{parent})[/dim]"
@@ -1924,9 +1934,10 @@ def tasks_create(text, project, status, priority, prompt, category, description,
         console.print(
             f"[yellow]Failed to create task: task creation is blocked for '{project_id}'.[/yellow]"
         )
-        return
+        sys.exit(1)
     except Exception as e:
         console.print(f"[red]Failed to create task: {e}[/red]")
+        sys.exit(1)
 
 
 @tasks_group.command(name="update")

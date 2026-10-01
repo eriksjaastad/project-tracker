@@ -67,6 +67,11 @@ def _setup_db(tmp_path: Path) -> tuple[Path, DatabaseManager]:
 
 
 def _create(runner: CliRunner, args: list[str]):
+    # #7608: pt tasks create requires an acceptance-criteria checklist line
+    # in -d/--description. Not what this module is testing, so supply one
+    # by default unless the caller already passed -d/--description.
+    if "-d" not in args and "--description" not in args:
+        args = [*args, "-d", "- [ ] Footer behavior is covered by this test"]
     result = runner.invoke(tasks_group, ["create", *args])
     assert result.exit_code == 0, f"create failed: {result.output}\n{result.exception}"
     return result
