@@ -49,8 +49,6 @@ class Store:
             state = json.loads(self.path.read_text())
             if not isinstance(state, dict) or not engine.fresh(self.repo, self.number, self.owner, 0, 1).keys() <= state.keys():
                 raise ValueError("missing required state")
-            if type(state["review_hold"]) is not bool:
-                raise ValueError("invalid review hold")
             if state["schema_version"] != 1 or state["repo"] != self.repo or state["number"] != self.number:
                 raise ValueError("state identity or version mismatch")
             if state["owner"] != self.owner:

@@ -37,7 +37,8 @@ def active():
 
 
 def judge(state, review="clean", ci="satisfied", now=1):
-    if review == "clean" and not state["review_hold"]:
+    if review == "clean" and (state["history_snapshot_id"] != state["snapshot_id"]
+            or not any(c["head"] == state["head"] and c["status"] == "completed" for c in state["cycles"])):
         history(state, state["cycles"] or [cycle(head=state["head"])], now=now)
     return assess(state, state["head"], state["snapshot_id"], review, ci,
                   ["https://github.com/owner/repo/pull/7#pullrequestreview-8"],
@@ -79,7 +80,7 @@ def test_head_change_and_same_head_new_finding_invalidate_assessment():
 
 
 @pytest.mark.parametrize("review", ["findings", "ambiguous"])
-def test_finding_heads_are_not_execution_counts_and_third_adjudicated_problem_stops(review):
+def test_finding_heads_accumulate_without_a_fixed_cycle_count_escalation(review):
     state = active()
     for index, char in enumerate("abc"):
         state = json.loads(json.dumps(state))
@@ -87,81 +88,79 @@ def test_finding_heads_are_not_execution_counts_and_third_adjudicated_problem_st
         assert consume(state, snapshot(char * 40, finding=True), index * 60 + 1) == []
     assert state["status"] == "active" and len(state["finding_heads"]) == 3
     events = history(state, [cycle(str(i), char * 40, at=i) for i, char in enumerate("abc")], 180)
-    assert state["review_hold"] and state["status"] == "active"
+    assert state["status"] == "active"
+    assert not any(event["action"] == "notify_erik_and_stop" for event in events)
+    # No fixed review-cycle limit here: a repeated-findings pattern is the Codex
+    # review-loop tripwire's job (#7738), not this ledger's.
     events = judge(state, review=review, now=180)
-    assert sum(event["action"] == "notify_erik_and_stop" for event in events) == 1
-    assert judge(state, now=180) == []
-    assert consume(state, snapshot("d" * 40), 240) == []
+    assert not any(event["action"] == "notify_erik_and_stop" for event in events)
+    assert state["status"] == "active"
 
 
-def test_third_request_blocks_fourth_but_completed_clean_can_pass():
+def test_fourth_execution_is_allowed_after_three_completed_cycles():
     state = active()
-    for when in (1, 3):
+    for when in (1, 3, 5):
         request(state, state["head"], "initial", when)
         completed = deepcopy(state["cycles"])
         completed[-1]["status"] = "completed"
         history(state, completed, now=when + 1)
         state = json.loads(json.dumps(state))
-    events = request(state, state["head"], "thorough", 5)
-    assert events[0]["action"] == "owner_trigger_final_review_and_hold"
-    assert state["review_hold"] and state["status"] == "active"
-    with pytest.raises(ValueError, match="hold"):
-        request(state, state["head"], "thorough", 6)
-    with pytest.raises(ValueError, match="completed third"):
-        judge(state, now=6)
-    with pytest.raises(ValueError, match="dropped"):
-        history(state, [], 6)
+    assert len(state["cycles"]) == 3
+    # A fourth review request is not blocked by any fixed limit.
+    events = request(state, state["head"], "thorough", 7)
+    assert events[0]["action"] == "owner_trigger_reserved_request"
     completed = deepcopy(state["cycles"])
     completed[-1]["status"] = "completed"
-    history(state, completed, 7)
-    assert state["status"] == "active" and state["review_hold"]
-    assert judge(state, now=8)[-1]["action"] == "recheck_and_merge"
+    history(state, completed, 8)
+    assert state["status"] == "active"
+    assert judge(state, now=9)[-1]["action"] == "recheck_and_merge"
     assert state["status"] == "settled"
     assert state["requests"][0]["snapshot"] == snapshot()
-    assert len(state["cycles"]) == 3
+    assert len(state["cycles"]) == 4
 
 
 @pytest.mark.parametrize("ci", ["pending", "unknown", "failed"])
-def test_clean_third_waits_for_ci_and_failed_ci_requires_discussion(ci):
+def test_clean_with_unsatisfied_ci_does_not_escalate_and_a_further_request_is_allowed(ci):
     state = active()
     history(state, [cycle("one"), cycle("two", at=1), cycle("three", at=2)], 2)
     events = judge(state, ci=ci, now=3)
     assert not any(event["action"] == "recheck_and_merge" for event in events)
-    assert state["status"] == ("escalated" if ci == "failed" else "active")
-    if ci == "failed":
-        assert events[-1]["action"] == "notify_erik_and_stop"
-    else:
-        with pytest.raises(ValueError, match="hold"):
-            request(state, state["head"], "thorough", 4)
-        old_id = state["snapshot_id"]
-        changed = snapshot()
-        changed["pr_end"]["body"] = "CI evidence has changed"
-        consume(state, changed, 5)
-        with pytest.raises(ValueError, match="current head and snapshot"):
-            assess(state, state["head"], old_id, "clean", "satisfied", PROOF, "old", now=6)
-        history(state, now=7)
-        assert judge(state, now=8)[-1]["action"] == "recheck_and_merge"
+    assert state["status"] == "active"
+    assert not any(event["action"] == "notify_erik_and_stop" for event in events)
+    # Clean already follows from the first/second completed execution, not only
+    # a designated third; a further (fourth) request is still not blocked.
+    events = request(state, state["head"], "thorough", 4)
+    assert events[0]["action"] == "owner_trigger_reserved_request"
+    old_id = state["snapshot_id"]
+    changed = snapshot()
+    changed["pr_end"]["body"] = "CI evidence has changed"
+    consume(state, changed, 5)
+    with pytest.raises(ValueError, match="current head and snapshot"):
+        assess(state, state["head"], old_id, "clean", "satisfied", PROOF, "old", now=6)
+    completed = deepcopy(state["cycles"])
+    completed[-1]["status"] = "completed"
+    history(state, completed, 7)
+    assert judge(state, now=8)[-1]["action"] == "recheck_and_merge"
 
 
-def test_earlier_current_head_review_cannot_clear_a_third_cycle_on_another_head():
+def test_clean_follows_any_completed_current_head_execution_not_only_a_third():
     state = active()
     history(state, [cycle("one"), cycle("two", head="b" * 40, at=1),
                     cycle("three", head="b" * 40, at=2)], 2)
-    with pytest.raises(ValueError, match="completed third execution at the current head"):
-        judge(state, now=3)
+    assert judge(state, now=3)[-1]["action"] == "recheck_and_merge"
+    assert state["status"] == "settled"
 
 
-def test_clean_third_cannot_hand_off_a_draft_and_closed_pr_is_terminal():
+def test_clean_cannot_hand_off_when_draft_status_is_unknown_and_closed_pr_is_terminal():
     state = active()
-    history(state, [cycle("one"), cycle("two", at=1), cycle("three", at=2)], 2)
     data = snapshot()
-    data["pr_end"]["draft"] = True
-    consume(state, data, 3)
-    history(state, now=4)
+    data["pr_end"].pop("draft")
+    consume(state, data, 1)
+    assert state["status"] == "active"
     with pytest.raises(ValueError, match="open, ready PR"):
-        judge(state, now=5)
+        judge(state, now=2)
     data["pr_end"]["state"] = "closed"
-    assert consume(state, data, 6)[-1]["type"] == "closed"
+    assert consume(state, data, 3)[-1]["type"] == "closed"
     assert state["status"] == "settled"
 
 
@@ -295,42 +294,45 @@ def test_rejected_requests_do_not_count_but_unknown_execution_stops():
     state = active()
     history(state, [cycle("rejected", status="rejected"), cycle("initial")], 1)
     events = request(state, state["head"], "thorough", 2)
-    assert not state["review_hold"] and events[0]["counters"]["cycles"] == 2
+    assert events[0]["counters"]["cycles"] == 2
     uncertain = deepcopy(state["cycles"])
     uncertain[-1]["status"] = "unknown"
     assert history(state, uncertain, 3)[-1]["action"] == "notify_erik_and_stop"
     assert state["status"] == "escalated"
 
 
-def test_three_cycles_same_head_hold_without_counting_each_comment():
+def test_three_cycles_same_head_do_not_count_each_comment_and_stale_ack_still_escalates():
     state = active()
     data = snapshot(finding=True)
     data["inline_comments"] *= 5
     consume(state, data, 1)
     history(state, [cycle("one")], 1)
-    assert len(state["cycles"]) == 1 and not state["review_hold"]
+    assert len(state["cycles"]) == 1
     third = cycle("three", status="acknowledged", at=3)
     third["acknowledged_at"] = 4
     history(state, [cycle("one"), cycle("two", at=2), third], 4)
-    assert state["review_hold"] and state["status"] == "active"
-    data["pr_end"]["body"] = "new observation during hold"
+    assert state["status"] == "active" and len(state["cycles"]) == 3
+    data["pr_end"]["body"] = "new observation after three cycles"
     assert consume(state, data, 60)[0]["type"] == "evidence"
-    assert state["review_hold"] and state["status"] == "active"
+    assert state["status"] == "active"
+    # No fixed cycle count blocks progress; a stale acknowledgment still escalates.
     assert consume(state, data, 904)[0]["action"] == "notify_erik_and_stop"
 
 
-def test_rejected_third_reservation_preserves_hold_without_losing_ledger():
+def test_rejected_request_after_two_completed_cycles_does_not_escalate_and_allows_retry():
     state = active()
     history(state, [cycle("one"), cycle("two", at=1)], 1)
     request(state, state["head"], "thorough", 2)
     rejected = deepcopy(state["cycles"])
     rejected[-1]["status"] = "rejected"
     events = history(state, rejected, 3)
-    assert state["review_hold"] and state["status"] == "escalated"
-    assert events[-1]["action"] == "notify_erik_and_stop"
+    assert state["status"] == "active"
+    assert not any(event["action"] == "notify_erik_and_stop" for event in events)
+    events = request(state, state["head"], "thorough", 4)
+    assert events[0]["action"] == "owner_trigger_reserved_request"
 
 
-def test_third_reserved_candidate_notifies_without_approving_or_blocking_owner():
+def test_reserved_candidate_notifies_without_approving_or_blocking_owner():
     state = active()
     history(state, [cycle("one"), cycle("two", at=1)], 1)
     request(state, state["head"], "thorough", 2)
@@ -340,11 +342,11 @@ def test_third_reserved_candidate_notifies_without_approving_or_blocking_owner()
     events = consume(state, data, 60)
     reports = [event for event in events if event["type"] == "completion_candidate"]
     assert len(reports) == 1 and reports[0]["action"] == "assess_external_evidence"
-    assert state["status"] == "active" and state["review_hold"]
+    assert state["status"] == "active"
     assert state["review"] == "pending" and state["cycles"][-1]["status"] == "acknowledged"
     assert not any(event["action"] == "recheck_and_merge" for event in state["events"])
     assert consume(state, data, 120) == []
-    with pytest.raises(ValueError, match="hold"):
+    with pytest.raises(ValueError, match="active execution"):
         request(state, state["head"], "thorough", 121)
     completed = deepcopy(state["cycles"])
     completed[-1]["status"] = "completed"
@@ -435,7 +437,7 @@ def test_requested_then_confirmed_rejected_does_not_count_as_execution():
     rejected = deepcopy(state["cycles"])
     rejected[0]["status"] = "rejected"
     events = history(state, rejected, 2)
-    assert state["status"] == "active" and not state["review_hold"]
+    assert state["status"] == "active"
     assert events[-1]["counters"]["cycles"] == 0
     events = request(state, state["head"], "initial", 3)
     assert events[0]["counters"]["cycles"] == 1
