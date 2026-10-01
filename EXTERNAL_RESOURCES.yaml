@@ -1431,7 +1431,7 @@ monitoring:
       deletion — do not monitor. Listed so Saga stops rediscovering it.
 
   # --- scheduled-job surface -------------------------------------------------
-  # 25 launchd agents + 2 crontab entries on the LAPTOP are tracked below
+  # 26 launchd agents + 2 crontab entries on the LAPTOP are tracked below
   # (2026-10-01: slack-listener removed when its project was archived, #7835).
   # Some installed agents are not listed yet (project-tracker card 99145072256380928).
   # A job that silently stops running is the most common real failure here and
