@@ -60,6 +60,12 @@ function errorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+// Ensures a message reads as a complete sentence, without doubling a period
+// the caller already supplied.
+function asSentence(text: string): string {
+  return text.endsWith('.') ? text : `${text}.`;
+}
+
 export const OUTREACH_REQUEST_TIMEOUT_MS = 20000;
 const OUTREACH_TIMEOUT_MESSAGE = 'Request timed out — reloading contacts';
 
@@ -289,7 +295,7 @@ export function OutreachPanel() {
         } catch (err) {
           console.error('Failed to reload outreach contacts after an error:', err);
           const reloadMessage = err instanceof Error ? err.message : 'Failed to reload contacts';
-          setError(`${message} Could not reload contacts: ${reloadMessage}`);
+          setError(`${asSentence(message)} Could not reload contacts: ${asSentence(reloadMessage)}`);
         }
       });
     },

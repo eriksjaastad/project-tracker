@@ -26,7 +26,7 @@ function jsonResponse(payload: unknown, status = 200): Response {
   } as Response;
 }
 
-type DeferredKind = 'patch' | 'contacted' | 'replied' | 'delete' | 'add';
+type DeferredKind = 'patch' | 'contacted' | 'replied' | 'delete' | 'add' | 'get';
 
 interface MockOutreachApiOptions {
   deferPatch?: boolean;
@@ -48,6 +48,12 @@ interface MockOutreachApiOptions {
   patchNetworkError?: boolean | ((callIndex: number) => boolean);
   /** Simulates a server hang on PATCH: never settles on its own, rejects with an AbortError when aborted. Indexed like patchFailure. */
   hangPatch?: boolean | ((callIndex: number) => boolean);
+  /** Simulates another client deleting the row between load and this PATCH: returns 404 AND marks the contact deleted server-side, so a follow-up GET genuinely omits it. Indexed like patchFailure. */
+  patchDeletedElsewhere?: boolean | ((callIndex: number) => boolean);
+  /** Simulates another client replying to the row between load and this PATCH: returns 409 AND marks the contact replied server-side, so a follow-up GET genuinely omits it. Indexed like patchFailure. */
+  patchRepliedElsewhere?: boolean | ((callIndex: number) => boolean);
+  /** Defers every GET after the first (the initial load resolves normally); release with resolve('get', index). Lets a test control exactly when a post-error resync lands. */
+  deferGetAfterFirst?: boolean;
 }
 
 interface MockOutreachApi {
@@ -59,7 +65,7 @@ interface MockOutreachApi {
   /** Highest number of concurrently pending fetch calls the component ever produced. */
   readonly maxInFlight: number;
   resolvePatch: (index?: number) => void;
-  resolve: (kind: 'contacted' | 'replied' | 'delete' | 'add', index?: number) => void;
+  resolve: (kind: 'contacted' | 'replied' | 'delete' | 'add' | 'get', index?: number) => void;
 }
 
 function mockOutreachApi(
@@ -73,6 +79,7 @@ function mockOutreachApi(
   const repliedCalls: number[] = [];
   const deleteCalls: number[] = [];
   let addCalls = 0;
+  let getCallCount = 0;
   let inFlight = 0;
   let maxInFlight = 0;
   const deferred: Array<{ kind: DeferredKind; resolve: (response: Response) => void; response: Response }> = [];
@@ -122,6 +129,12 @@ function mockOutreachApi(
     if (url === '/api/outreach/contacts') {
       if (method === 'GET') {
         if (options.hangGet) return track(hang(init?.signal));
+        getCallCount += 1;
+        const isInitialLoad = getCallCount === 1;
+        // Snapshot the server's current truth now (at request time), exactly
+        // like a real server would — a later deferred resolve must still
+        // reflect what was true on disk when the request was received, not
+        // whatever has mutated by the time it's released.
         const active = contacts.filter((contact) => !contact.deleted_at && !contact.replied_at);
         const uncontacted = active
           .filter((contact) => !contact.contacted_at)
@@ -132,16 +145,16 @@ function mockOutreachApi(
             (a, b) =>
               (a.contacted_at ?? '').localeCompare(b.contacted_at ?? '') || a.id - b.id
           );
-        return track(
-          jsonResponse({
-            contacts: [...uncontacted, ...contacted].map((contact) => ({
-              id: contact.id,
-              name: contact.name,
-              contacted_at: contact.contacted_at,
-              created_at: contact.created_at,
-            })),
-          })
-        );
+        const response = jsonResponse({
+          contacts: [...uncontacted, ...contacted].map((contact) => ({
+            id: contact.id,
+            name: contact.name,
+            contacted_at: contact.contacted_at,
+            created_at: contact.created_at,
+          })),
+        });
+        if (options.deferGetAfterFirst && !isInitialLoad) return track(defer('get', response));
+        return track(response);
       }
       if (method === 'POST') {
         addCalls += 1;
@@ -188,6 +201,27 @@ function mockOutreachApi(
             ? options.patchNetworkError(callIndex)
             : options.patchNetworkError;
         if (networkErrorThis) return track(Promise.reject(new Error('Network down')));
+
+        // Simulates a concurrent delete/reply from another client: the
+        // conflict response AND the row's removal from the server's own
+        // store happen together, so a later GET genuinely omits it instead
+        // of the test asserting a mock that never actually changed state.
+        const deletedElsewhereThis =
+          typeof options.patchDeletedElsewhere === 'function'
+            ? options.patchDeletedElsewhere(callIndex)
+            : options.patchDeletedElsewhere;
+        if (deletedElsewhereThis) {
+          contact.deleted_at = '2026-09-26T11:30:00+00:00';
+          return track(jsonResponse({ detail: 'Contact not found' }, 404));
+        }
+        const repliedElsewhereThis =
+          typeof options.patchRepliedElsewhere === 'function'
+            ? options.patchRepliedElsewhere(callIndex)
+            : options.patchRepliedElsewhere;
+        if (repliedElsewhereThis) {
+          contact.replied_at = '2026-09-26T11:30:00+00:00';
+          return track(jsonResponse({ detail: 'Invalid name or contact state' }, 409));
+        }
 
         const failThis =
           typeof options.patchFailure === 'function' ? options.patchFailure(callIndex) : options.patchFailure;
@@ -1444,5 +1478,175 @@ describe('OutreachPanel', () => {
     expect(within(row).queryByText('Saved')).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
+  });
+
+  // --- resyncAfterError message separation (#7721) ---
+
+  it('separates the action error and the resync error into two sentences', async () => {
+    mockOutreachApi([
+      { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+    ]);
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    // Both the Contacted POST and the resync GET it triggers fail the same
+    // way a real `fetch` rejects: "Failed to fetch", with no punctuation of
+    // its own. The combined banner must read as two sentences, not
+    // "Failed to fetch Could not reload contacts: Failed to fetch".
+    vi.mocked(fetch)
+      .mockImplementationOnce(async () => {
+        throw new Error('Failed to fetch');
+      })
+      .mockImplementationOnce(async () => {
+        throw new Error('Failed to fetch');
+      });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contacted' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Failed to fetch. Could not reload contacts: Failed to fetch.'
+      );
+    });
+  });
+
+  it('does not double a period when the first error message already ends with one', async () => {
+    mockOutreachApi([
+      { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
+    ]);
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ detail: 'Failed to mark contact.' }, 500))
+      .mockImplementationOnce(async () => {
+        throw new Error('Failed to fetch');
+      });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contacted' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Failed to mark contact. Could not reload contacts: Failed to fetch.'
+      );
+    });
+    expect(screen.getByRole('alert').textContent).not.toMatch(/\.\./);
+  });
+
+  // --- #7723 follow-ups ---
+
+  it('queues a retry PATCH behind an already in-flight Contacted action for the same row', async () => {
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      { patchFailure: (callIndex) => callIndex === 0, deferContacted: true }
+    );
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alice' }));
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    fireEvent.change(editInput, { target: { value: 'Alicia' } });
+    fireEvent.blur(editInput);
+
+    await waitFor(() => {
+      expect(api.patchCalls).toHaveLength(1);
+    });
+    const row = rowFor('Alicia');
+    const retryButton = within(row).getByRole('button', { name: "Couldn't save — retry" });
+
+    // Queue a Contacted action for the same row; the queue starts running it
+    // right away (the response stays deferred).
+    fireEvent.click(screen.getByRole('button', { name: 'Contacted' }));
+    await waitFor(() => {
+      expect(api.contactedCalls).toHaveLength(1);
+    });
+
+    // Click retry while Contacted is still in flight. The retry's PATCH must
+    // be appended to the FIFO queue behind the already-running Contacted
+    // action, not race ahead of it.
+    fireEvent.click(retryButton);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api.patchCalls).toHaveLength(1); // retry has not been sent yet
+
+    api.resolve('contacted');
+    await waitFor(() => {
+      expect(api.patchCalls).toHaveLength(2);
+    });
+    expect(api.patchCalls[1]).toEqual({ id: 1, name: 'Alicia' });
+    await waitFor(() => {
+      expect(within(contactedList()).getByText('Saved')).toBeInTheDocument();
+    });
+  });
+
+  it('drops the unsaved rename and removes the row once the resync reflects the delete, when a rename fails with 404', async () => {
+    const user = userEvent.setup();
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      // The row is deleted by another client at the moment this PATCH is
+      // processed (mutating the mock's own store), and the follow-up resync
+      // GET is held back under our control so we can observe both the
+      // immediate dropField effect and, separately, the later removal.
+      { patchDeletedElsewhere: true, deferGetAfterFirst: true }
+    );
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    await user.click(screen.getByRole('button', { name: 'Alice' }));
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    await user.clear(editInput);
+    await user.type(editInput, 'Alicia');
+    await user.tab();
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Contact not found');
+    });
+    // dropField happens synchronously in the failure handler, before the
+    // still-pending resync GET returns: the unsaved value is already gone
+    // and there is no retry control, even though the row itself (from the
+    // stale pre-resync contacts list) is still on screen.
+    expect(screen.getByRole('button', { name: 'Alice' })).toBeInTheDocument();
+    expect(screen.queryByText('Alicia')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: "Couldn't save — retry" })).not.toBeInTheDocument();
+
+    // Release the resync GET. It now reflects the server's real state (the
+    // row is deleted), so the row disappears entirely.
+    api.resolve('get');
+    await waitFor(() => {
+      expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+    });
+  });
+
+  it('drops the unsaved rename and removes the row once the resync reflects the reply, when a rename fails with 409', async () => {
+    const user = userEvent.setup();
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      // The row is replied to (from another tab) at the moment this PATCH is
+      // processed, mutating the mock's own store the same way.
+      { patchRepliedElsewhere: true, deferGetAfterFirst: true }
+    );
+    render(<OutreachPanel />);
+    await screen.findByText('Alice');
+
+    await user.click(screen.getByRole('button', { name: 'Alice' }));
+    const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
+    await user.clear(editInput);
+    await user.type(editInput, 'Alicia');
+    await user.tab();
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Invalid name or contact state');
+    });
+    expect(screen.getByRole('button', { name: 'Alice' })).toBeInTheDocument();
+    expect(screen.queryByText('Alicia')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: "Couldn't save — retry" })).not.toBeInTheDocument();
+
+    api.resolve('get');
+    await waitFor(() => {
+      expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+    });
   });
 });

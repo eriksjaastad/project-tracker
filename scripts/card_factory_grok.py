@@ -25,10 +25,12 @@ WOULD create and writes them to a markdown file for side-by-side comparison
 against the Sonnet card-factory. Pass --commit to actually create cards; those
 are tagged `[Card Factory][grok]` so they are filterable and reversible.
 
-Run (XAI_API_KEY comes from Doppler — never hardcode):
-    doppler run -p synth-insight-labs -c prd -- \
+Routed through OpenRouter (#7699), billed to OpenRouter credits — not xAI
+direct, not BYOK. OPENROUTER_API_KEY comes from Doppler project-tracker/dev
+(never hardcode):
+    doppler run --project project-tracker --config dev -- \
         uv run scripts/card_factory_grok.py --project <name>
-    doppler run -p synth-insight-labs -c prd -- \
+    doppler run --project project-tracker --config dev -- \
         uv run scripts/card_factory_grok.py --project <name> --commit
 """
 
@@ -62,10 +64,18 @@ SCAN_SCRIPT = SCRIPT_DIR / "card-factory-scan.py"
 LOG_DIR = PROJECT_TRACKER / "logs"
 
 # ── Model config ──────────────────────────────────────────────────────────────
-MODEL = "grok-build-0.1"
-BASE_URL = "https://api.x.ai/v1"
+# Routed through OpenRouter (#7699): OpenRouter credits, not xAI BYOK.
+# OpenRouter's catalog uses provider-prefixed model ids (confirmed against
+# GET https://openrouter.ai/api/v1/models on 2026-09-30 — "x-ai/grok-build-0.1"
+# is listed there with tool-calling support, matching this script's needs).
+MODEL = "x-ai/grok-build-0.1"
+BASE_URL = "https://openrouter.ai/api/v1"
 MAX_ITERS = 20          # cost-doctrine call cap
 MAX_FILE_BYTES = 40_000  # cap a single read so one file can't blow the context
+# Fallback price-per-token estimate, used only if a response is ever missing
+# usage.cost (OpenRouter includes it by default on every response per
+# https://openrouter.ai/docs/use-cases/usage-accounting). Matches OpenRouter's
+# listed price for this model as of 2026-09-30.
 PRICE_IN_PER_1M = 1.00
 PRICE_OUT_PER_1M = 2.00
 
@@ -260,9 +270,13 @@ def run(project: str, commit: bool) -> int:
         print(f"ERROR: {project} is not a git project under {PROJECTS_ROOT}", file=sys.stderr)
         return 1
 
-    api_key = os.environ.get("XAI_API_KEY")
+    api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        print("ERROR: XAI_API_KEY not set (run via `doppler run -p synth-insight-labs -c prd -- ...`)", file=sys.stderr)
+        print(
+            "ERROR: OPENROUTER_API_KEY not set (run via "
+            "`doppler run --project project-tracker --config dev -- ...`)",
+            file=sys.stderr,
+        )
         return 1
 
     client = OpenAI(api_key=api_key, base_url=BASE_URL)
@@ -274,6 +288,7 @@ def run(project: str, commit: bool) -> int:
     ]
 
     tok_in = tok_out = tool_calls = 0
+    cost_reported = 0.0  # sums OpenRouter's billed usage.cost; None disqualifies it
     t0 = time.perf_counter()
     final_text = ""
 
@@ -281,10 +296,15 @@ def run(project: str, commit: bool) -> int:
         resp = client.chat.completions.create(
             model=MODEL, messages=messages, tools=TOOLS, tool_choice="auto"
         )
-        track(resp, "xai", project="project-tracker", caller="card-factory-grok")
+        track(resp, "openrouter", project="project-tracker", caller="card-factory-grok")
         if resp.usage:
             tok_in += resp.usage.prompt_tokens
             tok_out += resp.usage.completion_tokens
+            reported = getattr(resp.usage, "cost", None)
+            if cost_reported is not None and isinstance(reported, (int, float)):
+                cost_reported += reported
+            else:
+                cost_reported = None
 
         msg = resp.choices[0].message
         messages.append(msg.model_dump(exclude_none=True))
@@ -322,7 +342,10 @@ def run(project: str, commit: bool) -> int:
         print(f"WARNING: hit MAX_ITERS={MAX_ITERS} cap before grok finished.", file=sys.stderr)
 
     wall = time.perf_counter() - t0
-    cost = tok_in / 1e6 * PRICE_IN_PER_1M + tok_out / 1e6 * PRICE_OUT_PER_1M
+    if cost_reported is not None:
+        cost = cost_reported
+    else:
+        cost = tok_in / 1e6 * PRICE_IN_PER_1M + tok_out / 1e6 * PRICE_OUT_PER_1M
 
     # ── Output ────────────────────────────────────────────────────────────────
     print("\n=== card-factory-grok proposals ===")

@@ -34,6 +34,14 @@ def test_open_jobs_excludes_submitted_and_dismissed_without_erasing_rows(db):
     assert client.get("/api/jobs/stats").json()["categories"] == [
         {"category": "Frontend/React", "count": 1}
     ]
+
+    # The job that moved out of Listings is the one now on /jobs/submitted,
+    # carrying the submission timestamp it was recorded with.
+    submitted_groups = client.get("/api/jobs/submissions").json()["jobs"]
+    assert [group["job"]["id"] for group in submitted_groups] == [submitted["id"]]
+    assert [s["submitted_at"] for s in submitted_groups[0]["submissions"]] == [
+        "2026-09-22T15:00:00+00:00"
+    ]
     with db._db._get_conn() as conn:
         ids = {row[0] for row in conn.execute("SELECT id FROM jobs")}
     assert ids == {open_job["id"], submitted["id"], dismissed["id"]}

@@ -31,6 +31,19 @@ Usage:
 
     # Clean up
     python doc_audit_v2.py cleanup
+
+OpenRouter routing (#7699): this file's Gemini calls were evaluated for a
+move to OpenRouter and deliberately left on direct Google/GOOGLE_API_KEY.
+Neither model this file calls is in OpenRouter's catalog (checked 2026-09-30
+against GET https://openrouter.ai/api/v1/models):
+  - generation: "gemini-2.0-flash-exp" is absent (Google has moved its
+    public lineup to 2.5/3.x; the exp preview this file pins is gone).
+  - embeddings: "text-embedding-004" is absent, and even if it reappeared
+    under another host, embeddings must never move providers once an index
+    exists — a different embedding model changes the vector space and
+    silently corrupts stored similarity data (semantic_atlas.json).
+Re-check if this file is ever upgraded to a current Gemini generation model;
+leave the embedding call on Google regardless.
 """
 
 import argparse

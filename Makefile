@@ -10,10 +10,12 @@
 #   1. `./pt` wraps ITSELF in `doppler run` (see the launcher, lines 24-58).
 #      Targets that shell out to `./pt` therefore carry NO `doppler run --`
 #      prefix — double-wrapping is the bug, not the fix.
-#   2. Not every secret lives in `project-tracker/dev`. The alert digest and
-#      the Grok card factory read from `synth-insight-labs/prd`; the Turso
-#      dump reads from `openclaw/dev`. Those targets pass explicit
-#      `--project/--config` rather than relying on `doppler.yaml`.
+#   2. Not every secret lives in `project-tracker/dev`. The alert digest reads
+#      from `synth-insight-labs/prd`; the Turso dump reads from `openclaw/dev`.
+#      Those targets pass explicit `--project/--config` rather than relying on
+#      `doppler.yaml`. The Grok card factory (scripts/card_factory_grok.py)
+#      moved onto `OPENROUTER_API_KEY` in `project-tracker/dev` (#7699), so it
+#      needs no override — it is not invoked from this Makefile anyway.
 #
 # Targets are tab-indented (Makefile-required) and intentionally trivial —
 # they exist as muscle-memory shortcuts, not abstractions over the

@@ -68,6 +68,25 @@ BACKLOG_STATE = "Backlog"
 # automation runs under these; other system jobs are noise.
 JOB_LABEL_PREFIXES = ("com.eriksjaastad.", "com.pt.")
 
+# Nonzero launchd exit codes that a job's OWN docs declare as a non-failure
+# "needs attention" state, not a crash. #7755: the digest was reporting
+# `hypocrisynow-seo FAILED (exit 2)` every morning even though exit 2 is a
+# documented, expected state (including permanent coverage limits), training
+# everyone to ignore FAILED. Keyed by launchd label; each entry's exit code is
+# backed by a one-line source comment naming the file that documents it. A
+# label/exit-code pair absent from this table keeps today's behaviour —
+# nonzero is FAILED — so an undocumented code is never silently downgraded.
+DOCUMENTED_NONFAILURE_EXIT_CODES: dict[str, dict[int, dict[str, str]]] = {
+    "com.eriksjaastad.hypocrisynow-seo": {
+        # ~/projects/hypocrisynow/seo_monitor/README.md: "Exit 2 means
+        # attention is needed (including expected coverage limits)."
+        2: {
+            "state": "attention",
+            "report_path": "~/projects/hypocrisynow/.scratch/seo-monitor/report.md",
+        },
+    },
+}
+
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 3
 
@@ -425,7 +444,13 @@ def render_cards_section(tasks: list | None) -> str:
 
 
 def _render_job_group(jobs: list | None) -> str:
-    """Render one machine's launchd jobs; failures first. None → notice."""
+    """Render one machine's launchd jobs: FAILED, then ATTENTION, then the rest.
+
+    A nonzero exit is FAILED unless DOCUMENTED_NONFAILURE_EXIT_CODES says that
+    exact label/code pair is a documented non-failure state, in which case it
+    renders as ATTENTION (distinct dot/color, with the report path) instead.
+    None → notice.
+    """
     if jobs is None:
         return (
             '<div style="color:#8a6d1f;">⚠️ no job data this run.</div>'
@@ -435,18 +460,26 @@ def _render_job_group(jobs: list | None) -> str:
 
     def classify(j):
         if j.get("pid") is not None:
-            return ("🟢", "running", 2)
-        if j.get("last_exit") == 0:
-            return ("🟢", "ok", 2)
-        if j.get("last_exit") is None:
-            return ("⚪", "never run", 1)
-        return ("🔴", f"FAILED (exit {j.get('last_exit')})", 0)
+            return ("🟢", "running", 3)
+        last_exit = j.get("last_exit")
+        if last_exit == 0:
+            return ("🟢", "ok", 3)
+        if last_exit is None:
+            return ("⚪", "never run", 2)
+        doc = DOCUMENTED_NONFAILURE_EXIT_CODES.get(j.get("label", ""), {}).get(last_exit)
+        if doc is not None:
+            return (
+                "🟡",
+                f"ATTENTION (exit {last_exit}) — see {doc['report_path']}",
+                1,
+            )
+        return ("🔴", f"FAILED (exit {last_exit})", 0)
 
     rows = ""
     for j in sorted(jobs, key=lambda x: (classify(x)[2], x.get("label", ""))):
         dot, state, _ = classify(j)
         short = j.get("label", "?").split(".")[-1]
-        color = "#8a1f1f" if dot == "🔴" else "#333"
+        color = "#8a1f1f" if dot == "🔴" else ("#8a6d1f" if dot == "🟡" else "#333")
         rows += (
             f'<tr><td style="padding:3px 10px;">{dot}</td>'
             f'<td style="padding:3px 10px;">{_esc(short)}</td>'

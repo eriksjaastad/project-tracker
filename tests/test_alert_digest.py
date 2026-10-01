@@ -569,6 +569,60 @@ class TestCardsAndJobsRendering:
         assert "FAILED (exit 3)" in html
         assert html.index("zzz_bad") < html.index("aaa_ok")
 
+    # --- #7755: documented non-failure exit codes render as ATTENTION, not FAILED ---
+
+    SEO_LABEL = "com.eriksjaastad.hypocrisynow-seo"
+
+    def test_documented_attention_exit_renders_attention_not_failed(self):
+        """exit 2 for the seo job is a documented non-failure state (README.md)."""
+        html = ad._render_job_group([
+            {"label": self.SEO_LABEL, "pid": None, "last_exit": 2},
+        ])
+        assert "FAILED" not in html
+        assert "ATTENTION (exit 2)" in html
+        # The report path is surfaced so the email is actionable, not just quiet.
+        assert "seo-monitor/report.md" in html
+
+    def test_same_job_undocumented_exit_is_still_failed(self):
+        """exit 1 for the SAME job is a real collector/monitor failure per README.md."""
+        html = ad._render_job_group([
+            {"label": self.SEO_LABEL, "pid": None, "last_exit": 1},
+        ])
+        assert "FAILED (exit 1)" in html
+        assert "ATTENTION" not in html
+
+    def test_unlisted_job_same_exit_code_is_failed(self):
+        """exit 2 means nothing special for a job with no entry in the table —
+        never silently downgrade an undocumented code."""
+        html = ad._render_job_group([
+            {"label": "com.eriksjaastad.some-other-job", "pid": None, "last_exit": 2},
+        ])
+        assert "FAILED (exit 2)" in html
+        assert "ATTENTION" not in html
+
+    def test_attention_sorts_between_failed_and_ok(self):
+        html = ad._render_job_group([
+            {"label": "com.pt.aaa_ok", "pid": None, "last_exit": 0},
+            {"label": self.SEO_LABEL, "pid": None, "last_exit": 2},
+            {"label": "com.pt.zzz_bad", "pid": None, "last_exit": 3},
+        ])
+        assert html.index("zzz_bad") < html.index("hypocrisynow-seo") < html.index("aaa_ok")
+
+    def test_attention_job_does_not_change_subject_or_counts(self):
+        """Scheduled-job state is rendered in its own section and must never
+        leak into the dashboard-alert-derived subject/summary counts — an
+        ATTENTION job is not a dashboard alert and must not be counted as one."""
+        counts_before = ad._summary_counts([])
+        subject = ad.build_subject([])
+        html = ad.render_jobs_section(
+            [{"label": self.SEO_LABEL, "pid": None, "last_exit": 2}], None
+        )
+        assert "ATTENTION" in html
+        # Subject/counts are built from dashboard alerts only; an empty alerts
+        # list stays "All clear" regardless of job state.
+        assert subject == "[Project Alerts] ✅ All clear"
+        assert counts_before == {"critical": 0, "warning": 0, "info": 0}
+
 
 class TestFetchScheduledJobs:
     """launchctl does not exist on Linux CI, so the subprocess is always patched."""
