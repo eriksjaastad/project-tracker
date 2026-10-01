@@ -8,7 +8,7 @@ interface TaskDetailModalProps {
   task: Task | null;
   onClose: () => void;
   onUpdate: () => void;
-  onDelete?: (taskId: number) => Promise<void>;
+  onDelete?: (taskId: string) => Promise<void>;
 }
 
 export function TaskDetailModal({

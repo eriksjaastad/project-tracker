@@ -140,4 +140,105 @@ describe('TaskForm', () => {
       notes: '- [ ] pytest tests/test_foo.py passes',
     });
   });
+
+  it('keeps the exact Snowflake parent id when selecting a parent task (#7824)', async () => {
+    // pt_next_id (#6044) generates ids above Number.MAX_SAFE_INTEGER
+    // (9007199254740991). Running this value through parseInt -- which the
+    // parent-task <select> handler used to do on every change -- rounds it
+    // to 98969975881101310, and the new card would reference a different
+    // task (or none) than the one picked in the dropdown.
+    const BIG_ID = '98969975881101312';
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(fetchProjects).mockResolvedValue([
+      { id: 'smart-invoice-workflow', name: 'Smart Invoice Workflow', path: '/tmp/smart-invoice-workflow', status: 'active', can_create_cards: true, blocked_card_reason: null },
+    ]);
+    vi.mocked(fetchTasks).mockResolvedValue([
+      {
+        id: BIG_ID,
+        display_id: 6100,
+        text: 'Parent card',
+        status: 'Backlog',
+        project_id: 'smart-invoice-workflow',
+        priority: null,
+        task_type: 'manual',
+        created_at: '2026-09-01T00:00:00Z',
+        updated_at: '2026-09-01T00:00:00Z',
+        completed_at: null,
+        prompt: null,
+        title: null,
+        notes: null,
+        commit_sha: null,
+        category: null,
+        review_comment: null,
+        parent_id: null,
+        blocked_by: null,
+        sequence_order: null,
+      },
+    ]);
+    vi.mocked(fetchTaskPolicy).mockResolvedValue({ blocked_project_ids: [], blocked_project_reasons: {} });
+
+    render(<TaskForm onSubmit={onSubmit} onCancel={vi.fn()} initialProjectId="smart-invoice-workflow" />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/parent task/i)).toBeInTheDocument();
+    });
+
+    await userEvent.type(screen.getByLabelText(/task description/i), 'A subtask');
+    await userEvent.type(screen.getByLabelText(/acceptance criteria/i), 'pytest tests/test_foo.py passes');
+    await userEvent.selectOptions(screen.getByLabelText(/parent task/i), BIG_ID);
+    await userEvent.click(screen.getByRole('button', { name: /create task/i }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0].parentId).toBe(BIG_ID);
+  });
+
+  it('keeps the exact Snowflake id when blocking on a task entered by display id (#7824)', async () => {
+    const BIG_ID = '98969975881101312';
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(fetchProjects).mockResolvedValue([
+      { id: 'smart-invoice-workflow', name: 'Smart Invoice Workflow', path: '/tmp/smart-invoice-workflow', status: 'active', can_create_cards: true, blocked_card_reason: null },
+    ]);
+    vi.mocked(fetchTasks).mockResolvedValue([
+      {
+        id: BIG_ID,
+        display_id: 6100,
+        text: 'Blocker card',
+        status: 'Backlog',
+        project_id: 'smart-invoice-workflow',
+        priority: null,
+        task_type: 'manual',
+        created_at: '2026-09-01T00:00:00Z',
+        updated_at: '2026-09-01T00:00:00Z',
+        completed_at: null,
+        prompt: null,
+        title: null,
+        notes: null,
+        commit_sha: null,
+        category: null,
+        review_comment: null,
+        parent_id: null,
+        blocked_by: null,
+        sequence_order: null,
+      },
+    ]);
+    vi.mocked(fetchTaskPolicy).mockResolvedValue({ blocked_project_ids: [], blocked_project_reasons: {} });
+
+    render(<TaskForm onSubmit={onSubmit} onCancel={vi.fn()} initialProjectId="smart-invoice-workflow" />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/task description/i)).toBeInTheDocument();
+    });
+
+    await userEvent.type(screen.getByLabelText(/task description/i), 'A blocked task');
+    await userEvent.type(screen.getByLabelText(/acceptance criteria/i), 'pytest tests/test_foo.py passes');
+    // Humans type the small display id they see on the card (#6100), not
+    // the Snowflake pk.
+    await userEvent.type(screen.getByLabelText(/blocked by/i), '6100');
+    await userEvent.click(screen.getByRole('button', { name: /create task/i }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0].blockedBy).toEqual([BIG_ID]);
+  });
 });

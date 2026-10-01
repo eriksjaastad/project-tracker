@@ -99,7 +99,7 @@ export async function fetchTasks(projectId?: string, status?: TaskStatus, signal
 }
 
 export async function updateTask(
-  taskId: number,
+  taskId: string,
   updates: {
     text?: string;
     title?: string | null;
@@ -110,8 +110,8 @@ export async function updateTask(
     status?: TaskStatus;
     priority?: TaskPriority | null;
     task_type?: TaskType;
-    parent_id?: number | null;
-    blocked_by?: number[] | null;
+    parent_id?: string | null;
+    blocked_by?: string[] | null;
   }
 ): Promise<Task> {
   try {
@@ -144,8 +144,8 @@ export async function createTask(
   priority?: TaskPriority | null,
   taskType: TaskType = 'manual',
   category?: string | null,
-  parentId?: number | null,
-  blockedBy?: number[] | null,
+  parentId?: string | null,
+  blockedBy?: string[] | null,
   // Acceptance criteria, required (#7608): must contain at least one
   // "- [ ] <text>" checklist line -- see utils/checklist.ts.
   notes?: string | null
@@ -183,7 +183,7 @@ export async function createTask(
   }
 }
 
-export async function deleteTask(taskId: number): Promise<void> {
+export async function deleteTask(taskId: string): Promise<void> {
   try {
     const response = await fetchWithErrorHandling(`${API_BASE}/tasks/${taskId}`, {
       method: 'DELETE',
@@ -497,7 +497,7 @@ export async function deleteIdea(ideaId: number): Promise<void> {
 
 // ==================== ATTACHMENT API (#5216) ====================
 
-export async function fetchAttachments(taskId: number, signal?: AbortSignal): Promise<Attachment[]> {
+export async function fetchAttachments(taskId: string, signal?: AbortSignal): Promise<Attachment[]> {
   const response = await fetchWithErrorHandling(`${API_BASE}/tasks/${taskId}/attachments`, { signal });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
@@ -507,7 +507,7 @@ export async function fetchAttachments(taskId: number, signal?: AbortSignal): Pr
   return data.attachments || [];
 }
 
-export async function uploadAttachment(taskId: number, file: File): Promise<Attachment> {
+export async function uploadAttachment(taskId: string, file: File): Promise<Attachment> {
   const formData = new FormData();
   formData.append('file', file);
   const response = await fetch(`${API_BASE}/tasks/${taskId}/attachments`, {
@@ -521,7 +521,7 @@ export async function uploadAttachment(taskId: number, file: File): Promise<Atta
   return response.json();
 }
 
-export async function deleteAttachment(taskId: number, attachmentId: number): Promise<void> {
+export async function deleteAttachment(taskId: string, attachmentId: string): Promise<void> {
   const response = await fetchWithErrorHandling(
     `${API_BASE}/tasks/${taskId}/attachments/${attachmentId}`,
     { method: 'DELETE' }

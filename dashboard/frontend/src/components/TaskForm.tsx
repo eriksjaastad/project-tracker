@@ -14,8 +14,8 @@ interface TaskFormProps {
     priority: TaskPriority | null;
     taskType: TaskType;
     notes: string;
-    parentId?: number | null;
-    blockedBy?: number[] | null;
+    parentId?: string | null;
+    blockedBy?: string[] | null;
   }) => Promise<void>;
   onCancel: () => void;
   initialProjectId?: string;
@@ -34,7 +34,7 @@ export function TaskForm({
   const [status, setStatus] = useState<TaskStatus>(initialStatus);
   const [priority, setPriority] = useState<TaskPriority | null>(null);
   const [taskType, setTaskType] = useState<TaskType>('manual');
-  const [parentId, setParentId] = useState<number | null>(null);
+  const [parentId, setParentId] = useState<string | null>(null);
   const [blockedByInput, setBlockedByInput] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -110,17 +110,24 @@ export function TaskForm({
       return;
     }
 
-    // Parse blocked_by
-    let blockedBy: number[] | null = null;
+    // Parse blocked_by. `rawId` (the trimmed, '#'-stripped text the user
+    // typed) is kept as a string throughout -- task ids can exceed
+    // Number.MAX_SAFE_INTEGER (#7824), so parseInt is only safe for
+    // matching against the small, sequential display_id, never as the
+    // value we actually send.
+    let blockedBy: string[] | null = null;
     if (blockedByInput.trim()) {
       try {
         blockedBy = blockedByInput
           .split(',')
-          .map((rawId) => parseInt(rawId.trim().replace('#', ''), 10))
-          .filter((id) => !isNaN(id))
-          .map((enteredId) => {
-            const matchedTask = tasks.find((task) => (task.display_id ?? task.id) === enteredId || task.id === enteredId);
-            return matchedTask ? matchedTask.id : enteredId;
+          .map((entry) => entry.trim().replace('#', ''))
+          .filter((rawId) => rawId !== '' && !isNaN(Number(rawId)))
+          .map((rawId) => {
+            const enteredDisplayId = parseInt(rawId, 10);
+            const matchedTask = tasks.find(
+              (task) => task.display_id === enteredDisplayId || task.id === rawId
+            );
+            return matchedTask ? matchedTask.id : rawId;
           });
         if (blockedBy.length === 0) blockedBy = null;
       } catch {
@@ -315,7 +322,7 @@ export function TaskForm({
             id="task-parent"
             className="task-form-select"
             value={parentId || ''}
-            onChange={(e) => setParentId(e.target.value ? parseInt(e.target.value) : null)}
+            onChange={(e) => setParentId(e.target.value || null)}
             disabled={loading}
           >
             <option value="">None (top-level task)</option>

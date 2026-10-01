@@ -733,25 +733,49 @@ def _collect_task_display_ids(task_payload: dict, acc: set[int]) -> None:
 
 
 def _apply_task_display_ids(task_payload: dict, display_map: dict[int, int]) -> dict:
-    """Attach human display ids to a task payload recursively."""
+    """Attach human display ids to a task payload recursively.
+
+    Also converts every raw Snowflake-scale id field (``id``, ``parent_id``,
+    ``blocked_by_ids``, ``incomplete_blocking_ids``, ``unresolved_blocking_ids``)
+    to a decimal string. pt_id (#6044) generates 63-bit ids that exceed
+    ``Number.MAX_SAFE_INTEGER`` (2^53-1); a bare JSON number above that
+    threshold is silently rounded by every browser's ``JSON.parse``, so
+    every PATCH built from a parsed id 404s against the wrong row (#7824).
+    Stringify only after the int-keyed ``display_map`` lookups above run —
+    they need the exact int to find the right display id.
+    """
     task_id = task_payload.get("id")
     if isinstance(task_id, int):
         task_payload["display_id"] = display_map.get(task_id, task_id)
+        task_payload["id"] = str(task_id)
 
     parent_id = task_payload.get("parent_id")
     if isinstance(parent_id, int):
         task_payload["parent_display_id"] = display_map.get(parent_id, parent_id)
+        task_payload["parent_id"] = str(parent_id)
 
     blocked_by_ids = task_payload.get("blocked_by_ids")
     if isinstance(blocked_by_ids, list):
         task_payload["blocked_by_display_ids"] = [
             display_map.get(ref_id, ref_id) for ref_id in blocked_by_ids if isinstance(ref_id, int)
         ]
+        task_payload["blocked_by_ids"] = [
+            str(ref_id) if isinstance(ref_id, int) else ref_id for ref_id in blocked_by_ids
+        ]
 
     incomplete_ids = task_payload.get("incomplete_blocking_ids")
     if isinstance(incomplete_ids, list):
         task_payload["incomplete_blocking_display_ids"] = [
             display_map.get(ref_id, ref_id) for ref_id in incomplete_ids if isinstance(ref_id, int)
+        ]
+        task_payload["incomplete_blocking_ids"] = [
+            str(ref_id) if isinstance(ref_id, int) else ref_id for ref_id in incomplete_ids
+        ]
+
+    unresolved_ids = task_payload.get("unresolved_blocking_ids")
+    if isinstance(unresolved_ids, list):
+        task_payload["unresolved_blocking_ids"] = [
+            str(ref_id) if isinstance(ref_id, int) else ref_id for ref_id in unresolved_ids
         ]
 
     parent = task_payload.get("parent")
@@ -2862,7 +2886,10 @@ async def delete_task(task_id: int):
     try:
         db = DatabaseManager()
         db.delete_task(task_id)
-        return {"deleted": True, "task_id": task_id}
+        # str(): task_id is a pt_id Snowflake int (#6044) that can exceed
+        # Number.MAX_SAFE_INTEGER; a bare JSON number would round in the
+        # browser (#7824).
+        return {"deleted": True, "task_id": str(task_id)}
     except ValueError as e:
         message = str(e)
         if "SAFE_MODE=1" in message:
@@ -2890,6 +2917,19 @@ async def delete_task(task_id: int):
 # --- Attachment API Endpoints (#5216) ---
 
 ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024  # 20 MB
+
+
+def _stringify_attachment_ids(record: dict) -> dict:
+    """Stringify an attachment record's Snowflake-scale id fields (#7824).
+
+    ``task_attachments.id`` and ``.task_id`` both come from pt_next_id
+    (#6044) and can exceed Number.MAX_SAFE_INTEGER; left as bare JSON
+    numbers they round in the browser the same way task ids did.
+    """
+    for key in ("id", "task_id"):
+        if isinstance(record.get(key), int):
+            record[key] = str(record[key])
+    return record
 
 
 @app.post("/api/tasks/{task_id}/attachments", status_code=status.HTTP_201_CREATED)
@@ -2926,7 +2966,7 @@ async def upload_attachment(task_id: int, file: UploadFile = File(...)):
         mime_type=mime_type,
         size_bytes=size,
     )
-    return record
+    return _stringify_attachment_ids(record)
 
 
 @app.get("/api/tasks/{task_id}/attachments")
@@ -2935,7 +2975,7 @@ async def list_attachments(task_id: int):
     db = DatabaseManager()
     if not db.get_task(task_id):
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-    return {"attachments": db.get_attachments(task_id)}
+    return {"attachments": [_stringify_attachment_ids(a) for a in db.get_attachments(task_id)]}
 
 
 @app.delete("/api/tasks/{task_id}/attachments/{attachment_id}", status_code=status.HTTP_200_OK)
@@ -2965,10 +3005,10 @@ async def delete_attachment(task_id: int, attachment_id: int):
             )
             return {
                 "deleted": True,
-                "attachment_id": attachment_id,
+                "attachment_id": str(attachment_id),
                 "file_orphaned": str(file_path),
             }
-    return {"deleted": True, "attachment_id": attachment_id}
+    return {"deleted": True, "attachment_id": str(attachment_id)}
 
 
 @app.get("/api/attachments/{task_id}/{stored_name}")
