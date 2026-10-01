@@ -72,8 +72,9 @@ for executions that have GitHub request/acknowledgement objects. Pass the target
 arguments, `--ledger` pointing to a JSON array, `--snapshot` set to the digest
 you inspected, repeatable `--evidence` GitHub URLs, and `--summary` explaining
 the reconciliation. Do **not** record a purely local Codex review there by
-inventing GitHub URLs; that can falsely trigger the tool's third-execution hold.
-A changed snapshot requires reading the new evidence before reconciling again.
+inventing GitHub URLs; that can falsely count as a GitHub-ledger execution that
+never happened. A changed snapshot requires reading the new evidence before
+reconciling again.
 
 When clearance is local-only (no GitHub review objects), `pt pr assess` cannot
 emit a GitHub-ledger `clean` / `recheck_and_merge` handoff — that path still
@@ -105,8 +106,8 @@ Only a successful `request` command with a `request_baseline` event reserves a
 review. An inactive run, expired budget or concurrent evidence update can reject
 the command; do not trigger GitHub after a failure. Inspect the saved state and
 reconcile fresh evidence before trying again within the existing limits.
-`assess` also fails when no assessment was recorded. Successful clean assessments
-can end the run, and a recorded third-finding assessment can escalate it.
+`assess` also fails when no assessment was recorded. A successful clean
+assessment on a completed current-head execution ends the run.
 
 The request record retains its snapshot, time and existing reaction IDs. For a
 comment-based request, add `--request-comment-id 123456` to `pt pr settle`; repeat
@@ -126,32 +127,39 @@ proof; adding the ID alone cannot attribute it to an execution. A thumbs-up alon
 never grants clearance; head lookups and commit/push history still need inspection.
 
 The limits below are enforced by the settle tool on its GitHub-evidence ledger
-(`scripts/pr_settle_state.py`). The shared policy itself no longer sets a fixed
-review-cycle limit; whether the tool keeps its third-execution hold is tracked
-on card #7735.
+(`scripts/pr_settle_state.py`). The shared policy sets no fixed review-cycle
+limit, and the tool does not invent one of its own: there is no third-execution
+hold, and no fixed count of completed cycles ever blocks a further request.
+Reassessing a repeated-findings pattern is the separate Codex review-loop
+tripwire's job (claude-user-config #7738), not this ledger's (decision recorded
+on card #7735, which removed the tool's own hold).
 
 At five silent minutes, stop and ask Erik to resolve whether an execution began.
 There is no automatic silent retry. The tool permits a retry only with
-affirmative evidence of rejection/no execution, a known count below the hold
-and no active attempt. An acknowledged but incomplete review gets fifteen
-minutes before escalation. These limits never establish approval.
+affirmative evidence of rejection/no execution and no active attempt. An
+acknowledged but incomplete review gets fifteen minutes before escalation. An
+uncertain (`unknown`) execution status always stops further requests — that
+escalation has no cycle-count exception. These limits never establish approval.
 
-**A clean third ledger execution can merge; one with remaining findings stops.**
-While the third execution runs, stop edits, commits, pushes and further review
-requests. If reserving the third request, perform only that recorded trigger.
-Read its completed result and reconcile the execution ledger against the current
-snapshot. When the third review is clean on the unchanged current head and CI
-and all other merge requirements are satisfied, record that assessment and use
-the normal merge handoff. No extra human approval is required just because it
-was the third review.
+**A clean completed ledger execution at the current head can merge; one with
+remaining findings stops.** While an execution is in flight, stop edits,
+commits, pushes and further review requests. If reserving a request, perform
+only that recorded trigger. Read its completed result and reconcile the
+execution ledger against the current snapshot. When the review is clean on
+the unchanged current head and CI and all other merge requirements are
+satisfied, record that assessment and use the normal merge handoff. No extra
+human approval is required, and it does not matter whether this was the first,
+second, third or later execution — clean follows from the completed execution,
+not from its position in the ledger.
 
-If the third result still has findings, is ambiguous, or requires more changes,
-stop and discuss the pattern with Erik. Do not fix, push or request a fourth
-review without his explicit direction. Pending review or CI is not clearance;
-continue the bounded wait. An uncertain execution count stops requests. A raw
-thumbs-up is an assessment candidate and still requires the full evidence checks.
-This is Erik's clarification: "If you get a clean third review, then you get to
-merge it." It supersedes the earlier unconditional clean-third human hold.
+If a result still has findings, is ambiguous, or requires more changes, fix
+and request another review as the shared policy's normal cycle allows; there is
+no fixed number of reviews after which the tool itself forces a stop. When the
+same root cause keeps returning across reviews, stop and discuss the pattern
+with Erik rather than requesting another cycle — that reassessment, not a
+cycle count, is the gate. Pending review or CI is not clearance; continue the
+bounded wait. An uncertain execution count stops requests. A raw thumbs-up is
+an assessment candidate and still requires the full evidence checks.
 
 For `notify_erik_and_stop`, the attached owner tells Erik **once**, deduplicating
 the event ID. Include repository, PR URL, head, CI, execution count/evidence,

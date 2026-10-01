@@ -67,11 +67,11 @@ def test_corrupt_state_is_preserved(storage, payload):
     assert storage.path.read_text() == payload
 
 
-@pytest.mark.parametrize("corruption", ["deadline", "review_hold", "cursor", "sequence", "polls"])
+@pytest.mark.parametrize("corruption", ["deadline", "started_at", "cursor", "sequence", "polls"])
 def test_valid_json_with_corrupt_budget_or_delivery_is_rejected_without_rewrite(storage, corruption):
     state = cli.engine.fresh(storage.repo, 7, storage.owner, 100, 180)
     cli.engine.emit(state, "example", "wait", 100)
-    if corruption in {"deadline", "review_hold"}:
+    if corruption in {"deadline", "started_at"}:
         del state[corruption]
     elif corruption == "cursor":
         state["acked"] = 999
@@ -134,7 +134,7 @@ def test_head_change_during_collection_waits_for_consistent_snapshot(storage, mo
     assert storage.load()["events"][-1]["type"] == "closed"
 
 
-def test_pause_and_resume_keep_third_execution_request_limit(storage, monkeypatch, tmp_path):
+def test_pause_and_resume_preserve_execution_history_without_a_fixed_limit(storage, monkeypatch, tmp_path):
     monkeypatch.setattr(cli.time, "time", lambda: 100)
     state = cli.engine.fresh(storage.repo, 7, storage.owner, 0, 180)
     current = snapshot()
@@ -151,17 +151,18 @@ def test_pause_and_resume_keep_third_execution_request_limit(storage, monkeypatc
     result = runner.invoke(cli.pr_group, ["history", *target, "--ledger", str(ledger),
         "--snapshot", state["snapshot_id"], "--evidence", url, "--summary", "Complete distinct execution history"])
     assert result.exit_code == 0, result.output
-    assert storage.load()["review_hold"] is True
+    assert len(storage.load()["cycles"]) == 3
     assert runner.invoke(cli.pr_group, ["settle", *target, "--hold"]).exit_code == 0
     monkeypatch.setattr(cli, "collect", lambda *a, **kw: snapshot())
     result = runner.invoke(cli.pr_group, ["settle", *target, "--resume"])
     assert result.exit_code == 0, result.output
     assert len(storage.load()["cycles"]) == 3
-    assert storage.load()["review_hold"] is True
+    # The third execution is only acknowledged, not completed, so clean cannot
+    # hand off -- the ordinary "no active attempt" rule, not a cycle-count hold.
     assert not any(event["action"] == "recheck_and_merge" for event in storage.load()["events"])
 
 
-def test_completed_clean_third_review_hands_back_merge_without_human_hold(storage, monkeypatch, tmp_path):
+def test_completed_clean_execution_after_three_cycles_hands_back_merge(storage, monkeypatch, tmp_path):
     monkeypatch.setattr(cli.time, "time", lambda: 100)
     state = cli.engine.fresh(storage.repo, 7, storage.owner, 0, 180)
     current = snapshot()
@@ -179,7 +180,7 @@ def test_completed_clean_third_review_hands_back_merge_without_human_hold(storag
     assert result.exit_code == 0, result.output
     result = runner.invoke(cli.pr_group, ["assess", *target, "--head", "a" * 40,
         "--snapshot", state["snapshot_id"], "--review", "clean", "--ci", "satisfied",
-        "--evidence", url, "--summary", "Third execution clean, unchanged head and all CI passed"])
+        "--evidence", url, "--summary", "Clean execution, unchanged head and all CI passed"])
     assert result.exit_code == 0, result.output
     saved = storage.load()
     assert saved["status"] == "settled"
@@ -432,7 +433,9 @@ def test_legitimate_reservation_and_assessment_report_success(storage, monkeypat
         "--evidence", url, "--summary", "Owner inspected the current review"])
     assert result.exit_code == 0, result.output
     assert storage.load()["assessment"]["review"] == ("findings" if third else "pending")
-    assert storage.load()["status"] == ("escalated" if third else "active")
+    # No fixed cycle count escalates findings on its own; the run stays active
+    # either way (that pattern is the Codex review-loop tripwire's job, #7738).
+    assert storage.load()["status"] == "active"
 
 
 @pytest.mark.parametrize("change", ["unchanged", "head", "reaction"])
