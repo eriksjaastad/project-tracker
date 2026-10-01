@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import { TaskForm } from './TaskForm';
+import { ACCEPTANCE_CRITERIA_TEMPLATE } from '../utils/checklist';
 
 vi.mock('../api', async (importOriginal) => ({
   // Spread the real module so isAbortError is the REAL implementation --
@@ -72,5 +74,70 @@ describe('TaskForm', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent("Cards cannot be created for project 'project-tracker'");
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('prefills the acceptance-criteria field with the unfilled checklist template', async () => {
+    vi.mocked(fetchProjects).mockResolvedValue([
+      { id: 'smart-invoice-workflow', name: 'Smart Invoice Workflow', path: '/tmp/smart-invoice-workflow', status: 'active', can_create_cards: true, blocked_card_reason: null },
+    ]);
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchTaskPolicy).mockResolvedValue({ blocked_project_ids: [], blocked_project_reasons: {} });
+
+    render(<TaskForm onSubmit={vi.fn()} onCancel={vi.fn()} initialProjectId="smart-invoice-workflow" />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/acceptance criteria/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByLabelText(/acceptance criteria/i)).toHaveValue(ACCEPTANCE_CRITERIA_TEMPLATE);
+  });
+
+  it('blocks submit when the acceptance-criteria field is left as the unfilled template', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(fetchProjects).mockResolvedValue([
+      { id: 'smart-invoice-workflow', name: 'Smart Invoice Workflow', path: '/tmp/smart-invoice-workflow', status: 'active', can_create_cards: true, blocked_card_reason: null },
+    ]);
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchTaskPolicy).mockResolvedValue({ blocked_project_ids: [], blocked_project_reasons: {} });
+
+    render(<TaskForm onSubmit={onSubmit} onCancel={vi.fn()} initialProjectId="smart-invoice-workflow" />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/task description/i)).toBeInTheDocument();
+    });
+
+    await userEvent.type(screen.getByLabelText(/task description/i), 'A new feature');
+    // Acceptance criteria left at the default "- [ ] " template -- no real text.
+    await userEvent.click(screen.getByRole('button', { name: /create task/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Acceptance criteria required');
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('submits notes once a concrete acceptance criterion is given', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(fetchProjects).mockResolvedValue([
+      { id: 'smart-invoice-workflow', name: 'Smart Invoice Workflow', path: '/tmp/smart-invoice-workflow', status: 'active', can_create_cards: true, blocked_card_reason: null },
+    ]);
+    vi.mocked(fetchTasks).mockResolvedValue([]);
+    vi.mocked(fetchTaskPolicy).mockResolvedValue({ blocked_project_ids: [], blocked_project_reasons: {} });
+
+    render(<TaskForm onSubmit={onSubmit} onCancel={vi.fn()} initialProjectId="smart-invoice-workflow" />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/task description/i)).toBeInTheDocument();
+    });
+
+    await userEvent.type(screen.getByLabelText(/task description/i), 'A new feature');
+    await userEvent.type(screen.getByLabelText(/acceptance criteria/i), 'pytest tests/test_foo.py passes');
+    await userEvent.click(screen.getByRole('button', { name: /create task/i }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      text: 'A new feature',
+      notes: '- [ ] pytest tests/test_foo.py passes',
+    });
   });
 });

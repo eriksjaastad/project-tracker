@@ -1934,9 +1934,10 @@ def tasks_create(text, project, status, priority, prompt, category, description,
         console.print(
             f"[yellow]Failed to create task: task creation is blocked for '{project_id}'.[/yellow]"
         )
-        return
+        sys.exit(1)
     except Exception as e:
         console.print(f"[red]Failed to create task: {e}[/red]")
+        sys.exit(1)
 
 
 @tasks_group.command(name="update")

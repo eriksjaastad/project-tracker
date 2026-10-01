@@ -178,13 +178,22 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.test or args.text:
+        notes = args.notes
+        if args.test and not args.text and notes is None:
+            # Pure self-test smoke-check (`--test` with no --text/--notes at
+            # all): supply an explicit, clearly-labeled fixture criterion so
+            # the smoke-check still succeeds. A real --text call with no
+            # --notes gets no substitution -- notes stays None and is
+            # rejected by create_card() like any other missing-criteria
+            # creation (#7608), so this flag can't be used to bypass it.
+            notes = "- [ ] Self-test fixture: MCP standalone --test smoke-check"
         result = kanban_add_task(
             project=args.project,
             text=args.text or "Test task from MCP server",
             status=args.status,
             priority=args.priority,
             prompt=args.prompt,
-            notes=args.notes or "- [ ] Verify via MCP standalone test mode",
+            notes=notes,
         )
         print(json.dumps(result, indent=2))
     else:

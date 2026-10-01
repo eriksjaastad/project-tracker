@@ -145,7 +145,10 @@ export async function createTask(
   taskType: TaskType = 'manual',
   category?: string | null,
   parentId?: number | null,
-  blockedBy?: number[] | null
+  blockedBy?: number[] | null,
+  // Acceptance criteria, required (#7608): must contain at least one
+  // "- [ ] <text>" checklist line -- see utils/checklist.ts.
+  notes?: string | null
 ): Promise<Task> {
   try {
     const response = await fetchWithErrorHandling(`${API_BASE}/tasks`, {
@@ -162,6 +165,7 @@ export async function createTask(
         category,
         parent_id: parentId,
         blocked_by: blockedBy,
+        notes,
       }),
     });
 

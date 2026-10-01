@@ -10,8 +10,14 @@ Covers:
 - POST /api/tasks (dashboard API) rejects/accepts, with a useful field name
   on the 400 response
 - kanban_add_task (MCP tool) rejects/accepts
+- mcp_server.py's standalone `__main__` CLI: a real --text call with no
+  --notes is rejected (no silent substitution); bare --test still works
+  via its own explicit, clearly-labeled fixture criterion
 """
 
+import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +26,8 @@ from click.testing import CliRunner
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+
+MCP_SERVER_SCRIPT = Path(__file__).parent.parent / "scripts" / "mcp_server.py"
 
 from db.manager import DatabaseManager
 from db.schema import create_database
@@ -180,6 +188,7 @@ class TestCliTasksCreate:
 
         runner = CliRunner()
         result = runner.invoke(tasks_group, ["create", "New feature", "-p", project_id])
+        assert result.exit_code != 0, "a rejected create must not exit 0"
         assert "Acceptance criteria required" in result.output
         assert "- [ ] <how completion is verified>" in result.output
         assert len(db.get_tasks(project_id=project_id)) == 0
@@ -208,6 +217,7 @@ class TestCliTasksCreate:
         result = runner.invoke(
             tasks_group, ["create", "Proposed idea", "-p", project_id, "--proposal"]
         )
+        assert result.exit_code != 0, "a rejected create must not exit 0"
         assert "Acceptance criteria required" in result.output
         assert len(db.get_tasks(project_id=project_id, status=None)) == 0
 
@@ -273,3 +283,45 @@ class TestMcpKanbanAddTask:
         result = kanban_add_task(project=project_id, text="New feature", notes=VALID_NOTES)
         assert result["success"] is True
         assert result["task"]["notes"] == VALID_NOTES
+
+
+# --- mcp_server.py standalone __main__ CLI ---
+
+
+class TestMcpServerStandaloneCli:
+    def _run(self, args: list[str], db_path: Path) -> dict:
+        env = {**os.environ, "PT_DB_PATH": str(db_path)}
+        proc = subprocess.run(
+            [sys.executable, str(MCP_SERVER_SCRIPT), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+        assert proc.returncode == 0, proc.stderr  # the script itself always exits 0; look at the JSON
+        return json.loads(proc.stdout)
+
+    def test_text_without_notes_is_rejected(self, tmp_path: Path):
+        """A real --text call with no --notes gets no silent substitution."""
+        db_path, db, project_id = _setup_db(tmp_path)
+        payload = self._run(["--text", "New feature", "--project", project_id], db_path)
+        assert payload["success"] is False
+        assert "Acceptance criteria required" in payload["error"]
+        assert len(db.get_tasks(project_id=project_id)) == 0
+
+    def test_text_with_notes_is_accepted(self, tmp_path: Path):
+        db_path, db, project_id = _setup_db(tmp_path)
+        payload = self._run(
+            ["--text", "New feature", "--project", project_id, "--notes", VALID_NOTES],
+            db_path,
+        )
+        assert payload["success"] is True
+        assert payload["task"]["notes"] == VALID_NOTES
+
+    def test_bare_test_flag_uses_its_own_explicit_fixture(self, tmp_path: Path):
+        """`--test` alone (no --text/--notes) is a deliberate self-test
+        smoke-check, not a stand-in for a real caller's missing criteria."""
+        db_path, db, project_id = _setup_db(tmp_path)
+        payload = self._run(["--test", "--project", project_id], db_path)
+        assert payload["success"] is True
+        assert "Self-test fixture" in payload["task"]["notes"]
