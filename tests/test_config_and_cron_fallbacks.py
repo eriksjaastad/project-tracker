@@ -119,11 +119,33 @@ def test_get_expected_next_run_handles_missing_or_broken_croniter(monkeypatch):
     assert cron_monitor.get_expected_next_run("0 * * * *", last_run) is None
     assert cron_monitor.get_expected_next_run("@hourly", last_run) == last_run + timedelta(hours=1)
 
+    def rejecting_croniter(*_args, **_kwargs):
+        raise ValueError("croniter cannot step this schedule")
+
+    monkeypatch.setattr(cron_monitor, "croniter", rejecting_croniter)
+    assert cron_monitor.get_expected_next_run("0 * * * *", last_run) is None
+
+
+def test_get_expected_next_run_raises_unexpected_croniter_errors(monkeypatch):
+    """#6900: a croniter bug must surface, not silently disable the missed-run check."""
     def broken_croniter(*_args, **_kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(cron_monitor, "croniter", broken_croniter)
-    assert cron_monitor.get_expected_next_run("0 * * * *", last_run) is None
+    with pytest.raises(RuntimeError, match="boom"):
+        cron_monitor.get_expected_next_run("0 * * * *", datetime(2026, 3, 1, 12, 0, 0))
+
+
+def test_is_valid_cron_rejects_malformed_expression_and_raises_on_bugs(monkeypatch):
+    """#6900: only croniter's own rejection (a ValueError) means "invalid"."""
+    assert cron_monitor.is_valid_cron("not a cron") is False
+
+    def broken_croniter(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cron_monitor, "croniter", broken_croniter)
+    with pytest.raises(RuntimeError, match="boom"):
+        cron_monitor.is_valid_cron("0 0 * * *")
 
 
 def test_fresh_database_check_allows_scanned_projects_without_tasks(tmp_path, monkeypatch):

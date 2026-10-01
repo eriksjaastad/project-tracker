@@ -16,6 +16,7 @@ def setting(name: str, *aliases: str) -> str:
     """Explicit process settings override the scheduled job's persisted settings."""
     names = (name, *aliases)
     for key in names:
+        # governance: allow-silent SF003: each name is optional; an empty value falls through to the next alias and then the launch agent plist
         value = os.getenv(key, "").strip()
         if value:
             return value
@@ -28,7 +29,7 @@ def setting(name: str, *aliases: str) -> str:
             value = environment.get(key, "")
             if isinstance(value, str) and value.strip():
                 return value.strip()
-    except FileNotFoundError:
+    except FileNotFoundError:  # governance: allow-silent SF001: no launch agent plist means an unscheduled install; "" tells callers to use their documented default path
         pass  # An unscheduled installation may configure manual runs via environment.
     except (OSError, ValueError, AttributeError, plistlib.InvalidFileException) as error:
         logger.warning("Cannot read backup settings from %s: %s", path, error)

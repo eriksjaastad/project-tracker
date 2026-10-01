@@ -31,13 +31,13 @@ def get_last_commit_date(project_path: Path) -> Optional[str]:
         
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired:  # governance: allow-silent SF002: None means "no git date"; get_last_modified then uses the file-modification-time fallback, its documented contract
         logger.warning(f"Git command timed out for {project_path}")
         return None
-    except FileNotFoundError:
+    except FileNotFoundError:  # governance: allow-silent SF002: git not installed means no git date; get_last_modified then uses the file-modification-time fallback
         logger.warning(f"Git executable not found for {project_path}")
         return None
-    except Exception as e:
+    except OSError as e:  # governance: allow-silent SF002: git could not be started here; None makes get_last_modified use the file-modification-time fallback, and unexpected errors now raise
         logger.error(f"Failed to get git commit date for {project_path}: {e}")
         return None
     

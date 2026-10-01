@@ -276,3 +276,28 @@ class TestAgentQualifier:
     def test_invalid_agent_env_ignored(self, projects, monkeypatch):
         monkeypatch.setenv("AGENT_CHAT_AGENT", "bad agent!")
         assert identity.resolve_for_session("sess-bad", projects / "ai-memory") == "ai-memory"
+
+
+class TestIdentityReadFailuresAreVisible:
+    """#6900: an unreadable identity is a failure, never "no identity"."""
+
+    def test_unresolvable_cwd_raises_instead_of_outside_project(self, projects, monkeypatch):
+        def broken_resolve(self, strict=False):
+            raise OSError("resolve failed")
+
+        monkeypatch.setattr(identity.Path, "resolve", broken_resolve)
+        with pytest.raises(OSError):
+            identity.find_project_root(projects / "ai-memory")
+
+    def test_unreadable_identity_does_not_fall_back_to_sender(self, projects, monkeypatch):
+        """A frozen identity that cannot be read must not be replaced by the env sender."""
+        monkeypatch.setenv("AGENT_CHAT_SENDER", "claude-architect")
+        identity.identity_path("sess-broken").mkdir(parents=True)
+        with pytest.raises(IsADirectoryError):
+            identity.read_identity("sess-broken")
+
+    def test_unreadable_identity_is_not_re_resolved(self, projects):
+        """resolve_for_session must not overwrite a frozen identity it failed to read."""
+        identity.identity_path("sess-frozen").mkdir(parents=True)
+        with pytest.raises(IsADirectoryError):
+            identity.resolve_for_session("sess-frozen", projects / "ai-memory")

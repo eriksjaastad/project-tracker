@@ -115,7 +115,7 @@ def _load_gitignore_dirs(project_path: Path) -> set:
             clean = line.strip('/')
             if clean and '/' not in clean and '*' not in clean:
                 dirs.add(clean)
-    except Exception:
+    except (OSError, UnicodeDecodeError):  # governance: allow-silent SF001: an unreadable .gitignore only means no extra directory excludes; the graph's built-in skip list still applies
         pass
     return dirs
 
@@ -310,7 +310,7 @@ class GraphBuilder:
                 logger.debug(f"Skipping oversized file for relationship scan: {file_path}")
                 return
             content = file_path.read_text(encoding='utf-8', errors='ignore')
-        except Exception as e:
+        except OSError as e:  # governance: allow-silent SF002: a file that vanished or cannot be read keeps its node from scan() and only contributes no edges; other errors raise
             logger.warning(f"Could not read {file_path}: {e}")
             return
 
@@ -519,7 +519,7 @@ class GraphBuilder:
                     if target_id in self.node_map:
                         self._add_edge(source_id, target_id, "wikilink", f"[[{link_text}]]")
                         continue
-                except (OSError, ValueError):
+                except (OSError, ValueError):  # governance: allow-silent SF001: an unresolvable relative path falls through to the filename lookup below
                     pass
 
             # Try as filename match (with or without .md extension)
@@ -547,7 +547,7 @@ class GraphBuilder:
                 if target_id in self.node_map:
                     self._add_edge(source_id, target_id, "python_cli", f"`python {script_path}`")
                     continue
-            except (OSError, ValueError):
+            except (OSError, ValueError):  # governance: allow-silent SF001: an unresolvable relative path falls through to the filename lookup below
                 pass
 
             # Try as filename match
@@ -577,7 +577,7 @@ class GraphBuilder:
             if target_id in self.node_map:
                 self._add_edge(source_id, target_id, edge_type, script_path)
                 return
-        except (OSError, ValueError):
+        except (OSError, ValueError):  # governance: allow-silent SF001: an unresolvable relative path falls through to the filename lookup below
             pass
 
         # Try as filename match
@@ -601,7 +601,7 @@ class GraphBuilder:
                 if target_id in self.node_map:
                     self._add_edge(source_id, target_id, "dockerfile_copy", f"COPY {copy_path}")
                     continue
-            except (OSError, ValueError):
+            except (OSError, ValueError):  # governance: allow-silent SF001: an unresolvable relative path falls through to the filename lookup below
                 pass
 
             # Try as filename match
@@ -631,7 +631,7 @@ class GraphBuilder:
             if target_id in self.node_map:
                 self._add_edge(source_id, target_id, edge_type, yaml_path)
                 return
-        except (OSError, ValueError):
+        except (OSError, ValueError):  # governance: allow-silent SF001: an unresolvable relative path falls through to the filename lookup below
             pass
 
         # Try as filename match
@@ -651,7 +651,7 @@ class GraphBuilder:
                 if target_id in self.node_map:
                     self._add_edge(source_id, target_id, "makefile_include", f"include {include_path}")
                     continue
-            except (OSError, ValueError):
+            except (OSError, ValueError):  # governance: allow-silent SF001: an unresolvable relative path falls through to the filename lookup below
                 pass
 
             # Try as filename match

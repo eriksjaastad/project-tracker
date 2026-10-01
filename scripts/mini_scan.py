@@ -75,7 +75,7 @@ def collect_jobs():
         )
         if proc.returncode != 0:
             return None
-    except Exception:
+    except (OSError, subprocess.TimeoutExpired):  # governance: allow-silent SF002: None is the documented "couldn't read jobs" value, distinct from an empty list
         return None
     jobs = []
     for line in proc.stdout.splitlines()[1:]:

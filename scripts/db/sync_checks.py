@@ -88,7 +88,7 @@ def ntp_drift_seconds(
             timeout=timeout_s,
             check=False,
         )
-    except (subprocess.TimeoutExpired, OSError):
+    except (subprocess.TimeoutExpired, OSError):  # governance: allow-silent SF002: None is the documented "probe failed" value; PreflightReport.ok treats a None drift as not ok and the daemon refuses to start
         return None
     if proc.returncode != 0:
         return None
@@ -97,7 +97,7 @@ def ntp_drift_seconds(
         return None
     try:
         return float(match.group(2))
-    except ValueError:
+    except ValueError:  # governance: allow-silent SF002: None is the documented "probe failed" value; PreflightReport.ok treats a None drift as not ok and the daemon refuses to start
         return None
 
 
@@ -122,7 +122,7 @@ def peer_reachable(
             timeout=timeout_s + 2.0,
             check=False,
         )
-    except (subprocess.TimeoutExpired, OSError):
+    except (subprocess.TimeoutExpired, OSError):  # governance: allow-silent SF002: False means "not reachable", which fails PreflightReport.ok so the daemon refuses to sync
         return False
     if proc.returncode != 0:
         return False
@@ -167,7 +167,7 @@ def explicit_machine_id(conn: sqlite3.Connection) -> Optional[int]:
         row = conn.execute(
             "SELECT value FROM _metadata WHERE key = 'pt.machine_id'"
         ).fetchone()
-    except sqlite3.OperationalError as exc:
+    except sqlite3.OperationalError as exc:  # governance: allow-silent SF002: only "no such table" returns None, meaning no operator-configured id exists yet; other errors re-raise
         if "no such table" in str(exc).lower():
             return None
         raise

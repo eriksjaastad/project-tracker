@@ -70,6 +70,11 @@ class SafetyError(Exception):
     pass
 
 
+class SafetyBackupError(SafetyError):
+    """The pre-migration safety backup failed, so the migration must not run."""
+    pass
+
+
 def _prune_safety_backups(backup_dir: Path, keep: int = 10) -> None:
     """Prune old safety backups by sending them to Trash instead of deleting them."""
     safety_files = sorted(backup_dir.glob("tasks_safety_backup_*.json"))
@@ -96,13 +101,18 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
 
     Returns the backup path if tasks were backed up, None if table was empty/missing.
     This runs BEFORE any migration attempt - even if migration will refuse.
-    
+
+    Raises SafetyBackupError, naming the backup path and the cause, when the
+    local backup cannot be taken: the caller is about to migrate the live
+    database and must not do so without it (#6900).
+
     SAFETY: Writes to TWO locations:
-    1. data/backups/ - local to project
+    1. data/backups/ - local to project (required)
     2. ~/.project-tracker/backups/ - external, survives project directory accidents
+       (a failure here is a warning; the local copy already exists)
     """
     backup_dir = db_path.parent / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_path = backup_dir / "tasks_safety_backup_<timestamp>.json"
     
     # External backup location - survives project directory accidents
     # Use EXTERNAL_BACKUP_DIR from config
@@ -110,7 +120,7 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
     
     try:
         external_backup_dir.mkdir(parents=True, exist_ok=True)
-    except Exception:
+    except Exception:  # governance: allow-silent SF001: the external write below fails for the same reason and prints its own stderr warning; the local backup is still written
         # If we can't even create the directory, we might be sandboxed
         # We don't warn here yet, wait until we actually try to write
         pass
@@ -136,6 +146,10 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
 
         # Convert to list of dicts
         tasks = [dict(row) for row in rows]
+
+        # Only now is a backup needed, so only now can a missing directory
+        # block anything.
+        backup_dir.mkdir(parents=True, exist_ok=True)
 
         # Create timestamped backup
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -177,8 +191,13 @@ def _safety_backup_tasks(db_path: Path) -> Optional[Path]:
         return backup_path
 
     except Exception as e:
-        print(f"⚠️  Warning: Could not create safety backup: {e}", file=sys.stderr)
-        return None
+        raise SafetyBackupError(
+            f"⛔ Pre-migration safety backup failed, so the migration was not run.\n"
+            f"   Database: {db_path}\n"
+            f"   Backup:   {backup_path}\n"
+            f"   Cause:    {type(e).__name__}: {e}\n"
+            f"   Make the backup directory writable and retry; the database was not touched."
+        ) from e
 
 # The following lines will be removed as they are now at the top
 
@@ -209,19 +228,18 @@ def _get_or_create_fingerprint(db_path: Path) -> str:
     if fingerprint_path.exists():
         file_fingerprint = fingerprint_path.read_text().strip()
     
-    # Check if database has fingerprint in _metadata table
+    # Check if database has fingerprint in _metadata table. A read failure
+    # raises: treating it as "no DB fingerprint" would skip the mismatch
+    # check and overwrite the database's fingerprint with the file's.
     db_fingerprint = None
-    try:
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_metadata'")
-            if cursor.fetchone():
-                cursor.execute("SELECT value FROM _metadata WHERE key='fingerprint'")
-                row = cursor.fetchone()
-                if row:
-                    db_fingerprint = row[0]
-    except Exception:
-        pass
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_metadata'")
+        if cursor.fetchone():
+            cursor.execute("SELECT value FROM _metadata WHERE key='fingerprint'")
+            row = cursor.fetchone()
+            if row:
+                db_fingerprint = row[0]
     
     # If both exist and don't match - ERROR!
     if file_fingerprint and db_fingerprint and file_fingerprint != db_fingerprint:
@@ -354,7 +372,7 @@ def _schema_is_current(db_path: Path) -> bool:
             cursor.execute("SELECT MAX(version) FROM schema_version")
             row = cursor.fetchone()
             return bool(row and row[0] and row[0] >= CURRENT_SCHEMA_VERSION)
-    except Exception:
+    except sqlite3.Error:  # governance: allow-silent SF002: False sends create_database down the idempotent migration path, which raises on a genuinely unusable database
         return False
 
 
@@ -427,7 +445,7 @@ def ensure_schema(cursor: Any) -> None:
         row = cursor.fetchone()
         if row and row[0] and row[0] >= CURRENT_SCHEMA_VERSION:
             return  # Schema is current, skip all migrations
-    except Exception:
+    except Exception:  # governance: allow-silent SF001: an unreadable version runs the idempotent migrations below, which raise on a genuinely broken database; the cursor may be sqlite3 or libsql
         pass  # Table might be empty or broken — run migrations
 
     # 1. Core projects table
@@ -600,7 +618,7 @@ def ensure_schema(cursor: Any) -> None:
     # Backfill task_type for existing rows
     try:
         cursor.execute("UPDATE tasks SET task_type = 'manual' WHERE task_type IS NULL")
-    except Exception:
+    except Exception:  # governance: allow-silent SF001: cosmetic backfill; every reader already treats a NULL task_type as "manual" (backend_manager.update_task, dashboard update_task)
         pass
     
     # Migration: add 'Cancelled' to status CHECK constraint (Task #4749)

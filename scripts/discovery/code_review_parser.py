@@ -111,7 +111,7 @@ def parse_code_review(file_path: Path) -> Optional[Dict]:
             "completion_pct": completion_pct
         }
         
-    except Exception as e:
+    except (OSError, UnicodeDecodeError) as e:  # governance: allow-silent SF002: only a read failure (file vanished after the caller's exists() check, or undecodable) returns None; parse bugs now raise. Callers have no per-project error slot, and raising would fail every project's listing
         logger.error(f"Error parsing CODE_REVIEW.md at {file_path}: {e}")
         return None
 

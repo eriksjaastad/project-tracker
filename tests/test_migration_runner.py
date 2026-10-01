@@ -247,6 +247,22 @@ def test_applied_versions_reraises_non_missing_table_errors() -> None:
     assert applied_versions(conn) == set()
 
 
+def test_crsql_probe_reraises_errors_other_than_missing_function() -> None:
+    """#6900: only "no such function" means cr-sqlite is not loaded. A
+    locked or corrupt database must not read as "not loaded", which would
+    let an unbracketed ALTER run against a CRR table."""
+    from db.migration_runner import _crsql_loaded
+
+    assert _crsql_loaded(sqlite3.connect(":memory:")) is False
+
+    class _Boom:
+        def execute(self, *_args, **_kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        _crsql_loaded(_Boom())  # type: ignore[arg-type]
+
+
 def test_applied_versions_reflects_ledger_rows() -> None:
     conn = _ledger_conn()
     conn.execute(

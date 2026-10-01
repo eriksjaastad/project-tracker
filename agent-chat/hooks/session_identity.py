@@ -34,18 +34,19 @@ def _drop(reason: str, detail: str = "") -> None:
         stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with DROP_LOG.open("a", encoding="utf-8") as fh:
             fh.write(f"{stamp}\tsession_identity\t{reason}\t{detail[:200]}\n")
-    except OSError:
+    except OSError:  # governance: allow-silent SF001: the drop log is the failure channel itself; a hook must never raise, so an unwritable log has nowhere further to report
         pass
 
 
 def main() -> None:
     try:
         payload = json.load(sys.stdin)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError):  # governance: allow-silent SF002: SessionStart hook must never block Claude; the parse failure is recorded in the drop log before exiting
         _drop("payload_parse_error")
         print(json.dumps({}))
         return
 
+    # governance: allow-silent SF003: an empty session id is handled on the next line by recording no_session_id in the drop log
     session_id = payload.get("session_id") or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     cwd = payload.get("cwd") or os.getcwd()
 
@@ -57,7 +58,7 @@ def main() -> None:
     sys.path.insert(0, str(AGENT_CHAT_ROOT))
     try:
         import identity
-    except ImportError as exc:
+    except ImportError as exc:  # governance: allow-silent SF002: SessionStart hook must never block Claude; the import failure is recorded in the drop log before exiting
         _drop(f"import_error:{exc}")
         print(json.dumps({}))
         return
@@ -71,6 +72,7 @@ def main() -> None:
 
     try:
         address = identity.resolve_for_session(session_id, cwd)
+    # governance: allow-silent SF002: a hook must never take down a session; the resolve error is recorded in the drop log before exiting
     except Exception as exc:  # noqa: BLE001 - a hook must never take down a session
         _drop(f"resolve_error:{type(exc).__name__}", str(exc))
         print(json.dumps({}))

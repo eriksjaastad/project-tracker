@@ -330,3 +330,17 @@ def test_create_database_passes_with_manifested_tables_only(
         f"schema.py creates tables not in crr_manifest.py: "
         f"{sorted(live - ALL_CLASSIFIED)}"
     )
+
+
+def test_engine_active_reraises_errors_other_than_missing_function():
+    """#6900: a locked database must not report the sync engine as off."""
+    from db.operations import ProjectTrackerOps
+
+    assert ProjectTrackerOps._engine_active(sqlite3.connect(":memory:")) is False
+
+    class _Locked:
+        def execute(self, *_args, **_kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        ProjectTrackerOps._engine_active(_Locked())

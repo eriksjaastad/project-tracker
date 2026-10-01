@@ -86,6 +86,7 @@ def _backup(conn: sqlite3.Connection) -> None:
     name = f"pre_006_crr_drop_unique_{ts}.db"
     # Respect PT_EXTERNAL_BACKUP_DIR for test isolation (conftest sets this).
     # Treat empty string as unset (fall back to default).
+    # governance: allow-silent SF003: the override is optional; empty falls back to the default ~/.project-tracker/backups on the next line
     external_backup_env = os.getenv("PT_EXTERNAL_BACKUP_DIR", "").strip()
     external_backup_dir = Path(external_backup_env) if external_backup_env else Path.home() / ".project-tracker" / "backups"
     locations = [

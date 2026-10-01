@@ -32,7 +32,7 @@ def _server_is_running() -> bool:
     try:
         r = httpx.get(f"{BASE_URL}/kanban", timeout=3)
         return r.status_code == 200
-    except (httpx.ConnectError, httpx.TimeoutException):
+    except (httpx.ConnectError, httpx.TimeoutException):  # governance: allow-silent SF002: test skip probe; an unreachable server is the true "not running" answer and skips the module
         return False
 
 
@@ -49,7 +49,7 @@ def _chromium_available() -> bool:
     try:
         with sync_playwright() as p:
             return Path(p.chromium.executable_path).exists()
-    except Exception:
+    except Exception:  # governance: allow-silent SF002: test skip probe; the docstring's expected-absence contract, a failing Playwright driver means the browser is unavailable and the module skips
         return False
 
 
@@ -70,6 +70,7 @@ pytestmark = [
 
 def _capture_enabled() -> bool:
     """Screenshot capture is opt-in: PT_CAPTURE_SCREENSHOTS=1."""
+    # governance: allow-silent SF003: optional opt-in; unset or empty means screenshot capture stays off
     return os.environ.get("PT_CAPTURE_SCREENSHOTS", "").strip().lower() in {
         "1",
         "true",

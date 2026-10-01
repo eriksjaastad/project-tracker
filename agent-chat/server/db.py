@@ -83,6 +83,7 @@ def _sqlite_fallback_allowed() -> bool:
     as consent would make `AGENT_CHAT_ALLOW_SQLITE=0` mean yes, which is the
     kind of guard that reads as protection and isn't one.
     """
+    # governance: allow-silent SF003: the opt-in is optional; unset or empty means no consent, so the SQLite fallback stays refused
     return os.environ.get("AGENT_CHAT_ALLOW_SQLITE", "").strip().lower() in {
         "1",
         "true",

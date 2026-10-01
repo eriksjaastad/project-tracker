@@ -38,7 +38,9 @@ logger = get_logger(__name__)
 # Turso / libsql configuration
 # ---------------------------------------------------------------------------
 
+# governance: allow-silent SF003: Turso is optional; empty means local SQLite, and _create_turso_conn refuses an empty URL or token when Turso is enabled
 _TURSO_URL = os.environ.get("TURSO_KANBAN_URL", "")
+# governance: allow-silent SF003: Turso is optional; empty means local SQLite, and _create_turso_conn refuses an empty URL or token when Turso is enabled
 _TURSO_TOKEN = os.environ.get("TURSO_KANBAN_TOKEN", "")
 
 def _check_turso_enabled() -> bool:
@@ -228,7 +230,18 @@ class DatabaseManager:
         
     @staticmethod
     def _create_turso_conn() -> Any:
-        """Create a new Turso connection wrapped with dict-row access."""
+        """Create a new Turso connection wrapped with dict-row access.
+
+        Raises when Turso is enabled (e.g. by ~/projects/.turso-config.json)
+        without TURSO_KANBAN_URL/TURSO_KANBAN_TOKEN: libsql.connect("") opens a
+        throwaway local database, so every read would come back empty and
+        every write would vanish.
+        """
+        if not _TURSO_URL or not _TURSO_TOKEN:
+            raise RuntimeError(
+                "Turso is enabled but TURSO_KANBAN_URL/TURSO_KANBAN_TOKEN are not set; "
+                "run under Doppler or disable turso_enabled"
+            )
         import libsql
         raw = libsql.connect(_TURSO_URL, auth_token=_TURSO_TOKEN)
         return _TursoDictConn(raw)
@@ -257,7 +270,7 @@ class DatabaseManager:
                     if _turso_conn is not None and (now - _turso_conn_created) > _CONN_MAX_AGE_SECONDS:
                         try:
                             _turso_conn.close()
-                        except Exception:
+                        except Exception:  # governance: allow-silent SF001: closing a stale pooled connection that is discarded on the next line; a fresh one is created below
                             pass
                         _turso_conn = None
                         logger.info("Recycled stale Turso connection (age > %ds)", _CONN_MAX_AGE_SECONDS)
@@ -276,7 +289,7 @@ class DatabaseManager:
                         # On error, discard the connection so next request gets a fresh one
                         try:
                             _turso_conn.close()
-                        except Exception:
+                        except Exception:  # governance: allow-silent SF001: closing a connection being discarded after an error; the original error is re-raised below
                             pass
                         _turso_conn = None
                         logger.warning("Discarded Turso connection after error")
@@ -1702,14 +1715,14 @@ class DatabaseManager:
                         locked = True
                         try:
                             conn.rollback()
-                        except sqlite3.Error:
+                        except sqlite3.Error:  # governance: allow-silent SF001: rollback of a locked attempt before retrying; the retry reruns the write and the last attempt raises
                             pass
                     else:
                         raise
                 except Exception:
                     try:
                         conn.rollback()
-                    except sqlite3.Error:
+                    except sqlite3.Error:  # governance: allow-silent SF001: rollback while the original exception is re-raised on the next line
                         pass
                     raise
             
@@ -1780,16 +1793,48 @@ class DatabaseManager:
             "percent": int(done / total * 100) if total > 0 else 0
         }
 
+    @staticmethod
+    def parse_blocked_by(task: Dict[str, Any]) -> Tuple[List[Any], Optional[str]]:
+        """Split a task's stored blocked_by into (ids, error).
+
+        ``error`` is a human reason when the stored value is not a JSON list,
+        e.g. ``blocked_by unreadable: '7,8'``. Callers must treat an error as
+        BLOCKED (#6900): an unreadable dependency is not proof of "unblocked".
+        """
+        raw = task.get("blocked_by")
+        if not raw:
+            return [], None
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return [], f"blocked_by unreadable: {raw!r}"
+        if not isinstance(parsed, list):
+            return [], f"blocked_by unreadable: {raw!r}"
+        return parsed, None
+
+    def blocked_by_error(self, task_id: int) -> Optional[str]:
+        """Reason this task's blocked_by cannot be read, or None if it can.
+
+        ``is_blocked`` answers ``(True, [])`` for such a task; this names why.
+        """
+        task = self.get_task(task_id)
+        if not task:
+            return None
+        return self.parse_blocked_by(task)[1]
+
     def get_blocking_tasks(self, task_id: int) -> List[Dict[str, Any]]:
-        """Get tasks that are blocking this task from starting."""
+        """Get tasks that are blocking this task from starting.
+
+        An unreadable blocked_by yields no tasks here; ``is_blocked`` still
+        reports the task as blocked and ``blocked_by_error`` names the reason.
+        """
         task = self.get_task(task_id)
         if not task or not task.get("blocked_by"):
             return []
 
-        try:
-            blocked_by_ids = json.loads(task["blocked_by"])
-        except (json.JSONDecodeError, TypeError):
-            logger.warning("Malformed blocked_by for task #%s: %r", task_id, task.get("blocked_by"))
+        blocked_by_ids, error = self.parse_blocked_by(task)
+        if error:
+            logger.warning("Task #%s: %s", task_id, error)
             return []
 
         results = []
@@ -1833,7 +1878,14 @@ class DatabaseManager:
             return results
 
     def is_blocked(self, task_id: int) -> Tuple[bool, List[int]]:
-        """Check if task is blocked by incomplete tasks."""
+        """Check if task is blocked by incomplete tasks.
+
+        Fails closed: an unreadable blocked_by returns ``(True, [])`` (blocked,
+        no resolvable blocker ids); ``blocked_by_error`` gives the reason.
+        """
+        task = self.get_task(task_id)
+        if task and self.parse_blocked_by(task)[1]:
+            return (True, [])
         blocking = self.get_blocking_tasks(task_id)
         incomplete = [t["id"] for t in blocking if t["status"] != "Done"]
         return (len(incomplete) > 0, incomplete)

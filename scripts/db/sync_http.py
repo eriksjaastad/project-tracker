@@ -218,7 +218,7 @@ class _ChangesHandler(BaseHTTPRequestHandler):
         try:
             since = int(params.get("since", ["0"])[0])
             exclude_site = params["exclude_site"][0]
-        except (KeyError, IndexError, ValueError):
+        except (KeyError, IndexError, ValueError):  # governance: allow-silent SF002: the bare return ends the request after the 400 response above reports the bad query to the peer
             self._send_simple(
                 HTTPStatus.BAD_REQUEST,
                 "usage: /crsql/changes?since=N&exclude_site=HEX",
@@ -230,7 +230,7 @@ class _ChangesHandler(BaseHTTPRequestHandler):
         try:
             try:
                 rows = list(iter_changes_for_peer(conn, since, exclude_site))
-            except ValueError as err:
+            except ValueError as err:  # governance: allow-silent SF002: the bare return ends the request after the 400 response reports the error to the peer
                 self._send_simple(HTTPStatus.BAD_REQUEST, str(err))
                 return
             self.send_response(HTTPStatus.OK)
@@ -271,7 +271,7 @@ def tailnet_ip() -> Optional[str]:
             timeout=3,
             check=False,
         )
-    except (subprocess.TimeoutExpired, OSError):
+    except (subprocess.TimeoutExpired, OSError):  # governance: allow-silent SF002: None is the documented "no tailnet IP"; make_server then binds loopback only, never a public interface
         return None
     if proc.returncode != 0:
         return None
@@ -491,13 +491,15 @@ def watermark_for(conn: sqlite3.Connection, peer_site_hex: str) -> int:
         row = conn.execute(
             "SELECT value FROM _metadata WHERE key = ?", (key,)
         ).fetchone()
-    except sqlite3.OperationalError:
-        return 0
+    except sqlite3.OperationalError as err:  # governance: allow-silent SF002: only a missing _metadata table returns 0, meaning nothing pulled yet; other errors re-raise
+        if "no such table" in str(err).lower():
+            return 0
+        raise
     if not row or not row[0]:
         return 0
     try:
         return int(row[0])
-    except ValueError:
+    except ValueError:  # governance: allow-silent SF002: an unparseable watermark restarts the pull from 0; cr-sqlite merges are idempotent, so a full re-pull is correct, only slower
         return 0
 
 

@@ -98,7 +98,7 @@ def check_ruff(project_path: Path) -> list[dict]:
                 if filename:
                     try:
                         filename = str(Path(filename).relative_to(project_path))
-                    except ValueError:
+                    except ValueError:  # governance: allow-silent SF001: a path outside the project keeps ruff's absolute filename, which still names the file
                         pass
                 findings.append({
                     "check": "ruff",
@@ -450,14 +450,12 @@ def _extract_pyproject_deps(pyproject_path: Path) -> list[str] | None:
     """Return declared direct deps from pyproject.toml, or None if not declared.
 
     Uses tomllib so we handle arrays, PEP 508 markers, and section boundaries
-    correctly instead of hand-rolled regex.
+    correctly instead of hand-rolled regex. An unreadable or invalid file
+    raises: main() records it as the dead_deps check's error status instead
+    of reading it as "no declared deps".
     """
-    try:
-        with pyproject_path.open("rb") as fh:
-            data = tomllib.load(fh)
-    except (OSError, tomllib.TOMLDecodeError) as e:
-        logger.warning("Could not parse pyproject.toml: %s", e)
-        return None
+    with pyproject_path.open("rb") as fh:
+        data = tomllib.load(fh)
     project = data.get("project") or {}
     deps = project.get("dependencies")
     if deps is None:

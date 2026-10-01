@@ -61,7 +61,7 @@ def measure_complexity(project_path: Path) -> dict[str, Any] | None:
              "--exclude", ",".join(SKIP_DIRS)],
             capture_output=True, text=True, timeout=120,
         )
-    except FileNotFoundError:
+    except FileNotFoundError:  # governance: allow-silent SF002: radon is optional; None means "not installed" and the report prints a radon-not-installed note for it
         return None
     except subprocess.TimeoutExpired:
         return {"error": "timeout", "average": None, "worst": []}

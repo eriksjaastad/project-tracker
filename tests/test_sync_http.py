@@ -829,3 +829,14 @@ def test_get_local_site_hex_raises_when_site_id_missing():
 
     with pytest.raises(RuntimeError, match="crsql_site_id"):
         _get_local_site_hex(_NoSite())  # type: ignore[arg-type]
+
+
+def test_watermark_reraises_errors_other_than_missing_table():
+    """#6900: a locked database must not silently restart the pull from 0."""
+
+    class _Locked:
+        def execute(self, *_args, **_kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        watermark_for(_Locked(), "peer-a")
