@@ -1492,7 +1492,6 @@ monitoring:
       - {id: com.erik.trading-copilot.alpha-watcher,  project: trading-copilot,      schedule: UNKNOWN,      log: ~/projects/trading-copilot/logs/alpha_watcher.log}
       - {id: com.erik.fci-kwiky-thumbs.exports-watcher, project: fci-kwiky-thumbs,   schedule: UNKNOWN,      log: ~/projects/fci-kwiky-thumbs/logs/exports_watcher.log}
       - {id: com.eriksjaastad.agent-runtime-monitor,  project: agent-runtime-config, schedule: daily 09:00,  log: ~/projects/agent-runtime-config/.monitor/launchd.out.log}
-      - {id: com.eriksjaastad.slack-listener,         project: slack-listener,       schedule: keepalive,    log: ~/projects/slack-listener/logs/listener.stdout.log}
       - {id: com.eriksjaastad.claude-config-pull,     project: claude-user-config,   schedule: every 21600s, log: /tmp/claude-config-pull.log}
       - {id: com.erik.journal-personal,               project: ai-journal,           schedule: daily 22:00,  log: ~/Library/Logs/journal_personal.out}
       - {id: muffinpanrecipes-cron-test,              project: muffinpanrecipes,     schedule: "0 12 * * * (crontab)", log: ~/projects/muffinpanrecipes/logs/cron_compressed.log}
