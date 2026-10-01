@@ -26,7 +26,7 @@ function jsonResponse(payload: unknown, status = 200): Response {
   } as Response;
 }
 
-type DeferredKind = 'patch' | 'contacted' | 'replied' | 'delete' | 'add';
+type DeferredKind = 'patch' | 'contacted' | 'replied' | 'delete' | 'add' | 'get';
 
 interface MockOutreachApiOptions {
   deferPatch?: boolean;
@@ -48,6 +48,12 @@ interface MockOutreachApiOptions {
   patchNetworkError?: boolean | ((callIndex: number) => boolean);
   /** Simulates a server hang on PATCH: never settles on its own, rejects with an AbortError when aborted. Indexed like patchFailure. */
   hangPatch?: boolean | ((callIndex: number) => boolean);
+  /** Simulates another client deleting the row between load and this PATCH: returns 404 AND marks the contact deleted server-side, so a follow-up GET genuinely omits it. Indexed like patchFailure. */
+  patchDeletedElsewhere?: boolean | ((callIndex: number) => boolean);
+  /** Simulates another client replying to the row between load and this PATCH: returns 409 AND marks the contact replied server-side, so a follow-up GET genuinely omits it. Indexed like patchFailure. */
+  patchRepliedElsewhere?: boolean | ((callIndex: number) => boolean);
+  /** Defers every GET after the first (the initial load resolves normally); release with resolve('get', index). Lets a test control exactly when a post-error resync lands. */
+  deferGetAfterFirst?: boolean;
 }
 
 interface MockOutreachApi {
@@ -59,7 +65,7 @@ interface MockOutreachApi {
   /** Highest number of concurrently pending fetch calls the component ever produced. */
   readonly maxInFlight: number;
   resolvePatch: (index?: number) => void;
-  resolve: (kind: 'contacted' | 'replied' | 'delete' | 'add', index?: number) => void;
+  resolve: (kind: 'contacted' | 'replied' | 'delete' | 'add' | 'get', index?: number) => void;
 }
 
 function mockOutreachApi(
@@ -73,6 +79,7 @@ function mockOutreachApi(
   const repliedCalls: number[] = [];
   const deleteCalls: number[] = [];
   let addCalls = 0;
+  let getCallCount = 0;
   let inFlight = 0;
   let maxInFlight = 0;
   const deferred: Array<{ kind: DeferredKind; resolve: (response: Response) => void; response: Response }> = [];
@@ -122,6 +129,12 @@ function mockOutreachApi(
     if (url === '/api/outreach/contacts') {
       if (method === 'GET') {
         if (options.hangGet) return track(hang(init?.signal));
+        getCallCount += 1;
+        const isInitialLoad = getCallCount === 1;
+        // Snapshot the server's current truth now (at request time), exactly
+        // like a real server would — a later deferred resolve must still
+        // reflect what was true on disk when the request was received, not
+        // whatever has mutated by the time it's released.
         const active = contacts.filter((contact) => !contact.deleted_at && !contact.replied_at);
         const uncontacted = active
           .filter((contact) => !contact.contacted_at)
@@ -132,16 +145,16 @@ function mockOutreachApi(
             (a, b) =>
               (a.contacted_at ?? '').localeCompare(b.contacted_at ?? '') || a.id - b.id
           );
-        return track(
-          jsonResponse({
-            contacts: [...uncontacted, ...contacted].map((contact) => ({
-              id: contact.id,
-              name: contact.name,
-              contacted_at: contact.contacted_at,
-              created_at: contact.created_at,
-            })),
-          })
-        );
+        const response = jsonResponse({
+          contacts: [...uncontacted, ...contacted].map((contact) => ({
+            id: contact.id,
+            name: contact.name,
+            contacted_at: contact.contacted_at,
+            created_at: contact.created_at,
+          })),
+        });
+        if (options.deferGetAfterFirst && !isInitialLoad) return track(defer('get', response));
+        return track(response);
       }
       if (method === 'POST') {
         addCalls += 1;
@@ -188,6 +201,27 @@ function mockOutreachApi(
             ? options.patchNetworkError(callIndex)
             : options.patchNetworkError;
         if (networkErrorThis) return track(Promise.reject(new Error('Network down')));
+
+        // Simulates a concurrent delete/reply from another client: the
+        // conflict response AND the row's removal from the server's own
+        // store happen together, so a later GET genuinely omits it instead
+        // of the test asserting a mock that never actually changed state.
+        const deletedElsewhereThis =
+          typeof options.patchDeletedElsewhere === 'function'
+            ? options.patchDeletedElsewhere(callIndex)
+            : options.patchDeletedElsewhere;
+        if (deletedElsewhereThis) {
+          contact.deleted_at = '2026-09-26T11:30:00+00:00';
+          return track(jsonResponse({ detail: 'Contact not found' }, 404));
+        }
+        const repliedElsewhereThis =
+          typeof options.patchRepliedElsewhere === 'function'
+            ? options.patchRepliedElsewhere(callIndex)
+            : options.patchRepliedElsewhere;
+        if (repliedElsewhereThis) {
+          contact.replied_at = '2026-09-26T11:30:00+00:00';
+          return track(jsonResponse({ detail: 'Invalid name or contact state' }, 409));
+        }
 
         const failThis =
           typeof options.patchFailure === 'function' ? options.patchFailure(callIndex) : options.patchFailure;
@@ -1548,11 +1582,16 @@ describe('OutreachPanel', () => {
     });
   });
 
-  it('drops the unsaved rename and shows the server name when a rename fails with 404 (row deleted elsewhere)', async () => {
+  it('drops the unsaved rename and removes the row once the resync reflects the delete, when a rename fails with 404', async () => {
     const user = userEvent.setup();
-    mockOutreachApi([
-      { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
-    ]);
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      // The row is deleted by another client at the moment this PATCH is
+      // processed (mutating the mock's own store), and the follow-up resync
+      // GET is held back under our control so we can observe both the
+      // immediate dropField effect and, separately, the later removal.
+      { patchDeletedElsewhere: true, deferGetAfterFirst: true }
+    );
     render(<OutreachPanel />);
     await screen.findByText('Alice');
 
@@ -1560,30 +1599,35 @@ describe('OutreachPanel', () => {
     const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
     await user.clear(editInput);
     await user.type(editInput, 'Alicia');
-
-    // The row was deleted by another client between load and this PATCH.
-    vi.mocked(fetch).mockImplementationOnce(async () =>
-      jsonResponse({ detail: 'Contact not found' }, 404)
-    );
     await user.tab();
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Contact not found');
     });
-    // dropField: the unsaved value is gone, replaced by the server's name via
-    // the resync, with no retry control (there's nothing to retry).
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Alice' })).toBeInTheDocument();
-    });
+    // dropField happens synchronously in the failure handler, before the
+    // still-pending resync GET returns: the unsaved value is already gone
+    // and there is no retry control, even though the row itself (from the
+    // stale pre-resync contacts list) is still on screen.
+    expect(screen.getByRole('button', { name: 'Alice' })).toBeInTheDocument();
     expect(screen.queryByText('Alicia')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: "Couldn't save — retry" })).not.toBeInTheDocument();
+
+    // Release the resync GET. It now reflects the server's real state (the
+    // row is deleted), so the row disappears entirely.
+    api.resolve('get');
+    await waitFor(() => {
+      expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+    });
   });
 
-  it('drops the unsaved rename and shows the server name when a rename fails with 409 (row replied elsewhere)', async () => {
+  it('drops the unsaved rename and removes the row once the resync reflects the reply, when a rename fails with 409', async () => {
     const user = userEvent.setup();
-    mockOutreachApi([
-      { id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' },
-    ]);
+    const api = mockOutreachApi(
+      [{ id: 1, name: 'Alice', contacted_at: null, created_at: '2026-09-26T09:00:00+00:00' }],
+      // The row is replied to (from another tab) at the moment this PATCH is
+      // processed, mutating the mock's own store the same way.
+      { patchRepliedElsewhere: true, deferGetAfterFirst: true }
+    );
     render(<OutreachPanel />);
     await screen.findByText('Alice');
 
@@ -1591,22 +1635,18 @@ describe('OutreachPanel', () => {
     const editInput = screen.getByLabelText('Edit name for Alice') as HTMLInputElement;
     await user.clear(editInput);
     await user.type(editInput, 'Alicia');
-
-    // The row was replied to (from another tab) between load and this PATCH.
-    vi.mocked(fetch).mockImplementationOnce(async () =>
-      jsonResponse({ detail: 'Invalid name or contact state' }, 409)
-    );
     await user.tab();
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Invalid name or contact state');
     });
-    // dropField: the unsaved value is gone, replaced by the server's name via
-    // the resync, with no retry control (a reply can't be renamed through).
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Alice' })).toBeInTheDocument();
-    });
+    expect(screen.getByRole('button', { name: 'Alice' })).toBeInTheDocument();
     expect(screen.queryByText('Alicia')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: "Couldn't save — retry" })).not.toBeInTheDocument();
+
+    api.resolve('get');
+    await waitFor(() => {
+      expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+    });
   });
 });
