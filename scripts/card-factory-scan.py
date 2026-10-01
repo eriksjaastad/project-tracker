@@ -677,6 +677,19 @@ def _print_create_commands(findings: list[dict], project_name: str) -> None:
         "empty_file": "Low",
     }
 
+    # #7608: pt tasks create now rejects a card with no acceptance
+    # criteria. One generic, per-check-type checklist line so the printed
+    # command is runnable as-is rather than failing validation.
+    verify_map = {
+        "ruff": "ruff check the listed files/dir with zero remaining warnings",
+        "orphan": "each listed file is either wired in or removed",
+        "stale_test": "the listed test files import real, current modules",
+        "governance": "no hardcoded machine-specific paths remain in the flagged files",
+        "missing_info": "the listed env vars are documented in pt info",
+        "dead_dep": "the listed packages are confirmed unused and removed (or confirmed used and left alone)",
+        "empty_file": "each listed file is filled in or removed",
+    }
+
     for key, items in sorted(groups.items()):
         check_type = items[0]["check"]
         priority = priority_map.get(check_type, "Low")
@@ -716,7 +729,12 @@ def _print_create_commands(findings: list[dict], project_name: str) -> None:
 
         # Escape single quotes in description
         safe_desc = desc.replace("'", "'\\''")
-        print(f"pt tasks create '{safe_desc}' -p {project_name} --priority {priority}")
+        criterion = verify_map.get(check_type, f"the {count} flagged {check_type} issues are resolved")
+        safe_criterion = f"- [ ] {criterion}".replace("'", "'\\''")
+        print(
+            f"pt tasks create '{safe_desc}' -p {project_name} "
+            f"--priority {priority} -d '{safe_criterion}'"
+        )
     print()
 
 

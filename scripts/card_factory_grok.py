@@ -360,7 +360,15 @@ def run(project: str, commit: bool) -> int:
         created = failed = 0
         for p in proposals:
             title = f"[Card Factory][grok] {p['title']}"
-            out = _run([str(PT), "tasks", "create", title, "-p", project, "--priority", p["priority"]])
+            # #7608: pt tasks create now rejects a card with no acceptance
+            # criteria. Derive one checklist line from the rationale grok
+            # gave for this proposal, falling back to the title itself.
+            criterion = (p["rationale"] or p["title"]).strip()
+            description = f"- [ ] {criterion}"
+            out = _run([
+                str(PT), "tasks", "create", title, "-p", project,
+                "--priority", p["priority"], "-d", description,
+            ])
             last = out.splitlines()[-1] if out else ""
             if "Created task" in out:
                 created += 1

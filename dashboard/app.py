@@ -2188,6 +2188,9 @@ class TaskCreateRequest(BaseModel):
     category: Optional[str] = None
     parent_id: Optional[int] = None  # Task #4645
     blocked_by: Optional[List[int]] = None  # Task #4579
+    # Acceptance criteria, required (#7608): must contain at least one
+    # "- [ ] <text>" checklist line — see validate_acceptance_criteria().
+    notes: Optional[str] = None
 
 
 class TaskUpdateRequest(BaseModel):
@@ -2449,7 +2452,11 @@ async def general_exception_handler(request: Request, exc: Exception):
 def _extract_field_from_error(error_message: str) -> Optional[str]:
     """Extract field name from error message."""
     # Common patterns: "Task text...", "Project ID...", "Status...", "Priority..."
-    if "task text" in error_message.lower() or "text" in error_message.lower():
+    if "acceptance criteria" in error_message.lower():
+        # #7608: create_card() rejects a missing/malformed checklist in
+        # notes before add_task() ever runs.
+        return "notes"
+    elif "task text" in error_message.lower() or "text" in error_message.lower():
         return "text"
     elif "project" in error_message.lower():
         return "project_id"
@@ -2474,13 +2481,18 @@ def _extract_pattern_from_error(error_message: str) -> Optional[str]:
 @app.post("/api/tasks", status_code=status.HTTP_201_CREATED)
 async def create_task(task_data: TaskCreateRequest):
     """Create a new task.
-    
+
     Args:
-        task_data: Task creation data (text, project_id, status, priority)
-        
+        task_data: Task creation data (text, project_id, status, priority,
+            notes). ``notes`` must include at least one "- [ ] <text>"
+            acceptance-criteria checklist line (#7608) — enforced by
+            ``DatabaseManager.create_card()``, not ``add_task()``. A missing
+            or malformed checklist returns 400 with a message naming the
+            exact format expected; see ``_extract_field_from_error``.
+
     Returns:
         Created task object with ID and timestamps
-        
+
     Raises:
         HTTPException: 400 if validation fails, 404 if project not found
     """
@@ -2493,7 +2505,7 @@ async def create_task(task_data: TaskCreateRequest):
             import json
             blocked_by_json = json.dumps(task_data.blocked_by)
         
-        task = db.add_task(
+        task = db.create_card(
             text=task_data.text,
             project_id=task_data.project_id,
             status=task_data.status or "Backlog",
@@ -2501,7 +2513,8 @@ async def create_task(task_data: TaskCreateRequest):
             task_type=task_data.task_type,
             category=task_data.category,
             parent_id=task_data.parent_id,
-            blocked_by=blocked_by_json
+            blocked_by=blocked_by_json,
+            notes=task_data.notes,
         )
         return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
     except ValueError:

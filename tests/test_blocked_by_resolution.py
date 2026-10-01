@@ -76,7 +76,11 @@ def test_create_resolves_display_id_to_canonical_pk(backend_db, runner):
 
     result = runner.invoke(
         tasks_group,
-        ["create", "Blocked card", "-p", PROJECT_ID, "--blocked-by", str(display_id)],
+        [
+            "create", "Blocked card", "-p", PROJECT_ID,
+            "--blocked-by", str(display_id),
+            "-d", "- [ ] Blocker resolves and this card becomes unblocked",
+        ],
     )
     assert result.exit_code == 0, result.output
 

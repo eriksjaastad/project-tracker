@@ -30,21 +30,25 @@ def kanban_add_task(
     text: str,
     status: str = "Backlog",
     priority: Optional[str] = None,
-    prompt: Optional[str] = None
+    prompt: Optional[str] = None,
+    notes: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Create a new task in the Kanban board.
-    
+
     This is the MCP tool handler for kanban_add_task. It validates inputs,
     checks for secrets, creates the task in the database, and returns the
     created task object.
-    
+
     Args:
         project: Project ID (e.g., 'project-tracker')
         text: Task description (1-1000 characters)
         status: Initial task status (default: "Backlog")
         priority: Task priority (optional: "Critical", "High", "Medium", "Low")
         prompt: Structured execution instructions for agents (optional)
-        
+        notes: Acceptance criteria, required (#7608). Must include at least
+            one "- [ ] <how completion is verified>" checklist line; a
+            heading alone does not count.
+
     Returns:
         Dictionary containing the created task with all fields including:
         - id: Task ID
@@ -61,20 +65,25 @@ def kanban_add_task(
         ValueError: If validation fails (invalid input, secret detected, project not found)
         
     Example:
-        >>> result = kanban_add_task("project-tracker", "Fix bug in parser", "To Do", "High")
+        >>> result = kanban_add_task(
+        ...     "project-tracker", "Fix bug in parser", "To Do", "High",
+        ...     notes="- [ ] pytest tests/test_parser.py passes",
+        ... )
         >>> print(result["id"])
         42
     """
     try:
         db = DatabaseManager()
-        
-        # Create task (DatabaseManager handles all validation)
-        task = db.add_task(
+
+        # Create card (create_card enforces acceptance criteria, #7608,
+        # then delegates to add_task() for everything else)
+        task = db.create_card(
             text=text,
             project_id=project,
             status=status,
             priority=priority,
             prompt=prompt,
+            notes=notes,
             created_by=resolve_created_by(),
         )
         
@@ -134,9 +143,17 @@ KANBAN_ADD_TASK_SCHEMA = {
             "prompt": {
                 "type": "string",
                 "description": "Agent prompt (execution instructions for AI)"
+            },
+            "notes": {
+                "type": "string",
+                "description": (
+                    "Acceptance criteria, required (#7608). Must include at "
+                    "least one '- [ ] <how completion is verified>' "
+                    "checklist line; a heading alone does not count."
+                )
             }
         },
-        "required": ["project", "text"]
+        "required": ["project", "text", "notes"]
     }
 }
 
@@ -156,16 +173,18 @@ if __name__ == "__main__":
     parser.add_argument("--status", default="Backlog", help="Task status")
     parser.add_argument("--priority", help="Task priority")
     parser.add_argument("--prompt", help="Agent prompt")
-    
+    parser.add_argument("--notes", help="Acceptance criteria checklist (required, #7608)")
+
     args = parser.parse_args()
-    
+
     if args.test or args.text:
         result = kanban_add_task(
             project=args.project,
             text=args.text or "Test task from MCP server",
             status=args.status,
             priority=args.priority,
-            prompt=args.prompt
+            prompt=args.prompt,
+            notes=args.notes or "- [ ] Verify via MCP standalone test mode",
         )
         print(json.dumps(result, indent=2))
     else:
@@ -173,5 +192,5 @@ if __name__ == "__main__":
         print("\nTool Schema:")
         print(json.dumps(KANBAN_ADD_TASK_SCHEMA, indent=2))
         print("\nUsage:")
-        print("  python scripts/mcp_server.py --test --project project-tracker --text 'Test task'")
+        print("  python scripts/mcp_server.py --test --project project-tracker --text 'Test task' --notes '- [ ] pytest passes'")
         print("\nFor MCP integration, use the tool schema above to register with your MCP client.")

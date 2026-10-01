@@ -36,6 +36,20 @@ VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"]
 # Valid task types
 VALID_TASK_TYPES = ["manual", "agent", "proposal"]
 
+# A concrete, checkable acceptance-criterion line: "- [ ] <text>" or
+# "- [x] <text>", with real text after the checkbox. A heading alone
+# (e.g. "## Acceptance Criteria") does not match.
+ACCEPTANCE_CRITERION_RE = re.compile(r'^[ \t]*-[ \t]*\[[ xX]\][ \t]+\S', re.MULTILINE)
+
+ACCEPTANCE_CRITERIA_ERROR = (
+    "Acceptance criteria required: add at least one checklist line stating "
+    "how completion will be verified, e.g.\n"
+    "    - [ ] <how completion is verified>\n"
+    "A heading alone (e.g. '## Acceptance Criteria') does not count. For a "
+    "proposal, state the decision/approval criterion instead, e.g. "
+    "'- [ ] Approve if X; reject if Y'."
+)
+
 def _get_excluded_card_project_ids() -> set[str]:
     """Return the active exclusion set for card creation."""
     return set()
@@ -235,6 +249,64 @@ def validate_task_type(task_type: Optional[str]) -> Tuple[bool, Optional[str]]:
     if task_type not in VALID_TASK_TYPES:
         valid_list = ", ".join(VALID_TASK_TYPES)
         return (False, f"Task type must be one of: {valid_list}")
+
+    return (True, None)
+
+
+def validate_acceptance_criteria(notes: Optional[str]) -> Tuple[bool, Optional[str]]:
+    """Require a concrete, checkable acceptance criterion for a NEW card.
+
+    Every new Kanban card must state how its own completion will be
+    verified, as a Markdown checklist line: ``- [ ] <text>`` (or
+    ``- [x] <text>``) with real text after the checkbox. A heading such as
+    "## Acceptance Criteria" with no items under it does not satisfy this.
+
+    Applies uniformly to every task_type, including "proposal" — a proposal
+    is not exempt, it just states a decision/approval criterion instead of a
+    dev task (see ACCEPTANCE_CRITERIA_ERROR for the exact wording agents and
+    the CLI/API surface to callers). Subtasks (a parent_id set) are not
+    exempt either.
+
+    Where this is (and isn't) enforced:
+        - Called explicitly by every user/agent-facing card-creation surface
+          before it calls DatabaseManager.add_task(): ``pt tasks create``
+          (scripts/pt.py), ``POST /api/tasks`` (dashboard/app.py), and the
+          ``kanban_add_task`` MCP tool (scripts/mcp_server.py). Those three
+          are the complete set of production creation routes (#7608).
+        - NOT called from ``add_task()``/``validate_task_input()`` directly.
+          ``add_task()`` is also the low-level DB primitive used by ~100
+          internal test fixtures and maintenance scripts that aren't "a new
+          card" in the product sense; enforcing there would have required
+          rewriting all of them. New creation routes must remember to call
+          this function themselves — see the three call sites above for the
+          pattern.
+        - NOT called from ``update_task()``: editing an existing card never
+          requires retroactively adding criteria, so pre-#7608 cards stay
+          readable and editable with no bulk migration.
+        - NOT applied to the separate ``ideas`` table (``add_idea()``): those
+          are pre-project, free-text thoughts with no status/workflow, not a
+          Kanban card (see schema.py's "Ideas table for pre-project thoughts"
+          comment) — out of scope for "every new Kanban card".
+
+    Args:
+        notes: The candidate notes/description field for a new card.
+
+    Returns:
+        A tuple of (is_valid, error_message).
+
+    Examples:
+        >>> validate_acceptance_criteria("- [ ] Run pytest and confirm green")
+        (True, None)
+        >>> validate_acceptance_criteria("## Acceptance Criteria")[0]
+        False
+        >>> validate_acceptance_criteria(None)[0]
+        False
+    """
+    if not notes or not notes.strip():
+        return (False, ACCEPTANCE_CRITERIA_ERROR)
+
+    if not ACCEPTANCE_CRITERION_RE.search(notes):
+        return (False, ACCEPTANCE_CRITERIA_ERROR)
 
     return (True, None)
 
