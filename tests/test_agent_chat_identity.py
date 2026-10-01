@@ -79,6 +79,47 @@ class TestProjectNameResolution:
         assert identity.project_name_for(proj) == "no-git-project"
 
 
+class TestUnderscorePrefixedAddress:
+    """#7798 — `_tools` must bind. A leading underscore is the laptop's own
+    naming convention for ~/projects/_tools, and the server already accepts
+    `_tools` as an address; only the client-side grammar rejected it.
+    """
+
+    def test_leading_underscore_project_resolves_to_its_name(self, projects):
+        proj = projects / "_tools"
+        (proj / ".git").mkdir(parents=True)
+        assert identity.project_name_for(proj) == "_tools"
+
+    def test_leading_underscore_project_resolves_from_a_subdirectory(self, projects):
+        proj = projects / "_tools"
+        deep = proj / "scripts"
+        deep.mkdir(parents=True)
+        (proj / ".git").mkdir()
+        assert identity.project_name_for(deep) == "_tools"
+
+    def test_all_underscore_name_is_rejected(self, projects):
+        """An address needs at least one alnum character; bare underscores
+        are not a sensible project name and are treated as invalid, the same
+        way an all-symbol name always was.
+        """
+        proj = projects / "___"
+        (proj / ".git").mkdir(parents=True)
+        assert identity.project_name_for(proj) is None
+
+    def test_leading_dot_is_still_invalid(self, projects):
+        """Hidden dirs are not projects — unchanged by the underscore fix."""
+        proj = projects / ".claude"
+        (proj / ".git").mkdir(parents=True)
+        assert identity.project_name_for(proj) is None
+
+    def test_underscore_prefixed_session_binds_and_persists(self, projects):
+        proj = projects / "_tools"
+        (proj / ".git").mkdir(parents=True)
+        addr = identity.resolve_for_session("sess-tools", proj)
+        assert addr == "_tools"
+        assert identity.read_identity("sess-tools") == "_tools"
+
+
 class TestSessionBinding:
     """Resolved once at launch, then frozen — this is the cwd-bug guard."""
 
