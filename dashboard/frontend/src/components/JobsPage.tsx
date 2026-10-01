@@ -38,6 +38,7 @@ export function JobsPage() {
   const [statsError, setStatsError] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [queuingPrompts, setQueuingPrompts] = useState<Set<number>>(new Set());
+  const [submittingJobs, setSubmittingJobs] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     loadJobs();
@@ -87,6 +88,34 @@ export function JobsPage() {
     } catch (error) {
       console.error('Failed to delete job:', error);
       setNotification({ message: 'Failed to dismiss job', type: 'error' });
+    }
+  }
+
+  async function handleSubmit(jobId: number) {
+    if (submittingJobs.has(jobId)) {
+      return;
+    }
+    setSubmittingJobs(prev => new Set(prev).add(jobId));
+    try {
+      const response = await fetch(`/api/jobs/${jobId}/submissions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      setJobs(jobs.filter(job => job.id !== jobId));
+      setNotification({ message: 'Job marked as submitted', type: 'success' });
+    } catch (error) {
+      console.error('Failed to submit job:', error);
+      setNotification({ message: 'Failed to submit job', type: 'error' });
+    } finally {
+      setSubmittingJobs(prev => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
     }
   }
 
@@ -183,6 +212,15 @@ export function JobsPage() {
                         title="Queue agent to tailor resume and cover letter"
                       >
                         {queuingPrompts.has(job.id) ? '...' : '🤖'}
+                      </button>
+                      <button
+                        className="job-submit-btn"
+                        onClick={() => handleSubmit(job.id)}
+                        disabled={submittingJobs.has(job.id)}
+                        aria-label={`Mark ${job.title} as submitted`}
+                        title="Record that you submitted to this job"
+                      >
+                        {submittingJobs.has(job.id) ? '...' : 'Submitted'}
                       </button>
                       <button
                         className="job-delete-btn"

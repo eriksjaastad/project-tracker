@@ -402,6 +402,167 @@ describe('JobsPage', () => {
     });
   });
 
+  it('submits a job and removes it from view', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        jobs: [
+          {
+            id: 20,
+            company: 'Submit Corp',
+            title: 'Submittable Job',
+            url: 'https://example.com/job20',
+            location: 'Remote',
+            posted_date: '2026-09-25',
+            first_seen: '2026-09-25',
+            category: 'Backend',
+            source: 'manual',
+            deleted_at: null,
+            raw: null,
+          },
+        ],
+      }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Submittable Job')).toBeInTheDocument();
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        submission: { id: 1, job_id: 20, submitted_at: '2026-09-25T12:00:00+00:00' },
+      }),
+    } as Response);
+
+    const submitButton = screen.getByLabelText('Mark Submittable Job as submitted');
+    await user.click(submitButton);
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/jobs/20/submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Submittable Job')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Job marked as submitted');
+  });
+
+  it('sends exactly one POST when the submit button is double-clicked', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        jobs: [
+          {
+            id: 21,
+            company: 'Double Click Inc',
+            title: 'Fast Clicker Job',
+            url: 'https://example.com/job21',
+            location: 'Remote',
+            posted_date: '2026-09-25',
+            first_seen: '2026-09-25',
+            category: 'Backend',
+            source: 'manual',
+            deleted_at: null,
+            raw: null,
+          },
+        ],
+      }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Fast Clicker Job')).toBeInTheDocument();
+    });
+
+    let resolveSubmit: (value: Response) => void = () => {};
+    vi.mocked(fetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>(resolve => {
+          resolveSubmit = resolve;
+        })
+    );
+
+    const submitButton = screen.getByLabelText('Mark Fast Clicker Job as submitted');
+    await user.dblClick(submitButton);
+
+    expect(submitButton).toBeDisabled();
+
+    resolveSubmit({
+      ok: true,
+      json: async () => ({
+        submission: { id: 2, job_id: 21, submitted_at: '2026-09-25T12:00:00+00:00' },
+      }),
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Fast Clicker Job')).not.toBeInTheDocument();
+    });
+
+    const submissionPosts = vi
+      .mocked(fetch)
+      .mock.calls.filter(([url]) => url === '/api/jobs/21/submissions');
+    expect(submissionPosts).toHaveLength(1);
+  });
+
+  it('shows error notification and keeps job in list when submit fails', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        jobs: [
+          {
+            id: 22,
+            company: 'Flaky Corp',
+            title: 'Unsubmittable Job',
+            url: 'https://example.com/job22',
+            location: 'Remote',
+            posted_date: '2026-09-25',
+            first_seen: '2026-09-25',
+            category: 'Backend',
+            source: 'manual',
+            deleted_at: null,
+            raw: null,
+          },
+        ],
+      }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Unsubmittable Job')).toBeInTheDocument();
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+    } as Response);
+
+    const submitButton = screen.getByLabelText('Mark Unsubmittable Job as submitted');
+    await user.click(submitButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Failed to submit job');
+    });
+
+    expect(screen.getByText('Unsubmittable Job')).toBeInTheDocument();
+    expect(submitButton).not.toBeDisabled();
+  });
+
   it('disables agent button while queueing prompt', async () => {
     const user = userEvent.setup();
 
