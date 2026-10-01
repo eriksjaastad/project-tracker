@@ -406,3 +406,35 @@ def test_set_machine_id_persists_value(
     from db.manager import DatabaseManager
     checks = DatabaseManager().sync_check()
     assert any(row["name"] == "machine_id" and row["ok"] and "42" in row["detail"] for row in checks)
+
+
+class _LockedConn:
+    """A connection whose every query fails the way a busy database does."""
+
+    def execute(self, *_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+
+def test_resume_blocked_versions_reraises_locked_database() -> None:
+    """#6900: a locked database must not read as "nothing blocks resume"."""
+    from db.sync_state import resume_blocked_versions
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        resume_blocked_versions(_LockedConn())
+
+
+def test_resume_blocked_versions_reraises_announcement_query_failure() -> None:
+    """#6900: only a missing announcements table means the gate is moot."""
+    from db.sync_state import resume_blocked_versions
+
+    class _SiteThenLocked:
+        def execute(self, sql, *_args, **_kwargs):
+            if "crsql_site_id" in sql:
+                class _Row:
+                    def fetchone(self):
+                        return ("abc",)
+                return _Row()
+            raise sqlite3.OperationalError("database is locked")
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        resume_blocked_versions(_SiteThenLocked())

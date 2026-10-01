@@ -254,14 +254,14 @@ class TestGetTrackedRepoNames:
 
         assert result == ["project-a", "project-b"]
 
-    def test_database_error_returns_empty_list(self):
-        """Returns empty list if DatabaseManager raises an exception."""
+    def test_database_error_propagates(self):
+        """A DB failure raises instead of reading as "no tracked projects" (#6900)."""
+        import pytest
         from dashboard.app import _get_tracked_repo_names
 
         with patch("dashboard.app.DatabaseManager", side_effect=Exception("DB connection failed")):
-            result = _get_tracked_repo_names()
-
-        assert result == []
+            with pytest.raises(Exception, match="DB connection failed"):
+                _get_tracked_repo_names()
 
 
 class TestFetchGithubData:

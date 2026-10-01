@@ -528,6 +528,8 @@ def _outstanding_peer_announcements(
             "WHERE machine_id != ?",
             (local_site_id, local_site_id),
         ).fetchall()
-    except sqlite3.OperationalError:
-        return []
+    except sqlite3.OperationalError as err:  # governance: allow-silent SF002: only a missing announcements table returns [], the documented "gate cannot run yet" answer; locked or corrupt databases re-raise
+        if "no such table" in str(err).lower():
+            return []
+        raise
     return [r[0] for r in rows]

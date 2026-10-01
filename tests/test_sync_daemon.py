@@ -333,3 +333,14 @@ def test_outstanding_ignores_versions_peer_announced_but_we_did_not(tmp_path: Pa
         "(5, 'unique_peer_mig', 'peer', '2026-04-19T00:00:00+00:00')"
     )
     assert _outstanding_peer_announcements(conn, local_site_id="me") == []
+
+
+def test_outstanding_reraises_errors_other_than_missing_table():
+    """#6900: a locked database must not read as "peer has announced everything"."""
+
+    class _Locked:
+        def execute(self, *_args, **_kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        _outstanding_peer_announcements(_Locked(), local_site_id="me")

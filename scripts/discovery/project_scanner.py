@@ -48,13 +48,18 @@ def clean_description(text: Optional[str]) -> str:
 
 
 def _safe_iterdir(path: Path) -> List[Path]:
-    """Return directory contents, logging and continuing on errors."""
+    """Return directory contents, logging and continuing on errors.
+
+    Only for directories below the projects base (portfolio roots). The base
+    itself is listed with a plain iterdir() so a failure there raises instead
+    of reading as "no projects".
+    """
     try:
         return list(path.iterdir())
-    except PermissionError as e:
+    except PermissionError as e:  # governance: allow-silent SF002: an unlistable portfolio root contributes no nested projects and is logged; it still exists on disk, so /api/refresh never deletes its projects
         logger.warning(f"Permission denied scanning {path}: {e}")
         return []
-    except OSError as e:
+    except OSError as e:  # governance: allow-silent SF002: an unlistable portfolio root contributes no nested projects and is logged; it still exists on disk, so /api/refresh never deletes its projects
         logger.warning(f"Filesystem error scanning {path}: {e}")
         return []
 
@@ -81,7 +86,8 @@ def discover_projects(
     projects = []
     
     # Check if directory is empty (no subdirectories)
-    subdirs = [item for item in _safe_iterdir(base) if item.is_dir()]
+    base_items = list(base.iterdir())
+    subdirs = [item for item in base_items if item.is_dir()]
     if not subdirs:
         logger.info(f"Projects base path is empty (no subdirectories found): {base}")
         return []
@@ -104,7 +110,7 @@ def discover_projects(
     code_exts = [".py", ".js", ".ts"]
     
     candidate_dirs: list[tuple[Path, Optional[dict[str, str]]]] = []
-    for item in _safe_iterdir(base):
+    for item in base_items:
         if not item.is_dir():
             continue
 
@@ -261,7 +267,7 @@ def extract_readme_description(readme_path: Path) -> str:
             description = description[:197] + "..."
         
         return description
-    except Exception as e:
+    except (OSError, UnicodeDecodeError) as e:  # governance: allow-silent SF002: an unreadable README only means no description, a cosmetic field; other errors raise
         logger.warning(f"Failed to extract description from {readme_path}: {e}")
         return ""
 

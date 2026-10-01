@@ -111,7 +111,7 @@ def is_valid_cron(schedule: str) -> bool:
         # Validate standard cron expression
         croniter(schedule)
         return True
-    except Exception as e:
+    except ValueError as e:  # governance: allow-silent SF002: croniter rejects a malformed expression with CroniterError (a ValueError); False is the true answer and check_cron_health reports it as an invalid_schedule issue
         logger.debug(f"Invalid cron schedule '{schedule}': {e}")
         return False
 
@@ -276,7 +276,7 @@ def get_expected_next_run(schedule: str, last_run: datetime) -> Optional[datetim
         # Standard cron expression
         cron = croniter(schedule, last_run)
         return cron.get_next(datetime)
-    except Exception as e:
+    except ValueError as e:  # governance: allow-silent SF002: check_cron_health validates the schedule first, so a CroniterError here means croniter cannot step this schedule; None skips only the missed-run check and is logged at WARNING, other errors raise
         logger.warning(f"Failed to calculate next run for schedule '{schedule}': {e}")
         return None
 

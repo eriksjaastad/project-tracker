@@ -109,7 +109,7 @@ def _write_brain(event: dict) -> bool:
             agent_family=agent_family,
         )
         return True
-    except ImportError:
+    except ImportError:  # governance: allow-silent SF001: optional MCP client probe; when it is absent, Strategy 2 (brain CLI) below delivers the write, then the local NDJSON fallback
         pass  # MCP client not importable — try CLI
     except Exception as exc:
         logger.warning("ai-memory Python client failed: %s", exc)

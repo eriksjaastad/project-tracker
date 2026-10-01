@@ -26,6 +26,7 @@ _CLOUD_BACKUP_HEALTHY_HOURS = 36
 
 
 def _backup_log_path() -> Path:
+    # governance: allow-silent SF003: the override is optional; empty falls back to ~/.project-tracker/backup.log below
     configured = os.getenv("PT_BACKUP_LOG_PATH", "").strip()
     if configured:
         return Path(configured).expanduser()
@@ -37,7 +38,7 @@ def _parse_iso(value: str) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+    except ValueError:  # governance: allow-silent SF002: None means "time unknown"; backup_status treats it as no recorded success or infinitely stale (warning/critical), never healthy
         return None
 
 
@@ -144,7 +145,7 @@ def _parse_rclone_config() -> dict[str, dict[str, str]]:
     config = configparser.ConfigParser()
     try:
         config.read(config_path)
-    except Exception as err:
+    except Exception as err:  # governance: allow-silent SF002: no readable remotes makes the configured remote count as unavailable, so backup_status reports a cloud warning, never healthy
         logger.warning("Failed to read rclone config at %s: %s", config_path, err)
         return {}
 

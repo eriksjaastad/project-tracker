@@ -198,7 +198,7 @@ def applied_versions(conn: sqlite3.Connection) -> set[int]:
     """
     try:
         cur = conn.execute("SELECT version FROM schema_migrations")
-    except sqlite3.OperationalError as err:
+    except sqlite3.OperationalError as err:  # governance: allow-silent SF002: only "no such table" returns empty, meaning the ledger does not exist yet so nothing is applied; every other error re-raises
         if "no such table" in str(err).lower():
             return set()
         raise
@@ -217,12 +217,18 @@ def unapplied_migrations(
 
 
 def _crsql_loaded(conn: sqlite3.Connection) -> bool:
-    """True if cr-sqlite is loaded on this connection."""
+    """True if cr-sqlite is loaded on this connection.
+
+    Only "no such function" means not loaded. Any other OperationalError
+    (locked, corrupt) propagates rather than reading as "not loaded".
+    """
     try:
         conn.execute("SELECT crsql_db_version()")
         return True
-    except sqlite3.OperationalError:
-        return False
+    except sqlite3.OperationalError as err:  # governance: allow-silent SF002: only "no such function" returns False, the true answer for a connection without cr-sqlite; other errors re-raise
+        if "no such function" in str(err).lower():
+            return False
+        raise
 
 
 def _crr_ified_tables(
@@ -324,7 +330,7 @@ def apply_migration(conn: sqlite3.Connection, migration: Migration) -> None:
         # the error that actually caused it.
         try:
             conn.execute("ROLLBACK")
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError:  # governance: allow-silent SF001: cr-sqlite may already have ended the transaction; the migration's own error is re-raised on the next line
             pass
         raise
 

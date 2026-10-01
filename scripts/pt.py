@@ -260,6 +260,7 @@ def _warn_unapplied_migrations() -> None:
             f"⚠ pending migration(s): {names}. Run `pt db migrate` to apply.",
             err=True,
         )
+    # governance: allow-silent SF002: an advisory pre-command warning; the failure is printed to stderr and must not block the requested pt command
     except Exception as err:
         # A broken migration file or broken DB config shouldn't brick
         # the CLI, but it shouldn't be silent either — the operator
@@ -270,6 +271,25 @@ def _warn_unapplied_migrations() -> None:
             err=True,
         )
         return
+
+
+def _load_external_services() -> dict:
+    """parse_external_resources(), or a clean abort before any database write.
+
+    The services sync deletes rows missing from this result, so an unreadable
+    or missing registry must stop the scan rather than look like "no services"
+    (#6900).
+    """
+    import yaml as _yaml
+
+    try:
+        return parse_external_resources()
+    except (OSError, ValueError, _yaml.YAMLError) as exc:
+        console.print(
+            f"[red]Cannot load the external resources registry: {escape(str(exc))}[/red]\n"
+            "[red]Aborting before any database write so existing service rows are kept.[/red]"
+        )
+        raise SystemExit(1)
 
 
 def rebuild_project_graph():
@@ -302,7 +322,7 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
         db = DatabaseManager()
         db.health_snapshot()
         db_reachable = True
-    except _LOCAL_DB_ERRORS as exc:
+    except _LOCAL_DB_ERRORS as exc:  # governance: allow-silent SF002: top-level `pt scan`; the red "Database unavailable" line reports the failure and the scan aborts before any write, like its other abort paths
         db_reachable = False
         if not dry_run:
             console.print(f"[red]Database unavailable: {exc}[/red]")
@@ -343,7 +363,7 @@ def _scan_impl(no_graph=False, dry_run=False, force=False):
     if stale_ids:
         console.print(f"  [dim]ℹ {len(stale_ids)} projects not found in scan (preserved in DB)[/dim]")
     console.print(f"\n[bold blue]Loading services from EXTERNAL_RESOURCES.md...[/bold blue]")
-    services_by_project = parse_external_resources()
+    services_by_project = _load_external_services()
     if not db_reachable:
         # Dry run with no service: everything above this point was discovery,
         # which is filesystem work and still worth showing. Writing is not
@@ -421,6 +441,29 @@ def _format_task_refs(task_ids, db=None) -> str:
     display_map = _display_id_map(db, ids)
     return ", ".join(_format_task_ref(i, display_map=display_map) for i in ids)
 
+
+def _blocked_state(db, task_id) -> tuple:
+    """(is_blocked, blocking_ids, reason) for one card, failing closed (#6900).
+
+    An unreadable blocked_by, or a failed blocker lookup, counts as BLOCKED
+    and carries a reason instead of ids. `pt tasks start` refuses with that
+    reason; listings and the tree still render the card, marked blocked.
+    """
+    try:
+        is_blocked, blocking_ids = db.is_blocked(task_id)
+        if is_blocked and not blocking_ids:
+            return True, [], db.blocked_by_error(task_id) or "blocked_by unreadable"
+    except Exception as exc:  # noqa: BLE001 - fail closed; never render as unblocked
+        return True, [], f"blocked state unreadable: {exc}"
+    return is_blocked, list(blocking_ids), None
+
+
+def _blocked_label(blocking_ids, reason, display_map) -> str:
+    """Text after `[B:` in listings: blocker card numbers, or `unreadable`."""
+    if reason:
+        return "unreadable"
+    return ",".join(str(display_map.get(int(i), i)) for i in blocking_ids)
+
 def _display_tasks(task_list, project=None, json_output=False, db=None):
     import json as json_lib
     if json_output:
@@ -436,15 +479,14 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
     print(f"{title} [{backend_tag}]\n")
     # Include blocker ids in the display map so [B:…] stays four-digit friendly.
     map_ids = [t["id"] for t in task_list]
+    blocked_states = {}
     if db:
         for task in task_list:
             if task.get("blocked_by"):
-                try:
-                    is_blocked, blocking_ids = db.is_blocked(task["id"])
-                except Exception:
-                    is_blocked, blocking_ids = False, []
-                if is_blocked:
-                    map_ids.extend(blocking_ids)
+                state = _blocked_state(db, task["id"])
+                blocked_states[task["id"]] = state
+                if state[0]:
+                    map_ids.extend(state[1])
     display_map = _display_id_map(db, map_ids)
     for task in task_list:
         priority = task.get("priority") or "-"
@@ -457,11 +499,9 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
         else: prompt_marker = "[!P] "
         blocked_marker = ""
         if db and task.get("blocked_by"):
-            is_blocked, blocking_ids = db.is_blocked(task_id)
+            is_blocked, blocking_ids, reason = blocked_states[task_id]
             if is_blocked:
-                b_labels = ",".join(
-                    str(display_map.get(int(i), i)) for i in blocking_ids
-                )
+                b_labels = _blocked_label(blocking_ids, reason, display_map)
                 blocked_marker = f"[B:{b_labels}] "
         if project:
             print(f"#{label} {prompt_marker}{blocked_marker}| {status} | {priority} | {task_text}")
@@ -561,7 +601,9 @@ def _blocked_by_report(db, task) -> Optional[str]:
         stored = _json.loads(raw)
     except (TypeError, ValueError):
         return f"Blocked by: (malformed blocked_by value: {raw!r})"
-    if not isinstance(stored, list) or not stored:
+    if not isinstance(stored, list):
+        return f"Blocked by: (malformed blocked_by value: {raw!r})"
+    if not stored:
         return None
 
     incomplete: List = []
@@ -759,7 +801,7 @@ def sync_project(project_name, no_graph):
     health_results = scan_health_parallel([project])
 
     # 3. Load external services for this project
-    services_by_project = parse_external_resources()
+    services_by_project = _load_external_services()
 
     # 4. Upsert to database
     db = DatabaseManager()
@@ -799,6 +841,7 @@ def hygiene(json_output: bool, project_name: Optional[str], quiet: bool) -> None
     from datetime import timezone
 
     # Read at runtime so test harnesses can override via env var
+    # governance: allow-silent SF003: the override is optional; empty falls back to PROJECTS_BASE_DIR on the next line
     _projects_root_env = os.environ.get("PROJECTS_ROOT", "")
     projects_root = Path(_projects_root_env).resolve() if _projects_root_env.strip() else Path(PROJECTS_BASE_DIR)
 
@@ -942,12 +985,12 @@ def _hygiene_non_progress_dirty_files(repo_dir: Path) -> list[str]:
 
     Shared by `_hygiene_dirty_tree` (for the finding) and
     `_hygiene_stale_progress_md` (to decide whether the repo has uncommitted
-    work other than PROGRESS.md). Returns an empty list on git failures.
+    work other than PROGRESS.md). A git failure raises, so `pt hygiene`
+    records the repo as a scan error instead of reporting it clean.
     """
-    try:
-        stdout, rc = _run_git(repo_dir, ["status", "--porcelain"])
-    except (subprocess.TimeoutExpired, OSError):
-        return []
+    stdout, rc = _run_git(repo_dir, ["status", "--porcelain"])
+    if rc != 0:
+        raise RuntimeError(f"git status --porcelain exited {rc} in {repo_dir}")
 
     dirty_files: list[str] = []
     for line in stdout.splitlines():
@@ -1682,7 +1725,7 @@ def backup_offsite(backup_name):
             from scripts.discovery.backup_reader import append_cloud_copy_log
 
             append_cloud_copy_log(ok=False, detail=str(err))
-        except Exception:
+        except Exception:  # governance: allow-silent SF001: the copy failure itself is printed and exits 2 on the next lines; the status log is secondary, and backup status still goes stale by age
             pass
         console.print(f"[red]pt backup offsite: {err}[/red]")
         raise SystemExit(2)
@@ -1692,9 +1735,11 @@ def backup_offsite(backup_name):
         from scripts.discovery.backup_reader import append_cloud_copy_log
 
         append_cloud_copy_log(ok=True, detail=detail)
-    except Exception:
-        # Status log is best-effort; never hide a successful copy.
-        pass
+    except Exception as err:  # noqa: BLE001
+        # Status log is best-effort; never hide a successful copy. But say
+        # so: without this entry `pt backup status` and the dashboard keep
+        # reporting the previous copy as the latest.
+        console.print(f"[yellow]⚠ could not record the copy in the backup status log: {err}[/yellow]")
     console.print(
         f"[green]✓ offsite {result['name']} ({size_mb:.1f} MB) → {result['dest']}[/green]"
     )
@@ -2122,8 +2167,13 @@ def tasks_start(task_ids):
             if not task: print(f"Task #{task_id} not found"); continue
             if task.get("task_type") == "agent" and not task.get("prompt"):
                 console.print(f"[yellow]Starting agent task #{task_id} without a prompt[/yellow]")
-            is_blocked, blocking_ids = db.is_blocked(task_id)
+            is_blocked, blocking_ids, reason = _blocked_state(db, task_id)
             if is_blocked:
+                if reason:
+                    console.print(
+                        f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked: {escape(reason)}[/red]"
+                    )
+                    continue
                 blocking_str = _format_task_refs(blocking_ids, db=db)
                 console.print(
                     f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked by: {blocking_str}[/red]"
@@ -2365,9 +2415,10 @@ def tasks_tree(task_id):
         is_last = (i == len(subtasks) - 1)
         prefix = "└─" if is_last else "├─"
         emoji = status_emoji.get(subtask["status"], "?")
-        is_blocked, blocking_ids = db.is_blocked(subtask["id"])
+        is_blocked, blocking_ids, reason = _blocked_state(db, subtask["id"])
         block_str = ""
-        if is_blocked: block_str = f" 🔒 (blocked by {_format_task_refs(blocking_ids, db=db)})"
+        if is_blocked and reason: block_str = f" 🔒 (blocked: {reason})"
+        elif is_blocked: block_str = f" 🔒 (blocked by {_format_task_refs(blocking_ids, db=db)})"
         elif subtask["status"] not in ["Done", "In Progress"]: block_str = " ← READY NOW"
         print(f"{prefix} {emoji} {_format_task_ref(subtask['id'], db=db)} | {subtask['status']:12} | {subtask['text']}{block_str}")
     print("\nUse 'pt tasks next' to see what you can start immediately\n")
@@ -3099,7 +3150,7 @@ def _metadata_dict(row: sqlite3.Row) -> dict:
         return {}
     try:
         parsed = json.loads(raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError:  # governance: allow-silent SF002: a malformed metadata blob in ai-memory's read-only rows is treated like a non-dict one; the row and its content are still returned with blank derived fields
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
@@ -3846,16 +3897,21 @@ def _get_merged_branches(repo_root: Path) -> set:
             if name and name != "main":
                 branches.add(name)
         return branches
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError as e:  # governance: allow-silent SF002: CLI prints the warning; an empty set makes every worktree read as unmerged, so `pt worktrees clean` keeps them (fails safe)
         console.print(f"[yellow]Warning: Failed to check merged branches: {e.stderr.strip()}[/yellow]")
         return set()
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired:  # governance: allow-silent SF002: CLI prints the warning; an empty set makes every worktree read as unmerged, so `pt worktrees clean` keeps them (fails safe)
         console.print("[yellow]Warning: Timed out checking merged branches[/yellow]")
         return set()
 
 
 def _worktree_branch(repo_root: Path, wt_path: Path) -> Optional[str]:
-    """Get the branch name for a worktree, or None if detached/missing."""
+    """Get the branch name for a worktree, or None if detached/missing.
+
+    A git failure raises ClickException: `pt worktrees clean` treats None as
+    "orphaned" and removes the worktree, so a failed lookup must never read
+    as None.
+    """
     try:
         result = subprocess.run(
             ["git", "worktree", "list", "--porcelain"],
@@ -3875,11 +3931,13 @@ def _worktree_branch(repo_root: Path, wt_path: Path) -> Optional[str]:
                     return ref.replace("refs/heads/", "")
         return None
     except subprocess.CalledProcessError as e:
-        console.print(f"[yellow]Warning: Failed to determine branch for {wt_path.name}: {e.stderr.strip()}[/yellow]")
-        return None
-    except subprocess.TimeoutExpired:
-        console.print(f"[yellow]Warning: Timed out determining branch for {wt_path.name}[/yellow]")
-        return None
+        raise click.ClickException(
+            f"Failed to determine branch for {wt_path.name}: {e.stderr.strip()}"
+        ) from e
+    except subprocess.TimeoutExpired as e:
+        raise click.ClickException(
+            f"Timed out determining branch for {wt_path.name}"
+        ) from e
 
 
 def _remove_worktree(repo_root: Path, wt_path: Path, force: bool = False) -> bool:
@@ -3896,7 +3954,7 @@ def _remove_worktree(repo_root: Path, wt_path: Path, force: bool = False) -> boo
             console.print(f"[yellow]Warning: git worktree remove failed for {wt_path.name}: {result.stderr.strip()}[/yellow]")
             return False
         return True
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired:  # governance: allow-silent SF002: False is the "not removed" result; worktrees_clean prints "failed to remove" and keeps the entry
         console.print(f"[yellow]Warning: Timed out removing worktree {wt_path.name}[/yellow]")
         return False
 
@@ -4211,6 +4269,7 @@ def doctor(json_output: bool) -> None:
 def _load_chat_config() -> dict:
     """Load Agent Chat config from ~/.claude/agent-chat.env or environment."""
     import os
+    # governance: allow-silent SF003: empty means unset; ~/.claude/agent-chat.env may fill these below, and an empty url or key raises ClickException
     config = {
         "url": os.environ.get("AGENT_CHAT_URL", ""),
         "key": os.environ.get("AGENT_CHAT_API_KEY", ""),
@@ -4288,7 +4347,9 @@ def _known_chat_addresses() -> set:
             pid = (project.get("id") or "").strip()
             if pid:
                 known.add(pid)
-    except Exception:  # noqa: BLE001 - never block a send on a DB hiccup
+    # governance: allow-silent SF002: documented "cannot verify" value (see docstring); the send skips address verification rather than block on a DB hiccup, and the warning below says so
+    except Exception as exc:  # noqa: BLE001 - never block a send on a DB hiccup
+        click.echo(f"⚠ could not verify the recipient address (project list unavailable: {exc})", err=True)
         return set()
     return known
 
@@ -4326,7 +4387,7 @@ def _self_machine_name() -> Optional[str]:
     try:
         import identity as _identity
         return _identity.machine_name()
-    except ImportError:
+    except ImportError:  # governance: allow-silent SF002: None is the documented "cannot verify" value; callers must never let it widen a guard (see docstring)
         return None
 
 
@@ -4367,8 +4428,11 @@ def _resolve_self_address(config: dict | None = None) -> str:
         resolved = _identity.read_identity()
         if resolved:
             return resolved
-    except (ImportError, OSError):
+    # An unreadable frozen identity (OSError) propagates: falling back to the
+    # configured sender would speak as a different address than the session's.
+    except ImportError:  # governance: allow-silent SF001: identity.py unavailable; the documented configured-sender fallback on the next line applies
         pass
+    # governance: allow-silent SF003: empty means no address; `pt message send` refuses an empty sender with ClickException and `list` then shows the whole board, labelled as such
     return (config or {}).get("sender", "") or os.environ.get("AGENT_CHAT_SENDER", "")
 
 
@@ -4884,7 +4948,7 @@ def sync_status():
         return
     try:
         state = _sync_conn().sync_status()
-    except _LOCAL_DB_ERRORS as err:
+    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
         _handle_sync_db_error("status", err)
         return  # pragma: no cover — _handle_sync_db_error raises SystemExit
     paused = state["paused"]
@@ -4916,7 +4980,7 @@ def sync_check():
         return
     try:
         checks = _sync_conn().sync_check()
-    except _LOCAL_DB_ERRORS as err:
+    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
         _handle_sync_db_error("check", err)
         return  # pragma: no cover
 
@@ -4945,7 +5009,7 @@ def sync_set_machine_id(machine_id: int):
         # An out-of-range id is an operator error, not a traceback.
         console.print(f"[red]pt sync set-machine-id: {err}[/red]")
         sys.exit(2)
-    except _LOCAL_DB_ERRORS as err:
+    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
         _handle_sync_db_error("set-machine-id", err)
         return  # pragma: no cover
 
@@ -4965,7 +5029,7 @@ def sync_pause(all_scope: bool):
     scope = "all" if all_scope else "data_plane"
     try:
         _sync_conn().sync_pause(scope=scope)
-    except _LOCAL_DB_ERRORS as err:
+    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
         _handle_sync_db_error("pause", err)
         return  # pragma: no cover
     console.print(f"[yellow]✓ sync paused ({scope}).[/yellow]")
@@ -5019,7 +5083,7 @@ def sync_resume(force: bool):
                 )
                 sys.exit(3)
         was_paused = db.sync_resume()["was_paused"]
-    except _LOCAL_DB_ERRORS as err:
+    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
         _handle_sync_db_error("resume", err)
         return  # pragma: no cover
     if was_paused:
@@ -5121,13 +5185,13 @@ def _auto_classify_files() -> list[dict]:
             text=True,
             timeout=timeout_seconds,
         )
-    except FileNotFoundError:
+    except FileNotFoundError:  # governance: allow-silent SF002: CLI contract pinned by test_handoff_cli: the stderr warning tells "git unavailable" apart from "no dirty files" and the handoff is still recorded
         click.echo(
             "warning: git not available, --auto-files returning empty list",
             err=True,
         )
         return []
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired:  # governance: allow-silent SF002: CLI contract pinned by test_handoff_cli: the stderr warning tells a timeout apart from "no dirty files" and the handoff is still recorded
         click.echo(
             f"warning: git status timed out at {timeout_seconds}s, "
             "--auto-files returning empty list",
@@ -5171,7 +5235,8 @@ def _detect_current_branch() -> str:
             timeout=5,
         )
         return result.stdout.strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:  # governance: allow-silent SF002: the handoff is still recorded with no branch, like a non-repo cwd; the stderr warning says the lookup failed
+        click.echo(f"warning: could not detect the current git branch ({exc}); recording no branch", err=True)
         return ""
 
 
@@ -5548,7 +5613,7 @@ def _git_head_sha(repo_dir: Path) -> Optional[str]:
     """Return current HEAD SHA, or None if outside a repo / git missing."""
     try:
         stdout, rc = _run_git(repo_dir, ["rev-parse", "HEAD"])
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):  # governance: allow-silent SF002: documented "HEAD unknown"; it only feeds the advisory HEAD-drift warning, which is skipped when either side is None
         return None
     if rc != 0:
         return None
@@ -5557,11 +5622,20 @@ def _git_head_sha(repo_dir: Path) -> Optional[str]:
 
 
 def _git_porcelain_baseline(repo_dir: Path) -> list[str]:
-    """Return current `git status --porcelain` lines (verbatim) as baseline."""
+    """Return current `git status --porcelain` lines (verbatim) as baseline.
+
+    A git failure raises PtJsonError. An empty baseline at `migration start`
+    would make every pre-existing dirty file look new at finish, and
+    `--revert` would then restore or trash it.
+    """
     try:
         stdout, rc = _run_git(repo_dir, ["status", "--porcelain"])
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return []
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        raise PtJsonError(
+            "query_failure",
+            f"git status --porcelain failed in {repo_dir}: {exc}",
+            EXIT_QUERY_FAILURE,
+        ) from exc
     if rc != 0:
         return []
     return [line for line in stdout.splitlines() if line.strip()]
@@ -5809,7 +5883,10 @@ def migration_start(name: str, force: bool, json_output: bool) -> None:
 
     repo_dir = _caller_repo_root()
     head_sha = _git_head_sha(repo_dir)
-    baseline = _git_porcelain_baseline(repo_dir)
+    try:
+        baseline = _git_porcelain_baseline(repo_dir)
+    except PtJsonError as exc:
+        _emit_json_error(exc, "migration.start")
     now = datetime.now(_timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     resolved_created_by = _resolve_created_by()
 
@@ -6194,7 +6271,10 @@ def migration_finish(
         )
 
     baseline = state.get("baseline_porcelain", []) or []
-    current = _git_porcelain_baseline(repo_dir)
+    try:
+        current = _git_porcelain_baseline(repo_dir)
+    except PtJsonError as exc:
+        _emit_json_error(exc, "migration.finish")
     added, modified = _diff_porcelain(baseline, current)
 
     finished_at = datetime.now(_timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -6247,8 +6327,10 @@ def migration_finish(
     # Remove the state file so the name is reusable.
     try:
         state_path.unlink()
-    except OSError:
-        pass
+    except OSError as exc:
+        # The session is finished and in the manifest, but a leftover state
+        # file would let a second `finish` replay the stale baseline. Say so.
+        click.echo(f"⚠ could not remove migration state file {state_path}: {exc}", err=True)
 
     if json_output:
         _emit_json({

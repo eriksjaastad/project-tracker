@@ -47,7 +47,9 @@ TABLES = [
 def connect_turso():
     """Connect to Turso using env vars."""
     import libsql
+    # governance: allow-silent SF003: required; an empty value exits with an error two lines below
     url = os.environ.get("TURSO_KANBAN_URL", "")
+    # governance: allow-silent SF003: required; an empty value exits with an error on the next line
     token = os.environ.get("TURSO_KANBAN_TOKEN", "")
     if not url or not token:
         print("ERROR: TURSO_KANBAN_URL and TURSO_KANBAN_TOKEN must be set.")

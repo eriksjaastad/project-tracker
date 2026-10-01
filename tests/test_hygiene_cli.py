@@ -615,3 +615,45 @@ def test_open_pr_drift_graceful_when_gh_returns_nonzero(
     assert pr_drift["available"] is False
     assert pr_drift["present"] is False
     assert "auth error" in pr_drift.get("reason", "")
+
+
+def test_git_status_failure_is_a_scan_error_not_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#6900: a failed `git status` must not read as a clean working tree."""
+    import pt as pt_mod
+
+    _init_git_repo(tmp_path / "repo")
+
+    def failing_git(repo_dir, args, timeout=10):
+        if args[:1] == ["status"]:
+            raise subprocess.TimeoutExpired(cmd="git status", timeout=timeout)
+        return "", 0
+
+    monkeypatch.setattr(pt_mod, "_run_git", failing_git)
+    result = _invoke(tmp_path, ["hygiene", "--json"])
+    payload = json.loads(result.output)
+    entry = payload["results"][0]
+    assert entry["clean"] is False
+    assert entry["error"]["class"] == "TimeoutExpired"
+    assert "findings" not in entry
+
+
+def test_git_status_nonzero_exit_is_a_scan_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#6900: a nonzero `git status` with empty output is not a clean tree."""
+    import pt as pt_mod
+
+    _init_git_repo(tmp_path / "repo")
+
+    def failing_git(repo_dir, args, timeout=10):
+        if args[:1] == ["status"]:
+            return "", 128
+        return "", 0
+
+    monkeypatch.setattr(pt_mod, "_run_git", failing_git)
+    result = _invoke(tmp_path, ["hygiene", "--json"])
+    entry = json.loads(result.output)["results"][0]
+    assert entry["clean"] is False
+    assert entry["error"]["class"] == "RuntimeError"

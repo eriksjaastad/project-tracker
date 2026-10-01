@@ -58,7 +58,7 @@ class JournalSpecialist:
         content = ""
         try:
             content = path.read_text(errors='ignore')
-        except Exception:
+        except OSError:  # governance: allow-silent SF002: one unreadable journal entry contributes no project links and is logged at WARNING; the rest of the scan continues
             logging.getLogger(__name__).warning("Could not read journal entry: %s", path)
             return
 
@@ -112,12 +112,10 @@ class JournalSpecialist:
             print("Graph data not found. Run graph_builder first.")
             return
 
-        try:
-            with open(GRAPH_DATA, 'r') as f:
-                data = json.load(f)
-        except Exception as e:
-            print(f"Error reading graph: {e}")
-            return
+        # A read or JSON error raises; `pt scan` reports it as a graph
+        # rebuild error instead of the enrichment silently not happening.
+        with open(GRAPH_DATA, 'r') as f:
+            data = json.load(f)
 
         # Map project names to an anchor node ID.
         # Prefer README.md, fall back to first node in the project.

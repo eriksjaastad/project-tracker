@@ -45,7 +45,7 @@ def _extract_name(skill_md_path: Path) -> str | None:
     """
     try:
         text = skill_md_path.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
+    except OSError as exc:  # governance: allow-silent SF002: None means "skip this SKILL.md"; the documented stderr skip warning names the file and read error
         _warn_skipped(skill_md_path, f"read error: {exc}")
         return None
     block = _FRONTMATTER_RE.match(text)

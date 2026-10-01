@@ -204,6 +204,6 @@ def test_all_crr_tables_pass_crsql_as_crr_after_migration(tmp_path: Path):
     finally:
         try:
             conn.execute("SELECT crsql_finalize()")
-        except sqlite3.Error:
+        except sqlite3.Error:  # governance: allow-silent SF001: test teardown; the assertions above already decided the test, and the connection is closed next
             pass
         conn.close()

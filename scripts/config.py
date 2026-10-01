@@ -33,6 +33,7 @@ PROJECTS_BASE_DIR = projects_root()
 # Validate an explicit PROJECTS_ROOT override: pointing it at a missing
 # directory is a configuration error. The default ~/projects may legitimately
 # not exist yet (CI runners, fresh checkouts), so it is allowed to be absent.
+# governance: allow-silent SF003: the override is optional; empty means the ~/projects default and only a non-empty override is validated here
 if os.environ.get("PROJECTS_ROOT", "").strip() and not PROJECTS_BASE_DIR.exists():
     raise ValueError(
         f"PROJECTS_ROOT path does not exist: {PROJECTS_BASE_DIR}\n"

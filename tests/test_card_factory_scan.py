@@ -169,6 +169,15 @@ class TestDeadDepsCheck:
         findings = scan.check_dead_deps(tmp_path)
         assert findings == []
 
+    def test_invalid_pyproject_raises_instead_of_no_deps(self, tmp_path):
+        """#6900: a broken pyproject.toml is a check error, not "no declared
+        deps" that silently falls back to requirements.txt."""
+        (tmp_path / "src").mkdir()
+        (tmp_path / "pyproject.toml").write_text("[project\nname = ")
+        (tmp_path / "requirements.txt").write_text("requests>=2\n")
+        with pytest.raises(scan.tomllib.TOMLDecodeError):
+            scan.check_dead_deps(tmp_path)
+
 
 class TestEmptyFilesCheck:
     def test_finds_placeholder_files(self, sample_project):

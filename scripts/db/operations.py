@@ -232,11 +232,14 @@ class ProjectTrackerOps:
 
     @staticmethod
     def _engine_active(conn: sqlite3.Connection) -> bool:
+        """True if cr-sqlite is loaded; only "no such function" means it is not."""
         try:
             conn.execute("SELECT crsql_db_version()").fetchone()
             return True
-        except sqlite3.Error:
-            return False
+        except sqlite3.OperationalError as err:  # governance: allow-silent SF002: only "no such function" returns False, the true answer without cr-sqlite; locked or corrupt databases re-raise
+            if "no such function" in str(err).lower():
+                return False
+            raise
 
     # -- schema migrations --------------------------------------------------
 
@@ -890,7 +893,7 @@ class ProjectTrackerOps:
             if not {"tasks", "projects"} <= tables:
                 return False
             return conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] >= 0
-        except sqlite3.DatabaseError:
+        except sqlite3.DatabaseError:  # governance: allow-silent SF002: a backup that cannot be read is not verified; False makes the gate refuse the destructive operation
             return False
         finally:
             conn.close()

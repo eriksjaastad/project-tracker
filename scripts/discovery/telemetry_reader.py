@@ -43,32 +43,30 @@ def _read_telemetry_entries(days: int = 7) -> list[dict]:
     cutoff = datetime.utcnow() - timedelta(days=days)
     entries = []
 
-    try:
-        with open(TELEMETRY_PATH, 'r') as f:
-            for line in f:
-                # Memory guard check
-                if len(entries) >= MAX_ENTRIES:
-                    logger.warning(f"Telemetry capped at {MAX_ENTRIES} entries")
-                    break
+    # A read failure raises: an empty list would read as "no requests";
+    # /api/telemetry and the alert detector already report the exception.
+    with open(TELEMETRY_PATH, 'r') as f:
+        for line in f:
+            # Memory guard check
+            if len(entries) >= MAX_ENTRIES:
+                logger.warning(f"Telemetry capped at {MAX_ENTRIES} entries")
+                break
 
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                    # Parse timestamp and filter by date
-                    ts_str = entry.get('timestamp', '')
-                    if ts_str:
-                        # Handle ISO format: 2026-01-05T09:23:14.918438Z
-                        ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
-                        if ts.replace(tzinfo=None) >= cutoff:
-                            entries.append(entry)
-                except json.JSONDecodeError:
-                    logger.debug(f"Skipping malformed line: {line[:50]}...")
-                    continue
-    except Exception as e:
-        logger.error(f"Error reading telemetry: {e}")
-        return []
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+                # Parse timestamp and filter by date
+                ts_str = entry.get('timestamp', '')
+                if ts_str:
+                    # Handle ISO format: 2026-01-05T09:23:14.918438Z
+                    ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                    if ts.replace(tzinfo=None) >= cutoff:
+                        entries.append(entry)
+            except json.JSONDecodeError:
+                logger.debug(f"Skipping malformed line: {line[:50]}...")
+                continue
 
     return entries
 

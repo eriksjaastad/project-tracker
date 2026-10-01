@@ -547,7 +547,7 @@ def test_property_19_database_lock_retry(text, project_id, status, priority):
                     try:
                         lock_conn.rollback()
                         lock_conn.close()
-                    except (sqlite3.Error, OSError):
+                    except (sqlite3.Error, OSError):  # governance: allow-silent SF001: test helper releasing a lock connection the finally block may already have closed
                         pass
             
             release_thread = threading.Thread(target=release_lock_after_delay)
@@ -597,7 +597,7 @@ def test_property_19_database_lock_retry(text, project_id, status, priority):
                 try:
                     lock_conn.rollback()
                     lock_conn.close()
-                except (sqlite3.Error, OSError):
+                except (sqlite3.Error, OSError):  # governance: allow-silent SF001: test teardown; the release thread may already have closed this lock connection
                     pass
             
             # Wait for release thread to finish

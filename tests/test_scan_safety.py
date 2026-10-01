@@ -376,3 +376,36 @@ def test_ptignore_missing_file_is_safe(scan_env):
     names = {p["name"] for p in projects}
 
     assert "keep-me" in names
+
+
+@pytest.mark.parametrize("registry", [None, "other: {}\n", "projects: [unclosed\n"])
+def test_scan_aborts_before_writes_when_resources_registry_is_unusable(scan_env, monkeypatch, tmp_path, registry):
+    """#6900: a missing, keyless or unparseable EXTERNAL_RESOURCES.yaml used to
+    read as "no services", and the services sync (deletes allowed) erased every
+    project's service rows. The scan must abort first and keep them."""
+    manager = scan_env["manager"]
+    pt = scan_env["pt"]
+    from scripts.discovery.external_resources_parser import parse_external_resources
+
+    db = manager.DatabaseManager()
+    db.add_project(project_id="proj-0", name="proj-0", path="proj-0", status="paused")
+    db.add_service(project_id="proj-0", service_name="Doppler", purpose="secrets", cost_monthly=0)
+
+    registry_path = tmp_path / "EXTERNAL_RESOURCES.yaml"
+    if registry is not None:
+        registry_path.write_text(registry)
+
+    project_dir = _make_project_dir(scan_env["base_dir"], "proj-0")
+    monkeypatch.setattr(
+        pt, "discover_projects",
+        lambda *_args, **_kwargs: [_project_metadata(project_dir, "proj-0", status="active")],
+    )
+    monkeypatch.setattr(pt, "scan_health_parallel", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(pt, "parse_external_resources", lambda: parse_external_resources(registry_path))
+
+    with pytest.raises(SystemExit) as excinfo:
+        pt.scan(no_graph=True, dry_run=False, force=True)
+    assert excinfo.value.code == 1
+
+    assert [s["service_name"] for s in db.get_services(project_id="proj-0")] == ["Doppler"]
+    assert db.get_project("proj-0")["status"] == "paused"

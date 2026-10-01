@@ -85,7 +85,7 @@ def _pt_cards() -> set[str] | None:
         output = _run(["pt", "tasks", "--all"], timeout=90, cwd="/")
         output += "\n" + _run(["pt", "tasks", "--all", "--archived"],
                                timeout=90, cwd="/")
-    except ReportError:
+    except ReportError:  # governance: allow-silent SF002: None means "pt unavailable"; collect() reports pt_available false and leaves every local_card_match unknown
         return None
     return {match.group(1) for line in output.splitlines()
             if (match := TASK_RE.match(line))}

@@ -105,7 +105,7 @@ def log(msg: str) -> None:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with LOG_FILE.open("a") as fh:
             fh.write(line + "\n")
-    except OSError:
+    except OSError:  # governance: allow-silent SF001: the line already went to stderr above, which the launchd job captures; the log file is a secondary copy
         pass  # file logging is best-effort; stderr above always fired
 
 
@@ -114,10 +114,10 @@ def load_ignore_list(machine: str) -> set:
     try:
         data = json.loads(IGNORE_FILE.read_text())
         return set(data.get(machine, []))
-    except FileNotFoundError:
+    except FileNotFoundError:  # governance: allow-silent SF002: no ignore list means ignore nothing, so every alert still reaches the digest (fail open)
         log(f"WARN ignore file not found at {IGNORE_FILE}; ignoring nothing")
         return set()
-    except Exception as exc:
+    except Exception as exc:  # governance: allow-silent SF002: an unreadable ignore list means ignore nothing, so every alert still reaches the digest (fail open)
         log(f"WARN could not parse ignore file ({exc}); ignoring nothing")
         return set()
 
@@ -225,6 +225,7 @@ def fetch_scheduled_jobs() -> list | None:
         )
         if proc.returncode != 0:
             raise RuntimeError(f"launchctl exit {proc.returncode}: {proc.stderr[:200]}")
+    # governance: allow-silent SF002: None is the documented "no job data" value; _render_job_group prints a no-job-data warning in the digest for it
     except Exception as exc:  # noqa: BLE001
         log(f"WARN scheduled-jobs fetch failed: {exc}")
         return None
@@ -325,7 +326,7 @@ def _days_since(iso: str | None) -> int | None:
     try:
         d = datetime.strptime(str(iso)[:10], "%Y-%m-%d").date()
         return (datetime.now().date() - d).days
-    except (ValueError, TypeError):
+    except (ValueError, TypeError):  # governance: allow-silent SF002: None is the documented "age unknown" value; the card renderer omits the age for it and _age_human prints "?"
         return None
 
 

@@ -924,6 +924,7 @@ async def api_agent_chat_messages(limit: int = 100):
     from urllib.request import Request, urlopen
 
     limit = max(1, min(int(limit or 100), 500))
+    # governance: allow-silent SF003: empty means unset; ~/.claude/agent-chat.env may fill it below, and an empty url or key is refused with 503
     config = {"url": os.environ.get("AGENT_CHAT_URL", ""), "key": os.environ.get("AGENT_CHAT_API_KEY", "")}
     env_file = Path.home() / ".claude" / "agent-chat.env"
     if env_file.exists():
@@ -1382,6 +1383,7 @@ async def proxy_costs(path: str, request: Request):
 
     # Read API key at request time so Doppler rotations and env changes
     # take effect without restarting the dashboard.
+    # governance: allow-silent SF003: the key is optional; without it no X-API-Key header is sent and the cost tracker's own status code is passed through
     api_key = os.getenv("COST_TRACKER_API_KEY", "")
     headers = {}
     if api_key:
@@ -2649,7 +2651,11 @@ async def list_tasks(
             # N additional DB reads while rendering the Kanban board.
             if task.get("blocked_by"):
                 try:
-                    blocked_by_ids = json.loads(task["blocked_by"])
+                    blocked_by_ids, blocked_by_error = db.parse_blocked_by(task)
+                    if blocked_by_error:
+                        # Fail closed (#6900): an unreadable blocked_by renders
+                        # the card blocked, with the reason, not unblocked.
+                        raise ValueError(blocked_by_error)
                     task_dict["blocked_by_ids"] = blocked_by_ids
 
                     # A miss in task_lookup used to be dropped silently, so a
@@ -2689,11 +2695,19 @@ async def list_tasks(
                             "Task %s references blocking ids that do not exist: %s",
                             task.get("id"), unresolved_ids,
                         )
-                except (json.JSONDecodeError, TypeError) as exc:
+                except (ValueError, TypeError) as exc:
                     logger.warning(
                         "Could not resolve blocked_by for task %s: %s",
                         task.get("id"),
                         exc,
+                    )
+                    task_dict.update(
+                        blocked_by_ids=[],
+                        blocking_tasks=[],
+                        is_blocked=True,
+                        incomplete_blocking_ids=[],
+                        unresolved_blocking_ids=[],
+                        blocked_by_error=str(exc),
                     )
 
             enriched_tasks.append(task_dict)
@@ -2757,16 +2771,17 @@ async def get_task(task_id: int):
                 task_dict["parent"] = parent
         
         # Add blocking info if task has blocked_by
+        # An unreadable blocked_by fails closed (#6900): the card is blocked
+        # and the payload names why, instead of the fields silently vanishing.
         if task.get("blocked_by"):
-            try:
-                blocked_by_ids = json.loads(task["blocked_by"])
-                task_dict["blocked_by_ids"] = blocked_by_ids
-                task_dict["blocking_tasks"] = db.get_blocking_tasks(task_id)
-                is_blocked, blocking_ids = db.is_blocked(task_id)
-                task_dict["is_blocked"] = is_blocked
-                task_dict["incomplete_blocking_ids"] = blocking_ids
-            except (json.JSONDecodeError, TypeError):
-                pass
+            blocked_by_ids, blocked_by_error = db.parse_blocked_by(task)
+            task_dict["blocked_by_ids"] = blocked_by_ids
+            task_dict["blocking_tasks"] = db.get_blocking_tasks(task_id)
+            is_blocked, blocking_ids = db.is_blocked(task_id)
+            task_dict["is_blocked"] = is_blocked
+            task_dict["incomplete_blocking_ids"] = blocking_ids
+            if blocked_by_error:
+                task_dict["blocked_by_error"] = blocked_by_error
         
         return _enrich_task_payloads_with_display_ids([task_dict], db)[0]
     except ValueError:
@@ -2846,6 +2861,13 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
             if task_type_value == "agent" and not prompt_value:
                 logger.warning(f"Agent task #{task_id} started without a prompt")
             is_blocked, blocking_ids = db.is_blocked(task_id)
+            if is_blocked and not blocking_ids:
+                # Fail closed (#6900): an unreadable blocked_by blocks the start.
+                reason = db.blocked_by_error(task_id) or "blocked_by unreadable"
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot start task while blocked: {reason}"
+                )
             if is_blocked:
                 raw_blockers = db.get_task_display_id_map(task_ids=list(blocking_ids))
                 blocking_display_map = {int(k): int(v) for k, v in (raw_blockers or {}).items()}
@@ -4354,29 +4376,29 @@ def _get_tracked_repo_names() -> List[str]:
 
     Includes top-level projects and subdirectories of github-repos/.
     Excludes internal prefixes (_tools, __knowledge, etc.).
+
+    A database failure raises: an empty list would read as "no tracked
+    projects", and the GitHub cache already turns a raised refresh into
+    refresh_error while keeping the previous snapshot.
     """
-    try:
-        db = DatabaseManager()
-        projects = db.get_all_projects()
-        names: List[str] = []
-        for p in projects:
-            pid = p.get("id", "")
-            # Skip internal/infrastructure projects
-            if pid.startswith("_") or pid.startswith("__"):
-                continue
-            # github-repos is a container — its children are the actual repos
-            if pid == "github-repos":
-                github_repos_dir = config_projects_root() / "github-repos"
-                if github_repos_dir.is_dir():
-                    for child in github_repos_dir.iterdir():
-                        if child.is_dir() and not child.name.startswith(".") and not child.name.startswith("00_"):
-                            names.append(child.name)
-                continue
-            names.append(pid)
-        return sorted(set(names))
-    except Exception as e:
-        logger.warning(f"Failed to get tracked projects: {e}")
-        return []
+    db = DatabaseManager()
+    projects = db.get_all_projects()
+    names: List[str] = []
+    for p in projects:
+        pid = p.get("id", "")
+        # Skip internal/infrastructure projects
+        if pid.startswith("_") or pid.startswith("__"):
+            continue
+        # github-repos is a container — its children are the actual repos
+        if pid == "github-repos":
+            github_repos_dir = config_projects_root() / "github-repos"
+            if github_repos_dir.is_dir():
+                for child in github_repos_dir.iterdir():
+                    if child.is_dir() and not child.name.startswith(".") and not child.name.startswith("00_"):
+                        names.append(child.name)
+            continue
+        names.append(pid)
+    return sorted(set(names))
 
 
 def _fetch_github_data() -> Dict:

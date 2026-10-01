@@ -47,7 +47,7 @@ def _get(conn: sqlite3.Connection, key: str) -> Optional[str]:
         row = conn.execute(
             "SELECT value FROM _metadata WHERE key = ?", (key,)
         ).fetchone()
-    except sqlite3.OperationalError as err:
+    except sqlite3.OperationalError as err:  # governance: allow-silent SF002: only "no such table" returns None, meaning the key was never set; other errors re-raise
         if "no such table" in str(err).lower():
             return None
         raise
@@ -142,8 +142,10 @@ def resume_blocked_versions(conn: sqlite3.Connection) -> list[int]:
     """
     try:
         site_row = conn.execute("SELECT crsql_site_id()").fetchone()
-    except sqlite3.OperationalError:
-        return []  # cr-sqlite not loaded - nothing to gate on
+    except sqlite3.OperationalError as err:  # governance: allow-silent SF002: only "no such function" returns [], the documented answer when cr-sqlite is not loaded; other errors re-raise
+        if "no such function" in str(err).lower():
+            return []  # cr-sqlite not loaded - nothing to gate on
+        raise
     # `not site_row[0]` catches both None and empty-string site ids.
     # An empty site id would match WHERE machine_id = '' and silently
     # return zero rows, making the gate a no-op with misleading logs.
@@ -159,6 +161,8 @@ def resume_blocked_versions(conn: sqlite3.Connection) -> list[int]:
             "WHERE machine_id != ?",
             (site_id, site_id),
         ).fetchall()
-    except sqlite3.OperationalError:
-        return []  # table missing - gate is moot
+    except sqlite3.OperationalError as err:  # governance: allow-silent SF002: only a missing announcements table returns [], the documented "gate is moot" answer; other errors re-raise
+        if "no such table" in str(err).lower():
+            return []  # table missing - gate is moot
+        raise
     return sorted(r[0] for r in rows)

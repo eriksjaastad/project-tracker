@@ -105,6 +105,7 @@ def agent_name() -> str | None:
     Empty/unset means legacy bare project addressing. Invalid values are ignored
     rather than poisoning the address.
     """
+    # governance: allow-silent SF003: the agent slug is optional; empty means legacy bare project addressing and returns None below
     raw = (
         os.environ.get("AGENT_CHAT_AGENT")
         or os.environ.get("AGENT_CHAT_AGENT_NAME")
@@ -138,17 +139,15 @@ def find_project_root(start: Path) -> Path | None:
     """Walk up from `start` looking for a project root marker.
 
     Returns None when `start` is not inside a project — the caller decides
-    what that means rather than getting a silently wrong answer.
+    what that means rather than getting a silently wrong answer. A `start`
+    that cannot be resolved raises: that is a failure, not "outside a project".
     """
-    try:
-        current = Path(start).resolve()
-    except (OSError, RuntimeError):
-        return None
+    current = Path(start).resolve()
 
     root = projects_root()
     try:
         root = root.resolve()
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError):  # governance: allow-silent SF001: the unresolved projects root is still the comparison target, the same fallback project_name_for applies
         pass
 
     for candidate in (current, *current.parents):
@@ -259,6 +258,7 @@ def read_identity(session_id: str | None = None) -> str | None:
     directory, which is the bug this module exists to prevent.
     """
     if session_id is None:
+        # governance: allow-silent SF003: no session id means no frozen identity; the documented AGENT_CHAT_SENDER fallback below applies
         session_id = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 
     if session_id:
@@ -266,9 +266,10 @@ def read_identity(session_id: str | None = None) -> str | None:
             value = identity_path(session_id).read_text(encoding="utf-8").strip()
             if value:
                 return value
-        except OSError:
+        except FileNotFoundError:  # governance: allow-silent SF001: a session that predates identity binding has no file and takes the documented AGENT_CHAT_SENDER fallback
             pass
 
+    # governance: allow-silent SF003: AGENT_CHAT_SENDER is an optional legacy fallback; empty returns None on the next line
     fallback = os.environ.get("AGENT_CHAT_SENDER", "").strip()
     if not fallback:
         return None
@@ -293,7 +294,7 @@ def resolve_for_session(session_id: str, cwd: str | Path) -> str | None:
     existing = None
     try:
         existing = identity_path(session_id).read_text(encoding="utf-8").strip()
-    except OSError:
+    except FileNotFoundError:  # governance: allow-silent SF001: no stored identity yet means this is the session's first resolution
         pass
     if existing:
         return existing

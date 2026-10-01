@@ -60,7 +60,7 @@ def rotate_if_large(
 
         logger.info("rotated %s (was over %d bytes)", path, max_bytes)
         return True
-    except OSError as exc:
+    except OSError as exc:  # governance: allow-silent SF002: documented best-effort startup housekeeping; False truthfully means "not rotated" and the file is only truncated after its copy is written
         logger.warning("could not rotate %s: %s", path, exc)
         return False
 
