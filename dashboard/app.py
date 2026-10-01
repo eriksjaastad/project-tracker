@@ -1813,6 +1813,10 @@ _AI_MEMORY_DEGREE_SQL = """
 """
 
 _AI_MEMORY_BUILD_RECEIPT = "com.ai-memory.weekly-graph-build.json"
+# Hardcoded, not read from the LaunchAgent at runtime (no plist parsing here).
+# Source of truth: ai-memory/scripts/com.ai-memory.weekly-graph-build.plist's
+# StartCalendarInterval (Weekday 1 = Monday, Hour 10, Minute 0). If that plist
+# changes, update this string to match.
 _AI_MEMORY_BUILD_SCHEDULE = "Mondays 10:00"
 
 
