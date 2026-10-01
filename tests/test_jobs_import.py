@@ -119,61 +119,67 @@ def test_import_validates_required_fields(tmp_path: Path) -> None:
 
 
 def test_hn_multi_role_contract_documented_in_import_contract() -> None:
-    """HN multi-role comments must produce one JSONL line per role.
-    
-    This test documents the contract: each role gets a stable URL fragment
-    (e.g., #role-1, #role-2) and unparseable roles must still be exported
-    with company='Unknown', title='See raw text', and the full raw comment.
-    
-    The job-search repo export side is out of scope for this PR, but the
-    contract is documented in docs/JOB_IMPORT_CONTRACT.md.
+    """HN comments guarantee one #post row; #role-N rows are best-effort.
+
+    Free-text HN headers can't be parsed completely, so the contract
+    guarantees one {comment_url}#post row per comment carrying the full
+    comment text (no role is lost), and treats #role-N rows as extras.
+    The job-search export side lives in that repo; the contract is
+    documented in docs/JOB_IMPORT_CONTRACT.md.
     """
     contract_path = Path(__file__).parent.parent / "docs" / "JOB_IMPORT_CONTRACT.md"
     assert contract_path.exists(), "JOB_IMPORT_CONTRACT.md must exist"
-    
+
     contract = contract_path.read_text()
     assert "HN Multi-Role Handling" in contract
-    assert "one JSONL line per role" in contract.lower() or "single role per line" in contract.lower()
+    assert "{comment_url}#post" in contract
+    assert "full comment text" in contract.lower()
+    assert "#role-{N}" in contract
+    assert "best-effort" in contract.lower()
     assert "Unknown" in contract
     assert "See raw text" in contract
-    assert "Contract violation" in contract or "not allowed" in contract
+    assert "Contract violation" in contract
+    assert "Every advertised position must produce one JSONL line" not in contract
 
 
-def test_hn_multi_role_example_imports_successfully(db, tmp_path: Path) -> None:
-    """Example multi-role HN comment imports as separate jobs."""
+def test_hn_post_and_role_rows_import_as_separate_jobs(db, tmp_path: Path) -> None:
+    """A comment's guaranteed #post row and its best-effort #role-N rows are distinct jobs."""
     jsonl = tmp_path / "hn_multi.jsonl"
     jsonl.write_text(
+        '{"company": "Widget Inc", "title": "See raw text", '
+        '"url": "https://news.ycombinator.com/item?id=12345678#post", '
+        '"source": "hn", "category": "Other", '
+        '"raw": "Widget Inc | Full Stack, Backend | Remote | Apply at jobs@widget.com"}\n'
+
         '{"company": "Widget Inc", "title": "Full Stack Developer", '
         '"url": "https://news.ycombinator.com/item?id=12345678#role-1", '
         '"source": "hn", "category": "Full Stack", '
-        '"raw": "Widget Inc | Full Stack | Remote | Apply at jobs@widget.com"}\n'
-        
-        '{"company": "Widget Inc", "title": "Backend Engineer", '
-        '"url": "https://news.ycombinator.com/item?id=12345678#role-2", '
-        '"source": "hn", "category": "Backend", '
-        '"raw": "Widget Inc | Backend | SF | Apply at jobs@widget.com"}\n'
-        
+        '"raw": "Widget Inc | Full Stack, Backend | Remote | Apply at jobs@widget.com"}\n'
+
         '{"company": "Unknown", "title": "See raw text", '
-        '"url": "https://news.ycombinator.com/item?id=12345678#role-3", '
+        '"url": "https://news.ycombinator.com/item?id=87654321#post", '
         '"source": "hn", "category": "Other", '
         '"raw": "Stealth startup | multiple roles | contact: secret@example.com"}\n'
     )
-    
+
     import json
     imported = []
     for line in jsonl.read_text().strip().split("\n"):
         record = json.loads(line)
         job = db.upsert_job(**record)
         imported.append(job)
-    
-    assert len(imported) == 3
-    
-    # All three roles from the same HN comment are distinct jobs
-    assert imported[0]["url"].startswith("https://news.ycombinator.com/item?id=12345678#role-1")
-    assert imported[1]["url"].startswith("https://news.ycombinator.com/item?id=12345678#role-2")
-    assert imported[2]["url"].startswith("https://news.ycombinator.com/item?id=12345678#role-3")
-    
-    # Unparseable role is preserved with fallback fields
+
+    assert [job["url"] for job in imported] == [
+        "https://news.ycombinator.com/item?id=12345678#post",
+        "https://news.ycombinator.com/item?id=12345678#role-1",
+        "https://news.ycombinator.com/item?id=87654321#post",
+    ]
+    assert len({job["id"] for job in imported}) == 3
+
+    # The #post row keeps the whole comment even though only one role parsed.
+    assert "Full Stack, Backend" in imported[0]["raw"]
+
+    # An unparseable comment still arrives through its #post row.
     unknown = imported[2]
     assert unknown["company"] == "Unknown"
     assert unknown["title"] == "See raw text"
