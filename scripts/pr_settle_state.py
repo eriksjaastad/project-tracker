@@ -20,7 +20,7 @@ def fresh(repo, number, owner, now, max_minutes):
     return dict(schema_version=1, repo=repo, number=number, owner=owner, started_at=now,
                 updated_at=now, deadline=now + max_minutes * 60, head=None,
                 snapshot_id=None, snapshot=None, status="active", finding_heads=[],
-                requests=[], cycles=[], history_snapshot_id=None, review_hold=False, hold_cycle_id=None,
+                requests=[], cycles=[], history_snapshot_id=None,
                 events=[], polls=0, review="pending", ci="unknown", assessment=None)
 
 
@@ -145,19 +145,16 @@ def _external(evidence, summary):
         raise ValueError("External GitHub evidence URLs and a summary are required")
 
 
-def _cycle_hold(state):
+def _guard_unknown_cycles(state):
+    """Escalate on uncertain execution history. No fixed cycle-count limit: the
+    shared PR policy (agent-runtime-config docs/pr-review-policy.md) reassesses
+    repeated misses instead, and the Codex review-loop tripwire (#7738) is the
+    escalation mechanism for that pattern."""
     counted = [cycle for cycle in state["cycles"] if cycle["status"] != "rejected"]
-    if len(counted) >= 3 and not state["review_hold"]:
-        state["review_hold"] = True
-        state["hold_cycle_id"] = counted[2]["id"]
-        _event(state, "review_hold", "stop_changes_monitor_only")
     if state["status"] != "active":
         return
     if any(cycle["status"] == "unknown" for cycle in counted):
         _escalate(state, "Execution history is uncertain; ask Erik before another request")
-    elif state["review_hold"] and (len(counted) > 3 or any(c["id"] == state["hold_cycle_id"]
-            and c["status"] == "rejected" for c in state["cycles"])):
-        _escalate(state, "Review execution limit or rejected final request needs Erik's direction")
 
 
 def reconcile(state, cycles, evidence, summary, now, *, snapshot_id):
@@ -209,7 +206,7 @@ def reconcile(state, cycles, evidence, summary, now, *, snapshot_id):
                  history_snapshot_id=state["snapshot_id"], updated_at=now,
                  history_evidence=list(evidence), history_summary=summary)
     _event(state, "history", "review_recorded_history")
-    _cycle_hold(state)
+    _guard_unknown_cycles(state)
     _request_wait(state, now)
     return state["events"][offset:]
 
@@ -308,7 +305,7 @@ def consume(state, snapshot, now):
     if state["status"] == "active" and pr.get("state") == "closed":
         state["status"] = "settled"
         _event(state, "closed", "none")
-    elif state["status"] == "active" and pr.get("draft") and not state["review_hold"]:
+    elif state["status"] == "active" and pr.get("draft"):
         state["status"] = "held"
         _event(state, "draft", "owner_resume")
     _request_wait(state, now)
@@ -333,10 +330,6 @@ def assess(state, head, snapshot_id, review, ci, evidence, summary, *, now=None)
     _external(evidence, summary)
     if review == "clean" and state["history_snapshot_id"] != snapshot_id:
         raise ValueError("Reconcile execution history against this snapshot first")
-    if review == "clean" and state["review_hold"] and not any(
-            c["id"] == state["hold_cycle_id"] and c["head"] == head and c["status"] == "completed"
-            for c in state["cycles"]):
-        raise ValueError("Clean requires the completed third execution at the current head")
     if review == "clean" and (not any(c["head"] == head and c["status"] == "completed" for c in state["cycles"])
                              or any(c["status"] in {"requested", "acknowledged", "unknown"} for c in state["cycles"])):
         raise ValueError("Clean requires a completed current-head execution and no active or unknown attempts")
@@ -350,9 +343,7 @@ def assess(state, head, snapshot_id, review, ci, evidence, summary, *, now=None)
     _event(state, "assessment", "wait")
     if review == "findings":
         _finding_head(state)
-    if state["review_hold"] and (review in {"findings", "ambiguous"} or review == "clean" and ci == "failed"):
-        _escalate(state, "Third review has findings, ambiguity, or failed CI; discuss patterns with Erik before more work")
-    elif review == "clean" and ci in {"satisfied", "not_configured"}:
+    if review == "clean" and ci in {"satisfied", "not_configured"}:
         state["status"] = "settled"
         _event(state, "ready", "recheck_and_merge")
     _request_wait(state, state["updated_at"])
@@ -370,9 +361,9 @@ def request(state, head, kind, now):
     if (not head or head != state["head"] or not state["snapshot"]
             or state["snapshot"]["status"] != "complete"):
         raise ValueError("Request baseline requires complete current-head evidence")
-    if (state["review_hold"] or state["history_snapshot_id"] != state["snapshot_id"]
+    if (state["history_snapshot_id"] != state["snapshot_id"]
             or any(c["status"] in {"requested", "acknowledged", "unknown"} for c in state["cycles"])):
-        raise ValueError("Reconciled history below the hold and no active execution are required")
+        raise ValueError("Reconciled history and no active execution are required")
     if kind not in {"initial", "thorough"}:
         raise ValueError("Only explicit initial/thorough requests are supported; no automatic retry")
     cycle_id = f"reserved-{len(state['requests']) + 1}"
@@ -391,7 +382,5 @@ def request(state, head, kind, now):
     state.update(review="pending", assessment=None)
     event = _event(state, "request_baseline", "owner_trigger_reserved_request")
     event["cycle_id"] = cycle_id
-    _cycle_hold(state)
-    if state["review_hold"]:
-        event["action"] = "owner_trigger_final_review_and_hold"
+    _guard_unknown_cycles(state)
     return state["events"][offset:]
