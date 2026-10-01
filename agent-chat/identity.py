@@ -54,7 +54,15 @@ HUMAN_ADDRESS = "erik"
 
 # Addresses are used in URLs and jq comparisons; keep them boring.
 # Local part may include a single `+agent` qualifier (#7146).
-_VALID_ADDRESS = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
+#
+# A single leading underscore is allowed (#7798): `~/projects/_tools` is a
+# real project on the laptop, and the server already accepts `_tools` as an
+# address — only this grammar rejected it. The optional `_?` is followed by a
+# mandatory alnum-anchored body, so an all-underscore name (`___`) still has
+# no alnum character and still fails to match; a leading dot (`.claude`) is
+# still outside the allowed lead-character set and still fails too. Both of
+# those stay invalid on purpose — only the underscore case changed.
+_VALID_ADDRESS = re.compile(r"^_?[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 _VALID_AGENT = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 
 

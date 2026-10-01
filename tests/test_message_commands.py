@@ -472,6 +472,31 @@ class TestUnknownAddressGuard:
         assert result.exit_code == 0
         req.assert_called_once()
 
+    def test_underscore_prefixed_address_is_accepted(self, runner, tmp_path, monkeypatch):
+        """#7798 — `_tools` is a real project (~/projects/_tools) and must be
+        a reachable recipient like any other known address.
+        """
+        self._identity(tmp_path, monkeypatch, "project-tracker")
+        with patch("pt._load_chat_config", return_value={"url": "u", "key": "k", "sender": "cfg"}), \
+             patch("pt._known_chat_addresses", return_value={"project-tracker", "_tools"}), \
+             patch("pt._chat_api_request", return_value={"id": 1}) as req:
+            result = runner.invoke(cli, ["message", "send", "hi", "--to", "_tools"])
+
+        assert result.exit_code == 0
+        req.assert_called_once()
+        assert req.call_args[1]["data"]["to"] == "_tools"
+
+    def test_underscore_prefixed_sender_can_send(self, runner, tmp_path, monkeypatch):
+        """A `_tools` session's own frozen identity must work as the sender."""
+        self._identity(tmp_path, monkeypatch, "_tools")
+        with patch("pt._load_chat_config", return_value={"url": "u", "key": "k", "sender": "cfg"}), \
+             patch("pt._known_chat_addresses", return_value={"project-tracker", "_tools"}), \
+             patch("pt._chat_api_request", return_value={"id": 1}) as req:
+            result = runner.invoke(cli, ["message", "send", "hi", "--to", "project-tracker"])
+
+        assert result.exit_code == 0
+        assert req.call_args[1]["data"]["sender"] == "_tools"
+
 
 class TestMachineQualifiedSend:
     """`--machine` builds a qualified address; qualify() is no longer dead code."""
