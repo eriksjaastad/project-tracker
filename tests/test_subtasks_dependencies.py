@@ -143,7 +143,9 @@ def test_api_subtasks_and_blocking(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     )
     assert update_response.status_code == 200
     updated = update_response.json()
-    assert updated["parent_id"] == parent["id"]
+    # str(): the API stringifies Snowflake-scale ids on the wire (#7824) --
+    # parent["id"] here is the raw int from the DatabaseManager layer.
+    assert updated["parent_id"] == str(parent["id"])
     assert updated["parent_display_id"] == db.get_task_display_id(parent["id"])
     assert json.loads(updated["blocked_by"]) == [blocker["id"]]
 

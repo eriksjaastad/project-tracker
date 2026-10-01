@@ -64,7 +64,9 @@ def _blocked_view(db, task_id, monkeypatch):
         dashboard_app.list_tasks(project_id="alpha", status_filter=None)
     )
     rows = payload["tasks"] if isinstance(payload, dict) else payload
-    row = next(r for r in rows if r["id"] == task_id)
+    # str(): the API stringifies Snowflake-scale ids on the wire (#7824);
+    # task_id here is the raw int from the DatabaseManager layer.
+    row = next(r for r in rows if r["id"] == str(task_id))
     return {
         "is_blocked": row.get("is_blocked"),
         "incomplete": row.get("incomplete_blocking_ids", []),
@@ -79,7 +81,7 @@ def test_incomplete_blocker_marks_the_card_blocked(board, monkeypatch):
 
     view = _blocked_view(board, target["id"], monkeypatch)
     assert view["is_blocked"] is True
-    assert view["incomplete"] == [blocker["id"]]
+    assert view["incomplete"] == [str(blocker["id"])]
 
 
 def test_archived_done_blocker_does_not_block(board, monkeypatch):
@@ -110,7 +112,7 @@ def test_nonexistent_blocker_is_surfaced_not_silently_cleared(board, monkeypatch
     board.update_task(target["id"], blocked_by=json.dumps([999999999]))
 
     view = _blocked_view(board, target["id"], monkeypatch)
-    assert view["unresolved"] == [999999999]
+    assert view["unresolved"] == ["999999999"]
     assert view["is_blocked"] is True, (
         "an unresolvable blocker rendered as unblocked — the card claims it is "
         "ready to work when nothing proved that"

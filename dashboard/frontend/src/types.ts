@@ -43,7 +43,10 @@ export const TASK_TYPE_LABELS: Record<TaskType, string> = {
 export type TaskPriority = 'Critical' | 'High' | 'Medium' | 'Low';
 
 export interface Task {
-  id: number;
+  // Snowflake-scale pt_id (#6044): a decimal string, never a JS number.
+  // Bare JSON numbers above Number.MAX_SAFE_INTEGER round in JSON.parse,
+  // which breaks every PATCH built from the rounded value (#7824).
+  id: string;
   display_id?: number | null;
   text: string;
   status: TaskStatus;
@@ -61,7 +64,7 @@ export interface Task {
   review_comment: string | null;
 
   // Parent-child relationships (Task #4645)
-  parent_id: number | null;
+  parent_id: string | null;
   parent_display_id?: number | null;
   subtasks?: Task[];
   subtask_progress?: {
@@ -73,17 +76,17 @@ export interface Task {
 
   // Task dependencies (Task #4579)
   blocked_by: string | null;  // JSON array as string
-  blocked_by_ids?: number[];
+  blocked_by_ids?: string[];
   blocked_by_display_ids?: number[];
   blocking_tasks?: Task[];
   is_blocked?: boolean;
-  incomplete_blocking_ids?: number[];
+  incomplete_blocking_ids?: string[];
   incomplete_blocking_display_ids?: number[];
   // Blocker ids that resolve to no task at all. Distinct from
   // incomplete_blocking_ids: those name real unfinished work, these name a
   // broken reference. Both set is_blocked, but only one is fixable by doing
   // the blocking task (#6924).
-  unresolved_blocking_ids?: number[];
+  unresolved_blocking_ids?: string[];
   sequence_order: number | null;
 
   // File attachments (#5216)
@@ -91,8 +94,10 @@ export interface Task {
 }
 
 export interface Attachment {
-  id: number;
-  task_id: number;
+  // Snowflake-scale pt_id (#6044): decimal strings, same rationale as
+  // Task.id above (#7824).
+  id: string;
+  task_id: string;
   filename: string;
   stored_name: string;
   mime_type: string | null;

@@ -122,18 +122,22 @@ export function KanbanBoard() {
   }, []);
 
   const handleSearchTask = () => {
+    // The search box takes the small display id (#6100) people actually
+    // read off cards; parseInt is safe for that. The raw Snowflake id can
+    // exceed Number.MAX_SAFE_INTEGER (#7824), so matching against it uses
+    // the original, un-parsed string instead.
     const query = searchTaskId.replace('#', '').trim();
-    const taskId = parseInt(query, 10);
-    if (isNaN(taskId)) {
+    if (query === '') {
       showNotification('Please enter a valid task ID', 'error');
       return;
     }
-    const task = tasks.find(t => (t.display_id ?? t.id) === taskId || t.id === taskId);
+    const displayId = parseInt(query, 10);
+    const task = tasks.find(t => t.display_id === displayId || t.id === query);
     if (task) {
       setSelectedTask(task);
       setSearchTaskId('');
     } else {
-      showNotification(`Task #${taskId} not found`, 'error');
+      showNotification(`Task #${query} not found`, 'error');
     }
   };
 
@@ -144,7 +148,7 @@ export function KanbanBoard() {
       return;
     }
 
-    const taskId = active.id as number;
+    const taskId = active.id as string;
 
     // Determine the target status - over.id could be a column status or a task ID
     let newStatus: TaskStatus;
@@ -217,8 +221,8 @@ export function KanbanBoard() {
     priority: TaskPriority | null;
     taskType: TaskType;
     notes: string;
-    parentId?: number | null;
-    blockedBy?: number[] | null;
+    parentId?: string | null;
+    blockedBy?: string[] | null;
   }) => {
     try {
       const newTask = await createTask(
@@ -251,7 +255,7 @@ export function KanbanBoard() {
     setSelectedTask(null);
   };
 
-  const handleTaskDelete = useCallback(async (taskId: number) => {
+  const handleTaskDelete = useCallback(async (taskId: string) => {
     try {
       await deleteTask(taskId);
       setTasks(prev => prev.filter(t => t.id !== taskId));

@@ -59,7 +59,9 @@ def test_list_tasks_honors_status_query_param(tmp_path: Path, monkeypatch: pytes
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["total"] == 1
-    assert [task["id"] for task in payload["tasks"]] == [done_task["id"]]
+    # str(): the API stringifies Snowflake-scale ids on the wire (#7824);
+    # done_task["id"] here is the raw int from the DatabaseManager layer.
+    assert [task["id"] for task in payload["tasks"]] == [str(done_task["id"])]
 
 
 def test_update_task_can_clear_nullable_fields_via_null(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
