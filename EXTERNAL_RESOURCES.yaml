@@ -1431,7 +1431,9 @@ monitoring:
       deletion — do not monitor. Listed so Saga stops rediscovering it.
 
   # --- scheduled-job surface -------------------------------------------------
-  # 27 launchd agents + 2 crontab entries on the LAPTOP as of 2026-09-22.
+  # 26 launchd agents + 2 crontab entries on the LAPTOP are tracked below
+  # (2026-10-01: slack-listener removed when its project was archived, #7835).
+  # Some installed agents are not listed yet (project-tracker card 99145072256380928).
   # A job that silently stops running is the most common real failure here and
   # the one nothing currently catches. Saga's check is: did it run on schedule,
   # did it exit clean. Log growth is evidence only for jobs that document output
@@ -1492,7 +1494,6 @@ monitoring:
       - {id: com.erik.trading-copilot.alpha-watcher,  project: trading-copilot,      schedule: UNKNOWN,      log: ~/projects/trading-copilot/logs/alpha_watcher.log}
       - {id: com.erik.fci-kwiky-thumbs.exports-watcher, project: fci-kwiky-thumbs,   schedule: UNKNOWN,      log: ~/projects/fci-kwiky-thumbs/logs/exports_watcher.log}
       - {id: com.eriksjaastad.agent-runtime-monitor,  project: agent-runtime-config, schedule: daily 09:00,  log: ~/projects/agent-runtime-config/.monitor/launchd.out.log}
-      - {id: com.eriksjaastad.slack-listener,         project: slack-listener,       schedule: keepalive,    log: ~/projects/slack-listener/logs/listener.stdout.log}
       - {id: com.eriksjaastad.claude-config-pull,     project: claude-user-config,   schedule: every 21600s, log: /tmp/claude-config-pull.log}
       - {id: com.erik.journal-personal,               project: ai-journal,           schedule: daily 22:00,  log: ~/Library/Logs/journal_personal.out}
       - {id: muffinpanrecipes-cron-test,              project: muffinpanrecipes,     schedule: "0 12 * * * (crontab)", log: ~/projects/muffinpanrecipes/logs/cron_compressed.log}

@@ -44,7 +44,6 @@ Launchd plist and crontab changes are out of scope for this repo — tracked sep
 | `com.user.sherlock_watchlist` | [sherlock-holmes](#sherlock-holmes--watchlist-monitor) | Weekly Sun 09:00 | Not installed |
 | `com.eriksjaastad.complexity-scan` | [project-tracker](#project-tracker--complexity-scan) | Monthly 1st at 22:00 | Not installed |
 | `com.eriksjaastad.project-tracker` | [project-tracker](#project-tracker--dashboard) | Always-on daemon | Installed |
-| `com.eriksjaastad.slack-listener` | slack-listener | Always-on daemon | Installed |
 
 ### Crontab
 
