@@ -5,7 +5,7 @@ import './IdeaCard.css';
 interface IdeaCardProps {
     idea: Idea;
     onEdit: (idea: Idea) => void;
-    onDelete: (id: number) => void;
+    onDelete: (id: string) => void;
 }
 
 export function IdeaCard({ idea, onEdit, onDelete }: IdeaCardProps) {

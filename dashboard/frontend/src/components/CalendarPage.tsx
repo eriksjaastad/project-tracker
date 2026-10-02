@@ -182,7 +182,7 @@ export function CalendarPage() {
     setSelectedEvent(ev);
   }
 
-  async function handleMarkDone(id: number) {
+  async function handleMarkDone(id: string) {
     setMarkDoneError(null);
     try {
       await markCalendarEventDone(id);
