@@ -21,6 +21,12 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 from hypothesis import given, strategies as st, assume, settings
+
+# Every property test here runs real SQLite I/O per example, so Hypothesis's
+# default 200ms per-example deadline measured disk and machine load, not this
+# code: under a loaded machine they failed with DeadlineExceeded at 260-507ms
+# on an unchanged tree (#7896). The tests check behaviour, not speed.
+DB_PROPERTY_SETTINGS = {"deadline": None}
 from fastapi.testclient import TestClient
 from fastapi import FastAPI, HTTPException
 
@@ -240,7 +246,7 @@ def test_card_creation_allowed_for_all_projects():
     status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
-@settings(max_examples=100)
+@settings(max_examples=100, **DB_PROPERTY_SETTINGS)
 def test_property_8_task_edit_persistence(initial_text, new_text, project_id, status, priority):
     """
     Feature: kanban-board, Property 8: Task Edit Persistence
@@ -337,7 +343,7 @@ def test_property_8_task_edit_persistence(initial_text, new_text, project_id, st
     status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
-@settings(max_examples=50)
+@settings(max_examples=50, **DB_PROPERTY_SETTINGS)
 def test_property_18_transaction_rollback_on_api_error(text, project_id, status, priority):
     """
     Feature: kanban-board, Property 18: Transaction Rollback on API Error
@@ -486,7 +492,7 @@ def test_property_18_transaction_rollback_on_api_error(text, project_id, status,
     status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
-@settings(max_examples=1)
+@settings(max_examples=1, **DB_PROPERTY_SETTINGS)
 def test_property_19_database_lock_retry(text, project_id, status, priority):
     """
     Feature: kanban-board, Property 19: Database Lock Retry
