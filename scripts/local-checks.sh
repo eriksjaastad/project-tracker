@@ -75,12 +75,13 @@ clone_tree() {
 #   never fetches and --ignore-scripts never runs package code: this is the
 #   check, not the install Erik's shell guards against.
 # - What npm ci would install is the ideal tree npm's own installer (Arborist,
-#   shipped inside npm) builds from those two files, less what its reify step
-#   skips on this machine: each optional package that fails npm's engine or
-#   platform check (npm-install-checks), with its optional set. Each remaining
-#   package must be installed with the same version, source and integrity, and
-#   nothing else may be installed. node_modules/.package-lock.json is npm's
-#   record of the installed tree.
+#   shipped inside npm) builds from those two files. Each package in it must
+#   be installed with the same version, source and integrity, and nothing else
+#   may be installed, except that an optional package may be absent: npm ci
+#   succeeds without any optional package it cannot install (another
+#   platform's, or one whose install script fails), as its reify step treats
+#   every optional failure as nonfatal. node_modules/.package-lock.json is
+#   npm's record of the installed tree.
 installed_matches_lock() {
     local npm_root
     if ! (cd "$2" && npm ci --dry-run --offline --ignore-scripts --no-audit --no-fund >/dev/null); then
@@ -96,33 +97,16 @@ installed_matches_lock() {
         const [npmRoot, installedFile, dir] = process.argv.slice(1);
         const identity = e => JSON.stringify([e.version, e.resolved, e.integrity, Boolean(e.link)].map(v => v ?? null));
         (async () => {
-            const npmDir = path.join(npmRoot, "npm");
-            const npmModule = name => require(path.join(npmDir, "node_modules", name));
-            const Arborist = npmModule("@npmcli/arborist");
-            const optionalSet = npmModule("@npmcli/arborist/lib/optional-set.js");
-            const { checkEngine, checkPlatform } = npmModule("npm-install-checks");
-            const npmVersion = require(path.join(npmDir, "package.json")).version;
+            const Arborist = require(path.join(npmRoot, "npm", "node_modules", "@npmcli", "arborist"));
             const installed = JSON.parse(fs.readFileSync(installedFile, "utf8")).packages || {};
             const ideal = await new Arborist({ path: dir, offline: true, packageLock: true, save: false, audit: false }).buildIdealTree();
-            // As reify does: an optional package this machine fails the engine or
-            // platform check for is skipped, with everything only it needs.
-            const skipped = new Set();
-            for (const node of ideal.inventory.values()) {
-                if (!node.optional || node.isProjectRoot) continue;
-                try {
-                    checkEngine(node.package, npmVersion, process.version, false);
-                    checkPlatform(node.package, false);
-                } catch {
-                    for (const gone of optionalSet(node)) skipped.add(gone.location);
-                }
-            }
             const bad = [], planned = new Set();
             for (const node of ideal.inventory.values()) {
                 if (node.isProjectRoot) continue;
                 planned.add(node.location);
                 const want = identity({ version: node.version, resolved: node.resolved, integrity: node.integrity, link: node.isLink });
                 const have = installed[node.location];
-                if (!have && skipped.has(node.location)) continue;
+                if (!have && node.optional) continue;
                 if (!have) bad.push(`${node.location}: npm ci would install it; it is not installed`);
                 else if (identity(have) !== want) bad.push(`${node.location}: installed ${identity(have)}, npm ci would install ${want}`);
             }
