@@ -18,6 +18,12 @@ from datetime import datetime
 
 from hypothesis import given, strategies as st, assume, settings
 
+# Every property test here runs real SQLite I/O per example, so Hypothesis's
+# default 200ms per-example deadline measured disk and machine load, not this
+# code: under a loaded machine they failed with DeadlineExceeded at 260-507ms
+# on an unchanged tree (#7896). The tests check behaviour, not speed.
+DB_PROPERTY_SETTINGS = {"deadline": None}
+
 # These property tests use isolated temp databases
 
 # Add scripts to path
@@ -140,7 +146,7 @@ def _setup_fresh_database():
     status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
-@settings(max_examples=100)
+@settings(max_examples=100, **DB_PROPERTY_SETTINGS)
 def test_property_1_task_creation_completeness(text, project_id, status, priority):
     """
     Feature: kanban-board, Property 1: Task Creation Completeness
@@ -216,7 +222,7 @@ def test_property_1_task_creation_completeness(text, project_id, status, priorit
     filter_project_id=st.one_of(st.none(), st.sampled_from(["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"])),
     filter_status=st.one_of(st.none(), st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]))
 )
-@settings(max_examples=50)
+@settings(max_examples=50, **DB_PROPERTY_SETTINGS)
 def test_property_2_query_filtering_accuracy(num_tasks, filter_project_id, filter_status):
     """
     Feature: kanban-board, Property 2: Query Filtering Accuracy
@@ -334,7 +340,7 @@ def test_add_task_explicit_category_overrides_portfolio_label(tmp_path):
     project_id=st.sampled_from(["project-tracker", "image-workflow", "trading-copilot", "test-project-1", "test-project-2"]),
     status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
 )
-@settings(max_examples=100)
+@settings(max_examples=100, **DB_PROPERTY_SETTINGS)
 def test_property_12_secret_pattern_detection(secret_type, random_part, project_id, status):
     """
     Feature: kanban-board, Property 12: Secret Pattern Detection
@@ -412,7 +418,7 @@ def test_property_12_secret_pattern_detection(secret_type, random_part, project_
     status=st.sampled_from(["Backlog", "To Do", "In Progress", "Done"]),
     priority=st.one_of(st.none(), st.sampled_from(["Critical", "High", "Medium", "Low"]))
 )
-@settings(max_examples=50)
+@settings(max_examples=50, **DB_PROPERTY_SETTINGS)
 def test_property_16_project_validation(invalid_project_id, text, status, priority):
     """
     Feature: kanban-board, Property 16: Project Validation
