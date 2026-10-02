@@ -81,7 +81,9 @@ clone_tree() {
 #   succeeds without any optional package it cannot install (another
 #   platform's, or one whose install script fails), as its reify step treats
 #   every optional failure as nonfatal. node_modules/.package-lock.json is
-#   npm's record of the installed tree.
+#   npm's record of the installed tree, and every package it records as
+#   installed must be on disk: its directory (or link) present, with a
+#   package.json of the recorded version.
 installed_matches_lock() {
     local npm_root
     if ! (cd "$2" && npm ci --dry-run --offline --ignore-scripts --no-audit --no-fund >/dev/null); then
@@ -111,6 +113,25 @@ installed_matches_lock() {
                 else if (identity(have) !== want) bad.push(`${node.location}: installed ${identity(have)}, npm ci would install ${want}`);
             }
             for (const key of Object.keys(installed)) if (!planned.has(key)) bad.push(`${key}: installed; npm ci would not install it`);
+            // npm writes the record at install time: a package removed or
+            // replaced since then must not pass on the strength of the record.
+            const root = path.dirname(path.dirname(path.resolve(installedFile)));
+            for (const [key, entry] of Object.entries(installed)) {
+                if (!key || entry.ideallyInert) continue;
+                const where = path.join(root, key);
+                if (entry.link) {
+                    if (!fs.existsSync(where)) bad.push(`${key}: recorded as a link, missing on disk`);
+                    continue;
+                }
+                let onDisk;
+                try {
+                    onDisk = JSON.parse(fs.readFileSync(path.join(where, "package.json"), "utf8")).version;
+                } catch (err) {
+                    bad.push(`${key}: recorded as installed, unreadable on disk (${err.code || err.message})`);
+                    continue;
+                }
+                if (onDisk !== entry.version) bad.push(`${key}: ${onDisk} on disk, ${entry.version} recorded`);
+            }
             if (bad.length) { console.log(bad.slice(0, 10).join("\n")); process.exit(1); }
         })().catch(err => {
             console.log(`cannot compare installed packages with what npm ci would install: ${err.message}`);
