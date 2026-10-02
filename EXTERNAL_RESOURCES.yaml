@@ -1431,9 +1431,10 @@ monitoring:
       deletion — do not monitor. Listed so Saga stops rediscovering it.
 
   # --- scheduled-job surface -------------------------------------------------
-  # 26 launchd agents + 2 crontab entries on the LAPTOP are tracked below
-  # (2026-10-01: slack-listener removed when its project was archived, #7835).
-  # Some installed agents are not listed yet (project-tracker card 99145072256380928).
+  # 31 launchd agents + 2 crontab entries on the LAPTOP are tracked below
+  # (2026-10-01: slack-listener removed when its project was archived, #7835;
+  # 2026-10-02: five installed agents added, #7845). This list is the only
+  # scheduled-job registry; CRON_JOBS.md was retired in its favour (#7845).
   # A job that silently stops running is the most common real failure here and
   # the one nothing currently catches. Saga's check is: did it run on schedule,
   # did it exit clean. Log growth is evidence only for jobs that document output
@@ -1493,6 +1494,57 @@ monitoring:
       - {id: com.user.cortana_health_check,           project: cortana-personal-ai,  schedule: daily 23:00,  log: ~/projects/cortana-personal-ai/data/logs/health_check.log}
       - {id: com.erik.trading-copilot.alpha-watcher,  project: trading-copilot,      schedule: UNKNOWN,      log: ~/projects/trading-copilot/logs/alpha_watcher.log}
       - {id: com.erik.fci-kwiky-thumbs.exports-watcher, project: fci-kwiky-thumbs,   schedule: UNKNOWN,      log: ~/projects/fci-kwiky-thumbs/logs/exports_watcher.log}
+      - id: com.eriksjaastad.hypocrisynow-backup
+        project: hypocrisynow
+        schedule: every 21600s (and at load)
+        log: ~/.local/state/hypocrisynow/backups/schedule.log
+        expect: >-
+          Last exit code 0 (scripts/backup_databases.py exits nonzero on any
+          snapshot or offsite failure) and the run count advances across an awake
+          interval longer than 21600s. Each successful run appends a JSON summary
+          with "status": "complete" to the log.
+      - id: com.eriksjaastad.hypocrisynow-ingest-watchdog
+        project: hypocrisynow
+        schedule: hourly at :23
+        log: ~/.local/state/hypocrisynow/ingest-watchdog.log
+        expect: >-
+          Last exit code 0 and the run count advances across an awake interval
+          longer than 3600s. Per scripts/ingest_watchdog.py, the job reports
+          ingest failures itself, to Discord; it exits nonzero when it cannot
+          alert (no DISCORD_WEBHOOK_URL, or the post failed). Exit 0 therefore
+          means "alerting works", not "ingest is healthy". WARNING lines about
+          RSS degradation are known and never alert.
+      - id: com.eriksjaastad.hypocrisynow-seo
+        project: hypocrisynow
+        schedule: daily 12:15 (and at load)
+        log: ~/projects/hypocrisynow/.scratch/seo-monitor/scheduler-google.out.log
+        expect: >-
+          Exit codes per seo_monitor/README.md: 0 = current data, 2 = attention
+          needed (includes permanent coverage limits; not a failure, see
+          .scratch/seo-monitor/report.md), 1 = collector/monitor failure. Only
+          exit 1 or another nonzero code is a failure. stderr goes to
+          scheduler-google.err.log.
+      - id: com.ai-memory.runtime-capture-laptop-pull
+        project: ai-memory
+        schedule: every 900s
+        log: ~/projects/ai-memory/logs/runtime-capture/laptop-pull.log
+        expect: >-
+          Last exit code 0 and the run count advances across an awake interval
+          longer than 900s. Each successful run appends one JSON line with a
+          fresh last_pull_at. Exit 1 includes an unreachable Mini (the pull runs
+          over SSH), so apply the reachability contract before calling it a
+          job failure.
+      - id: com.user.cortana_backup
+        project: cortana-personal-ai
+        schedule: every 21600s (and at load)
+        log: ~/projects/cortana-personal-ai/data/logs/backup.error.log
+        expect: >-
+          Last exit code 0 means the LOCAL snapshot succeeded. backup-db.sh also
+          exits 0 when the offsite upload fails ("local success is sufficient"),
+          so offsite success is the "All backups successful (local + offsite)"
+          line from the latest run. Progress lines are written to stderr, so the
+          log above (StandardErrorPath) is the live one; backup.log holds stdout
+          and rclone errors.
       - {id: com.eriksjaastad.agent-runtime-monitor,  project: agent-runtime-config, schedule: daily 09:00,  log: ~/projects/agent-runtime-config/.monitor/launchd.out.log}
       - {id: com.eriksjaastad.claude-config-pull,     project: claude-user-config,   schedule: every 21600s, log: /tmp/claude-config-pull.log}
       - {id: com.erik.journal-personal,               project: ai-journal,           schedule: daily 22:00,  log: ~/Library/Logs/journal_personal.out}
