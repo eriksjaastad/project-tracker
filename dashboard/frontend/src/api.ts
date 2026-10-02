@@ -500,7 +500,7 @@ export async function createIdea(text: string): Promise<Idea> {
   }
 }
 
-export async function updateIdea(ideaId: number, text: string): Promise<Idea> {
+export async function updateIdea(ideaId: string, text: string): Promise<Idea> {
   try {
     const response = await fetchWithErrorHandling(`${API_BASE}/ideas/${ideaId}`, {
       method: 'PATCH',
@@ -524,7 +524,7 @@ export async function updateIdea(ideaId: number, text: string): Promise<Idea> {
   }
 }
 
-export async function deleteIdea(ideaId: number): Promise<void> {
+export async function deleteIdea(ideaId: string): Promise<void> {
   try {
     const response = await fetchWithErrorHandling(`${API_BASE}/ideas/${ideaId}`, {
       method: 'DELETE',
@@ -581,8 +581,9 @@ export async function deleteAttachment(taskId: string, attachmentId: string): Pr
 
 // ==================== CALENDAR API ====================
 
+// Event and linked-task ids are decimal strings: pt_id values exceed 2^53-1 (#7826).
 export interface CalendarEvent {
-  id: number;
+  id: string;
   title: string;
   description?: string;
   event_date: string;
@@ -598,7 +599,7 @@ export interface CalendarEvent {
   created_at: string;
   updated_at: string;
   metadata?: Record<string, unknown>;
-  linked_tasks?: { task_id: number; link_type: string }[];
+  linked_tasks?: { id: string; task_id: string; link_type: string }[];
 }
 
 export interface CalendarCronJob {
@@ -645,13 +646,13 @@ export async function fetchCalendarEvents(params: {
   return data.events || [];
 }
 
-export async function fetchCalendarEvent(id: number, signal?: AbortSignal): Promise<CalendarEvent> {
+export async function fetchCalendarEvent(id: string, signal?: AbortSignal): Promise<CalendarEvent> {
   const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events/${id}`, { signal });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Not found');
   return response.json();
 }
 
-export async function createCalendarEvent(payload: CreateCalendarEventPayload): Promise<{ id: number; title: string; event_date: string }> {
+export async function createCalendarEvent(payload: CreateCalendarEventPayload): Promise<{ id: string; title: string; event_date: string }> {
   const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -661,7 +662,7 @@ export async function createCalendarEvent(payload: CreateCalendarEventPayload): 
   return response.json();
 }
 
-export async function markCalendarEventDone(id: number): Promise<void> {
+export async function markCalendarEventDone(id: string): Promise<void> {
   const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events/${id}/done`, { method: 'PATCH' });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Failed to mark done');
 }

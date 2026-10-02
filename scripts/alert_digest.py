@@ -21,6 +21,7 @@ Run:  doppler run --project synth-insight-labs --config prd -- \
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
@@ -86,6 +87,17 @@ DOCUMENTED_NONFAILURE_EXIT_CODES: dict[str, dict[int, dict[str, str]]] = {
         },
     },
 }
+
+# The Codex review launcher (claude-user-config, synced into ~/.claude on both
+# machines) owns the tripwire log format and the rule for when a review loop is
+# paused (#7738, #7877). The digest imports it rather than re-implementing
+# loop_state(), so a threshold change there can never drift from what the email
+# reports. Override for tests or a non-default install.
+CODEX_LAUNCHER = Path(
+    os.environ.get(
+        "PT_CODEX_LAUNCHER", str(Path.home() / ".claude" / "scripts" / "codex_pr_review.py")
+    )
+)
 
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 3
@@ -250,6 +262,117 @@ def fetch_scheduled_jobs() -> list | None:
     return jobs
 
 
+def _load_codex_launcher():
+    """Import the review launcher module from CODEX_LAUNCHER. Raises on failure."""
+    spec = importlib.util.spec_from_file_location("_digest_codex_pr_review", CODEX_LAUNCHER)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load review launcher at {CODEX_LAUNCHER}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _read_history_file(launcher, path: Path) -> list[dict]:
+    """Replay one tripwire log with the launcher's own validator.
+
+    Mirrors launcher.read_log(), which is keyed by slug+branch; the file name
+    hashes those, so the digest reads by path instead. Raises
+    launcher.HistoryError (or OSError) on anything it can't trust.
+    """
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise launcher.HistoryError(f"could not read {path}: {exc}") from exc
+    events = []
+    for lineno, line in enumerate(raw.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise launcher.HistoryError(f"{path} line {lineno} is not valid JSON: {exc}") from exc
+        launcher._validate_event(event, path, lineno)
+        events.append(event)
+    return events
+
+
+def _loop_label(path: Path) -> str:
+    """Readable repo/branch from a log name: the launcher writes
+    <owner>__<repo>__<branch with / as __>__<sha12>.jsonl; drop the hash."""
+    stem = path.stem
+    head, sep, tail = stem.rpartition("__")
+    return head if sep and len(tail) == 12 else stem
+
+
+def fetch_paused_review_loops(now: datetime | None = None) -> dict:
+    """Every Codex review loop the tripwire currently holds paused (#7755).
+
+    A second channel, independent of the launcher's own in-band alert: the
+    morning email lists each paused loop and flags loudly any whose alert was
+    never delivered. Returns
+      {"loops": [...], "errors": [...], "fatal": str | None, "history_dir": str}
+    A loop is paused exactly when the launcher's pretrip_check() would refuse:
+    a recorded trip, or rounds that already meet a threshold. Never returns a
+    silently empty result: an unloadable launcher or unreadable directory sets
+    `fatal`, and each unreadable/malformed log is its own entry in `errors`.
+
+    Every call into the launcher also catches SystemExit: it is a CLI script
+    and exits (status 3) on import when a CODEX_REVIEW_* setting is invalid,
+    which must cost this one section, not the whole morning email.
+    """
+    now = now or datetime.now(timezone.utc)
+    result: dict = {"loops": [], "errors": [], "fatal": None, "history_dir": ""}
+    try:
+        launcher = _load_codex_launcher()
+        history_dir = Path(launcher.history_path("probe__probe", "probe")).parent
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
+        result["fatal"] = f"could not load the review launcher {CODEX_LAUNCHER}: {exc}"
+        log(f"ERROR paused-loops: {result['fatal']}")
+        return result
+    result["history_dir"] = str(history_dir)
+    try:
+        # os.scandir, not Path.glob/is_dir: those swallow a missing,
+        # permission-denied or unlistable directory and yield nothing, which
+        # would read as "no paused loops". scandir raises for each.
+        with os.scandir(history_dir) as entries:
+            paths = sorted(Path(e.path) for e in entries if e.name.endswith(".jsonl"))
+    except OSError as exc:
+        result["fatal"] = f"could not read tripwire history directory {history_dir}: {exc}"
+        log(f"ERROR paused-loops: {result['fatal']}")
+        return result
+
+    for path in paths:
+        label = _loop_label(path)
+        try:
+            events = _read_history_file(launcher, path)
+            state = launcher.loop_state(events, now)
+        except (Exception, SystemExit) as exc:  # noqa: BLE001
+            result["errors"].append({"loop": label, "error": str(exc)})
+            log(f"ERROR paused-loops: {label}: {exc}")
+            continue
+        if not (state.tripped or state.should_trip):
+            continue
+        notify_errors = [
+            e.get("error") for e in events
+            if e["type"] == "notify" and not e.get("ok") and e.get("error")
+            and state.tripped_at
+            and datetime.fromisoformat(e["ts"]) >= datetime.fromisoformat(state.tripped_at)
+        ]
+        result["loops"].append({
+            "loop": label,
+            "head": (state.rounds[-1].get("head_sha") or "")[:12] if state.rounds else "",
+            "reason": state.trip_reason or state.pending_trip_reason or "",
+            "tripped_at": state.tripped_at,
+            "trip_recorded": state.tripped,
+            "notified": state.notified,
+            "notify_error": notify_errors[-1] if notify_errors else None,
+            "fail_count": state.fail_count,
+        })
+    log(f"paused-loops: {len(paths)} logs, {len(result['loops'])} paused, "
+        f"{len(result['errors'])} unreadable")
+    return result
+
+
 # --- Rendering --------------------------------------------------------------
 
 def _summary_counts(alerts: list) -> dict:
@@ -260,11 +383,24 @@ def _summary_counts(alerts: list) -> dict:
     }
 
 
-def build_subject(alerts: list) -> str:
-    c = _summary_counts(alerts)
-    if not alerts:
-        return "[Project Alerts] ✅ All clear"
+def _review_loop_subject_parts(review_loops: dict | None) -> list[str]:
+    if not review_loops:
+        return []
     parts = []
+    if review_loops.get("loops"):
+        n = len(review_loops["loops"])
+        parts.append(f"⏸️ {n} paused review loop" + ("s" if n != 1 else ""))
+    if review_loops.get("fatal") or review_loops.get("errors"):
+        parts.append("⚠️ review-loop scan failed")
+    return parts
+
+
+def build_subject(alerts: list, review_loops: dict | None = None) -> str:
+    c = _summary_counts(alerts)
+    loop_parts = _review_loop_subject_parts(review_loops)
+    if not alerts and not loop_parts:
+        return "[Project Alerts] ✅ All clear"
+    parts = list(loop_parts)
     if c["critical"]:
         parts.append(f"🔴 {c['critical']} critical")
     if c["warning"]:
@@ -557,10 +693,63 @@ def render_mini_section(mini_data: dict | None, ignore: set) -> str:
     return heartbeat + active_html + stale_html
 
 
+def render_review_loops_section(review_loops: dict) -> str:
+    """Paused Codex review loops (#7755). Fatal/unreadable → loud red notice;
+    an undelivered or unrecorded trip alert is flagged on its own row."""
+    red = (
+        'color:#8a1f1f;background:#fff3f3;border:1px solid #e0b4b4;'
+        'border-radius:6px;padding:10px;margin-bottom:8px;'
+    )
+    if review_loops.get("fatal"):
+        return (
+            f'<div style="{red}"><strong>⚠️ Could not check for paused review loops.</strong><br>'
+            f'{_esc(review_loops["fatal"])}<br><span style="font-size:12px;">A paused loop '
+            f'could be sitting unseen — check the tripwire log by hand.</span></div>'
+        )
+    html = ""
+    for err in review_loops.get("errors", []):
+        html += (
+            f'<div style="{red}"><strong>⚠️ Unreadable tripwire log: {_esc(err["loop"])}</strong>'
+            f'<br>{_esc(err["error"])}<br><span style="font-size:12px;">The launcher refuses '
+            f'reviews on this branch until the log is fixed.</span></div>'
+        )
+    loops = review_loops.get("loops", [])
+    if not loops:
+        if not html:
+            html = '<div style="color:#2e7d32;">✅ No paused review loops.</div>'
+        return html
+    rows = ""
+    for lp in loops:
+        if not lp["trip_recorded"]:
+            flag = "⚠️ trip NOT recorded — the next review run records it and alerts"
+        elif not lp["notified"]:
+            flag = "⚠️ architect NOT notified" + (
+                f" ({lp['notify_error']})" if lp.get("notify_error") else ""
+            )
+        else:
+            flag = ""
+        flag_html = f'<br><strong style="color:#8a1f1f;">{_esc(flag)}</strong>' if flag else ""
+        when = f" · tripped {lp['tripped_at']}" if lp.get("tripped_at") else ""
+        head = f" · head {lp['head']}" if lp.get("head") else ""
+        rows += (
+            f'<tr><td style="padding:4px 10px;vertical-align:top;">⏸️</td>'
+            f'<td style="padding:4px 10px;"><strong>{_esc(lp["loop"])}</strong>'
+            f'<br><span style="color:#333;">{_esc(lp["reason"])}</span>'
+            f'<br><span style="color:#888;font-size:12px;">{_esc(when.lstrip(" ·") + head)}</span>'
+            f'{flag_html}</td></tr>'
+        )
+    return (
+        html
+        + f'<table style="border-collapse:collapse;width:100%;font-size:13px;">{rows}</table>'
+        + '<div style="color:#888;font-size:12px;margin-top:6px;">Only Erik clears a paused '
+        'loop.</div>'
+    )
+
+
 def render_html(
     macbook_alerts: list, mini_data: dict | None, mini_ignore: set,
     tasks: list | None, jobs: list | None,
-    degraded_reason: str | None, sent_at: str,
+    degraded_reason: str | None, sent_at: str, review_loops: dict | None = None,
 ) -> str:
     """Render the full email: cards + jobs, then machine-sectioned alerts."""
     if degraded_reason:
@@ -584,6 +773,13 @@ def render_html(
             + '</table>'
         )
 
+    review_loops_html = (
+        '  <h3 style="border-bottom:2px solid #333;padding-bottom:4px;">⏸️ Paused Review Loops</h3>\n  '
+        + render_review_loops_section(review_loops)
+        + '\n  <div style="height:16px;"></div>'
+        if review_loops is not None else ""
+    )
+
     return f"""\
 <!DOCTYPE html>
 <html>
@@ -592,6 +788,7 @@ def render_html(
   <h2 style="margin:0 0 4px;">Portfolio Morning Digest</h2>
   <div style="color:#888;font-size:13px;margin-bottom:20px;">{sent_at}</div>
 
+{review_loops_html}
   <h3 style="border-bottom:2px solid #333;padding-bottom:4px;">🎫 Cards</h3>
   {render_cards_section(tasks)}
 
@@ -693,10 +890,16 @@ def main(argv: list[str] | None = None) -> int:
     mini_data = fetch_mini_data()
     tasks = fetch_tasks()
     jobs = fetch_scheduled_jobs()
+    review_loops = fetch_paused_review_loops()
 
-    subject = "[Project Alerts] ⚠️ Digest degraded" if degraded_reason else build_subject(alerts)
+    if degraded_reason:
+        subject = ", ".join(
+            ["[Project Alerts] ⚠️ Digest degraded"] + _review_loop_subject_parts(review_loops)
+        )
+    else:
+        subject = build_subject(alerts, review_loops)
     html = render_html(
-        alerts, mini_data, mini_ignore, tasks, jobs, degraded_reason, sent_at
+        alerts, mini_data, mini_ignore, tasks, jobs, degraded_reason, sent_at, review_loops
     )
 
     if args.dry_run:

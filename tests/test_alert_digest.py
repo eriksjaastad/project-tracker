@@ -36,6 +36,23 @@ def _no_sleep_no_logfile(monkeypatch, tmp_path):
     monkeypatch.setattr(ad, "LOG_FILE", tmp_path / "logs" / "alert_digest.log")
 
 
+_REAL_FETCH_PAUSED_LOOPS = ad.fetch_paused_review_loops
+
+
+@pytest.fixture(autouse=True)
+def _no_live_review_loop_scan(monkeypatch):
+    """Keep every test off the live ~/.claude launcher and its history.
+
+    The paused-loop scan reads machine state; on a host without the launcher
+    (CI) it reports a scan failure in every subject. Tests that exercise the
+    scan reinstate the real function explicitly.
+    """
+    monkeypatch.setattr(
+        ad, "fetch_paused_review_loops",
+        lambda now=None: {"loops": [], "errors": [], "fatal": None, "history_dir": ""},
+    )
+
+
 class _FakeResp:
     """Minimal stand-in for the urlopen context manager."""
 
@@ -694,3 +711,268 @@ def test_esc_attr_also_neutralises_quotes():
 def test_esc_attr_escapes_single_quotes_too():
     assert "'" not in ad._esc_attr("it's")
     assert "&#x27;" in ad._esc_attr("it's")
+
+
+# --- Paused review loops (#7755) --------------------------------------------
+
+_FAKE_LAUNCHER = '''
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+STATE = Path(__STATE__)
+
+
+class HistoryError(RuntimeError):
+    pass
+
+
+def history_path(slug, branch):
+    return STATE / "codex_history" / "x.jsonl"
+
+
+def _validate_event(event, path, lineno):
+    if not isinstance(event, dict) or "type" not in event or "ts" not in event:
+        raise HistoryError(f"{path} line {lineno} malformed")
+
+
+@dataclass
+class LoopState:
+    rounds: list = field(default_factory=list)
+    tripped: bool = False
+    tripped_at: Optional[str] = None
+    trip_reason: Optional[str] = None
+    notified: bool = False
+    fail_count: int = 0
+    should_trip: bool = False
+    pending_trip_reason: Optional[str] = None
+
+
+def loop_state(events, now):
+    rounds = [e for e in events if e["type"] == "round"]
+    fails = sum(1 for r in rounds if r["outcome"] == "FAIL")
+    trips = [e for e in events if e["type"] == "trip"]
+    return LoopState(
+        rounds=rounds, tripped=bool(trips),
+        tripped_at=trips[0]["ts"] if trips else None,
+        trip_reason=trips[0]["reason"] if trips else None,
+        notified=any(e["type"] == "notify" and e.get("ok") for e in events),
+        fail_count=fails, should_trip=fails >= 3 and not trips,
+        pending_trip_reason=f"{fails} FAIL verdicts" if fails >= 3 and not trips else None,
+    )
+'''
+
+
+def _ev(ts_min, etype, **fields):
+    return {"ts": f"2026-10-01T10:{ts_min:02d}:00+00:00", "type": etype, **fields}
+
+
+def _install_fake_launcher(monkeypatch, tmp_path, state):
+    launcher = tmp_path / "launcher.py"
+    launcher.write_text(_FAKE_LAUNCHER.replace("__STATE__", repr(str(state))))
+    monkeypatch.setattr(ad, "CODEX_LAUNCHER", launcher)
+
+
+class TestPausedReviewLoops:
+
+    @pytest.fixture(autouse=True)
+    def _real_scan(self, monkeypatch):
+        monkeypatch.setattr(ad, "fetch_paused_review_loops", _REAL_FETCH_PAUSED_LOOPS)
+
+    @pytest.fixture
+    def fake(self, monkeypatch, tmp_path):
+        state = tmp_path / "state"
+        _install_fake_launcher(monkeypatch, tmp_path, state)
+        hist = state / "codex_history"
+        hist.mkdir(parents=True)
+
+        def write(name, events):
+            (hist / f"{name}__0123456789ab.jsonl").write_text(
+                "".join(json.dumps(e) + "\n" for e in events)
+            )
+        return hist, write
+
+    def test_tripped_unnotified_loop_is_listed_and_flagged(self, fake):
+        _hist, write = fake
+        write("o__repo__feat__1-x", [
+            _ev(1, "round", outcome="FAIL", head_sha="a" * 40),
+            _ev(2, "trip", reason="3 FAIL verdicts"),
+            _ev(3, "notify", ok=False, error="pt message down"),
+        ])
+        write("o__repo__feat__2-ok", [_ev(1, "round", outcome="PASS", head_sha="b" * 40)])
+        res = ad.fetch_paused_review_loops()
+        assert res["fatal"] is None and res["errors"] == []
+        assert [lp["loop"] for lp in res["loops"]] == ["o__repo__feat__1-x"]
+        lp = res["loops"][0]
+        assert lp["notified"] is False and lp["notify_error"] == "pt message down"
+        html = ad.render_review_loops_section(res)
+        assert "architect NOT notified (pt message down)" in html
+        assert "o__repo__feat__1-x" in html and "aaaaaaaaaaaa" in html
+        assert ad.build_subject([], res) == "[Project Alerts] ⏸️ 1 paused review loop"
+
+    def test_threshold_met_without_trip_event_counts_as_paused(self, fake):
+        _hist, write = fake
+        write("o__r__b", [_ev(i, "round", outcome="FAIL") for i in range(3)])
+        res = ad.fetch_paused_review_loops()
+        assert res["loops"][0]["trip_recorded"] is False
+        assert "trip NOT recorded" in ad.render_review_loops_section(res)
+
+    def test_notified_loop_has_no_flag(self, fake):
+        _hist, write = fake
+        write("o__r__b", [_ev(1, "trip", reason="r"), _ev(2, "notify", ok=True)])
+        html = ad.render_review_loops_section(ad.fetch_paused_review_loops())
+        assert "⏸️" in html and "NOT" not in html
+
+    def test_malformed_log_is_loud_and_other_logs_still_scanned(self, fake):
+        hist, write = fake
+        (hist / "o__r__bad__0123456789ab.jsonl").write_text("{not json\n")
+        write("o__r__good", [_ev(1, "trip", reason="r")])
+        res = ad.fetch_paused_review_loops()
+        assert [e["loop"] for e in res["errors"]] == ["o__r__bad"]
+        assert [lp["loop"] for lp in res["loops"]] == ["o__r__good"]
+        assert "Unreadable tripwire log: o__r__bad" in ad.render_review_loops_section(res)
+        assert "review-loop scan failed" in ad.build_subject([], res)
+
+    def test_missing_history_dir_is_fatal_not_empty(self, monkeypatch, tmp_path):
+        _install_fake_launcher(monkeypatch, tmp_path, tmp_path / "absent")
+        res = ad.fetch_paused_review_loops()
+        assert res["fatal"] and "history directory" in res["fatal"]
+        html = ad.render_review_loops_section(res)
+        assert "Could not check for paused review loops" in html
+        assert "No paused review loops" not in html
+        assert "review-loop scan failed" in ad.build_subject([], res)
+
+    def test_unreadable_history_dir_is_fatal_not_empty(self, monkeypatch, tmp_path):
+        """is_dir() is False on a permission-denied parent; must not read as empty."""
+        state = tmp_path / "state"
+        (state / "codex_history").mkdir(parents=True)
+        _install_fake_launcher(monkeypatch, tmp_path, state)
+        state.chmod(0)
+        try:
+            res = ad.fetch_paused_review_loops()
+        finally:
+            state.chmod(0o755)
+        assert res["fatal"] and "Permission denied" in res["fatal"]
+
+    def test_launcher_exiting_on_import_is_fatal_not_a_crash(self, monkeypatch, tmp_path):
+        """The real launcher raises SystemExit(3) on a bad CODEX_REVIEW_* value."""
+        launcher = tmp_path / "launcher.py"
+        launcher.write_text("import sys\nsys.exit(3)\n")
+        monkeypatch.setattr(ad, "CODEX_LAUNCHER", launcher)
+        res = ad.fetch_paused_review_loops()
+        assert res["fatal"] and "review launcher" in res["fatal"]
+
+    def test_launcher_exiting_mid_scan_is_a_per_log_error(self, fake, monkeypatch):
+        _hist, write = fake
+        write("o__r__b", [_ev(1, "trip", reason="r")])
+        real_load = ad._load_codex_launcher
+
+        def load():
+            mod = real_load()
+            mod.loop_state = lambda events, now: (_ for _ in ()).throw(SystemExit(3))
+            return mod
+        monkeypatch.setattr(ad, "_load_codex_launcher", load)
+        res = ad.fetch_paused_review_loops()
+        assert [e["loop"] for e in res["errors"]] == ["o__r__b"]
+
+    def test_unlistable_history_dir_is_fatal_not_empty(self, fake):
+        """The directory exists and stats fine but cannot be listed."""
+        hist, write = fake
+        write("o__r__stuck", [_ev(1, "trip", reason="r")])
+        hist.chmod(0o300)  # write+search, no read: listing fails
+        try:
+            res = ad.fetch_paused_review_loops()
+        finally:
+            hist.chmod(0o755)
+        assert res["fatal"] and "Permission denied" in res["fatal"]
+        assert "review-loop scan failed" in ad.build_subject([], res)
+
+    def test_missing_launcher_is_fatal_not_empty(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ad, "CODEX_LAUNCHER", tmp_path / "nope.py")
+        res = ad.fetch_paused_review_loops()
+        assert res["fatal"] and "review launcher" in res["fatal"]
+        assert res["loops"] == []
+
+    def test_quiet_when_nothing_paused(self, fake):
+        _hist, write = fake
+        write("o__r__b", [_ev(1, "round", outcome="PASS")])
+        res = ad.fetch_paused_review_loops()
+        assert ad.render_review_loops_section(res).count("No paused review loops") == 1
+        assert ad.build_subject([], res) == "[Project Alerts] ✅ All clear"
+
+    def test_section_is_rendered_into_the_email(self, fake):
+        res = ad.fetch_paused_review_loops()
+        html = ad.render_html([], None, set(), None, None, None, "now", res)
+        assert "Paused Review Loops" in html
+
+    def test_main_puts_paused_loops_in_the_dry_run_email(self, fake, monkeypatch, capsys):
+        _hist, write = fake
+        write("o__r__stuck", [_ev(1, "trip", reason="7 FAIL verdicts")])
+        monkeypatch.setattr(ad, "fetch_alerts", lambda: [])
+        monkeypatch.setattr(ad, "fetch_mini_data", lambda: None)
+        monkeypatch.setattr(ad, "fetch_tasks", lambda: [])
+        monkeypatch.setattr(ad, "fetch_scheduled_jobs", lambda: [])
+        assert ad.main(["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "Subject: [Project Alerts] ⏸️ 1 paused review loop" in out
+        assert "o__r__stuck" in out and "7 FAIL verdicts" in out
+
+    def test_degraded_subject_still_names_paused_loops(self, fake, monkeypatch, capsys):
+        _hist, write = fake
+        write("o__r__stuck", [_ev(1, "trip", reason="r")])
+
+        def boom():
+            raise RuntimeError("dashboard down")
+        monkeypatch.setattr(ad, "fetch_alerts", boom)
+        monkeypatch.setattr(ad, "fetch_mini_data", lambda: None)
+        monkeypatch.setattr(ad, "fetch_tasks", lambda: [])
+        monkeypatch.setattr(ad, "fetch_scheduled_jobs", lambda: [])
+        assert ad.main(["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "Subject: [Project Alerts] ⚠️ Digest degraded, ⏸️ 1 paused review loop" in out
+
+
+_REAL_LAUNCHER = ad.Path.home() / ".claude" / "scripts" / "codex_pr_review.py"
+
+
+@pytest.mark.skipif(not _REAL_LAUNCHER.is_file(), reason="claude-user-config launcher not installed")
+class TestPausedReviewLoopsAgainstRealLauncher:
+    """Contract check: the digest reads logs written by the real launcher."""
+
+    def test_bad_launcher_setting_does_not_stop_the_digest(self, monkeypatch, capsys):
+        monkeypatch.setattr(ad, "fetch_paused_review_loops", _REAL_FETCH_PAUSED_LOOPS)
+        monkeypatch.setattr(ad, "CODEX_LAUNCHER", _REAL_LAUNCHER)
+        monkeypatch.setenv("CODEX_REVIEW_FAIL_LIMIT", "bad")
+        monkeypatch.setattr(ad, "fetch_alerts", lambda: [])
+        monkeypatch.setattr(ad, "fetch_mini_data", lambda: None)
+        monkeypatch.setattr(ad, "fetch_tasks", lambda: [])
+        monkeypatch.setattr(ad, "fetch_scheduled_jobs", lambda: [])
+        assert ad.main(["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "review-loop scan failed" in out
+        assert "Could not check for paused review loops" in out
+
+    def test_real_trip_is_reported(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ad, "fetch_paused_review_loops", _REAL_FETCH_PAUSED_LOOPS)
+        monkeypatch.setenv("PR_REVIEW_STATE_DIR", str(tmp_path))
+        monkeypatch.setattr(ad, "CODEX_LAUNCHER", _REAL_LAUNCHER)
+        launcher = ad._load_codex_launcher()
+        for _ in range(launcher.FAIL_LIMIT):
+            launcher.append_event("o__r", "feat/x", "round",
+                                  {"outcome": "FAIL", "head_sha": "c" * 40, "findings_count": 1})
+        launcher.append_event("o__r", "feat/clean", "round", {"outcome": "PASS", "head_sha": "d" * 40})
+        res = ad.fetch_paused_review_loops()
+        assert res["fatal"] is None and res["errors"] == []
+        assert [lp["loop"] for lp in res["loops"]] == ["o__r__feat__x"]
+        assert res["loops"][0]["trip_recorded"] is False
+
+        launcher.append_event("o__r", "feat/x", "trip", {"reason": "limit"})
+        lp = ad.fetch_paused_review_loops()["loops"][0]
+        assert lp["trip_recorded"] is True and lp["notified"] is False
+
+        launcher.append_event("o__r", "feat/x", "notify", {"ok": True, "error": None, "channel": "pt"})
+        assert ad.fetch_paused_review_loops()["loops"][0]["notified"] is True
+
+        launcher.append_event("o__r", "feat/x", "clear", {"reason": "Erik cleared"})
+        assert ad.fetch_paused_review_loops()["loops"] == []
