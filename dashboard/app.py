@@ -2924,8 +2924,11 @@ async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
     read. A concurrent notes write triggers a bounded re-read and retry, so a
     toggle never overwrites another writer's change.
 
-    Raises 404 for a missing task and 409 when the line moved or changed, or
-    when the notes kept changing underneath the toggle.
+    Raises 404 for a missing task -- including one deleted while this request
+    runs -- and 409 when the line moved or changed, or when the notes kept
+    changing underneath the toggle. A toggle that is already in the requested
+    state writes nothing and returns the task as just read; that is a plain
+    read, ordered before any delete that lands after it.
     """
     try:
         db = DatabaseManager()
@@ -2950,7 +2953,24 @@ async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
                     task_id, notes_source="api", expected_notes=old_notes, notes=new_notes
                 )
             except NotesConflictError:
+                # Includes a task deleted after the read: the CAS matches no
+                # row, and the re-read at the top of the loop answers 404.
                 continue
+            except ValueError:
+                # update_task raises ValueError when the task vanished between
+                # our read and its own; that is a 404, not a server error.
+                if not db.get_task(task_id):
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Task with ID {task_id} not found",
+                    )
+                raise
+            if task is None:
+                # Written, then deleted before update_task could re-read it.
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Task with ID {task_id} not found",
+                )
             return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

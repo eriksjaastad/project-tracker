@@ -192,6 +192,27 @@ def test_endpoint_retries_after_cas_conflict(db, client, monkeypatch):
     assert "- [x] first" in notes and "- [ ] late" in notes
 
 
+@pytest.mark.parametrize("when", ["before_update", "after_update"])
+def test_endpoint_404_when_task_deleted_during_request(db, client, monkeypatch, when):
+    """A concurrent delete between our read and the write is a 404, not a 500."""
+    monkeypatch.setenv("SAFE_MODE", "0")  # let the simulated client delete
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
+    backend = DatabaseManager()._db
+    real = type(backend).update_task
+
+    def deleting(self, task_id, *a, **kw):
+        if when == "before_update":
+            self.delete_task(task_id)
+            return real(self, task_id, *a, **kw)
+        real(self, task_id, *a, **kw)
+        self.delete_task(task_id)
+        return None  # update_task's own post-commit re-read finds no row
+
+    monkeypatch.setattr(type(backend), "update_task", deleting)
+    resp = _post(client, task["id"], 1, "first", True)
+    assert resp.status_code == 404, resp.text
+
+
 def test_endpoint_409_when_cas_keeps_conflicting(db, client, monkeypatch):
     task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
     backend = DatabaseManager()._db
