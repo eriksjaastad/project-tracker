@@ -12,13 +12,16 @@ Design philosophy:
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
-from .pt_id import next_id as pt_next_id
+from .pt_id import _find_crsqlite_dylib, next_id as pt_next_id
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +70,7 @@ class CalendarManager:
     Designed to be used standalone OR via an existing db_path.
     """
 
-    def __init__(self, db_path: Optional[Path] = None) -> None:
+    def __init__(self, db_path: Optional[Path] = None, crsqlite_path: Optional[Path] = None) -> None:
         if db_path is None:
             import sys
             sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -77,15 +80,41 @@ class CalendarManager:
             except ImportError:
                 db_path = Path("data/tracker.db")
         self.db_path = Path(db_path)
+        self.crsqlite_path = Path(crsqlite_path) if crsqlite_path else None
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
+        # calendar_events and calendar_event_tasks are cr-sqlite CRRs
+        # (crr_manifest.CRR_TABLES): their triggers call crsql_* functions,
+        # so every write fails with "no such function: crsql_internal_sync_bit"
+        # unless the extension is loaded on this connection (#7899). Mirrors
+        # DatabaseManager._get_conn, including crsql_finalize() before close
+        # (without it each connection leaks file descriptors, #6482).
         conn = sqlite3.connect(self.db_path)
+        crsql_loaded = False
+        try:
+            dylib = self.crsqlite_path
+            if dylib is None:
+                dylib = _find_crsqlite_dylib()
+            if dylib and Path(dylib).exists():
+                conn.enable_load_extension(True)
+                conn.load_extension(str(dylib), entrypoint="sqlite3_crsqlite_init")
+                conn.enable_load_extension(False)
+                crsql_loaded = True
+            elif self.crsqlite_path is not None:
+                logger.warning("crsqlite missing at registered path: %s", self.crsqlite_path)
+        except Exception as exc:  # governance: allow-silent SF001: same soft-fail as DatabaseManager._get_conn; reads still work and a CRR write then fails loudly with "no such function"
+            logger.warning("crsqlite load skipped: %s", exc)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         try:
             yield conn
         finally:
+            if crsql_loaded:
+                try:
+                    conn.execute("SELECT crsql_finalize()")
+                except Exception as exc:  # governance: allow-silent SF001: cleanup must not block the close below
+                    logger.warning("crsql_finalize failed: %s", exc)
             conn.close()
 
     def ensure_tables(self) -> None:
@@ -140,6 +169,7 @@ class CalendarManager:
         event_type: str = "reminder",
         recurrence: Optional[str] = None,
         project_id: Optional[str] = None,
+        machine: Optional[str] = None,
         prompt: Optional[str] = None,
         notify_before_minutes: int = 60,
         created_by: Optional[str] = None,
@@ -159,14 +189,14 @@ class CalendarManager:
                 """
                 INSERT INTO calendar_events
                     (id, title, description, event_date, event_time, event_type, recurrence,
-                     project_id, prompt, notify_before_minutes,
+                     project_id, machine, prompt, notify_before_minutes,
                      created_by, metadata, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event_id,
                     title, description, event_date, event_time, event_type, recurrence,
-                    project_id, prompt, notify_before_minutes,
+                    project_id, machine, prompt, notify_before_minutes,
                     created_by, json.dumps(metadata or {}), now, now,
                 ),
             )
@@ -288,7 +318,7 @@ class CalendarManager:
         return [_row_to_dict(r) for r in rows]
 
     def get_upcoming_reminders(
-        self, within_minutes: int = 60,
+        self, within_minutes: int = 60, machine: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return events whose notification window is now open and haven't been notified yet.
 
@@ -322,6 +352,9 @@ class CalendarManager:
               )
         """
         params: list = [now_naive, end_naive, today, end_date]
+        if machine:
+            query += " AND machine = ?"
+            params.append(machine)
 
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
