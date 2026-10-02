@@ -45,27 +45,56 @@ step() { check "$@" || true; }
 
 # npm_ci_offline DIR: install exactly what DIR's package-lock.json pins, as
 # CI's npm ci did, but only from the local npm cache. --offline never touches
-# the network: every tarball comes from the cache, checked against the
-# lockfile's integrity hash. --ignore-scripts runs no package code at install.
-# That keeps the intent of Erik's npm guard (no fresh downloads, no
-# install-time package code) while testing exactly the locked packages, not a
-# developer's node_modules. A tarball missing from the cache fails the check
-# with its name; there is no network fallback. Decided by the Architect for
-# Erik, 2026-10-02 (agent-runtime-config #7828).
+# the registry over the network: every tarball comes from the cache, checked
+# against the lockfile's integrity hash. --ignore-scripts runs no package code
+# at install. That keeps the intent of Erik's npm guard (no fresh downloads,
+# no install-time package code) while testing exactly the locked packages, not
+# a developer's node_modules. Both flags hold only for registry tarballs: npm
+# clones a git dependency from the network and runs its prepare scripts
+# regardless, so a lockfile entry not served by the registry (git, file,
+# link, another host) fails the check before anything is installed. A tarball
+# missing from the cache fails with its name@version; there is no network
+# fallback. Decided by the Architect for Erik, 2026-10-02
+# (agent-runtime-config #7828).
 npm_ci_offline() {
-    local out status=0 missing
+    local out status=0
+    if ! node -e '
+        const lock = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        const bad = Object.entries(lock.packages || {})
+            .filter(([key, e]) => key && !e.inBundle
+                && !(typeof e.resolved === "string" && e.resolved.startsWith("https://registry.npmjs.org/")))
+            .map(([key, e]) => `${key}: ${e.link ? "link to " : ""}${e.resolved || "(no registry tarball)"}`);
+        if (bad.length) {
+            console.log("package-lock.json has entries not served by the npm registry; offline npm ci");
+            console.log("cannot keep them off the network or stop their scripts, so they are refused:");
+            for (const line of bad.slice(0, 20)) console.log("  " + line);
+            process.exit(1);
+        }
+    ' "$1/package-lock.json"; then
+        return 1
+    fi
     out="$(cd "$1" && npm ci --offline --ignore-scripts --no-audit --no-fund 2>&1)" || status=$?
     if [ "$status" -eq 0 ]; then
         return 0
     fi
     printf '%s\n' "$out" | tail -n 25
-    missing="$(printf '%s\n' "$out" \
-        | sed -n 's|.*request to https\{0,1\}://[^/]*/\([^ ]*\) failed.*|\1|p' \
-        | sed -e 's|%2[fF]|/|g' -e 's|^\(.*\)/-/.*-\([0-9][^/]*\)\.tgz$|\1@\2|' | sort -u)"
-    if [ -n "$missing" ]; then
-        echo "not in the local npm cache (no network fallback):"
-        printf '  %s\n' $missing
-        echo "  fetch them deliberately, after review, in a real checkout: command npm ci"
+    # Name each tarball the cache lacks, as the lockfile names it.
+    printf '%s\n' "$out" \
+        | sed -n 's|.*request to \(https://[^ ]*\) failed.*|\1|p' \
+        | node -e '
+            const lock = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            const missing = new Set(require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean));
+            const names = Object.entries(lock.packages || {})
+                .filter(([key, e]) => key && missing.has(e.resolved))
+                .map(([key, e]) => `${key.slice(key.lastIndexOf("node_modules/") + 13)}@${e.version}`);
+            if (names.length) {
+                console.log("not in the local npm cache (no network fallback):");
+                for (const n of [...new Set(names)].sort()) console.log("  " + n);
+                console.log("  fetch them deliberately, after review, in a real checkout: command npm ci");
+            }
+        ' "$1/package-lock.json"
+    if printf '%s\n' "$out" | grep -q EINTEGRITY; then
+        echo "a cached tarball failed its integrity check; inspect it, then: command npm cache verify"
     fi
     return "$status"
 }
