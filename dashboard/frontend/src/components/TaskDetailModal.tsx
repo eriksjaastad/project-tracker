@@ -138,28 +138,35 @@ export function TaskDetailModal({
   const handleChecklistToggle = async (lineIndex: number, text: string, checked: boolean) => {
     if (togglePending) return;
     const taskId = task.id;
+    const baseNotes = currentNotes ?? null;
     setTogglePending(true);
     setToggleMessage(null);
     try {
-      const updated = await toggleChecklistItem(taskId, lineIndex, text, checked);
+      const updated = await toggleChecklistItem(taskId, lineIndex, text, checked, baseNotes);
       applyServerNotes(taskId, updated.notes ?? null, updated.updated_at);
     } catch (err) {
-      if (err instanceof ChecklistConflictError) {
+      // Any failure leaves the stored notes unknown to us: a 409 means they
+      // changed elsewhere, and a 5xx or network error may come after the
+      // write committed. Either way, show what the server has now rather
+      // than the checkbox state we guessed.
+      if (currentTaskIdRef.current === taskId) {
+        setToggleMessage(
+          err instanceof ChecklistConflictError
+            ? 'That item changed elsewhere; showing the latest notes.'
+            : `${err instanceof Error ? err.message : 'Failed to toggle checklist item'}; showing the latest notes.`
+        );
+      }
+      try {
+        const fresh = await fetchTask(taskId);
+        applyServerNotes(taskId, fresh.notes ?? null, fresh.updated_at);
+      } catch (refetchErr) {
         if (currentTaskIdRef.current === taskId) {
-          setToggleMessage('That item changed elsewhere; showing the latest notes.');
+          setToggleMessage(
+            `Could not reload the task (${
+              refetchErr instanceof Error ? refetchErr.message : 'unknown error'
+            }); close and reopen it before ticking again.`
+          );
         }
-        try {
-          const fresh = await fetchTask(taskId);
-          applyServerNotes(taskId, fresh.notes ?? null, fresh.updated_at);
-        } catch (refetchErr) {
-          if (currentTaskIdRef.current === taskId) {
-            setToggleMessage(
-              refetchErr instanceof Error ? refetchErr.message : 'Failed to reload the task'
-            );
-          }
-        }
-      } else if (currentTaskIdRef.current === taskId) {
-        setToggleMessage(err instanceof Error ? err.message : 'Failed to toggle checklist item');
       }
     } finally {
       setTogglePending(false);
@@ -469,6 +476,7 @@ export function TaskDetailModal({
                     {parseNotesLines(currentNotes).map((line) =>
                       line.kind === 'checklist' ? (
                         <label key={line.lineIndex} className="task-detail-checklist-item">
+                          {line.indent}
                           <input
                             type="checkbox"
                             checked={line.checked}

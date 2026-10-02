@@ -43,7 +43,7 @@ const CHECKLIST_LINE_RE = /^([ \t]*-[ \t]*\[)([ xX])(\][ \t]+)(\S.*)$/;
 
 export type NotesLine =
   | { kind: 'text'; lineIndex: number; raw: string }
-  | { kind: 'checklist'; lineIndex: number; raw: string; checked: boolean; text: string };
+  | { kind: 'checklist'; lineIndex: number; raw: string; checked: boolean; text: string; indent: string };
 
 /** Split notes into display lines, tagging checklist items. */
 export function parseNotesLines(notes: string | null | undefined): NotesLine[] {
@@ -62,6 +62,8 @@ export function parseNotesLines(notes: string | null | undefined): NotesLine[] {
       raw,
       checked: match[2] !== ' ',
       text: match[4],
+      // Leading whitespace before "-", so nested items keep their level.
+      indent: match[1].slice(0, match[1].indexOf('-')),
     };
   });
 }

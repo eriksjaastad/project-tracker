@@ -2254,10 +2254,16 @@ class TaskCreateRequest(BaseModel):
 
 
 class ChecklistToggleRequest(BaseModel):
-    """Body for POST /api/tasks/{id}/checklist (#7821)."""
+    """Body for POST /api/tasks/{id}/checklist (#7821).
+
+    ``base_notes`` is the exact notes text the client rendered the checkbox
+    from. It is what identifies the line: an index plus item text cannot tell
+    two identical items apart once another writer moves or removes one.
+    """
     line_index: int
     expected_text: str
     checked: bool
+    base_notes: Optional[str]
 
 
 CHECKLIST_TOGGLE_MAX_ATTEMPTS = 3
@@ -2950,28 +2956,40 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
 async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
     """Tick or untick one notes checklist line as a server-side atomic toggle (#7821).
 
-    The server reads the current notes, edits only the marker of
-    ``line_index`` (which must still be the checklist line whose item text is
-    ``expected_text``), and writes it with a compare-and-swap on the notes it
-    read. A concurrent notes write triggers a bounded re-read and retry, so a
-    toggle never overwrites another writer's change.
+    The toggle applies only to the notes the client saw: if the stored notes
+    differ from ``base_notes`` in any way, nothing is written and the answer
+    is 409, so the client reloads and the user clicks again. Otherwise the
+    server sets only the marker of ``line_index`` (which must be the
+    checklist line whose item text is ``expected_text``) and writes with a
+    compare-and-swap on the notes it read, so a writer that lands between
+    the read and the write is never overwritten.
 
-    Raises 404 for a missing task -- including one deleted while this request
-    runs -- and 409 when the line moved or changed, or when the notes kept
-    changing underneath the toggle. A toggle that is already in the requested
-    state writes nothing and returns the task as just read; that is a plain
-    read, ordered before any delete that lands after it.
+    404 when the task is missing, including one deleted while this request
+    runs; 409 when the notes changed or the line is not the expected item.
+    A toggle already in the requested state writes nothing and returns the
+    task as read.
     """
+    def not_found() -> HTTPException:
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task with ID {task_id} not found",
+        )
+
+    def changed() -> HTTPException:
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The notes changed since they were loaded; reload and try again",
+        )
+
     try:
         db = DatabaseManager()
         for _ in range(CHECKLIST_TOGGLE_MAX_ATTEMPTS):
             current = db.get_task(task_id)
             if not current:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Task with ID {task_id} not found",
-                )
+                raise not_found()
             old_notes = current.get("notes")
+            if (old_notes or "") != (body.base_notes or ""):
+                raise changed()
             try:
                 new_notes = toggle_checklist_line(
                     old_notes, body.line_index, body.expected_text, body.checked
@@ -2985,29 +3003,23 @@ async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
                     task_id, notes_source="api", expected_notes=old_notes, notes=new_notes
                 )
             except NotesConflictError:
-                # Includes a task deleted after the read: the CAS matches no
-                # row, and the re-read at the top of the loop answers 404.
+                # Another write (or a delete) landed after our read. Re-read:
+                # a changed note is a 409 above, a deleted task a 404.
                 continue
             except ValueError:
                 # update_task raises ValueError when the task vanished between
-                # our read and its own; that is a 404, not a server error.
+                # our read and its own.
                 if not db.get_task(task_id):
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"Task with ID {task_id} not found",
-                    )
+                    raise not_found()
                 raise
             if task is None:
                 # Written, then deleted before update_task could re-read it.
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Task with ID {task_id} not found",
-                )
+                raise not_found()
             return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Notes changed while toggling; reload and try again",
-        )
+        # Every attempt lost its compare-and-swap. Report what is true now.
+        if not db.get_task(task_id):
+            raise not_found()
+        raise changed()
     except HTTPException:
         raise
     except Exception as e:

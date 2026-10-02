@@ -5,13 +5,13 @@ import { ChecklistConflictError, toggleChecklistItem } from './api';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('toggleChecklistItem (#7821)', () => {
-  it('POSTs only the line, text and state to the string id, without retrying', async () => {
+  it('POSTs the line, text, state and base notes to the string id, without retrying', async () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve({ ok: true, json: () => Promise.resolve({ id: '98969975881101312' }) } as Response)
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await toggleChecklistItem('98969975881101312', 3, 'third', true);
+    await toggleChecklistItem('98969975881101312', 3, 'third', true, 'a\n- [ ] third');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -21,6 +21,7 @@ describe('toggleChecklistItem (#7821)', () => {
       line_index: 3,
       expected_text: 'third',
       checked: true,
+      base_notes: 'a\n- [ ] third',
     });
   });
 
@@ -29,13 +30,13 @@ describe('toggleChecklistItem (#7821)', () => {
       Promise.resolve({ ok: false, status: 409, statusText: 'Conflict', json: () => Promise.resolve({ detail: 'moved' }) } as Response)
     );
     vi.stubGlobal('fetch', conflict);
-    await expect(toggleChecklistItem('1', 0, 'x', true)).rejects.toBeInstanceOf(ChecklistConflictError);
+    await expect(toggleChecklistItem('1', 0, 'x', true, null)).rejects.toBeInstanceOf(ChecklistConflictError);
 
     const boom = vi.fn(() =>
       Promise.resolve({ ok: false, status: 500, statusText: 'Err', json: () => Promise.resolve({ detail: 'boom' }) } as Response)
     );
     vi.stubGlobal('fetch', boom);
-    await expect(toggleChecklistItem('1', 0, 'x', true)).rejects.toThrow('boom');
+    await expect(toggleChecklistItem('1', 0, 'x', true, null)).rejects.toThrow('boom');
     expect(boom).toHaveBeenCalledTimes(1);
   });
 });

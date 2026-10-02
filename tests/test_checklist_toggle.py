@@ -57,10 +57,19 @@ def _history(db, task_id):
         return [dict(r) for r in rows]
 
 
-def _post(client, task_id, line_index, text, checked):
+_LOAD = object()
+
+
+def _post(client, task_id, line_index, text, checked, base=_LOAD):
+    """POST a toggle. By default ``base_notes`` is what a client would have
+    rendered: the notes as GET /api/tasks/{id} returns them right now."""
+    if base is _LOAD:
+        got = client.get(f"/api/tasks/{task_id}")
+        base = got.json().get("notes") if got.status_code == 200 else None
     return client.post(
         f"/api/tasks/{task_id}/checklist",
-        json={"line_index": line_index, "expected_text": text, "checked": checked},
+        json={"line_index": line_index, "expected_text": text, "checked": checked,
+              "base_notes": base},
     )
 
 
@@ -172,24 +181,69 @@ def test_two_sequential_toggles_both_survive(db, client):
     assert len(_history(db, task["id"])) == 2
 
 
-def test_endpoint_retries_after_cas_conflict(db, client, monkeypatch):
-    """A writer sneaking in between read and write is retried, not clobbered."""
+def test_writer_between_read_and_write_is_never_overwritten(db, client, monkeypatch):
+    """A writer landing between the endpoint's read and its write wins: the
+    CAS fails, the re-read no longer matches the client's base, and the
+    toggle answers 409 without touching the other writer's notes."""
     task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
     backend = DatabaseManager()._db
     real = type(backend).update_task
-    calls = {"n": 0}
+    late = NOTES + "\n- [ ] late"
 
     def racing(self, task_id, *a, **kw):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            real(self, task_id, notes=NOTES + "\n- [ ] late", notes_source="cli")
+        real(self, task_id, notes=late, notes_source="cli")
         return real(self, task_id, *a, **kw)
 
     monkeypatch.setattr(type(backend), "update_task", racing)
     resp = _post(client, task["id"], 1, "first", True)
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 409, resp.text
+    assert db.get_task(task["id"])["notes"] == late
+
+
+def test_stale_base_is_409_and_writes_nothing(db, client):
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
+    assert _post(client, task["id"], 1, "first", True).status_code == 200
+    # A second client still holding the original notes ticks "third".
+    resp = _post(client, task["id"], 3, "third", True, base=NOTES)
+    assert resp.status_code == 409
     notes = db.get_task(task["id"])["notes"]
-    assert "- [x] first" in notes and "- [ ] late" in notes
+    assert "- [x] first" in notes and "- [ ] third" in notes
+    assert len(_history(db, task["id"])) == 1
+
+
+def test_identical_items_that_moved_are_409_not_a_wrong_toggle(db, client):
+    """Index + text cannot tell duplicates apart; the base notes can."""
+    seen = "- [x] A\n- [ ] A"
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=seen)
+    # Another writer prepends a third identical item: line 1 is now the
+    # already-ticked A, so an index+text match would silently do nothing.
+    moved = "- [ ] A\n" + seen
+    db.update_task(task["id"], notes=moved)
+    resp = _post(client, task["id"], 1, "A", True, base=seen)
+    assert resp.status_code == 409
+    assert db.get_task(task["id"])["notes"] == moved
+
+
+def test_null_and_empty_base_match_empty_notes_only(db, client):
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
+    assert _post(client, task["id"], 1, "first", True, base=None).status_code == 409
+
+
+def test_deleted_during_final_attempt_is_404(db, client, monkeypatch):
+    monkeypatch.setenv("SAFE_MODE", "0")
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
+    backend = DatabaseManager()._db
+    calls = {"n": 0}
+
+    def conflict_then_delete(self, task_id, *a, **kw):
+        calls["n"] += 1
+        if calls["n"] == dashboard_app.CHECKLIST_TOGGLE_MAX_ATTEMPTS:
+            self.delete_task(task_id)
+        raise NotesConflictError("lost the race")
+
+    monkeypatch.setattr(type(backend), "update_task", conflict_then_delete)
+    resp = _post(client, task["id"], 1, "first", True)
+    assert resp.status_code == 404, resp.text
 
 
 @pytest.mark.parametrize("when", ["before_update", "after_update"])

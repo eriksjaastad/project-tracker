@@ -97,7 +97,7 @@ describe('TaskDetailModal checklist toggle (#7821)', () => {
 
     await user.click(screen.getAllByRole('checkbox')[0]);
 
-    expect(toggleChecklistItem).toHaveBeenCalledWith(BIG_ID, 1, 'first', true);
+    expect(toggleChecklistItem).toHaveBeenCalledWith(BIG_ID, 1, 'first', true, NOTES);
     await waitFor(() => expect(screen.getAllByRole('checkbox')[0]).toBeChecked());
     expect(onNotesChanged).toHaveBeenCalledWith(BIG_ID, newNotes, '2026-10-02T00:00:00');
   });
@@ -151,17 +151,56 @@ describe('TaskDetailModal checklist toggle (#7821)', () => {
     expect(onNotesChanged).toHaveBeenCalledTimes(1);
   });
 
-  it('other errors show an inline error and leave notes unchanged', async () => {
+  it('other errors show the error, then reload the notes the server has', async () => {
+    // A 5xx can arrive after the write committed: the modal must not keep
+    // its guessed checkbox state.
     const user = userEvent.setup();
+    const persisted = 'intro\n- [x] first\n- [x] second';
     vi.mocked(toggleChecklistItem).mockRejectedValue(new Error('server exploded'));
+    vi.mocked(fetchTask).mockResolvedValue(makeTask({ notes: persisted }));
     const onNotesChanged = renderModal();
 
     await user.click(screen.getAllByRole('checkbox')[0]);
 
     expect(await screen.findByRole('status')).toHaveTextContent('server exploded');
-    expect(screen.getAllByRole('checkbox')[0]).not.toBeChecked();
-    expect(onNotesChanged).not.toHaveBeenCalled();
-    expect(fetchTask).not.toHaveBeenCalled();
+    expect(fetchTask).toHaveBeenCalledWith(BIG_ID);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')[0]).toBeChecked());
+    expect(onNotesChanged).toHaveBeenCalledWith(BIG_ID, persisted, expect.any(String));
     expect(screen.getAllByRole('checkbox')[0]).toBeEnabled();
+  });
+
+  it('a failed reload says so and leaves the checkbox usable', async () => {
+    const user = userEvent.setup();
+    vi.mocked(toggleChecklistItem).mockRejectedValue(new Error('server exploded'));
+    vi.mocked(fetchTask).mockRejectedValue(new Error('offline'));
+    renderModal();
+
+    await user.click(screen.getAllByRole('checkbox')[0]);
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/Could not reload the task \(offline\)/);
+    expect(screen.getAllByRole('checkbox')[0]).toBeEnabled();
+  });
+
+  it('keeps the indentation of nested checklist items', () => {
+    renderModal(makeTask({ notes: '- [ ] parent\n    - [ ] child' }));
+    const labels = screen.getAllByRole('checkbox').map((box) => box.closest('label')!.textContent);
+    // indent + checkbox + ' ' + text + newline
+    expect(labels).toEqual([' parent\n', '     child\n']);
+  });
+
+  it('sends the notes it rendered as the base, including after a previous toggle', async () => {
+    const user = userEvent.setup();
+    const afterFirst = 'intro\n- [x] first\n- [x] second';
+    vi.mocked(toggleChecklistItem)
+      .mockResolvedValueOnce(makeTask({ notes: afterFirst }))
+      .mockResolvedValueOnce(makeTask({ notes: 'intro\n- [x] first\n- [ ] second' }));
+    renderModal();
+
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')[0]).toBeChecked());
+    await user.click(screen.getAllByRole('checkbox')[1]);
+
+    expect(toggleChecklistItem).toHaveBeenNthCalledWith(1, BIG_ID, 1, 'first', true, NOTES);
+    expect(toggleChecklistItem).toHaveBeenNthCalledWith(2, BIG_ID, 2, 'second', false, afterFirst);
   });
 });

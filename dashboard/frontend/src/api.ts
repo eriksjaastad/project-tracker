@@ -163,14 +163,23 @@ export async function toggleChecklistItem(
   taskId: string,
   lineIndex: number,
   expectedText: string,
-  checked: boolean
+  checked: boolean,
+  baseNotes: string | null
 ): Promise<Task> {
   // Not fetchWithErrorHandling: it retries 5xx, and a retried toggle that
   // actually landed would be reported back as a failure.
   const response = await fetch(`${API_BASE}/tasks/${taskId}/checklist`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ line_index: lineIndex, expected_text: expectedText, checked }),
+    // base_notes is the exact text the checkbox was rendered from; the server
+    // refuses (409) if the stored notes differ at all, so a moved or
+    // duplicated item can never be toggled by mistake.
+    body: JSON.stringify({
+      line_index: lineIndex,
+      expected_text: expectedText,
+      checked,
+      base_notes: baseNotes,
+    }),
   });
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));

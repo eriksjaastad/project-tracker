@@ -64,8 +64,8 @@ describe('parseNotesLines (#7821)', () => {
     expect(lines.map((l) => [l.kind, l.lineIndex])).toEqual([
       ['text', 0], ['checklist', 1], ['checklist', 2], ['text', 3], ['text', 4],
     ]);
-    expect(lines[1]).toMatchObject({ checked: false, text: 'first' });
-    expect(lines[2]).toMatchObject({ checked: true, text: 'second' });
+    expect(lines[1]).toMatchObject({ checked: false, text: 'first', indent: '' });
+    expect(lines[2]).toMatchObject({ checked: true, text: 'second', indent: '  ' });
   });
 
   it('drops a trailing CR from the item text but keeps raw intact', () => {
