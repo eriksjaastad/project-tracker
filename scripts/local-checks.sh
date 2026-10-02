@@ -5,7 +5,7 @@
 # Only the shared runner (claude-user-config hooks/git-local-checks.py) runs
 # this: on every push, and by hand with `~/.claude/hooks/git-local-checks.py
 # --head`. It checks the commit out in a fresh worktree, sets the
-# LOCAL_CHECKS_* variables (with no base, every check runs) and bounds the run.
+# LOCAL_CHECKS_* variables and bounds the run. Every check runs on every push.
 #
 # pytest syncs its own environment inside this throwaway worktree. The frontend
 # job runs in a throwaway export of dashboard/ against a clone of the installed
@@ -30,19 +30,6 @@ fi
 echo "local checks: $sha in $(pwd -P)"
 
 UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
-
-# True when any given path changed since LOCAL_CHECKS_BASE; always true without
-# one. If the diff itself fails, say so and treat every path as changed, so a
-# broken diff runs the gated suites instead of silently skipping them.
-changed() {
-    [ -z "${LOCAL_CHECKS_BASE:-}" ] && return 0
-    local paths
-    if ! paths="$(git diff --name-only "$LOCAL_CHECKS_BASE" "$sha" -- "$@")"; then
-        echo "local checks: cannot diff $LOCAL_CHECKS_BASE..$sha; running the gated checks" >&2
-        return 0
-    fi
-    [ -n "$paths" ]
-}
 
 # Run one named check, record a failure, and return its status.
 failed=()
@@ -152,32 +139,31 @@ if check "sync test dependencies" "$UV" sync -q --extra test --python 3.13; then
     step "pytest" "$UV" run --no-sync --python 3.13 python -m pytest tests/ -q -p no:cacheprovider
 fi
 
-if changed dashboard/ scripts/local-checks.sh; then
-    tmp="$(mktemp -d)"
-    trap 'rm -rf "$tmp"' EXIT
-    git archive "$sha" dashboard | tar -x -C "$tmp"
-    frontend="$tmp/dashboard/frontend"
-    modules="$(modules_dir)"
-    want="$(cat "$frontend/.nvmrc")"
-    have="$(node --version | sed 's/^v//; s/\..*//')"
-    if [ "$have" != "${want%%.*}" ]; then
-        echo "WARNING: CI used Node $want (.nvmrc); this machine runs Node $have"
-    fi
-    if [ ! -f "$modules/.package-lock.json" ]; then
-        echo "frontend: no installed packages at $modules"
-        echo "  install them deliberately: cd $(dirname "$modules") && command npm ci"
-        failed+=("frontend dependencies")
-    elif ! installed_matches_lock "$modules" "$frontend"; then
-        echo "frontend: the installed packages or package.json do not match this commit's package-lock.json (details above)"
-        echo "  review the change, then install deliberately: cd $(dirname "$modules") && command npm ci"
-        failed+=("frontend dependencies")
-    else
-        clone_tree "$modules" "$frontend/node_modules"
-        npm_in() { (cd "$frontend" && npm "$@"); }
-        step "frontend lint" npm_in run lint
-        step "frontend test" npm_in run test
-        step "frontend build" npm_in run build
-    fi
+# The frontend job runs on every push, as tests.yml ran it on every PR.
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+git archive "$sha" dashboard | tar -x -C "$tmp"
+frontend="$tmp/dashboard/frontend"
+modules="$(modules_dir)"
+want="$(cat "$frontend/.nvmrc")"
+have="$(node --version | sed 's/^v//; s/\..*//')"
+if [ "$have" != "${want%%.*}" ]; then
+    echo "WARNING: CI used Node $want (.nvmrc); this machine runs Node $have"
+fi
+if [ ! -f "$modules/.package-lock.json" ]; then
+    echo "frontend: no installed packages at $modules"
+    echo "  install them deliberately: cd $(dirname "$modules") && command npm ci"
+    failed+=("frontend dependencies")
+elif ! installed_matches_lock "$modules" "$frontend"; then
+    echo "frontend: the installed packages or package.json do not match this commit's package-lock.json (details above)"
+    echo "  review the change, then install deliberately: cd $(dirname "$modules") && command npm ci"
+    failed+=("frontend dependencies")
+else
+    clone_tree "$modules" "$frontend/node_modules"
+    npm_in() { (cd "$frontend" && npm "$@"); }
+    step "frontend lint" npm_in run lint
+    step "frontend test" npm_in run test
+    step "frontend build" npm_in run build
 fi
 
 if [ "${#failed[@]}" -gt 0 ]; then
