@@ -55,7 +55,8 @@ step() { check "$@" || true; }
 # package.json, a lockfile or a shrinkwrap, fails without running git), and
 # the lockfile is refused up front if any entry is not served by the registry
 # (git, file, link, another host), or if an npm-shrinkwrap.json would
-# override it. A tarball missing from the cache fails with its name@version;
+# override it. A tarball the cache cannot supply (missing, or failing its
+# integrity hash, which npm treats as missing) fails with its name@version;
 # there is no network fallback. Decided by the Architect for Erik, 2026-10-02
 # (agent-runtime-config #7828).
 npm_ci_offline() {
@@ -89,7 +90,7 @@ npm_ci_offline() {
         return 0
     fi
     printf '%s\n' "$out" | tail -n 25
-    # Name each tarball the cache lacks, as the lockfile names it.
+    # Name each tarball the cache could not supply, as the lockfile names it.
     printf '%s\n' "$out" \
         | sed -n 's|.*request to \(https://[^ ]*\) failed.*|\1|p' \
         | node -e '
@@ -99,14 +100,13 @@ npm_ci_offline() {
                 .filter(([key, e]) => key && missing.has(e.resolved))
                 .map(([key, e]) => `${key.slice(key.lastIndexOf("node_modules/") + 13)}@${e.version}`);
             if (names.length) {
-                console.log("not in the local npm cache (no network fallback):");
+                console.log("not usable from the local npm cache: missing, or failing its integrity");
+                console.log("check (no network fallback):");
                 for (const n of [...new Set(names)].sort()) console.log("  " + n);
-                console.log("  fetch them deliberately, after review, in a real checkout: command npm ci");
+                console.log("  check the cache: command npm cache verify");
+                console.log("  then fetch them deliberately, after review, in a real checkout: command npm ci");
             }
         ' "$1/package-lock.json"
-    case "$out" in
-        *EINTEGRITY*) echo "a cached tarball failed its integrity check; inspect it, then: command npm cache verify" ;;
-    esac
     case "$out" in
         *"command false "*) echo "a git dependency was refused: git is disabled for this install (package.json or a lockfile names one)" ;;
     esac
