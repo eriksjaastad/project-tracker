@@ -31,7 +31,7 @@ class ProjectTrackerOps:
             crsqlite_path=_find_crsqlite_dylib(),
         )
         self._db = DatabaseManager(self.db_path)
-        self._cal = CalendarManager(self.db_path)
+        self._cal = CalendarManager(self.db_path, crsqlite_path=self.entry.crsqlite_path)
         self._cal.ensure_tables()
         self._db.migrate_attachments_table()
 
