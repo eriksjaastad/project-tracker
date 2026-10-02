@@ -87,17 +87,8 @@ def _add_event(title: str, date: str) -> int:
     return cm.add_event(title=title, event_date=date)
 
 
-def test_calendar_create_response_id_is_quoted(env, monkeypatch):
-    """POST /api/calendar/events currently passes a ``machine`` kwarg that
-    add_event() does not accept (pre-existing, reported separately), so wrap
-    add_event here to exercise the response shape."""
+def test_calendar_create_response_id_is_quoted(env):
     _db, client = env
-    real = CalendarManager.add_event
-
-    def add_event(self, *, machine=None, **kw):
-        return real(self, **kw)
-
-    monkeypatch.setattr(CalendarManager, "add_event", add_event)
     created = client.post(
         "/api/calendar/events", json={"title": "A", "event_date": "2030-01-01"}
     )
