@@ -1524,8 +1524,9 @@ monitoring:
         expect: >-
           Exit codes per seo_monitor/README.md: 0 = current data, 2 = attention
           needed (includes permanent coverage limits; not a failure, see
-          .scratch/seo-monitor/report.md), 1 = collector/monitor failure. Only
-          exit 1 or another nonzero code is a failure. stderr goes to
+          .scratch/seo-monitor/report.md), 1 = collector/input/monitor failure.
+          Exit 2 is NEVER a failure (the morning digest renders it ATTENTION);
+          exit 1, or any code other than 0 and 2, is a failure. stderr goes to
           scheduler-google.err.log.
       - id: com.ai-memory.runtime-capture-laptop-pull
         project: ai-memory
