@@ -273,6 +273,9 @@ true as projects are added and retired:
   `monitoring:` entry → card.
 - Registry entry whose `prod_url` no longer resolves → card.
 - Scheduled job in launchd/crontab with no `_scheduled_jobs` entry → card.
+  `_scheduled_jobs` is the only scheduled-job registry; the old
+  `CRON_JOBS.md` drifted months behind it and was retired (#7845). When you
+  install a job, add its entry (schedule, log, `expect`) in the same PR.
 - Registry job that no longer exists on the host → card.
 - Service in a Doppler config that the `projects:` block does not list → card.
 - Any `UNKNOWN` Saga can now answer → card naming the answer and its evidence.
