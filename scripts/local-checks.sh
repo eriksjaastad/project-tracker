@@ -51,16 +51,27 @@ step() { check "$@" || true; }
 # no install-time package code) while testing exactly the locked packages, not
 # a developer's node_modules. Both flags hold only for registry tarballs: npm
 # clones a git dependency from the network and runs its prepare scripts
-# regardless, so a lockfile entry not served by the registry (git, file,
-# link, another host) fails the check before anything is installed. A tarball
-# missing from the cache fails with its name@version; there is no network
-# fallback. Decided by the Architect for Erik, 2026-10-02
+# regardless. So npm's git is set to false (every git dependency, from
+# package.json, a lockfile or a shrinkwrap, fails without running git), and
+# the lockfile is refused up front if any entry is not served by the registry
+# (git, file, link, another host), or if an npm-shrinkwrap.json would
+# override it. A tarball missing from the cache fails with its name@version;
+# there is no network fallback. Decided by the Architect for Erik, 2026-10-02
 # (agent-runtime-config #7828).
 npm_ci_offline() {
     local out status=0
+    if [ -e "$1/npm-shrinkwrap.json" ]; then
+        echo "$1/npm-shrinkwrap.json would override package-lock.json; this check installs from package-lock.json only"
+        return 1
+    fi
     if ! node -e '
         const lock = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-        const bad = Object.entries(lock.packages || {})
+        if (typeof lock.packages !== "object" || lock.packages === null) {
+            console.log("package-lock.json has no packages map (lockfileVersion " + lock.lockfileVersion
+                + "); regenerate it with npm 7 or later");
+            process.exit(1);
+        }
+        const bad = Object.entries(lock.packages)
             .filter(([key, e]) => key && !e.inBundle
                 && !(typeof e.resolved === "string" && e.resolved.startsWith("https://registry.npmjs.org/")))
             .map(([key, e]) => `${key}: ${e.link ? "link to " : ""}${e.resolved || "(no registry tarball)"}`);
@@ -73,7 +84,7 @@ npm_ci_offline() {
     ' "$1/package-lock.json"; then
         return 1
     fi
-    out="$(cd "$1" && npm ci --offline --ignore-scripts --no-audit --no-fund 2>&1)" || status=$?
+    out="$(cd "$1" && npm ci --offline --ignore-scripts --git=false --no-audit --no-fund 2>&1)" || status=$?
     if [ "$status" -eq 0 ]; then
         return 0
     fi
@@ -84,7 +95,7 @@ npm_ci_offline() {
         | node -e '
             const lock = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
             const missing = new Set(require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean));
-            const names = Object.entries(lock.packages || {})
+            const names = Object.entries(lock.packages)
                 .filter(([key, e]) => key && missing.has(e.resolved))
                 .map(([key, e]) => `${key.slice(key.lastIndexOf("node_modules/") + 13)}@${e.version}`);
             if (names.length) {
@@ -93,9 +104,12 @@ npm_ci_offline() {
                 console.log("  fetch them deliberately, after review, in a real checkout: command npm ci");
             }
         ' "$1/package-lock.json"
-    if printf '%s\n' "$out" | grep -q EINTEGRITY; then
-        echo "a cached tarball failed its integrity check; inspect it, then: command npm cache verify"
-    fi
+    case "$out" in
+        *EINTEGRITY*) echo "a cached tarball failed its integrity check; inspect it, then: command npm cache verify" ;;
+    esac
+    case "$out" in
+        *"command false "*) echo "a git dependency was refused: git is disabled for this install (package.json or a lockfile names one)" ;;
+    esac
     return "$status"
 }
 
