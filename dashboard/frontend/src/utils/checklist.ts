@@ -31,3 +31,39 @@ export const ACCEPTANCE_CRITERIA_TEMPLATE = '- [ ] ';
 export const ACCEPTANCE_CRITERIA_HINT =
   "Acceptance criteria required: add at least one '- [ ] <how completion is verified>' " +
   "checklist line. A heading alone (e.g. '## Acceptance Criteria') does not count.";
+
+/**
+ * One checklist line parsed from notes (#7821). `lineIndex` is the position
+ * in notes.split("\n") -- the same index the server's
+ * POST /api/tasks/{id}/checklist toggle uses -- and `text` is the item text
+ * with any trailing "\r" (CRLF notes) removed. Mirrors
+ * scripts/utils/checklist.py CHECKLIST_LINE_RE.
+ */
+const CHECKLIST_LINE_RE = /^([ \t]*-[ \t]*\[)([ xX])(\][ \t]+)(\S.*)$/;
+
+export type NotesLine =
+  | { kind: 'text'; lineIndex: number; raw: string }
+  | { kind: 'checklist'; lineIndex: number; raw: string; checked: boolean; text: string; indent: string };
+
+/** Split notes into display lines, tagging checklist items. */
+export function parseNotesLines(notes: string | null | undefined): NotesLine[] {
+  if (!notes) {
+    return [];
+  }
+  return notes.split('\n').map((raw, lineIndex): NotesLine => {
+    const body = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    const match = CHECKLIST_LINE_RE.exec(body);
+    if (!match) {
+      return { kind: 'text', lineIndex, raw };
+    }
+    return {
+      kind: 'checklist',
+      lineIndex,
+      raw,
+      checked: match[2] !== ' ',
+      text: match[4],
+      // Leading whitespace before "-", so nested items keep their level.
+      indent: match[1].slice(0, match[1].indexOf('-')),
+    };
+  });
+}

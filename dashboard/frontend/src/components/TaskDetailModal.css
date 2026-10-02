@@ -391,3 +391,14 @@
   color: var(--accent);
   font-weight: 600;
 }
+
+.task-detail-checklist-item {
+  display: inline;
+  cursor: pointer;
+}
+
+.task-detail-checklist-message {
+  margin-top: var(--space-sm);
+  font-size: 0.85rem;
+  color: var(--danger);
+}

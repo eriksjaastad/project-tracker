@@ -34,6 +34,7 @@ from scripts.logger import get_logger
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.attachment_paths import attachments_dir
+from db.backend_manager import NotesConflictError
 from db.manager import DatabaseManager
 from db.outreach import ContactStateConflictError
 from discovery.project_scanner import discover_projects
@@ -50,6 +51,7 @@ from pydantic import BaseModel
 
 # Import config
 from scripts.config import PROJECTS_BASE_DIR, REINDEX_SCRIPT_PATH, projects_root as config_projects_root
+from scripts.utils.checklist import ChecklistLineError, toggle_checklist_line
 from scripts.utils.validation import get_blocked_card_reason, get_blocked_card_project_ids, is_card_creation_allowed
 
 from scripts.pt import rebuild_project_graph
@@ -2251,6 +2253,22 @@ class TaskCreateRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class ChecklistToggleRequest(BaseModel):
+    """Body for POST /api/tasks/{id}/checklist (#7821).
+
+    ``base_notes`` is the exact notes text the client rendered the checkbox
+    from. It is what identifies the line: an index plus item text cannot tell
+    two identical items apart once another writer moves or removes one.
+    """
+    line_index: int
+    expected_text: str
+    checked: bool
+    base_notes: Optional[str]
+
+
+CHECKLIST_TOGGLE_MAX_ATTEMPTS = 3
+
+
 class TaskUpdateRequest(BaseModel):
     text: Optional[str] = None
     title: Optional[str] = None
@@ -2931,6 +2949,84 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update task"
+        )
+
+
+@app.post("/api/tasks/{task_id}/checklist")
+async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
+    """Tick or untick one notes checklist line as a server-side atomic toggle (#7821).
+
+    The toggle applies only to the notes the client saw: if the stored notes
+    differ from ``base_notes`` in any way, nothing is written and the answer
+    is 409, so the client reloads and the user clicks again. Otherwise the
+    server sets only the marker of ``line_index`` (which must be the
+    checklist line whose item text is ``expected_text``) and writes with a
+    compare-and-swap on the notes it read, so a writer that lands between
+    the read and the write is never overwritten.
+
+    404 when the task is missing, including one deleted while this request
+    runs; 409 when the notes changed or the line is not the expected item.
+    A toggle already in the requested state writes nothing and returns the
+    task as read.
+    """
+    def not_found() -> HTTPException:
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task with ID {task_id} not found",
+        )
+
+    def changed() -> HTTPException:
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The notes changed since they were loaded; reload and try again",
+        )
+
+    try:
+        db = DatabaseManager()
+        for _ in range(CHECKLIST_TOGGLE_MAX_ATTEMPTS):
+            current = db.get_task(task_id)
+            if not current:
+                raise not_found()
+            old_notes = current.get("notes")
+            if (old_notes or "") != (body.base_notes or ""):
+                raise changed()
+            try:
+                new_notes = toggle_checklist_line(
+                    old_notes, body.line_index, body.expected_text, body.checked
+                )
+            except ChecklistLineError as e:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+            if new_notes == old_notes:
+                return _enrich_task_payloads_with_display_ids([dict(current)], db)[0]
+            try:
+                task = db.update_task(
+                    task_id, notes_source="api", expected_notes=old_notes, notes=new_notes
+                )
+            except NotesConflictError:
+                # Another write (or a delete) landed after our read. Re-read:
+                # a changed note is a 409 above, a deleted task a 404.
+                continue
+            except ValueError:
+                # update_task raises ValueError when the task vanished between
+                # our read and its own.
+                if not db.get_task(task_id):
+                    raise not_found()
+                raise
+            if task is None:
+                # Written, then deleted before update_task could re-read it.
+                raise not_found()
+            return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
+        # Every attempt lost its compare-and-swap. Report what is true now.
+        if not db.get_task(task_id):
+            raise not_found()
+        raise changed()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error toggling checklist on task {task_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to toggle checklist item"
         )
 
 

@@ -137,6 +137,62 @@ export async function updateTask(
   }
 }
 
+export async function fetchTask(taskId: string): Promise<Task> {
+  const response = await fetchWithErrorHandling(`${API_BASE}/tasks/${taskId}`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || errorData.detail || `Failed to fetch task: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/** Thrown by toggleChecklistItem when the server answers 409: the line moved or changed. */
+export class ChecklistConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ChecklistConflictError';
+  }
+}
+
+/**
+ * Tick or untick one notes checklist line (#7821). The server edits only
+ * that line's marker under a compare-and-swap, so the client never sends
+ * (and can never clobber with) a whole-notes copy.
+ */
+export async function toggleChecklistItem(
+  taskId: string,
+  lineIndex: number,
+  expectedText: string,
+  checked: boolean,
+  baseNotes: string | null
+): Promise<Task> {
+  // Not fetchWithErrorHandling: it retries 5xx, and a retried toggle that
+  // actually landed would be reported back as a failure.
+  const response = await fetch(`${API_BASE}/tasks/${taskId}/checklist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    // base_notes is the exact text the checkbox was rendered from; the server
+    // refuses (409) if the stored notes differ at all, so a moved or
+    // duplicated item can never be toggled by mistake.
+    body: JSON.stringify({
+      line_index: lineIndex,
+      expected_text: expectedText,
+      checked,
+      base_notes: baseNotes,
+    }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const message =
+      errorData.message || errorData.detail || `Failed to toggle checklist item: ${response.statusText}`;
+    if (response.status === 409) {
+      throw new ChecklistConflictError(message);
+    }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
 export async function createTask(
   text: string,
   projectId: string,

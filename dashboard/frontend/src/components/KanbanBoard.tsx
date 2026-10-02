@@ -255,6 +255,18 @@ export function KanbanBoard() {
     setSelectedTask(null);
   };
 
+  // A checklist toggle landed (#7821): merge ONLY the server's notes and
+  // updated_at into the board's copy of that task, by id. Never write notes
+  // back from a stale copy, and keep fields the list endpoint enriched.
+  const handleNotesChanged = useCallback(
+    (taskId: string, notes: string | null, updatedAt: string) => {
+      setTasks(prev =>
+        prev.map(t => (t.id === taskId ? { ...t, notes, updated_at: updatedAt } : t))
+      );
+    },
+    []
+  );
+
   const handleTaskDelete = useCallback(async (taskId: string) => {
     try {
       await deleteTask(taskId);
@@ -398,6 +410,7 @@ export function KanbanBoard() {
               onClose={() => setSelectedTask(null)}
               onUpdate={handleTaskUpdate}
               onDelete={handleTaskDelete}
+              onNotesChanged={handleNotesChanged}
             />
           )}
           {showProjectFilter && (
