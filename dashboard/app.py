@@ -1463,6 +1463,34 @@ class CalendarEventCreate(BaseModel):
             return cls._validate_date(v)
 
 
+def _stringify_pt_ids(record: dict, keys: tuple = ("id",)) -> dict:
+    """Stringify a record's pt_id (Snowflake-scale) id fields in place (#7826).
+
+    ideas / calendar_events / linked task ids come from pt_next_id (#6044) and
+    can exceed Number.MAX_SAFE_INTEGER; a bare JSON number would be rounded by
+    the browser's JSON.parse, so edits would hit the wrong row (see #7824).
+    """
+    for key in keys:
+        if isinstance(record.get(key), int):
+            record[key] = str(record[key])
+    return record
+
+
+def _stringify_event(event: dict) -> dict:
+    """Stringify a calendar event's id and its linked tasks' ids (#7826).
+
+    ``linked_tasks`` rows carry the task id as ``id``; ``task_id`` is added as
+    the same string because that is the key the frontend reads.
+    """
+    linked = event.get("linked_tasks")
+    if isinstance(linked, list):
+        for task in linked:
+            if isinstance(task, dict) and isinstance(task.get("id"), int):
+                task["task_id"] = str(task["id"])
+                task["id"] = str(task["id"])
+    return _stringify_pt_ids(event)
+
+
 def _get_cal_manager():
     from db.calendar_manager import CalendarManager
     cm = CalendarManager()
@@ -1489,7 +1517,7 @@ async def api_calendar_events(
             event_type=event_type,
             include_all=include_all,
         )
-        return {"events": events, "total": len(events)}
+        return {"events": [_stringify_event(e) for e in events], "total": len(events)}
     except Exception as e:
         logger.error(f"Calendar events error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1503,7 +1531,7 @@ async def api_calendar_event_detail(event_id: int):
         event = cm.get_event(event_id)
         if not event:
             raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
-        return event
+        return _stringify_event(event)
     except HTTPException:
         raise
     except Exception as e:
@@ -1529,7 +1557,7 @@ async def api_calendar_create(payload: CalendarEventCreate):
             recurrence=payload.recurrence,
             created_by=payload.created_by,
         )
-        return {"id": event_id, "title": payload.title, "event_date": payload.event_date}
+        return {"id": str(event_id), "title": payload.title, "event_date": payload.event_date}
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1576,7 +1604,11 @@ async def api_calendar_remind(
     try:
         cm = _get_cal_manager()
         events = cm.get_upcoming_reminders(within_minutes=within_minutes, machine=machine)
-        return {"events": events, "total": len(events), "within_minutes": within_minutes}
+        return {
+            "events": [_stringify_event(e) for e in events],
+            "total": len(events),
+            "within_minutes": within_minutes,
+        }
     except Exception as e:
         logger.error(f"Calendar remind error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -4111,7 +4143,7 @@ async def get_ideas():
     try:
         db = DatabaseManager()
         ideas = db.get_all_ideas()
-        return {"ideas": ideas}
+        return {"ideas": [_stringify_pt_ids(i) for i in ideas]}
     except Exception as e:
         logger.error(f"Error fetching ideas: {e}", exc_info=True)
         raise HTTPException(
@@ -4136,7 +4168,7 @@ async def create_idea(idea_data: IdeaCreateRequest):
     try:
         db = DatabaseManager()
         idea = db.add_idea(idea_data.text)
-        return idea
+        return _stringify_pt_ids(idea)
     except ValueError:
         # Re-raise to be caught by error handler
         raise
@@ -4165,7 +4197,7 @@ async def update_idea(idea_id: int, idea_data: IdeaUpdateRequest):
     try:
         db = DatabaseManager()
         idea = db.update_idea(idea_id, idea_data.text)
-        return idea
+        return _stringify_pt_ids(idea)
     except ValueError:
         # Re-raise to be caught by error handler
         raise

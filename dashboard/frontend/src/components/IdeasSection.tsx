@@ -68,7 +68,7 @@ export function IdeasSection() {
         }
     };
 
-    const handleDelete = async (ideaId: number) => {
+    const handleDelete = async (ideaId: string) => {
         try {
             await deleteIdea(ideaId);
             await loadIdeas();
