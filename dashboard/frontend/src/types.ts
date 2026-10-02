@@ -331,8 +331,9 @@ export interface BashStatsResponse {
 }
 
 // Ideas (Task #4583)
+// id is a decimal string: pt_id values exceed 2^53-1 (#7826).
 export interface Idea {
-  id: number;
+  id: string;
   text: string;
   created_at: string;
   updated_at: string;
