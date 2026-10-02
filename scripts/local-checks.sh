@@ -12,9 +12,8 @@
 # node_modules (from the checkout the push came from, else the main checkout;
 # a symlinked node_modules is resolved first) and never installs packages:
 # Erik's shell blocks unaudited npm ci/install as a supply-chain risk. What npm
-# ci would reject fails here too (a package.json range the lockfile does not
-# satisfy, or installed packages that differ from the lockfile), with how to
-# install deliberately.
+# ci would reject fails here too (npm's own check decides), as do installed
+# packages that differ from the lockfile, with how to install deliberately.
 set -euo pipefail
 
 if [ "${LOCAL_CHECKS_CLEAN:-}" != 1 ]; then
@@ -81,53 +80,52 @@ clone_tree() {
     cp -cR "$1" "$2" 2>/dev/null || cp -R "$1" "$2"
 }
 
-# Exit 0 when node_modules ($1) holds what package-lock.json in $2 pins and the
-# lockfile satisfies package.json in $2, as npm ci requires; else say why.
+# Exit 0 when npm ci would accept package.json and package-lock.json in $2 and
+# the installed node_modules ($1) holds exactly what npm ci would install from
+# them; else say why. Both halves are npm's own logic, not a re-implementation:
+# - Acceptance is npm ci with --dry-run, which runs its lockfile validation and
+#   returns before node_modules is removed or anything is written. --offline
+#   never fetches and --ignore-scripts never runs package code: this is the
+#   check, not the install Erik's shell guards against.
+# - What npm ci would install is the ideal tree npm's own installer (Arborist,
+#   shipped inside npm) builds from those two files. Each package in it must
+#   be installed with the same version, source and integrity, and nothing else
+#   may be installed. node_modules/.package-lock.json is npm's record of the
+#   installed tree.
 installed_matches_lock() {
+    local npm_root
+    if ! (cd "$2" && npm ci --dry-run --offline --ignore-scripts --no-audit --no-fund >/dev/null); then
+        echo "npm ci cannot install this commit's package.json and package-lock.json as locked (npm's reason above)"
+        return 1
+    fi
+    if ! npm_root="$(npm root -g)"; then
+        echo "cannot find npm's installation (npm root -g failed)"
+        return 1
+    fi
     node -e '
         const fs = require("fs"), path = require("path");
-        const read = f => JSON.parse(fs.readFileSync(path.resolve(f), "utf8"));
-        let installed, lock, manifest;
-        try {
-            installed = read(process.argv[1]).packages || {};
-            lock = read(process.argv[2]).packages || {};
-            manifest = read(process.argv[3]);
-        } catch (err) {
-            console.log(`cannot compare installed packages with the lockfile: ${err.message}`);
-            process.exit(2);
-        }
-        // semver from the installed tree; without it, ranges must match the lockfile exactly.
-        let semver = null;
-        try {
-            semver = require(path.join(path.dirname(path.resolve(process.argv[1])), "semver"));
-        } catch (err) {
-            semver = null;
-        }
-        const bad = [];
-        const root = lock[""] || {};
-        for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
-            const want = manifest[field] || {}, locked = root[field] || {};
-            for (const name of new Set([...Object.keys(want), ...Object.keys(locked)])) {
-                if (!(name in want) || !(name in locked)) {
-                    bad.push(`${name}: in ${name in want ? "package.json" : "package-lock.json"} ${field} only`);
-                    continue;
-                }
-                if (want[name] === locked[name]) continue;
-                const entry = lock[`node_modules/${name}`];
-                if (!(semver && entry && semver.validRange(want[name]) && semver.satisfies(entry.version, want[name]))) {
-                    bad.push(`${name}: package.json wants ${want[name]}, package-lock.json resolves ${entry ? entry.version : "nothing"}`);
-                }
+        const [npmRoot, installedFile, dir] = process.argv.slice(1);
+        const identity = e => JSON.stringify([e.version, e.resolved, e.integrity, Boolean(e.link)].map(v => v ?? null));
+        (async () => {
+            const Arborist = require(path.join(npmRoot, "npm", "node_modules", "@npmcli", "arborist"));
+            const installed = JSON.parse(fs.readFileSync(installedFile, "utf8")).packages || {};
+            const ideal = await new Arborist({ path: dir, offline: true, packageLock: true, save: false, audit: false }).buildIdealTree();
+            const bad = [], planned = new Set();
+            for (const node of ideal.inventory.values()) {
+                if (node.isProjectRoot) continue;
+                planned.add(node.location);
+                const want = identity({ version: node.version, resolved: node.resolved, integrity: node.integrity, link: node.isLink });
+                const have = installed[node.location];
+                if (!have) bad.push(`${node.location}: npm ci would install it; it is not installed`);
+                else if (identity(have) !== want) bad.push(`${node.location}: installed ${identity(have)}, npm ci would install ${want}`);
             }
-        }
-        for (const [key, want] of Object.entries(lock)) {
-            if (!key.startsWith("node_modules/")) continue;
-            const have = installed[key];
-            if (!have) { if (!want.optional) bad.push(`${key} missing`); continue; }
-            if (have.version !== want.version) bad.push(`${key} ${have.version} != ${want.version}`);
-        }
-        for (const key of Object.keys(installed)) if (!(key in lock)) bad.push(`${key} not in lockfile`);
-        if (bad.length) { console.log(bad.slice(0, 10).join("\n")); process.exit(1); }
-    ' "$1/.package-lock.json" "$2/package-lock.json" "$2/package.json"
+            for (const key of Object.keys(installed)) if (!planned.has(key)) bad.push(`${key}: installed; npm ci would not install it`);
+            if (bad.length) { console.log(bad.slice(0, 10).join("\n")); process.exit(1); }
+        })().catch(err => {
+            console.log(`cannot compare installed packages with what npm ci would install: ${err.message}`);
+            process.exit(2);
+        });
+    ' "$npm_root" "$1/.package-lock.json" "$2"
 }
 
 if check "sync test dependencies" "$UV" sync -q --extra test --python 3.13; then
