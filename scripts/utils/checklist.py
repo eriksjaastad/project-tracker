@@ -34,6 +34,11 @@ def toggle_checklist_line(
         raise ChecklistLineError(f"Line {line_index} is not a checklist item")
     if match.group(4) != expected_text:
         raise ChecklistLineError(f"Line {line_index} no longer matches the expected text")
+    current = match.group(2)
+    if (current != " ") == checked:
+        # Already in the requested state: leave the marker byte-for-byte,
+        # so "[X]" stays "[X]" and a no-op request writes nothing.
+        return notes or ""
     marker = "x" if checked else " "
     lines[line_index] = f"{match.group(1)}{marker}{match.group(3)}{match.group(4)}{cr}"
     return "\n".join(lines)

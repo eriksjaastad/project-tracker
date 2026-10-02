@@ -118,6 +118,21 @@ def test_toggle_helper_changes_only_marker():
     assert out == NOTES.replace("  - [x] second", "  - [ ] second")
 
 
+@pytest.mark.parametrize("marker", ["x", "X"])
+def test_toggle_helper_leaves_an_already_checked_marker_alone(marker):
+    notes = f"a\n- [{marker}] done"
+    assert toggle_checklist_line(notes, 1, "done", True) == notes
+
+
+def test_endpoint_no_op_on_uppercase_checked_writes_nothing(db, client):
+    notes = "- [X] done"
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=notes)
+    resp = _post(client, task["id"], 0, "done", True)
+    assert resp.status_code == 200, resp.text
+    assert db.get_task(task["id"])["notes"] == notes
+    assert _history(db, task["id"]) == []
+
+
 def test_toggle_helper_preserves_crlf():
     notes = "a\r\n- [ ] one\r\n- [ ] two\r\n"
     out = toggle_checklist_line(notes, 1, "one", True)
