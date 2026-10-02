@@ -34,6 +34,13 @@ from scripts.logger import get_logger
 
 logger = get_logger(__name__)
 
+
+class NotesConflictError(Exception):
+    """Compare-and-swap on a task's notes found them changed (#7821)."""
+
+
+_UNSET: Any = object()
+
 # ---------------------------------------------------------------------------
 # Turso / libsql configuration
 # ---------------------------------------------------------------------------
@@ -1508,6 +1515,7 @@ class DatabaseManager:
         self,
         task_id: int,
         notes_source: Optional[str] = None,
+        expected_notes: Any = _UNSET,
         **updates
     ) -> Dict[str, Any]:
         """Update task fields.
@@ -1517,6 +1525,11 @@ class DatabaseManager:
             notes_source: Origin label for a task_notes_history row written by
                 this call ("cli", "api", ...). Not a column — never stored on
                 tasks. Defaults to "unknown" when a notes change is recorded.
+            expected_notes: Optional compare-and-swap guard (#7821). When
+                passed (str or None), the UPDATE only applies if the stored
+                notes still equal this value; otherwise nothing is written
+                (the notes-history row rolls back with it) and
+                NotesConflictError is raised.
             **updates: Fields to update (text, status, priority)
             
         Returns:
@@ -1694,7 +1707,14 @@ class DatabaseManager:
                     values.append(task_id)
                     
                     query = f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?"
+                    if expected_notes is not _UNSET:
+                        query += " AND notes IS ?"
+                        values.append(expected_notes)
                     cursor.execute(query, values)
+                    if expected_notes is not _UNSET and cursor.rowcount != 1:
+                        raise NotesConflictError(
+                            f"Notes for task {task_id} changed since they were read"
+                        )
                     
                     # Record history entry if status changed
                     if old_status != new_status:

@@ -34,6 +34,7 @@ from scripts.logger import get_logger
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.attachment_paths import attachments_dir
+from db.backend_manager import NotesConflictError
 from db.manager import DatabaseManager
 from db.outreach import ContactStateConflictError
 from discovery.project_scanner import discover_projects
@@ -50,6 +51,7 @@ from pydantic import BaseModel
 
 # Import config
 from scripts.config import PROJECTS_BASE_DIR, REINDEX_SCRIPT_PATH, projects_root as config_projects_root
+from scripts.utils.checklist import ChecklistLineError, toggle_checklist_line
 from scripts.utils.validation import get_blocked_card_reason, get_blocked_card_project_ids, is_card_creation_allowed
 
 from scripts.pt import rebuild_project_graph
@@ -2219,6 +2221,16 @@ class TaskCreateRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class ChecklistToggleRequest(BaseModel):
+    """Body for POST /api/tasks/{id}/checklist (#7821)."""
+    line_index: int
+    expected_text: str
+    checked: bool
+
+
+CHECKLIST_TOGGLE_MAX_ATTEMPTS = 3
+
+
 class TaskUpdateRequest(BaseModel):
     text: Optional[str] = None
     title: Optional[str] = None
@@ -2899,6 +2911,58 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update task"
+        )
+
+
+@app.post("/api/tasks/{task_id}/checklist")
+async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
+    """Tick or untick one notes checklist line as a server-side atomic toggle (#7821).
+
+    The server reads the current notes, edits only the marker of
+    ``line_index`` (which must still be the checklist line whose item text is
+    ``expected_text``), and writes it with a compare-and-swap on the notes it
+    read. A concurrent notes write triggers a bounded re-read and retry, so a
+    toggle never overwrites another writer's change.
+
+    Raises 404 for a missing task and 409 when the line moved or changed, or
+    when the notes kept changing underneath the toggle.
+    """
+    try:
+        db = DatabaseManager()
+        for _ in range(CHECKLIST_TOGGLE_MAX_ATTEMPTS):
+            current = db.get_task(task_id)
+            if not current:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Task with ID {task_id} not found",
+                )
+            old_notes = current.get("notes")
+            try:
+                new_notes = toggle_checklist_line(
+                    old_notes, body.line_index, body.expected_text, body.checked
+                )
+            except ChecklistLineError as e:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+            if new_notes == old_notes:
+                return _enrich_task_payloads_with_display_ids([dict(current)], db)[0]
+            try:
+                task = db.update_task(
+                    task_id, notes_source="api", expected_notes=old_notes, notes=new_notes
+                )
+            except NotesConflictError:
+                continue
+            return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Notes changed while toggling; reload and try again",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error toggling checklist on task {task_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to toggle checklist item"
         )
 
 

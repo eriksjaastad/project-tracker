@@ -1,0 +1,41 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { ChecklistConflictError, toggleChecklistItem } from './api';
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe('toggleChecklistItem (#7821)', () => {
+  it('POSTs only the line, text and state to the string id, without retrying', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ id: '98969975881101312' }) } as Response)
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await toggleChecklistItem('98969975881101312', 3, 'third', true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/tasks/98969975881101312/checklist');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      line_index: 3,
+      expected_text: 'third',
+      checked: true,
+    });
+  });
+
+  it('maps 409 to ChecklistConflictError and does not retry a 500', async () => {
+    const conflict = vi.fn(() =>
+      Promise.resolve({ ok: false, status: 409, statusText: 'Conflict', json: () => Promise.resolve({ detail: 'moved' }) } as Response)
+    );
+    vi.stubGlobal('fetch', conflict);
+    await expect(toggleChecklistItem('1', 0, 'x', true)).rejects.toBeInstanceOf(ChecklistConflictError);
+
+    const boom = vi.fn(() =>
+      Promise.resolve({ ok: false, status: 500, statusText: 'Err', json: () => Promise.resolve({ detail: 'boom' }) } as Response)
+    );
+    vi.stubGlobal('fetch', boom);
+    await expect(toggleChecklistItem('1', 0, 'x', true)).rejects.toThrow('boom');
+    expect(boom).toHaveBeenCalledTimes(1);
+  });
+});
