@@ -315,13 +315,17 @@ def fetch_paused_review_loops(now: datetime | None = None) -> dict:
     a recorded trip, or rounds that already meet a threshold. Never returns a
     silently empty result: an unloadable launcher or unreadable directory sets
     `fatal`, and each unreadable/malformed log is its own entry in `errors`.
+
+    Every call into the launcher also catches SystemExit: it is a CLI script
+    and exits (status 3) on import when a CODEX_REVIEW_* setting is invalid,
+    which must cost this one section, not the whole morning email.
     """
     now = now or datetime.now(timezone.utc)
     result: dict = {"loops": [], "errors": [], "fatal": None, "history_dir": ""}
     try:
         launcher = _load_codex_launcher()
         history_dir = Path(launcher.history_path("probe__probe", "probe")).parent
-    except Exception as exc:  # noqa: BLE001
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
         result["fatal"] = f"could not load the review launcher {CODEX_LAUNCHER}: {exc}"
         log(f"ERROR paused-loops: {result['fatal']}")
         return result
@@ -343,7 +347,7 @@ def fetch_paused_review_loops(now: datetime | None = None) -> dict:
         try:
             events = _read_history_file(launcher, path)
             state = launcher.loop_state(events, now)
-        except Exception as exc:  # noqa: BLE001
+        except (Exception, SystemExit) as exc:  # noqa: BLE001
             result["errors"].append({"loop": label, "error": str(exc)})
             log(f"ERROR paused-loops: {label}: {exc}")
             continue

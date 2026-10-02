@@ -36,6 +36,23 @@ def _no_sleep_no_logfile(monkeypatch, tmp_path):
     monkeypatch.setattr(ad, "LOG_FILE", tmp_path / "logs" / "alert_digest.log")
 
 
+_REAL_FETCH_PAUSED_LOOPS = ad.fetch_paused_review_loops
+
+
+@pytest.fixture(autouse=True)
+def _no_live_review_loop_scan(monkeypatch):
+    """Keep every test off the live ~/.claude launcher and its history.
+
+    The paused-loop scan reads machine state; on a host without the launcher
+    (CI) it reports a scan failure in every subject. Tests that exercise the
+    scan reinstate the real function explicitly.
+    """
+    monkeypatch.setattr(
+        ad, "fetch_paused_review_loops",
+        lambda now=None: {"loops": [], "errors": [], "fatal": None, "history_dir": ""},
+    )
+
+
 class _FakeResp:
     """Minimal stand-in for the urlopen context manager."""
 
@@ -759,6 +776,10 @@ def _install_fake_launcher(monkeypatch, tmp_path, state):
 
 class TestPausedReviewLoops:
 
+    @pytest.fixture(autouse=True)
+    def _real_scan(self, monkeypatch):
+        monkeypatch.setattr(ad, "fetch_paused_review_loops", _REAL_FETCH_PAUSED_LOOPS)
+
     @pytest.fixture
     def fake(self, monkeypatch, tmp_path):
         state = tmp_path / "state"
@@ -834,6 +855,27 @@ class TestPausedReviewLoops:
             state.chmod(0o755)
         assert res["fatal"] and "Permission denied" in res["fatal"]
 
+    def test_launcher_exiting_on_import_is_fatal_not_a_crash(self, monkeypatch, tmp_path):
+        """The real launcher raises SystemExit(3) on a bad CODEX_REVIEW_* value."""
+        launcher = tmp_path / "launcher.py"
+        launcher.write_text("import sys\nsys.exit(3)\n")
+        monkeypatch.setattr(ad, "CODEX_LAUNCHER", launcher)
+        res = ad.fetch_paused_review_loops()
+        assert res["fatal"] and "review launcher" in res["fatal"]
+
+    def test_launcher_exiting_mid_scan_is_a_per_log_error(self, fake, monkeypatch):
+        _hist, write = fake
+        write("o__r__b", [_ev(1, "trip", reason="r")])
+        real_load = ad._load_codex_launcher
+
+        def load():
+            mod = real_load()
+            mod.loop_state = lambda events, now: (_ for _ in ()).throw(SystemExit(3))
+            return mod
+        monkeypatch.setattr(ad, "_load_codex_launcher", load)
+        res = ad.fetch_paused_review_loops()
+        assert [e["loop"] for e in res["errors"]] == ["o__r__b"]
+
     def test_missing_launcher_is_fatal_not_empty(self, monkeypatch, tmp_path):
         monkeypatch.setattr(ad, "CODEX_LAUNCHER", tmp_path / "nope.py")
         res = ad.fetch_paused_review_loops()
@@ -886,7 +928,21 @@ _REAL_LAUNCHER = ad.Path.home() / ".claude" / "scripts" / "codex_pr_review.py"
 class TestPausedReviewLoopsAgainstRealLauncher:
     """Contract check: the digest reads logs written by the real launcher."""
 
+    def test_bad_launcher_setting_does_not_stop_the_digest(self, monkeypatch, capsys):
+        monkeypatch.setattr(ad, "fetch_paused_review_loops", _REAL_FETCH_PAUSED_LOOPS)
+        monkeypatch.setattr(ad, "CODEX_LAUNCHER", _REAL_LAUNCHER)
+        monkeypatch.setenv("CODEX_REVIEW_FAIL_LIMIT", "bad")
+        monkeypatch.setattr(ad, "fetch_alerts", lambda: [])
+        monkeypatch.setattr(ad, "fetch_mini_data", lambda: None)
+        monkeypatch.setattr(ad, "fetch_tasks", lambda: [])
+        monkeypatch.setattr(ad, "fetch_scheduled_jobs", lambda: [])
+        assert ad.main(["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "review-loop scan failed" in out
+        assert "Could not check for paused review loops" in out
+
     def test_real_trip_is_reported(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ad, "fetch_paused_review_loops", _REAL_FETCH_PAUSED_LOOPS)
         monkeypatch.setenv("PR_REVIEW_STATE_DIR", str(tmp_path))
         monkeypatch.setattr(ad, "CODEX_LAUNCHER", _REAL_LAUNCHER)
         launcher = ad._load_codex_launcher()
