@@ -331,12 +331,11 @@ def fetch_paused_review_loops(now: datetime | None = None) -> dict:
         return result
     result["history_dir"] = str(history_dir)
     try:
-        paths = sorted(history_dir.glob("*.jsonl")) if history_dir.is_dir() else None
-        if paths is None:
-            # is_dir() is False for a missing OR permission-denied directory;
-            # stat() tells them apart and either way this is not "no loops".
-            history_dir.stat()
-            raise NotADirectoryError(f"{history_dir} is not a directory")
+        # os.scandir, not Path.glob/is_dir: those swallow a missing,
+        # permission-denied or unlistable directory and yield nothing, which
+        # would read as "no paused loops". scandir raises for each.
+        with os.scandir(history_dir) as entries:
+            paths = sorted(Path(e.path) for e in entries if e.name.endswith(".jsonl"))
     except OSError as exc:
         result["fatal"] = f"could not read tripwire history directory {history_dir}: {exc}"
         log(f"ERROR paused-loops: {result['fatal']}")

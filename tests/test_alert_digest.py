@@ -876,6 +876,18 @@ class TestPausedReviewLoops:
         res = ad.fetch_paused_review_loops()
         assert [e["loop"] for e in res["errors"]] == ["o__r__b"]
 
+    def test_unlistable_history_dir_is_fatal_not_empty(self, fake):
+        """The directory exists and stats fine but cannot be listed."""
+        hist, write = fake
+        write("o__r__stuck", [_ev(1, "trip", reason="r")])
+        hist.chmod(0o300)  # write+search, no read: listing fails
+        try:
+            res = ad.fetch_paused_review_loops()
+        finally:
+            hist.chmod(0o755)
+        assert res["fatal"] and "Permission denied" in res["fatal"]
+        assert "review-loop scan failed" in ad.build_subject([], res)
+
     def test_missing_launcher_is_fatal_not_empty(self, monkeypatch, tmp_path):
         monkeypatch.setattr(ad, "CODEX_LAUNCHER", tmp_path / "nope.py")
         res = ad.fetch_paused_review_loops()
