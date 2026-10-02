@@ -13,7 +13,10 @@
 # a symlinked node_modules is resolved first) and never installs packages:
 # Erik's shell blocks unaudited npm ci/install as a supply-chain risk. What npm
 # ci would reject fails here too (npm's own check decides), as do installed
-# packages that differ from the lockfile, with how to install deliberately.
+# packages whose recorded name, version, source or integrity differs from
+# what npm ci would install, or that are missing on disk, with how to install
+# deliberately. File contents inside a package are not checked (see
+# installed_matches_lock).
 set -euo pipefail
 
 if [ "${LOCAL_CHECKS_CLEAN:-}" != 1 ]; then
@@ -68,8 +71,10 @@ clone_tree() {
 }
 
 # Exit 0 when npm ci would accept package.json and package-lock.json in $2 and
-# the installed node_modules ($1) holds exactly what npm ci would install from
-# them; else say why. Both halves are npm's own logic, not a re-implementation:
+# the installed node_modules ($1) holds the packages npm ci would install from
+# them, as npm recorded them (name, version, source, integrity) and present on
+# disk; else say why. Both halves are npm's own logic, not a
+# re-implementation:
 # - Acceptance is npm ci with --dry-run, which runs its lockfile validation and
 #   returns before node_modules is removed or anything is written. --offline
 #   never fetches and --ignore-scripts never runs package code: this is the
@@ -84,6 +89,11 @@ clone_tree() {
 #   npm's record of the installed tree, and every package it records as
 #   installed must be on disk: its directory (or link) present, with a
 #   package.json of the recorded version.
+# What it does not check: the files inside an installed package. CI's fresh
+# npm ci would replace a package edited in place after installation (same
+# version, changed code); this gate would not notice. The checks then run
+# against that edited code, as they do in the live checkout. To check exactly
+# what CI did, reinstall deliberately (command npm ci) before pushing.
 installed_matches_lock() {
     local npm_root
     if ! (cd "$2" && npm ci --dry-run --offline --ignore-scripts --no-audit --no-fund >/dev/null); then
