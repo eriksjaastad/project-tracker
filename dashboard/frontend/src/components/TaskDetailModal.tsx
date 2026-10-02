@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Task, TaskStatus, TaskPriority, Project, TaskType, Attachment } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
-import { updateTask, fetchProjects, fetchAttachments, uploadAttachment, deleteAttachment, isAbortError } from '../api';
+import { updateTask, fetchTask, toggleChecklistItem, ChecklistConflictError, fetchProjects, fetchAttachments, uploadAttachment, deleteAttachment, isAbortError } from '../api';
+import { parseNotesLines } from '../utils/checklist';
 import './TaskDetailModal.css';
 
 interface TaskDetailModalProps {
@@ -9,6 +10,8 @@ interface TaskDetailModalProps {
   onClose: () => void;
   onUpdate: () => void;
   onDelete?: (taskId: string) => Promise<void>;
+  /** A checklist toggle landed: merge only these fields into the board's copy. */
+  onNotesChanged?: (taskId: string, notes: string | null, updatedAt: string) => void;
 }
 
 export function TaskDetailModal({
@@ -16,6 +19,7 @@ export function TaskDetailModal({
   onClose,
   onUpdate,
   onDelete,
+  onNotesChanged,
 }: TaskDetailModalProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState('');
@@ -31,6 +35,15 @@ export function TaskDetailModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Checklist toggles (#7821). Notes returned by the server are held here
+  // (keyed by task id) instead of being pushed back through `task`, so a
+  // toggle response never re-runs the effect that resets the edit draft.
+  const [notesOverride, setNotesOverride] = useState<{ taskId: string; notes: string | null } | null>(null);
+  const [togglePending, setTogglePending] = useState(false);
+  const [toggleMessage, setToggleMessage] = useState<string | null>(null);
+  const currentTaskIdRef = useRef<string | null>(null);
+  currentTaskIdRef.current = task ? task.id : null;
 
   // Attachments state (#5216)
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -111,6 +124,62 @@ export function TaskDetailModal({
     return null;
   }
 
+  const currentNotes = notesOverride && notesOverride.taskId === task.id
+    ? notesOverride.notes
+    : task.notes;
+
+  const applyServerNotes = (taskId: string, notes: string | null, updatedAt: string) => {
+    if (currentTaskIdRef.current === taskId) {
+      setNotesOverride({ taskId, notes });
+    }
+    onNotesChanged?.(taskId, notes, updatedAt);
+  };
+
+  const handleChecklistToggle = async (lineIndex: number, text: string, checked: boolean) => {
+    if (togglePending) return;
+    const taskId = task.id;
+    const baseNotes = currentNotes ?? null;
+    setTogglePending(true);
+    setToggleMessage(null);
+    try {
+      const updated = await toggleChecklistItem(taskId, lineIndex, text, checked, baseNotes);
+      applyServerNotes(taskId, updated.notes ?? null, updated.updated_at);
+    } catch (err) {
+      // Any failure leaves the stored notes unknown to us: a 409 means they
+      // changed elsewhere, and a 5xx or network error may come after the
+      // write committed. Either way, show what the server has now rather
+      // than the checkbox state we guessed.
+      if (currentTaskIdRef.current === taskId) {
+        setToggleMessage(
+          err instanceof ChecklistConflictError
+            ? 'That item changed elsewhere; showing the latest notes.'
+            : `${err instanceof Error ? err.message : 'Failed to toggle checklist item'}; showing the latest notes.`
+        );
+      }
+      try {
+        const fresh = await fetchTask(taskId);
+        applyServerNotes(taskId, fresh.notes ?? null, fresh.updated_at);
+      } catch (refetchErr) {
+        if (currentTaskIdRef.current === taskId) {
+          setToggleMessage(
+            `Could not reload the task (${
+              refetchErr instanceof Error ? refetchErr.message : 'unknown error'
+            }); close and reopen it before ticking again.`
+          );
+        }
+      }
+    } finally {
+      setTogglePending(false);
+    }
+  };
+
+  const startEditing = () => {
+    // The draft starts from the freshest notes (including toggles), not the
+    // possibly stale `task` prop.
+    setEditedNotes(currentNotes || '');
+    setIsEditing(true);
+  };
+
   const project = projects.find((p) => p.id === task.project_id);
   const displayId = task.display_id ?? task.id;
   const parentDisplayId = task.parent_display_id ?? task.parent_id;
@@ -149,7 +218,7 @@ export function TaskDetailModal({
   const handleCancel = () => {
     setEditedText(task.text);
     setEditedTitle(task.title || '');
-    setEditedNotes(task.notes || '');
+    setEditedNotes(currentNotes || '');
     setEditedReviewComment(task.review_comment || '');
     setEditedCommitSha(task.commit_sha || '');
     setEditedCategory(task.category || '');
@@ -400,10 +469,38 @@ export function TaskDetailModal({
                 <div className="task-detail-text">{task.text}</div>
               </div>
 
-              {task.notes && (
+              {currentNotes && (
                 <div className="task-detail-field">
                   <label className="task-detail-label">Notes</label>
-                  <div className="task-detail-text">{task.notes}</div>
+                  <div className="task-detail-text" data-testid="task-notes">
+                    {parseNotesLines(currentNotes).map((line) =>
+                      line.kind === 'checklist' ? (
+                        <label key={line.lineIndex} className="task-detail-checklist-item">
+                          {line.indent}
+                          <input
+                            type="checkbox"
+                            checked={line.checked}
+                            disabled={togglePending}
+                            onChange={(e) =>
+                              handleChecklistToggle(line.lineIndex, line.text, e.target.checked)
+                            }
+                          />{' '}
+                          <span>{line.text}</span>
+                          {'\n'}
+                        </label>
+                      ) : (
+                        <span key={line.lineIndex}>
+                          {line.raw}
+                          {'\n'}
+                        </span>
+                      )
+                    )}
+                  </div>
+                  {toggleMessage && (
+                    <div className="task-detail-checklist-message" role="status">
+                      {toggleMessage}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -658,7 +755,8 @@ export function TaskDetailModal({
               )}
               <button
                 className="task-detail-button task-detail-button-edit"
-                onClick={() => setIsEditing(true)}
+                onClick={startEditing}
+                disabled={togglePending}
               >
                 Edit Task
               </button>

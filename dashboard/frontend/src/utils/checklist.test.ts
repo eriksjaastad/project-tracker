@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ACCEPTANCE_CRITERIA_TEMPLATE, hasAcceptanceCriteria } from './checklist';
+import { ACCEPTANCE_CRITERIA_TEMPLATE, hasAcceptanceCriteria, parseNotesLines } from './checklist';
 
 describe('hasAcceptanceCriteria', () => {
   it('accepts an unchecked item', () => {
@@ -50,5 +50,26 @@ describe('hasAcceptanceCriteria', () => {
 
   it('rejects a plain bullet without a checkbox', () => {
     expect(hasAcceptanceCriteria('- Just a bullet, not a checkbox')).toBe(false);
+  });
+});
+
+describe('parseNotesLines (#7821)', () => {
+  it('returns nothing for empty notes', () => {
+    expect(parseNotesLines(null)).toEqual([]);
+    expect(parseNotesLines('')).toEqual([]);
+  });
+
+  it('indexes lines by position in split("\\n") and tags checklist items', () => {
+    const lines = parseNotesLines('intro\n- [ ] first\n  - [X] second\n## head\n-[ ]nospace');
+    expect(lines.map((l) => [l.kind, l.lineIndex])).toEqual([
+      ['text', 0], ['checklist', 1], ['checklist', 2], ['text', 3], ['text', 4],
+    ]);
+    expect(lines[1]).toMatchObject({ checked: false, text: 'first', indent: '' });
+    expect(lines[2]).toMatchObject({ checked: true, text: 'second', indent: '  ' });
+  });
+
+  it('drops a trailing CR from the item text but keeps raw intact', () => {
+    const [line] = parseNotesLines('- [ ] one\r\n');
+    expect(line).toMatchObject({ kind: 'checklist', text: 'one', raw: '- [ ] one\r' });
   });
 });
