@@ -1508,12 +1508,15 @@ monitoring:
         schedule: hourly at :23
         log: ~/.local/state/hypocrisynow/ingest-watchdog.log
         expect: >-
-          Last exit code 0 and the run count advances across an awake interval
-          longer than 3600s. Per scripts/ingest_watchdog.py, the job reports
-          ingest failures itself, to Discord; it exits nonzero when it cannot
-          alert (no DISCORD_WEBHOOK_URL, or the post failed). Exit 0 therefore
-          means "alerting works", not "ingest is healthy". WARNING lines about
-          RSS degradation are known and never alert.
+          Run count advances across an awake interval longer than 3600s. Per
+          scripts/ingest_watchdog.py: exit 0 = every ingest check passed (WARNING
+          lines about RSS degradation are known and allowed). Exit 1 = either an
+          ingest check is failing (the job alerts Discord itself, deduplicated,
+          and keeps exiting 1 until it recovers) or it cannot alert (no
+          DISCORD_WEBHOOK_URL, or the post failed). The log tells them apart:
+          "the watchdog cannot alert" or "Discord post failed" / "Discord post
+          returned HTTP" lines are alerting failures, the one nobody else will
+          hear about; other "error:" lines are ingest check failures.
       - id: com.eriksjaastad.hypocrisynow-seo
         project: hypocrisynow
         schedule: daily 12:15 (and at load)
@@ -1542,9 +1545,9 @@ monitoring:
           Last exit code 0 means the LOCAL snapshot succeeded. backup-db.sh also
           exits 0 when the offsite upload fails ("local success is sufficient"),
           so offsite success is the "All backups successful (local + offsite)"
-          line from the latest run. Progress lines are written to stderr, so the
-          log above (StandardErrorPath) is the live one; backup.log holds stdout
-          and rclone errors.
+          line from the latest run. Progress lines go to stderr (the log above,
+          StandardErrorPath) and to the script's own data/backups/backup.log;
+          data/logs/backup.log is stdout, where rclone errors land.
       - {id: com.eriksjaastad.agent-runtime-monitor,  project: agent-runtime-config, schedule: daily 09:00,  log: ~/projects/agent-runtime-config/.monitor/launchd.out.log}
       - {id: com.eriksjaastad.claude-config-pull,     project: claude-user-config,   schedule: every 21600s, log: /tmp/claude-config-pull.log}
       - {id: com.erik.journal-personal,               project: ai-journal,           schedule: daily 22:00,  log: ~/Library/Logs/journal_personal.out}
