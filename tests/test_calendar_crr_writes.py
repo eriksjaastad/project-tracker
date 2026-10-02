@@ -13,7 +13,7 @@ from __future__ import annotations
 import importlib.util
 import sqlite3
 import sys
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -78,7 +78,9 @@ def test_upcoming_reminders_filter_by_machine(tmp_path: Path) -> None:
     create_database(db_path)
     cm = CalendarManager(db_path)
     cm.ensure_tables()
-    today = date.today().isoformat()
+    # get_upcoming_reminders() compares against the UTC date; a local date is
+    # "yesterday" to it between UTC midnight and local midnight west of UTC.
+    today = datetime.now(timezone.utc).date().isoformat()
     mine = cm.add_event(title="Mine", event_date=today, machine="MacBook")
     other = cm.add_event(title="Other", event_date=today, machine="Mac Mini")
 
