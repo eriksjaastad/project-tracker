@@ -83,6 +83,16 @@ def main() -> None:
         # not an error — but record it, because an agent with no address
         # silently receives nothing.
         _drop("no_project_for_cwd", str(cwd))
+    else:
+        # Freeze this session's chat position NOW (#7933). Seeding at first
+        # poll instead would pick up a sibling session's later position and
+        # skip the DMs in between, which is #6994 again.
+        try:
+            import chat_cursor
+
+            chat_cursor.freeze(address, session_id)
+        except Exception as exc:  # noqa: BLE001 - the hook falls back to seeding at first poll
+            _drop(f"cursor_freeze_error:{type(exc).__name__}", str(exc))
 
     print(json.dumps({}))
 

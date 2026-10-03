@@ -4,10 +4,11 @@
 #
 # Polls the hosted Agent Chat API for new messages.
 # Outputs new messages to stdout so Claude Code injects them into context.
-# Stores the last-seen timestamp in ~/.claude/chat_cursor.<address> to avoid
-# re-reading. The cursor is PER ADDRESS: several floor managers share one
-# laptop, and a single shared cursor let one session's poll skip past mail
-# addressed to another.
+# Stores the last-seen timestamp in ~/.claude/chat_cursor.<address>.<session>
+# to avoid re-reading, and advances ~/.claude/chat_cursor.<address> -- the seed
+# for the address's next new session -- alongside it (#7933). Cursors are PER
+# ADDRESS: several floor managers share one laptop, and a single shared cursor
+# let one session's poll skip past mail addressed to another.
 #
 # Environment:
 #   AGENT_CHAT_URL     — API base URL (default: https://chat.synthinsightlabs.com)
@@ -34,6 +35,9 @@ LEGACY_CURSOR_FILE="$HOME/.claude/chat_cursor"
 # pending writes and checkpoints are never split, and it RAISES if both
 # open-brain/ and ai-memory/ exist. Do not rename this path (#7093).
 DROP_LOG="$HOME/.claude/open-brain/agent_chat_drops.log"
+# Locked, never-backward cursor writes. Shared with the SessionStart hook,
+# which freezes each session's seed (see agent-chat/chat_cursor.py).
+CURSOR_HELPER="$(dirname "${BASH_SOURCE[0]}")/../chat_cursor.py"
 
 # Record why a poll produced nothing. Best-effort; never fails the hook.
 drop() {
@@ -177,40 +181,52 @@ if [[ -f "$THROTTLE_FILE" ]]; then
         exit 0
     fi
 fi
-date +%s > "$THROTTLE_FILE.tmp" && mv "$THROTTLE_FILE.tmp" "$THROTTLE_FILE"
+# PID-unique temp: overlapping polls of one session (parallel Bash calls) share
+# THROTTLE_FILE, and a shared `.tmp` let one `mv` lose the file under the
+# other, failing the hook under `set -e`.
+{ date +%s > "$THROTTLE_FILE.tmp.$$" && mv "$THROTTLE_FILE.tmp.$$" "$THROTTLE_FILE"; } \
+    2>/dev/null || true
 
 # Seeding happens only after the throttle, so a skipped poll still leaves no
 # trace on disk -- the property the original ordering was protecting.
-if [[ -n "$SENDER" ]]; then
-    # Seed a new per-session cursor from this address's cursor, so a new session
-    # starts where the address left off instead of replaying the whole board.
-    if [[ -n "$SESSION_ID" && ! -f "$CURSOR_FILE" && -s "$ADDRESS_CURSOR_FILE" ]]; then
-        addr_seed=""
-        IFS= read -r addr_seed < "$ADDRESS_CURSOR_FILE" 2>/dev/null || true
-        addr_seed="$(trim_ends "$addr_seed")"
-        if looks_like_cursor "$addr_seed"; then
-            { printf '%s\n' "$addr_seed" > "$CURSOR_FILE.tmp" \
-                && mv "$CURSOR_FILE.tmp" "$CURSOR_FILE"; } 2>/dev/null || true
+#
+# Normally SessionStart has already frozen this session's seed (#7933, see
+# agent-chat/chat_cursor.py freeze). This block is the fallback for sessions
+# started without that hook, and follows the same rule:
+#   1. a valid address cursor -- where this address last polled;
+#   2. otherwise this is a NEW address: start now, less the same 60s clock-skew
+#      margin. NOT the legacy global ~/.claude/chat_cursor. It stopped moving
+#      when cursors went per-address (2026-08-30), so seeding from it replayed a
+#      month of mail into every new project's first session, and it is another
+#      address's position -- #6952 showed that can skip this address's mail.
+# The write never clobbers: a sibling poll may have just written a real one.
+if [[ -n "$SENDER" && ! -f "$CURSOR_FILE" ]]; then
+    seed=""
+    if [[ "$CURSOR_FILE" != "$ADDRESS_CURSOR_FILE" && -s "$ADDRESS_CURSOR_FILE" ]]; then
+        IFS= read -r seed < "$ADDRESS_CURSOR_FILE" 2>/dev/null || true
+        seed="$(trim_ends "$seed")"
+        if ! looks_like_cursor "$seed"; then
+            drop "invalid_address_seed" "$ADDRESS_CURSOR_FILE"
+            seed=""
         fi
     fi
-    # One-time migration off the shared cursor. Without the seed the first
-    # per-address poll would carry no `since` and replay the whole board into
-    # this session's context. Only a legacy file that is non-empty AND holds a
-    # timestamp is trusted; anything else is ignored and this address starts
-    # clean rather than migrating garbage forward.
-    if [[ ! -f "$CURSOR_FILE" && -s "$LEGACY_CURSOR_FILE" ]]; then
-        legacy_seed=""
-        IFS= read -r legacy_seed < "$LEGACY_CURSOR_FILE" 2>/dev/null || true
-        legacy_seed="$(trim_ends "$legacy_seed")"
-        if looks_like_cursor "$legacy_seed"; then
-            { printf '%s\n' "$legacy_seed" > "$CURSOR_FILE.tmp" \
-                && mv "$CURSOR_FILE.tmp" "$CURSOR_FILE"; } 2>/dev/null || true
-        fi
+    if [[ -z "$seed" ]]; then
+        start=$(( $(date +%s) - 60 ))
+        seed="$(date -u -r "$start" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+            || date -u -d "@$start" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+    fi
+    if looks_like_cursor "$seed"; then
+        { printf '%s\n' "$seed" > "$CURSOR_FILE.tmp.$$" \
+            && ln "$CURSOR_FILE.tmp.$$" "$CURSOR_FILE"; } 2>/dev/null || true
+        rm -f "$CURSOR_FILE.tmp.$$" 2>/dev/null || true
+    else
+        drop "seed_failed" "$CURSOR_FILE"
     fi
 fi
 # The no-SENDER case needs no seeding: CURSOR_FILE is already $LEGACY_CURSOR_FILE
 # (set above), and with no address there is no `?for=` filter, so the legacy
-# global cursor still describes exactly what was fetched.
+# global cursor still describes exactly what was fetched. That is now its only
+# reader; addressed sessions never consult it.
 
 # Read last cursor
 since=""
@@ -257,6 +273,42 @@ fi
 count="$(echo "$response" | jq '.messages | length')"
 [[ "$count" -gt 0 ]] || exit 0
 
+# Advance past everything the server returned, BEFORE filtering. A page made
+# only of our own echoes used to leave the cursor where it was, and with
+# limit=20, twenty of them would hide every newer message from this session.
+#
+# The address cursor moves too (#7933): it is what the address's next new
+# session starts from, and it sat a month behind because only the session file
+# was ever written. Both moves go through the helper, which compares parsed UTC
+# timestamps under a lock, so interleaved polls can never drag either back.
+#
+# Address FIRST: the helper stops at the first failure, and a session ahead of
+# its address would strand the address for good -- the session's next poll asks
+# `since=` its own cursor, so the batch that would carry the address forward
+# never comes back.
+#
+# If the helper fails (lock busy past its bound, unwritable file, no python3)
+# there is NO unlocked fallback write. Without a session id the session cursor
+# IS the address cursor, so a plain write there could move the address
+# backward -- the one thing this card forbids. A session cursor that failed to
+# update stays where it was, so the next poll re-reads the same page (a bounded
+# duplicate after an operational failure) and a successful retry advances it.
+# An address advance that succeeded before the failure stays: it was made under
+# the lock and is never backward. The mail below is still shown.
+last_ts="$(echo "$response" | jq -r '.messages[-1].ts // empty')"
+if [[ -n "$last_ts" ]]; then
+    cursor_files=()
+    if [[ -n "$ADDRESS_CURSOR_FILE" && "$ADDRESS_CURSOR_FILE" != "$CURSOR_FILE" ]]; then
+        cursor_files+=("$ADDRESS_CURSOR_FILE")
+    fi
+    cursor_files+=("$CURSOR_FILE")
+    if ! adv_err="$(python3 "$CURSOR_HELPER" advance "$last_ts" "${cursor_files[@]}" 2>&1)"; then
+        drop "cursor_advance_failed" "${adv_err//[$'\t\r\n']/ }"
+    fi
+else
+    drop "cursor_no_ts" "$CHAT_URL"
+fi
+
 # Drop only our OWN messages. The recipient clause that used to live here
 # discarded every direct message, deferring them to a "router daemon" that was
 # never written — so DMs were silently dropped from 2026-07-23 onward. The
@@ -279,10 +331,6 @@ else
 fi
 count="$(echo "$messages" | jq 'length')"
 [[ "$count" -gt 0 ]] || exit 0
-
-# Update cursor to latest timestamp
-last_ts="$(echo "$response" | jq -r '.messages[-1].ts')"
-echo "$last_ts" > "$CURSOR_FILE.tmp" && mv "$CURSOR_FILE.tmp" "$CURSOR_FILE"
 
 # Build output
 output="=== AGENT CHAT: $count new message(s) ==="
