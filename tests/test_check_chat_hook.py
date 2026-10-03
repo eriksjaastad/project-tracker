@@ -8,18 +8,55 @@ These run the real script with a stubbed `curl`, so the filter under test is
 the one that actually ships rather than a copy of it.
 """
 
+import contextlib
+import fcntl
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
+import threading
+import time
+import urllib.parse
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from dataclasses import dataclass
 
-HOOK = Path(__file__).resolve().parent.parent / "agent-chat" / "hooks" / "check_chat.sh"
+AGENT_CHAT = Path(__file__).resolve().parent.parent / "agent-chat"
+HOOK = AGENT_CHAT / "hooks" / "check_chat.sh"
+SESSION_HOOK = AGENT_CHAT / "hooks" / "session_identity.py"
+sys.path.insert(0, str(AGENT_CHAT))
+import chat_cursor  # noqa: E402
+
+# A stub server that honours the request the hook actually sends: `since`
+# (strictly later, compared as instants like the server's TIMESTAMPTZ column),
+# `for`/`for_machine` and `limit`, oldest first. Returning the whole payload
+# regardless let a session look like it received mail its URL had skipped.
+STUB_SERVER = r"""
+import json, os, sys, urllib.parse
+from datetime import datetime, timezone
+log, payload = sys.argv[1], sys.argv[2]
+args = sys.argv[3:]
+with open(log, "a") as fh:
+    fh.write("\n".join(args) + "\n")
+url = next(a for a in args if a.startswith("http"))
+q = {k: v[-1] for k, v in urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).items()}
+def instant(ts):
+    d = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+msgs = json.load(open(payload))["messages"]
+if "since" in q and not os.environ.get("STUB_IGNORE_SINCE"):
+    msgs = [m for m in msgs if instant(m["ts"]) > instant(q["since"])]
+if "for" in q:
+    mine = {q["for"]} | ({q["for"] + "@" + q["for_machine"]} if "for_machine" in q else set())
+    msgs = [m for m in msgs if m["recipient"] in (None, "") or m["recipient"] in mine]
+msgs.sort(key=lambda m: instant(m["ts"]))
+print(json.dumps({"messages": msgs[: int(q.get("limit", 50))]}))
+"""
 
 
 @dataclass
@@ -49,6 +86,8 @@ def run_hook(
     home=None,
     clear_throttle=True,
     session="sess",
+    sender_env=None,
+    stale_response=False,
 ):
     """Execute check_chat.sh against a stubbed API response.
 
@@ -81,10 +120,11 @@ def run_hook(
     bindir.mkdir()
     url_log = rundir / "curl_url.txt"
     curl = bindir / "curl"
+    server = rundir / "server.py"
+    server.write_text(STUB_SERVER)
     curl.write_text(
         f'#!/usr/bin/env bash\n'
-        f'for a in "$@"; do echo "$a" >> {url_log}; done\n'
-        f'cat {payload}\n'
+        f'exec "{sys.executable}" "{server}" "{url_log}" "{payload}" "$@"\n'
     )
     curl.chmod(0o755)
 
@@ -108,6 +148,13 @@ def run_hook(
         env["CLAUDE_CODE_SESSION_ID"] = session
     if machine is not None:
         env["AGENT_CHAT_MACHINE"] = machine
+    if stale_response:
+        # A response computed before a sibling poll moved the cursor, landing
+        # after it: the server answers an older `since` than the file now holds.
+        env["STUB_IGNORE_SINCE"] = "1"
+    if sender_env is not None:
+        # A session that predates identity binding: an address, no SESSION_ID.
+        env["AGENT_CHAT_SENDER"] = sender_env
 
     if machine_file is not None:
         state = Path(env.get("AGENT_CHAT_STATE_DIR", rundir / "identity"))
@@ -132,13 +179,26 @@ def run_hook(
     return HookRun(context=context, url=requested_url)
 
 
-def msg(mid, sender, recipient=None, body="body"):
+def ts(sec):
+    """A message time later than any start-of-session seed the hook can write.
+
+    A new address now starts at its session start (#7933), and the stub server
+    honours `since`, so mail in tests has to be newer than "now" to arrive.
+    """
+    return f"2099-08-30T00:00:{sec:02d}Z"
+
+
+def enc(value):
+    return value.replace(":", "%3A").replace("+", "%2B")
+
+
+def msg(mid, sender, recipient=None, body="body", at=None):
     return {
         "id": mid,
         "sender": sender,
         "recipient": recipient,
         "body": body,
-        "ts": f"2026-08-30T00:00:{mid:02d}Z",
+        "ts": at or ts(mid),
         "priority": "normal",
     }
 
@@ -294,9 +354,67 @@ class TestNeverBlocksClaude:
         assert out == ""
 
 
+
+
 def cursors(home):
     """Cursor files that exist under a HOME, by name."""
     return sorted(p.name for p in (Path(home) / ".claude").glob("chat_cursor*"))
+
+
+def cursor(home, name):
+    return (Path(home) / ".claude" / name).read_text().strip()
+
+
+def since_of(run):
+    """The `since` the hook actually sent, decoded, or None."""
+    url = next(line for line in run.url.splitlines() if line.startswith("http"))
+    return urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("since", [None])[-1]
+
+
+def assert_session_start(value):
+    """A start-of-session seed: now, less the 60s clock-skew margin."""
+    when = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    now = datetime.now(timezone.utc)
+    assert now - timedelta(seconds=120) <= when <= now, value
+
+
+def drops(home):
+    log = Path(home) / ".claude" / "open-brain" / "agent_chat_drops.log"
+    return log.read_text() if log.exists() else ""
+
+
+@contextlib.contextmanager
+def held_lock(home):
+    """Hold the cursor helper's lock, as a stuck sibling poll would."""
+    fd = os.open(Path(home) / ".claude" / chat_cursor.LOCK_NAME, os.O_RDWR | os.O_CREAT)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def start_session(tmp_path, home, project, session):
+    """Run the real SessionStart hook for `project` with HOME=home."""
+    projects = tmp_path / "projects"
+    (projects / project).mkdir(parents=True, exist_ok=True)
+    (projects / project / "CLAUDE.md").write_text("x")
+    env = dict(os.environ)
+    for var in ("AGENT_CHAT_AGENT", "AGENT_CHAT_SENDER", "CLAUDE_CODE_SESSION_ID"):
+        env.pop(var, None)
+    env.update(
+        HOME=str(home),
+        PROJECTS_ROOT=str(projects),
+        AGENT_CHAT_STATE_DIR=str(tmp_path / f"state-{session}"),
+        AGENT_CHAT_MACHINE="laptop",
+    )
+    (Path(home) / ".claude").mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [sys.executable, str(SESSION_HOOK)],
+        input=json.dumps({"session_id": session, "cwd": str(projects / project)}),
+        capture_output=True, text=True, env=env, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 class TestPerAddressCursor:
@@ -322,12 +440,14 @@ class TestPerAddressCursor:
             identity="beta", home=home,
         )
         # The core bug: alpha's advance must not become beta's floor.
-        assert "since=" not in beta.url
+        assert_session_start(since_of(beta))
         assert "for-beta" in beta
 
-        assert cursors(home) == ["chat_cursor.alpha.sess", "chat_cursor.beta.sess"]
-        alpha_file = home / ".claude" / "chat_cursor.alpha.sess"
-        assert alpha_file.read_text().strip() == "2026-08-30T00:00:20Z"
+        assert cursors(home) == [
+            "chat_cursor.alpha", "chat_cursor.alpha.sess",
+            "chat_cursor.beta", "chat_cursor.beta.sess",
+        ]
+        assert cursor(home, "chat_cursor.alpha.sess") == ts(20)
 
     def test_an_address_does_advance_its_own_cursor(self, tmp_path):
         home = tmp_path / "shared-home"
@@ -336,47 +456,12 @@ class TestPerAddressCursor:
             identity="alpha", home=home,
         )
         second = run_hook(
-            tmp_path, [msg(23, "ai-memory", "alpha", "second")],
+            tmp_path, [msg(22, "ai-memory", "alpha", "first"),
+                       msg(23, "ai-memory", "alpha", "second")],
             identity="alpha", home=home,
         )
-        assert "since=2026-08-30T00%3A00%3A22Z" in second.url
-
-    def test_legacy_global_cursor_seeds_the_per_address_file(self, tmp_path):
-        """Without the seed, the first per-address poll replays the whole board."""
-        home = tmp_path / "home"
-        (home / ".claude").mkdir(parents=True)
-        (home / ".claude" / "chat_cursor").write_text("2026-08-30T17:36:50\n")
-
-        run = run_hook(
-            tmp_path, [msg(24, "ai-memory", "alpha", "x")],
-            identity="alpha", home=home,
-        )
-        assert "since=2026-08-30T17%3A36%3A50" in run.url
-        assert (home / ".claude" / "chat_cursor.alpha.sess").exists()
-
-    def test_the_legacy_cursor_seeds_only_once(self, tmp_path):
-        """After the first poll the per-address file owns the position.
-
-        A re-seed on every poll would drag the address backwards (or forwards)
-        to whatever some other session last wrote globally — the original bug
-        wearing a migration's clothes.
-        """
-        home = tmp_path / "home"
-        (home / ".claude").mkdir(parents=True)
-        legacy = home / ".claude" / "chat_cursor"
-        legacy.write_text("2026-08-30T17:36:50")
-
-        run_hook(
-            tmp_path, [msg(25, "ai-memory", "alpha", "x")],
-            identity="alpha", home=home,
-        )
-        legacy.write_text("2026-09-01T00:00:00")
-        second = run_hook(
-            tmp_path, [msg(26, "ai-memory", "alpha", "y")],
-            identity="alpha", home=home,
-        )
-        assert "since=2026-08-30T00%3A00%3A25Z" in second.url
-        assert "2026-09-01" not in second.url
+        assert f"since={enc(ts(22))}" in second.url
+        assert "second" in second and "first" not in second
 
     def test_at_qualified_address_produces_a_safe_filename(self, tmp_path):
         """`project-tracker@laptop` is a normal address, not a path."""
@@ -386,7 +471,10 @@ class TestPerAddressCursor:
             identity="project-tracker@laptop", home=home,
         )
         assert "x" in run
-        assert cursors(home) == ["chat_cursor.project-tracker%40laptop.sess"]
+        assert cursors(home) == [
+            "chat_cursor.project-tracker%40laptop",
+            "chat_cursor.project-tracker%40laptop.sess",
+        ]
 
     def test_distinct_addresses_cannot_collide(self, tmp_path):
         """Folding unsafe characters to `_` re-creates this card's own bug.
@@ -406,81 +494,46 @@ class TestPerAddressCursor:
             tmp_path, [msg(33, "ai-memory", "a_b", "under")],
             identity="a_b", home=home,
         )
-        assert "since=" not in second.url
+        assert_session_start(since_of(second))
         assert "under" in second
 
-        assert cursors(home) == ["chat_cursor.a%2Fb.sess", "chat_cursor.a_b.sess"]
-        assert (home / ".claude" / "chat_cursor.a%2Fb.sess").read_text().strip() == (
-            "2026-08-30T00:00:32Z"
-        )
-
-    def test_an_empty_legacy_cursor_is_not_taken_as_a_seed(self, tmp_path):
-        """A 0-byte legacy file is not a position — a stray `touch` makes one.
-
-        Seeding from it wrote an empty cursor, and the next poll went out with
-        no `since` at all: the unbounded replay the migration exists to stop.
-        """
-        home = tmp_path / "home"
-        (home / ".claude").mkdir(parents=True)
-        (home / ".claude" / "chat_cursor").write_text("")
-
-        run = run_hook(tmp_path, [], identity="emptytest", home=home)
-        assert "since=" not in run.url
-        assert cursors(home) == ["chat_cursor"]  # nothing seeded
-
-    def test_a_legacy_cursor_with_trailing_content_is_rejected(self, tmp_path):
-        """Validating a prefix is not validating a line.
-
-        `2026-08-30T17:36:50 garbage` starts with a real timestamp. An
-        unanchored pattern passed it, and a strip that deleted interior
-        whitespace then collapsed it to `2026-08-30T17:36:50garbage` — a valid
-        string manufactured out of an invalid line, sent verbatim as `since=`
-        on the next poll. The line must be rejected, not repaired.
-        """
-        home = tmp_path / "home"
-        (home / ".claude").mkdir(parents=True)
-        (home / ".claude" / "chat_cursor").write_text("2026-08-30T17:36:50 garbage\n")
-
-        run = run_hook(
-            tmp_path, [msg(35, "ai-memory", "trailing", "x")],
-            identity="trailing", home=home,
-        )
-        assert "since=" not in run.url
-        assert "garbage" not in run.url
-        assert "2026-08-30T17%3A36%3A50" not in run.url
+        assert cursors(home) == [
+            "chat_cursor.a%2Fb", "chat_cursor.a%2Fb.sess",
+            "chat_cursor.a_b", "chat_cursor.a_b.sess",
+        ]
+        assert cursor(home, "chat_cursor.a%2Fb") == ts(32)
 
     @pytest.mark.parametrize(
-        "stored,encoded",
+        "stored",
         [
             # SQLite: strftime('%Y-%m-%dT%H:%M:%fZ') — see agent-chat/server/db.py
-            ("2026-08-30T17:36:50.123Z", "2026-08-30T17%3A36%3A50.123Z"),
+            "2026-08-30T17:36:50.123Z",
             # Postgres TIMESTAMPTZ through .isoformat()
-            ("2026-08-30T17:36:50.123456+00:00",
-             "2026-08-30T17%3A36%3A50.123456%2B00%3A00"),
-            ("2026-08-30T17:36:50Z", "2026-08-30T17%3A36%3A50Z"),
+            "2026-08-30T17:36:50.123456+00:00",
+            "2026-08-30T17:36:50Z",
         ],
     )
-    def test_the_real_timestamp_shapes_still_seed(self, tmp_path, stored, encoded):
-        """Anchoring must not reject the formats the server actually emits.
+    def test_the_real_timestamp_shapes_seed_from_the_address(self, tmp_path, stored):
+        """Validation must accept every format the server actually emits.
 
-        Too strict is not safe here: every address would start clean and the
-        migration would stop migrating anything.
+        Too strict is not safe: every session would start at "now" and drop
+        whatever reached its address since the last poll.
         """
         home = tmp_path / "home"
         (home / ".claude").mkdir(parents=True)
-        (home / ".claude" / "chat_cursor").write_text(stored + "\n")
+        (home / ".claude" / "chat_cursor.shapes").write_text(stored + "\n")
 
         run = run_hook(
             tmp_path, [msg(36, "ai-memory", "shapes", "x")],
             identity="shapes", home=home,
         )
-        assert f"since={encoded}" in run.url
+        assert f"since={enc(stored)}" in run.url
 
     def test_surrounding_whitespace_does_not_stop_a_valid_seed(self, tmp_path):
         """Trimming the ends is legitimate; only interior edits are not."""
         home = tmp_path / "home"
         (home / ".claude").mkdir(parents=True)
-        (home / ".claude" / "chat_cursor").write_text("  2026-08-30T17:36:50Z  \r\n")
+        (home / ".claude" / "chat_cursor.padded").write_text("  2026-08-30T17:36:50Z  \r\n")
 
         run = run_hook(
             tmp_path, [msg(37, "ai-memory", "padded", "x")],
@@ -488,26 +541,38 @@ class TestPerAddressCursor:
         )
         assert "since=2026-08-30T17%3A36%3A50Z" in run.url
 
-    def test_a_corrupt_legacy_cursor_is_not_taken_as_a_seed(self, tmp_path):
-        """`since=<garbage>` reaches the API and may return nothing, forever.
+    @pytest.mark.parametrize(
+        "stored",
+        [
+            "",  # a stray `touch`
+            "not-a-timestamp\n",
+            # Validating a prefix is not validating a line: an unanchored
+            # pattern passed this, and a strip of interior whitespace then
+            # manufactured `...50garbage` and sent it as `since=`.
+            "2026-08-30T17:36:50 garbage\n",
+        ],
+    )
+    def test_an_invalid_address_seed_is_not_taken(self, tmp_path, stored):
+        """A non-position is rejected, logged, and the session starts now.
 
-        Starting this address clean is the honest failure; migrating junk
-        forward turns a delivery bug into a silent one.
+        Not "no since": that replays the whole archive. Not repaired: an edited
+        line is a position this API never issued.
         """
         home = tmp_path / "home"
         (home / ".claude").mkdir(parents=True)
-        (home / ".claude" / "chat_cursor").write_text("not-a-timestamp\n")
+        (home / ".claude" / "chat_cursor.corrupt").write_text(stored)
 
         run = run_hook(
             tmp_path, [msg(34, "ai-memory", "corrupt", "x")],
             identity="corrupt", home=home,
         )
-        assert "since=" not in run.url
-        assert "not-a-timestamp" not in run.url
-        # The poll's own result still lands, so the address is not stuck.
-        assert (home / ".claude" / "chat_cursor.corrupt.sess").read_text().strip() == (
-            "2026-08-30T00:00:34Z"
-        )
+        assert_session_start(since_of(run))
+        assert "garbage" not in run.url and "not-a-timestamp" not in run.url
+        if stored:
+            assert "invalid_address_seed" in drops(home)
+        # The poll's own result lands, so neither cursor is stuck on junk.
+        assert cursor(home, "chat_cursor.corrupt.sess") == ts(34)
+        assert cursor(home, "chat_cursor.corrupt") == ts(34)
 
     def test_a_separator_in_the_address_cannot_escape_the_claude_dir(self, tmp_path):
         """Defense in depth: a mis-derived address must not write outside ~/.claude."""
@@ -517,64 +582,42 @@ class TestPerAddressCursor:
             identity="../../pwned", home=home,
         )
         written = cursors(home)
-        assert len(written) == 1
-        assert "/" not in written[0] and ".." not in written[0]
-        # Since #6994 the throttle is keyed by the same slug, so it is a second
-        # address-derived filename and gets the same guarantee. Every file
-        # anywhere named for that address must sit directly inside .claude with
-        # the separators escaped — nothing may traverse out.
+        assert len(written) == 2  # address + session
+        assert all("/" not in w and ".." not in w for w in written)
+        # Every file anywhere named for that address (cursors and throttle)
+        # must sit directly inside .claude with the separators escaped.
         escaped = sorted(tmp_path.rglob("*pwned*"))
         assert escaped, "expected the address-derived files to exist"
         for path in escaped:
             assert path.parent == home / ".claude", f"{path} escaped ~/.claude"
             assert "/" not in path.name and ".." not in path.name
 
-    def test_two_sessions_of_one_project_both_receive_the_same_dm(self, tmp_path):
-        """#6994's acceptance criterion, and the reason the cursor is per-session.
-
-        #6952 stopped DIFFERENT projects stealing each other's mail. Two sessions
-        of the SAME project still shared chat_cursor.<address>, so the first to
-        poll consumed the message and advanced the shared cursor and the rest
-        polled past it. The message was never lost on the server -- it was just
-        never emitted into the other sessions, which is worse, because nothing
-        reports it.
-        """
-        home = tmp_path / "shared-home"
-        dm = [msg(40, "ai-memory", "project-tracker", "for-both")]
-
-        first = run_hook(tmp_path, dm, identity="project-tracker",
-                         home=home, session="sess-a")
-        second = run_hook(tmp_path, dm, identity="project-tracker",
-                          home=home, session="sess-b")
-
-        assert "for-both" in first
-        assert "for-both" in second, "second session was starved by the shared cursor"
-        assert cursors(home) == [
-            "chat_cursor.project-tracker.sess-a",
-            "chat_cursor.project-tracker.sess-b",
-        ]
-
     def test_one_sessions_throttle_does_not_suppress_another(self, tmp_path):
-        """The throttle was machine-global, so one poll muted the whole box for 30s.
-
-        That did not merely waste a poll -- it widened the window in which the
-        shared cursor could be advanced by somebody else.
-        """
+        """The throttle was machine-global, so one poll muted the whole box for 30s."""
         home = tmp_path / "shared-home"
         run_hook(tmp_path, [msg(41, "ai-memory", "project-tracker", "a")],
                  identity="project-tracker", home=home, session="sess-a")
         # Do NOT clear throttles: sess-b must be unaffected by sess-a's poll.
-        out = run_hook(tmp_path, [msg(42, "ai-memory", "project-tracker", "b")],
+        out = run_hook(tmp_path, [msg(42, "ai-memory", "project-tracker", "b-body")],
                        identity="project-tracker", home=home, session="sess-b",
                        clear_throttle=False)
-        assert "b" in out, "sess-b was throttled by sess-a's poll"
+        assert "b-body" in out, "sess-b was throttled by sess-a's poll"
 
     def test_a_session_with_no_address_keeps_the_global_cursor(self, tmp_path):
-        """No address means no `for=` filter, so the global cursor still fits."""
+        """No address means no `for=` filter, so the global cursor still fits.
+
+        It is the legacy file's only remaining reader, and it still both reads
+        and advances it.
+        """
         home = tmp_path / "home"
-        run_hook(tmp_path, [msg(29, "auxesis-ops", None, "public")],
-                 identity=None, home=home)
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor").write_text(ts(28) + "\n")
+        run = run_hook(tmp_path, [msg(28, "x", None, "old"), msg(29, "auxesis-ops", None, "public")],
+                       identity=None, home=home)
+        assert since_of(run) == ts(28)
+        assert "public" in run and "old" not in run
         assert cursors(home) == ["chat_cursor"]
+        assert cursor(home, "chat_cursor") == ts(29)
 
     def test_the_throttle_still_suppresses_a_second_poll(self, tmp_path):
         """Per-address cursors must not cost the 30s throttle."""
@@ -587,3 +630,436 @@ class TestPerAddressCursor:
         )
         assert second == ""
         assert second.url == ""
+
+
+AUGUST = [
+    msg(1, "ai-memory", "project-tracker", "august-dm", at="2026-08-30T17:40:00Z"),
+    msg(2, "auxesis-ops", None, "august-broadcast", at="2026-09-15T00:00:00Z"),
+]
+
+
+class TestLegacyCursorIsRetired:
+    """Erik, #7933: a NEW address must not seed from ~/.claude/chat_cursor.
+
+    That file stopped moving when cursors went per-address and sits at
+    2026-08-30, so a project's first session replayed a month of mail. It is
+    also another address's position, which #6952 showed can skip mail. A new
+    address starts at its session start instead.
+    """
+
+    def _legacy(self, home):
+        (home / ".claude").mkdir(parents=True, exist_ok=True)
+        legacy = home / ".claude" / "chat_cursor"
+        legacy.write_text("2026-08-30T17:36:50\n")
+        return legacy
+
+    def test_session_start_does_not_replay_august(self, tmp_path):
+        home = tmp_path / "home"
+        legacy = self._legacy(home)
+        start_session(tmp_path, home, "project-tracker", "s1")
+        assert_session_start(cursor(home, "chat_cursor.project-tracker.s1"))
+
+        first = run_hook(tmp_path, AUGUST, identity="project-tracker",
+                         home=home, session="s1")
+        assert "august" not in first.context
+        assert_session_start(since_of(first))
+
+        new = run_hook(tmp_path, [*AUGUST, msg(50, "ai-memory", "project-tracker", "fresh-dm")],
+                       identity="project-tracker", home=home, session="s1")
+        assert "fresh-dm" in new and "august" not in new.context
+        assert cursor(home, "chat_cursor.project-tracker") == ts(50)
+        assert legacy.read_text() == "2026-08-30T17:36:50\n"  # untouched
+
+    def test_first_poll_without_session_start_does_not_replay_august(self, tmp_path):
+        """Sessions with no SessionStart hook take the same rule at first poll."""
+        home = tmp_path / "home"
+        self._legacy(home)
+        run = run_hook(tmp_path, AUGUST, identity="project-tracker", home=home)
+        assert "august" not in run.context
+        assert_session_start(since_of(run))
+        assert "2026-08-30" not in run.url
+
+    def test_a_session_without_session_id_starts_now_too(self, tmp_path):
+        """Pre-identity sessions use the address cursor directly; same rule."""
+        home = tmp_path / "home"
+        self._legacy(home)
+        first = run_hook(tmp_path, AUGUST, sender_env="project-tracker", home=home)
+        assert "august" not in first.context
+        assert_session_start(since_of(first))
+        second = run_hook(tmp_path, [*AUGUST, msg(51, "a", "project-tracker", "new-one")],
+                          sender_env="project-tracker", home=home)
+        assert "new-one" in second
+        assert cursors(home) == ["chat_cursor", "chat_cursor.project-tracker"]
+        assert cursor(home, "chat_cursor.project-tracker") == ts(51)
+
+    def test_an_existing_address_position_is_kept(self, tmp_path):
+        """Only NEW addresses start now; a real address cursor is still the seed."""
+        home = tmp_path / "home"
+        self._legacy(home)
+        (home / ".claude" / "chat_cursor.project-tracker").write_text("2026-09-14T00:00:00Z\n")
+        start_session(tmp_path, home, "project-tracker", "s1")
+        assert cursor(home, "chat_cursor.project-tracker.s1") == "2026-09-14T00:00:00Z"
+
+        run = run_hook(tmp_path, AUGUST, identity="project-tracker", home=home, session="s1")
+        assert "since=2026-09-14T00%3A00%3A00Z" in run.url
+        assert "august-broadcast" in run and "august-dm" not in run.context
+
+
+class TestAddressCursorAdvances:
+    """#7933: polls advance chat_cursor.<address>, the seed for new sessions.
+
+    Only the session file used to be written, so the architect's address cursor
+    sat at 2026-08-30 while its sessions read into October and each new session
+    replayed a month of mail.
+    """
+
+    def test_a_new_session_starts_at_the_last_poll_position(self, tmp_path):
+        home = tmp_path / "home"
+        run_hook(tmp_path, [msg(10, "a", "alpha", "already-read")], identity="alpha",
+                 home=home, session="old")
+        assert cursor(home, "chat_cursor.alpha") == ts(10)
+
+        start_session(tmp_path, home, "alpha", "new")
+        run = run_hook(tmp_path, [msg(10, "a", "alpha", "already-read"),
+                                  msg(11, "a", "alpha", "unread")],
+                       identity="alpha", home=home, session="new")
+        assert f"since={enc(ts(10))}" in run.url
+        assert "unread" in run and "already-read" not in run
+
+    def test_the_address_cursor_never_moves_backward(self, tmp_path):
+        """A session behind its sibling must not drag the shared seed back."""
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor.alpha").write_text(ts(59) + "\n")
+        (home / ".claude" / "chat_cursor.alpha.slow").write_text(ts(10) + "\n")
+        run = run_hook(tmp_path, [msg(20, "a", "alpha", "late")], identity="alpha",
+                       home=home, session="slow")
+        assert "late" in run
+        assert cursor(home, "chat_cursor.alpha.slow") == ts(20)
+        assert cursor(home, "chat_cursor.alpha") == ts(59)
+
+    def test_our_own_echoes_still_advance_both_cursors(self, tmp_path):
+        """A page of only our own messages must not pin the cursor.
+
+        With limit=20, twenty echoes would otherwise hide all newer mail.
+        """
+        home = tmp_path / "home"
+        run = run_hook(tmp_path, [msg(59, "alpha", None, "mine")], identity="alpha", home=home)
+        assert run == ""
+        assert cursor(home, "chat_cursor.alpha.sess") == ts(59)
+        assert cursor(home, "chat_cursor.alpha") == ts(59)
+
+    def test_concurrent_sessions_of_one_project_both_receive_the_dm(self, tmp_path):
+        """#6994 with the address cursor now advancing.
+
+        Both sessions are open before either polls. A polls, takes the DM and
+        advances the address cursor. B has not polled yet; if B seeded at its
+        first poll it would start past the DM. Its seed was frozen at
+        SessionStart, so it still gets it.
+        """
+        home = tmp_path / "shared-home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor.project-tracker").write_text(ts(1) + "\n")
+        start_session(tmp_path, home, "project-tracker", "sess-a")
+        start_session(tmp_path, home, "project-tracker", "sess-b")
+
+        dm = [msg(40, "ai-memory", "project-tracker", "for-both")]
+        first = run_hook(tmp_path, dm, identity="project-tracker", home=home, session="sess-a")
+        assert cursor(home, "chat_cursor.project-tracker") == ts(40)
+        second = run_hook(tmp_path, dm, identity="project-tracker", home=home, session="sess-b")
+
+        assert "for-both" in first
+        assert "for-both" in second, "sess-b skipped the DM its sibling consumed"
+        assert f"since={enc(ts(1))}" in second.url
+
+    def test_session_start_never_rewrites_an_existing_session_cursor(self, tmp_path):
+        """SessionStart fires again on resume/compact; the position must survive."""
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor.alpha").write_text(ts(30) + "\n")
+        (home / ".claude" / "chat_cursor.alpha.s1").write_text(ts(5) + "\n")
+        start_session(tmp_path, home, "alpha", "s1")
+        assert cursor(home, "chat_cursor.alpha.s1") == ts(5)
+
+    def test_the_python_and_bash_slugs_name_the_same_file(self, tmp_path):
+        """SessionStart writes the file the hook later reads, or freezing is moot."""
+        home = tmp_path / "home"
+        claude = home / ".claude"
+        claude.mkdir(parents=True)
+        address = "a/b@x+%é"
+        (claude / f"chat_cursor.{chat_cursor.slug(address)}").write_text(ts(5) + "\n")
+        assert chat_cursor.freeze(address, "s1", claude) == ts(5)
+        # If the hook missed the frozen file it would seed from this instead.
+        (claude / f"chat_cursor.{chat_cursor.slug(address)}").write_text(ts(9) + "\n")
+        run = run_hook(tmp_path, [], identity=address, home=home, session="s1")
+        assert since_of(run) == ts(5)
+
+    def test_a_held_lock_cannot_block_the_hook_or_move_any_cursor(self, tmp_path):
+        """Bounded wait, logged, mail still shown -- and NO unlocked write.
+
+        The position stays put for a retry; the duplicate on the next poll is
+        the price, and the retry then advances both cursors.
+        """
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        for name in ("chat_cursor.alpha", "chat_cursor.alpha.sess"):
+            (home / ".claude" / name).write_text(ts(1) + "\n")
+        batch = [msg(7, "a", "alpha", "through")]
+        with held_lock(home):
+            began = time.monotonic()
+            run = run_hook(tmp_path, batch, identity="alpha", home=home)
+            assert time.monotonic() - began < 15
+        assert "through" in run
+        assert "cursor_advance_failed" in drops(home)
+        assert cursor(home, "chat_cursor.alpha.sess") == ts(1)
+        assert cursor(home, "chat_cursor.alpha") == ts(1)
+
+        retry = run_hook(tmp_path, batch, identity="alpha", home=home)
+        assert "through" in retry
+        assert cursor(home, "chat_cursor.alpha.sess") == ts(7)
+        assert cursor(home, "chat_cursor.alpha") == ts(7)
+
+    @pytest.mark.parametrize("locked", [True, False])
+    def test_without_a_session_id_a_late_poll_cannot_drag_the_address_back(
+        self, tmp_path, locked
+    ):
+        """No session id: the session cursor IS the address cursor.
+
+        A poll whose response predates a sibling's advance must neither write
+        its older position under the lock nor around it when the lock is busy.
+        """
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor.alpha").write_text(ts(59) + "\n")
+        batch = [msg(20, "a", "alpha", "inflight")]
+        with held_lock(home) if locked else contextlib.nullcontext():
+            run = run_hook(tmp_path, batch, sender_env="alpha", home=home,
+                           stale_response=True)
+        assert "inflight" in run
+        assert cursor(home, "chat_cursor.alpha") == ts(59)
+
+    def test_an_address_write_failure_leaves_the_session_behind_it(self, tmp_path):
+        """Address first: a failed address write must not strand the address.
+
+        Had the session moved anyway, its next poll would ask past this batch
+        and nothing would ever carry the address up to it.
+        """
+        home = tmp_path / "home"
+        claude = home / ".claude"
+        claude.mkdir(parents=True)
+        (claude / "chat_cursor.alpha").mkdir()  # unreadable as a cursor
+        (claude / "chat_cursor.alpha.sess").write_text(ts(1) + "\n")
+        batch = [msg(8, "a", "alpha", "kept")]
+
+        run = run_hook(tmp_path, batch, identity="alpha", home=home)
+        assert "kept" in run
+        assert "cursor_advance_failed" in drops(home)
+        assert cursor(home, "chat_cursor.alpha.sess") == ts(1)
+
+        (claude / "chat_cursor.alpha").rename(tmp_path / "set-aside")
+        retry = run_hook(tmp_path, batch, identity="alpha", home=home)
+        assert "kept" in retry
+        assert cursor(home, "chat_cursor.alpha") == ts(8)
+        assert cursor(home, "chat_cursor.alpha.sess") == ts(8)
+
+
+@contextlib.contextmanager
+def advance_paused_after_read(monkeypatch, ts_value, paths):
+    """Run advance() in a thread and freeze it INSIDE the lock, after its read.
+
+    That is the exact window the race needs: advance has seen the address as
+    absent (or older) and is about to write. Anything that writes a cursor in
+    this window without the lock is the bug. Deterministic: nothing here
+    depends on scheduling, only on events.
+    """
+    read_done, release = threading.Event(), threading.Event()
+    real_read = chat_cursor.read_cursor
+
+    def read(path):
+        value = real_read(path)
+        if threading.current_thread().name == "paused-advance":
+            read_done.set()
+            assert release.wait(30)
+        return value
+
+    monkeypatch.setattr(chat_cursor, "read_cursor", read)
+    errors = []
+
+    def run():
+        try:
+            chat_cursor.advance(ts_value, paths)
+        except Exception as exc:  # noqa: BLE001 - surfaced by the assert below
+            errors.append(exc)
+
+    thread = threading.Thread(target=run, name="paused-advance")
+    thread.start()
+    assert read_done.wait(10)
+    try:
+        yield
+    finally:
+        release.set()
+        thread.join(10)
+    assert not errors and not thread.is_alive()
+
+
+OLD_BATCH = "2026-09-01T00:00:00Z"  # older than any start-of-session seed
+
+
+class TestSeedingSharesTheLock:
+    """Codex P2 on #7933: initialization must take the advance lock too.
+
+    A no-session poll's cursor IS the address cursor. It used to seed "now"
+    with an unlocked write, which could land after an advance had read the
+    address as absent; the advance then wrote its older batch over it and the
+    address moved backward.
+    """
+
+    def test_a_racing_hook_seed_cannot_land_inside_an_advance(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        claude = home / ".claude"
+        claude.mkdir(parents=True)
+        address = claude / "chat_cursor.alpha"
+        with advance_paused_after_read(monkeypatch, OLD_BATCH, [address]):
+            run = run_hook(tmp_path, [msg(5, "a", "alpha", "x")], sender_env="alpha", home=home)
+            # The seed waited its bounded time and gave up: no unlocked write,
+            # and no poll with an absent `since` (the whole archive).
+            assert not address.exists(), "seed landed inside the advance's critical section"
+            assert run.url == "" and run == ""
+            assert "cursor_seed_failed" in drops(home)
+        assert cursor(home, "chat_cursor.alpha") == OLD_BATCH
+
+        retry = run_hook(tmp_path, [msg(5, "a", "alpha", "x")], sender_env="alpha", home=home)
+        assert since_of(retry) == OLD_BATCH and "x" in retry
+
+    def test_a_waiting_seed_keeps_the_advanced_position(self, tmp_path, monkeypatch):
+        address = tmp_path / "chat_cursor.alpha"
+        result = []
+        with advance_paused_after_read(monkeypatch, OLD_BATCH, [address]):
+            seeder = threading.Thread(target=lambda: result.append(
+                chat_cursor.seed(address, wait=30)))
+            seeder.start()
+            seeder.join(0.3)
+            assert seeder.is_alive(), "seed did not wait for the lock"
+            assert not address.exists()
+        seeder.join(30)
+        assert result == [None]  # a valid position was there by then: untouched
+        assert address.read_text().strip() == OLD_BATCH
+
+    def test_session_start_freeze_waits_and_seeds_from_the_advance(self, tmp_path, monkeypatch):
+        claude = tmp_path
+        address = claude / "chat_cursor.alpha"
+        result = []
+        with advance_paused_after_read(monkeypatch, OLD_BATCH, [address]):
+            freezer = threading.Thread(target=lambda: result.append(
+                chat_cursor.freeze("alpha", "s1", claude)))
+            freezer.start()
+            freezer.join(0.3)
+            assert freezer.is_alive(), "freeze did not wait for the lock"
+            assert not (claude / "chat_cursor.alpha.s1").exists()
+        freezer.join(30)
+        assert result == [OLD_BATCH]
+        assert (claude / "chat_cursor.alpha.s1").read_text().strip() == OLD_BATCH
+
+    def test_an_uninitialized_session_under_a_held_lock_skips_the_poll(self, tmp_path):
+        """Bounded, logged, and no archive request; the next poll seeds normally."""
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        with held_lock(home):
+            run = run_hook(tmp_path, AUGUST, identity="alpha", home=home)
+        assert run.url == "" and "cursor_seed_failed" in drops(home)
+        assert cursors(home) == []
+
+        retry = run_hook(tmp_path, AUGUST, identity="alpha", home=home)
+        assert_session_start(since_of(retry))
+        assert "august" not in retry.context
+
+    def test_an_empty_session_cursor_is_seeded_not_sent_empty(self, tmp_path):
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor.alpha").write_text(ts(3) + "\n")
+        (home / ".claude" / "chat_cursor.alpha.sess").write_text("")
+        run = run_hook(tmp_path, [msg(4, "a", "alpha", "y")], identity="alpha", home=home)
+        assert since_of(run) == ts(3) and "y" in run
+
+
+class TestCursorHelper:
+    """agent-chat/chat_cursor.py: ordering and concurrency of advance()."""
+
+    @pytest.mark.parametrize(
+        "current,new,expected",
+        [
+            # Lexically `59Z` sorts after `59.5+00:00`; as instants it is earlier.
+            ("2099-08-30T00:00:59.5+00:00", "2099-08-30T00:00:59Z", "2099-08-30T00:00:59.5+00:00"),
+            # Lexically `T01` sorts after `T00`; +02:00 makes it 23:00 the day before.
+            ("2099-08-30T01:00:00+02:00", "2099-08-30T00:00:10Z", "2099-08-30T00:00:10Z"),
+            # Naive legacy values are UTC, as both servers store.
+            ("2099-08-30T00:00:10", "2099-08-30T00:00:10.000001Z", "2099-08-30T00:00:10.000001Z"),
+            # Beyond microseconds is still compared, not rounded into a tie.
+            ("2099-08-30T00:00:10.1234567Z", "2099-08-30T00:00:10.1234568Z",
+             "2099-08-30T00:00:10.1234568Z"),
+            ("garbage", "2099-08-30T00:00:10Z", "2099-08-30T00:00:10Z"),
+        ],
+    )
+    def test_ordering_is_by_instant(self, tmp_path, current, new, expected):
+        path = tmp_path / "chat_cursor.x"
+        path.write_text(current + "\n")
+        chat_cursor.advance(new, [path])
+        assert path.read_text().strip() == expected
+
+    def test_an_invalid_new_timestamp_is_refused(self, tmp_path):
+        path = tmp_path / "chat_cursor.x"
+        path.write_text(ts(1) + "\n")
+        with pytest.raises(ValueError):
+            chat_cursor.advance("tomorrow", [path])
+        assert path.read_text().strip() == ts(1)
+
+    def test_concurrent_advances_end_at_the_maximum(self, tmp_path):
+        path = tmp_path / "chat_cursor.x"
+        stamps = [ts(s) for s in (7, 42, 3, 58, 19, 33, 11, 50, 2, 26, 45, 9)]
+        procs = [
+            subprocess.Popen([sys.executable, str(AGENT_CHAT / "chat_cursor.py"),
+                              "advance", stamp, str(path)])
+            for stamp in stamps
+        ]
+        assert all(p.wait(timeout=30) == 0 for p in procs)
+        assert path.read_text().strip() == ts(58)
+        assert not [p for p in tmp_path.iterdir() if ".tmp" in p.name]
+
+    def test_names_at_the_slug_bound_stay_within_name_max(self, tmp_path):
+        """64 encoded bytes (192-char slug) + a UUID session is a 241-byte name.
+
+        Legal, but only if temp files do not append to it: a `<name>.tmp.<pid>
+        .<ns>` temp crossed NAME_MAX and failed freeze and advance outright.
+        """
+        home = tmp_path / "home"
+        claude = home / ".claude"
+        claude.mkdir(parents=True)
+        address = "@" * 64
+        session = "0f0e7c0e-5a4b-4c3d-9e2f-1a2b3c4d5e6f"
+        address_file = claude / f"chat_cursor.{chat_cursor.slug(address)}"
+        session_file = claude / f"chat_cursor.{chat_cursor.slug(address)}.{session}"
+        assert len(session_file.name) == 241
+
+        assert_session_start(chat_cursor.freeze(address, session, claude))
+        chat_cursor.advance(ts(5), [address_file, session_file])
+        assert cursor(home, address_file.name) == ts(5)
+        assert cursor(home, session_file.name) == ts(5)
+
+        run = run_hook(tmp_path, [msg(6, "a", None, "bounded")], identity=address,
+                       home=home, session=session)
+        assert since_of(run) == ts(5) and "bounded" in run
+        assert cursor(home, session_file.name) == ts(6)
+        assert cursor(home, address_file.name) == ts(6)
+        assert "cursor_advance_failed" not in drops(home)
+        assert not [p for p in claude.iterdir() if ".tmp" in p.name]
+
+    def test_lock_wait_is_bounded(self, tmp_path):
+        fd = os.open(tmp_path / chat_cursor.LOCK_NAME, os.O_RDWR | os.O_CREAT)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            began = time.monotonic()
+            with pytest.raises(TimeoutError):
+                chat_cursor.advance(ts(1), [tmp_path / "chat_cursor.x"], wait=0.2)
+            assert time.monotonic() - began < 2
+        finally:
+            os.close(fd)
