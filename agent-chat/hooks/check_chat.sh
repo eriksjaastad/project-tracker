@@ -105,39 +105,6 @@ cursor_slug() {
     printf '%s' "$out"
 }
 
-# A seed is only worth taking if it is actually a position. An empty legacy
-# file (a stray `touch`, a create that never got populated) would seed an
-# empty cursor and the next poll would go out with no `since` at all — the
-# unbounded replay the migration exists to prevent. A corrupt one is worse:
-# `since=<garbage>` reaches the API, which may reject it or return nothing,
-# turning a delivery bug into a silent one. Neither is trusted.
-#
-# The pattern is anchored at BOTH ends. Matching only a prefix let
-# `2026-08-30T17:36:50 garbage` through — and paired with a strip that deleted
-# interior whitespace it did worse than pass: it MANUFACTURED
-# `2026-08-30T17:36:50garbage` out of a line that was never valid, then sent
-# it as `since=`. Validate the whole line; never edit a line into validity.
-#
-# The shapes accepted are the two the server actually emits: SQLite's
-# `strftime('%Y-%m-%dT%H:%M:%fZ')` (fractional seconds, `Z`) and Postgres
-# TIMESTAMPTZ through `.isoformat()` (microseconds, `+00:00`) — see
-# agent-chat/server/db.py. Anything else is not a position this API issued.
-looks_like_cursor() {
-    local LC_ALL=C
-    local re='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$'
-    [[ "$1" =~ $re ]]
-}
-
-# Trim the ends only. Removing whitespace from the middle of a line can turn
-# an invalid seed into a valid-looking one, which is how the prefix bug above
-# got its teeth.
-trim_ends() {
-    local LC_ALL=C s="$1"
-    s="${s#"${s%%[![:space:]]*}"}"
-    s="${s%"${s##*[![:space:]]}"}"
-    printf '%s' "$s"
-}
-
 # No API key = skip
 [[ -n "$API_KEY" ]] || exit 0
 
@@ -191,37 +158,30 @@ fi
 # trace on disk -- the property the original ordering was protecting.
 #
 # Normally SessionStart has already frozen this session's seed (#7933, see
-# agent-chat/chat_cursor.py freeze). This block is the fallback for sessions
-# started without that hook, and follows the same rule:
+# agent-chat/chat_cursor.py seed/freeze). This is the fallback for sessions
+# started without that hook, and for pre-identity sessions with no session id,
+# whose cursor IS the address cursor. Same rule, same code:
 #   1. a valid address cursor -- where this address last polled;
-#   2. otherwise this is a NEW address: start now, less the same 60s clock-skew
+#   2. otherwise this is a NEW address: start now, less a 60s clock-skew
 #      margin. NOT the legacy global ~/.claude/chat_cursor. It stopped moving
 #      when cursors went per-address (2026-08-30), so seeding from it replayed a
 #      month of mail into every new project's first session, and it is another
 #      address's position -- #6952 showed that can skip this address's mail.
-# The write never clobbers: a sibling poll may have just written a real one.
-if [[ -n "$SENDER" && ! -f "$CURSOR_FILE" ]]; then
-    seed=""
-    if [[ "$CURSOR_FILE" != "$ADDRESS_CURSOR_FILE" && -s "$ADDRESS_CURSOR_FILE" ]]; then
-        IFS= read -r seed < "$ADDRESS_CURSOR_FILE" 2>/dev/null || true
-        seed="$(trim_ends "$seed")"
-        if ! looks_like_cursor "$seed"; then
-            drop "invalid_address_seed" "$ADDRESS_CURSOR_FILE"
-            seed=""
-        fi
+# The seed is written under the helper's lock, like every advance: a seed
+# written outside it could land between an advance's read and write and be
+# replaced by an older batch, moving the address backward. If the seed cannot
+# be written safely, log and skip this poll -- polling with no `since` would
+# request the whole archive.
+if [[ -n "$SENDER" && ! -s "$CURSOR_FILE" ]]; then
+    seed_args=("$CURSOR_FILE")
+    if [[ "$ADDRESS_CURSOR_FILE" != "$CURSOR_FILE" ]]; then
+        seed_args+=("$ADDRESS_CURSOR_FILE")
     fi
-    if [[ -z "$seed" ]]; then
-        start=$(( $(date +%s) - 60 ))
-        seed="$(date -u -r "$start" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-            || date -u -d "@$start" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+    if ! seed_out="$(python3 "$CURSOR_HELPER" seed "${seed_args[@]}" 2>&1)"; then
+        drop "cursor_seed_failed" "${seed_out//[$'\t\r\n']/ }"
+        exit 0
     fi
-    if looks_like_cursor "$seed"; then
-        { printf '%s\n' "$seed" > "$CURSOR_FILE.tmp.$$" \
-            && ln "$CURSOR_FILE.tmp.$$" "$CURSOR_FILE"; } 2>/dev/null || true
-        rm -f "$CURSOR_FILE.tmp.$$" 2>/dev/null || true
-    else
-        drop "seed_failed" "$CURSOR_FILE"
-    fi
+    [[ -z "$seed_out" ]] || drop "cursor_seed" "${seed_out//[$'\t\r\n']/ }"
 fi
 # The no-SENDER case needs no seeding: CURSOR_FILE is already $LEGACY_CURSOR_FILE
 # (set above), and with no address there is no `?for=` filter, so the legacy

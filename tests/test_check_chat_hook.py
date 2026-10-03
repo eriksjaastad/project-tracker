@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 from datetime import datetime, timedelta, timezone
@@ -860,6 +861,125 @@ class TestAddressCursorAdvances:
         assert "kept" in retry
         assert cursor(home, "chat_cursor.alpha") == ts(8)
         assert cursor(home, "chat_cursor.alpha.sess") == ts(8)
+
+
+@contextlib.contextmanager
+def advance_paused_after_read(monkeypatch, ts_value, paths):
+    """Run advance() in a thread and freeze it INSIDE the lock, after its read.
+
+    That is the exact window the race needs: advance has seen the address as
+    absent (or older) and is about to write. Anything that writes a cursor in
+    this window without the lock is the bug. Deterministic: nothing here
+    depends on scheduling, only on events.
+    """
+    read_done, release = threading.Event(), threading.Event()
+    real_read = chat_cursor.read_cursor
+
+    def read(path):
+        value = real_read(path)
+        if threading.current_thread().name == "paused-advance":
+            read_done.set()
+            assert release.wait(30)
+        return value
+
+    monkeypatch.setattr(chat_cursor, "read_cursor", read)
+    errors = []
+
+    def run():
+        try:
+            chat_cursor.advance(ts_value, paths)
+        except Exception as exc:  # noqa: BLE001 - surfaced by the assert below
+            errors.append(exc)
+
+    thread = threading.Thread(target=run, name="paused-advance")
+    thread.start()
+    assert read_done.wait(10)
+    try:
+        yield
+    finally:
+        release.set()
+        thread.join(10)
+    assert not errors and not thread.is_alive()
+
+
+OLD_BATCH = "2026-09-01T00:00:00Z"  # older than any start-of-session seed
+
+
+class TestSeedingSharesTheLock:
+    """Codex P2 on #7933: initialization must take the advance lock too.
+
+    A no-session poll's cursor IS the address cursor. It used to seed "now"
+    with an unlocked write, which could land after an advance had read the
+    address as absent; the advance then wrote its older batch over it and the
+    address moved backward.
+    """
+
+    def test_a_racing_hook_seed_cannot_land_inside_an_advance(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        claude = home / ".claude"
+        claude.mkdir(parents=True)
+        address = claude / "chat_cursor.alpha"
+        with advance_paused_after_read(monkeypatch, OLD_BATCH, [address]):
+            run = run_hook(tmp_path, [msg(5, "a", "alpha", "x")], sender_env="alpha", home=home)
+            # The seed waited its bounded time and gave up: no unlocked write,
+            # and no poll with an absent `since` (the whole archive).
+            assert not address.exists(), "seed landed inside the advance's critical section"
+            assert run.url == "" and run == ""
+            assert "cursor_seed_failed" in drops(home)
+        assert cursor(home, "chat_cursor.alpha") == OLD_BATCH
+
+        retry = run_hook(tmp_path, [msg(5, "a", "alpha", "x")], sender_env="alpha", home=home)
+        assert since_of(retry) == OLD_BATCH and "x" in retry
+
+    def test_a_waiting_seed_keeps_the_advanced_position(self, tmp_path, monkeypatch):
+        address = tmp_path / "chat_cursor.alpha"
+        result = []
+        with advance_paused_after_read(monkeypatch, OLD_BATCH, [address]):
+            seeder = threading.Thread(target=lambda: result.append(
+                chat_cursor.seed(address, wait=30)))
+            seeder.start()
+            seeder.join(0.3)
+            assert seeder.is_alive(), "seed did not wait for the lock"
+            assert not address.exists()
+        seeder.join(30)
+        assert result == [None]  # a valid position was there by then: untouched
+        assert address.read_text().strip() == OLD_BATCH
+
+    def test_session_start_freeze_waits_and_seeds_from_the_advance(self, tmp_path, monkeypatch):
+        claude = tmp_path
+        address = claude / "chat_cursor.alpha"
+        result = []
+        with advance_paused_after_read(monkeypatch, OLD_BATCH, [address]):
+            freezer = threading.Thread(target=lambda: result.append(
+                chat_cursor.freeze("alpha", "s1", claude)))
+            freezer.start()
+            freezer.join(0.3)
+            assert freezer.is_alive(), "freeze did not wait for the lock"
+            assert not (claude / "chat_cursor.alpha.s1").exists()
+        freezer.join(30)
+        assert result == [OLD_BATCH]
+        assert (claude / "chat_cursor.alpha.s1").read_text().strip() == OLD_BATCH
+
+    def test_an_uninitialized_session_under_a_held_lock_skips_the_poll(self, tmp_path):
+        """Bounded, logged, and no archive request; the next poll seeds normally."""
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        with held_lock(home):
+            run = run_hook(tmp_path, AUGUST, identity="alpha", home=home)
+        assert run.url == "" and "cursor_seed_failed" in drops(home)
+        assert cursors(home) == []
+
+        retry = run_hook(tmp_path, AUGUST, identity="alpha", home=home)
+        assert_session_start(since_of(retry))
+        assert "august" not in retry.context
+
+    def test_an_empty_session_cursor_is_seeded_not_sent_empty(self, tmp_path):
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "chat_cursor.alpha").write_text(ts(3) + "\n")
+        (home / ".claude" / "chat_cursor.alpha.sess").write_text("")
+        run = run_hook(tmp_path, [msg(4, "a", "alpha", "y")], identity="alpha", home=home)
+        assert since_of(run) == ts(3) and "y" in run
 
 
 class TestCursorHelper:

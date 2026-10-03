@@ -13,6 +13,9 @@ poll now advances both, never backward. Two polls of one address can run at
 once (parallel Bash calls, sibling sessions), so a plain rename is not enough:
 the read-compare-write happens under a kernel lock, which -- unlike a mkdir
 lock -- is released when its holder dies, so a killed poll cannot wedge it.
+EVERY cursor write goes through that lock -- seeds included (seed(), freeze(),
+and the hook's `seed` call); an unlocked seed can land between an advance's
+read and its write and be replaced by an older batch.
 
 Advancing the address cursor alone would break #6994: a session that started
 before a sibling's poll, but has not yet polled itself, would seed from the
@@ -29,6 +32,7 @@ could never have seen. The legacy file still serves sessions with no address.
 
 CLI (never prompts, bounded wait, nonzero exit on failure so the hook can log):
   chat_cursor.py advance <ts> <file>...
+  chat_cursor.py seed <target> [<source>]
 """
 
 from __future__ import annotations
@@ -55,9 +59,12 @@ SEED_MARGIN_SECONDS = 60
 
 # Same shapes check_chat.sh's looks_like_cursor accepts: SQLite
 # strftime('%Y-%m-%dT%H:%M:%fZ') and Postgres TIMESTAMPTZ .isoformat().
+# Anchored at both ends and matched whole (fullmatch, ASCII digits only): a
+# valid prefix such as `2026-08-30T17:36:50 garbage` is not a position, and a
+# line is never edited into validity -- only its ends are trimmed.
 _TS = re.compile(
-    r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?"
-    r"(Z|[+-]\d{2}(?::?\d{2})?)?$"
+    r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?"
+    r"(Z|[+-][0-9]{2}(?::?[0-9]{2})?)?"
 )
 _SAFE_SESSION = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -87,7 +94,7 @@ def parse_ts(value: str) -> tuple[datetime, str] | None:
     digit string rather than rounded to microseconds, so two distinct
     positions never compare equal and let a cursor slide.
     """
-    m = _TS.match(value.strip())
+    m = _TS.fullmatch(value.strip())
     if not m:
         return None
     y, mo, d, h, mi, s, frac, tz = m.groups()
@@ -119,27 +126,20 @@ def read_cursor(path: Path) -> str | None:
     return line if parse_ts(line) else None
 
 
-def _write(path: Path, value: str, *, clobber: bool) -> bool:
-    """Atomically write `value`. With clobber=False an existing file wins.
+def _write(path: Path, value: str) -> None:
+    """Atomically replace `path` with `value`. Callers hold the lock.
 
     The temp name is unique (concurrent writers never share and truncate one
     `.tmp`) and SHORT: a target already near NAME_MAX -- a 64-byte address
     percent-encoded to 192, plus a session UUID, is 241 bytes -- cannot take a
-    suffix. Same directory, so the rename and link stay atomic.
+    suffix. Same directory, so the rename stays atomic.
     """
     fd, name = tempfile.mkstemp(prefix=".cc.", suffix=".tmp", dir=path.parent)
     tmp = Path(name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(value + "\n")
-        if clobber:
-            os.replace(tmp, path)
-            return True
-        try:
-            os.link(tmp, path)
-            return True
-        except FileExistsError:  # governance: allow-silent SF002: an existing cursor is authoritative; not overwriting it is the point of clobber=False
-            return False
+        os.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -192,39 +192,60 @@ def advance(ts: str, paths: list[Path], *, wait: float = LOCK_WAIT_SECONDS) -> N
             current = parse_ts(read_cursor(path) or "")
             if current is not None and current >= new:
                 continue
-            _write(path, ts.strip(), clobber=True)
+            _write(path, ts.strip())
+
+
+def seed(target: Path, source: Path | None = None, *,
+         wait: float = LOCK_WAIT_SECONDS, warn=None) -> str | None:
+    """Give `target` a starting position unless it already holds one.
+
+    The start is `source` (the address cursor) if valid, else now: a NEW
+    address. Never the legacy global cursor. Returns what was written, or None
+    when `target` was already a valid position (resume, compact, a sibling).
+
+    Under the same lock as advance(). Seeding outside it let a no-session poll
+    write a start-time seed into the address cursor between an advance's read
+    of "absent" and its write of an older batch -- moving the address back.
+    """
+    with _Lock(target.parent, wait):
+        if read_cursor(target) is not None:
+            return None
+        value = read_cursor(source) if source is not None else None
+        if value is None and source is not None and source.exists() and warn:
+            warn(f"invalid_address_seed {source}")
+        value = value or now_seed()
+        _write(target, value)
+        return value
 
 
 def freeze(address: str, session_id: str, claude_dir: Path | None = None) -> str | None:
     """Seed this session's cursor at SessionStart. Returns the seed, or None.
 
-    The address cursor if it holds a valid position, else now (a new
-    address). Never the legacy global cursor. Same rule as the hook's
-    first-poll fallback. An existing session cursor (resume, compact) is never
-    touched. Session ids that could not appear verbatim in the hook's
-    filename are skipped -- the hook then seeds on first poll as before.
+    Same rule as the hook's first-poll seed, via seed(). Session ids that could
+    not appear verbatim in the hook's filename are skipped -- the hook then
+    seeds on first poll.
     """
     if not address or not session_id or not _SAFE_SESSION.match(session_id):
         return None
     base = claude_dir or Path.home() / ".claude"
     key = slug(address)
-    target = base / f"chat_cursor.{key}.{session_id}"
-    if target.exists():
-        return None
-    # Cursor files are only ever replaced by rename, so this read needs no lock.
-    seed = read_cursor(base / f"chat_cursor.{key}") or now_seed()
-    return seed if _write(target, seed, clobber=False) else None
+    return seed(base / f"chat_cursor.{key}.{session_id}", base / f"chat_cursor.{key}")
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) >= 3 and argv[0] == "advance":
-        try:
+    try:
+        if len(argv) >= 3 and argv[0] == "advance":
             advance(argv[1], [Path(p) for p in argv[2:]])
-        except Exception as exc:  # noqa: BLE001 - reported to the hook's drop log
-            print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
-            return 1
-        return 0
-    print("usage: chat_cursor.py advance <ts> <file>...", file=sys.stderr)
+            return 0
+        if len(argv) in (2, 3) and argv[0] == "seed":
+            source = Path(argv[2]) if len(argv) == 3 else None
+            seed(Path(argv[1]), source, warn=lambda note: print(note, file=sys.stderr))
+            return 0
+    except Exception as exc:  # noqa: BLE001 - reported to the hook's drop log
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    print("usage: chat_cursor.py advance <ts> <file>... | seed <target> [<source>]",
+          file=sys.stderr)
     return 2
 
 
