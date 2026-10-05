@@ -15,31 +15,35 @@ echo "=== Doc Audit Daily Run: $(date) ===" >> "$LOG_FILE"
 
 cd "$PROJECT_DIR"
 
-# Activate virtual environment
-source .venv/bin/activate
+# Model calls go through OpenRouter; the key comes from Doppler (#7973).
+run_step() {
+    local label="$1"; shift
+    echo "[$(date +%H:%M:%S)] $label..." >> "$LOG_FILE"
+    if ! doppler run --project project-tracker --config dev -- \
+            "$HOME/.local/bin/uv" run scripts/doc_audit_v2.py "$@" >> "$LOG_FILE" 2>&1; then
+        echo "[$(date +%H:%M:%S)] FAILED: $label (see output above)" >> "$LOG_FILE"
+        FAILED_STEPS+=("$label")
+    fi
+}
 
-# 1. Rebuild atlas to catch any new/changed documents
-echo "[$(date +%H:%M:%S)] Rebuilding Semantic Atlas..." >> "$LOG_FILE"
-python scripts/doc_audit_v2.py atlas --build --auto >> "$LOG_FILE" 2>&1 || true
-
-# 2. Regenerate embeddings
-echo "[$(date +%H:%M:%S)] Updating embeddings..." >> "$LOG_FILE"
-python scripts/doc_audit_v2.py embeddings --generate >> "$LOG_FILE" 2>&1 || true
-
-# 3. Find new clusters
-echo "[$(date +%H:%M:%S)] Finding similarity clusters..." >> "$LOG_FILE"
-python scripts/doc_audit_v2.py embeddings --cluster >> "$LOG_FILE" 2>&1 || true
-
-# 4. Run audit on all projects (will skip already-audited ones)
-echo "[$(date +%H:%M:%S)] Running audit pass..." >> "$LOG_FILE"
-python scripts/doc_audit_v2.py audit --auto >> "$LOG_FILE" 2>&1 || true
-
-# 5. Generate status report
-echo "[$(date +%H:%M:%S)] Generating status report..." >> "$LOG_FILE"
-python scripts/doc_audit_v2.py status >> "$LOG_FILE" 2>&1
+# Each step still runs after an earlier failure (later steps skip work that is
+# already done), but any failure makes the whole run exit nonzero.
+FAILED_STEPS=()
+run_step "Rebuilding Semantic Atlas" atlas --build --auto
+run_step "Updating embeddings" embeddings --generate
+run_step "Finding similarity clusters" embeddings --cluster
+run_step "Running audit pass" audit --auto
+run_step "Generating status report" status
 
 echo "[$(date +%H:%M:%S)] Daily run complete." >> "$LOG_FILE"
 echo "" >> "$LOG_FILE"
 
 # Cleanup old logs (keep 30 days)
 find "$PROJECT_DIR/logs" -name "doc_audit_*.log" -mtime +30 -delete 2>/dev/null || true
+
+if [ "${#FAILED_STEPS[@]}" -gt 0 ]; then
+    failed_list=""
+    for step in "${FAILED_STEPS[@]}"; do failed_list="${failed_list:+$failed_list; }$step"; done
+    echo "doc audit: ${#FAILED_STEPS[@]} step(s) failed: $failed_list (log: $LOG_FILE)" >&2
+    exit 1
+fi
