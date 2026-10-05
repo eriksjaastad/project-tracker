@@ -45,12 +45,14 @@ GLOBAL_KEYS = {
     "mac_mini_ssh": "eriksjaastad@Eriks-Mac-mini.local",
     "git_identity": (
         "Use bare git for add/commit/push/fetch/pull/status/log/diff/branch/checkout/restore — "
-        "each repo already has bot user.name + credential.helper; do not wrap git with gh-agent. "
-        "For GitHub CLI attributed ops (pr, issue, api, label, run, release) use gha instead of gh "
-        "(no --): gha pr create ..., gha api .... gha picks architect at ~/projects, manager inside a project "
-        "(run ~/projects/_tools/set-repo-bot-identity.sh manager first in-repo). "
-        "Carve-out: gh repo create uses plain gh (App tokens cannot create personal repos). "
-        "Sanity: git config --local user.name should end in [bot]. "
+        "every repo commits as eriksjaastad with his GitHub-linked private noreply address; do not override it. "
+        "For GitHub CLI ops (pr, issue, api, label, run, release) use gha instead of gh "
+        "(no --): gha pr create ..., gha api .... gha clears inherited App-token env vars and uses Erik's "
+        "authenticated personal gh account on both machines. In scripts, require command -v gha and check its "
+        "status; do not fall back to a custom App wrapper. "
+        "Identity check: gha api user --jq .login must report eriksjaastad; git config --local user.name should match. "
+        "Roles (architect/manager/worker) go in task/PR metadata, not the GitHub actor. The writer Apps remain "
+        "only for the 2025-09 through 2026-09 history archive; do not use them for new GitHub writes. "
         "Source of truth: ~/projects/CLAUDE.md (Which wrapper section). Related: pt info get pr_merge_policy."
     ),
     "pr_sizing_policy": (
