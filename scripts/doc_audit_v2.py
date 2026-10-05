@@ -489,8 +489,7 @@ def cmd_atlas_compile():
     # Load inventory for metadata
     inventory_path = ATLAS_DIR / "doc_inventory.json"
     if not inventory_path.exists():
-        print("Error: Run 'atlas --build' first")
-        return
+        sys.exit("Error: Run 'atlas --build' first")
 
     inventory = {d["path"]: d for d in json.loads(inventory_path.read_text())}
 
@@ -499,10 +498,17 @@ def cmd_atlas_compile():
     batch_files = sorted(ATLAS_DIR.glob("atlas_batch_*.json"))
 
     if not batch_files:
-        print("No atlas batch responses found.")
         print(f"Save the model's responses to: {ATLAS_DIR}/atlas_batch_001.json, etc.")
-        return
+        sys.exit("Error: No atlas batch responses found.")
 
+    # Keep a current-model vector when the document is unchanged, so a
+    # recompile does not re-embed (and re-bill) every document.
+    atlas_path = ATLAS_DIR / "semantic_atlas.json"
+    previous = {}
+    if atlas_path.exists():
+        previous = {e["path"]: e for e in json.loads(atlas_path.read_text())}
+
+    failures = []
     for batch_file in batch_files:
         try:
             batch_data = json.loads(batch_file.read_text())
@@ -511,6 +517,9 @@ def cmd_atlas_compile():
                 path = entry["path"]
                 if path in inventory:
                     inv = inventory[path]
+                    prev = previous.get(path, {})
+                    keep = (prev.get("content_hash") == inv["content_hash"]
+                            and _has_current_embedding(prev))
                     atlas_entries.append({
                         **entry,
                         "project": inv["project"],
@@ -519,14 +528,15 @@ def cmd_atlas_compile():
                         "lines": inv["lines"],
                         "last_modified": inv["last_modified"],
                         "content_hash": inv["content_hash"],
-                        "embedding": None
+                        "embedding": prev["embedding"] if keep else None,
+                        "embedding_model": prev["embedding_model"] if keep else None,
                     })
             print(f"   ✅ {batch_file.name}: {len(batch_data)} entries")
         except Exception as e:
             print(f"   ⚠️ {batch_file.name}: {e}")
+            failures.append(batch_file.name)
 
     # Save compiled atlas
-    atlas_path = ATLAS_DIR / "semantic_atlas.json"
     atlas_path.write_text(json.dumps(atlas_entries, indent=2))
 
     print(f"""
@@ -542,6 +552,7 @@ def cmd_atlas_compile():
    1. Generate embeddings: python doc_audit_v2.py embeddings --generate
    2. Find similar docs: python doc_audit_v2.py embeddings --cluster
 """)
+    exit_if_failed(failures, "atlas batch file(s)")
 
 
 # ============================================================
@@ -554,8 +565,7 @@ def cmd_embeddings_generate():
 
     atlas_path = ATLAS_DIR / "semantic_atlas.json"
     if not atlas_path.exists():
-        print("Error: Compile the Atlas first (atlas --compile)", flush=True)
-        return
+        sys.exit("Error: Compile the Atlas first (atlas --compile)")
 
     print("\n🧬 Generating embeddings...\n", flush=True)
 
@@ -638,8 +648,7 @@ def cmd_find_similar(threshold: float = 0.85):
 
     atlas_path = ATLAS_DIR / "semantic_atlas.json"
     if not atlas_path.exists():
-        print("Error: Build and compile Atlas first")
-        return
+        sys.exit("Error: Build and compile Atlas first")
 
     atlas = json.loads(atlas_path.read_text())
 
@@ -647,9 +656,13 @@ def cmd_find_similar(threshold: float = 0.85):
     # model live in a different space and would produce meaningless scores.
     with_embeddings = [e for e in atlas if _has_current_embedding(e)]
 
+    clusters_path = CLUSTERS_DIR / "similar_docs.json"
     if not with_embeddings:
-        print("No embeddings found. Run: embeddings --generate")
-        return
+        # Replace any earlier cluster file so audit never reads results
+        # computed from vectors that are no longer current.
+        CLUSTERS_DIR.mkdir(parents=True, exist_ok=True)
+        clusters_path.write_text("[]")
+        sys.exit(f"Error: No {EMBEDDING_MODEL} embeddings found. Run: embeddings --generate")
 
     print(f"\n🔍 Finding similar documents (threshold: {threshold})...\n")
 
@@ -697,7 +710,6 @@ def cmd_find_similar(threshold: float = 0.85):
     clusters.sort(key=lambda x: -x["size"])
 
     # Save clusters
-    clusters_path = CLUSTERS_DIR / "similar_docs.json"
     clusters_path.write_text(json.dumps(clusters, indent=2))
 
     # Generate report
@@ -847,11 +859,20 @@ def cmd_audit(project: Optional[str] = None, projects_list: Optional[str] = None
     clusters_path = CLUSTERS_DIR / "similar_docs.json"
 
     if not atlas_path.exists():
-        print("Error: Build the Atlas first", flush=True)
-        return
+        sys.exit("Error: Build the Atlas first")
 
     atlas = json.loads(atlas_path.read_text())
     clusters = json.loads(clusters_path.read_text()) if clusters_path.exists() else []
+    # Use only clusters whose every member still has a current-model vector;
+    # anything else was computed in a different embedding space.
+    current = {e["path"] for e in atlas if _has_current_embedding(e)}
+    usable = [c for c in clusters
+              if c["anchor"]["path"] in current
+              and all(m["path"] in current for m in c["similar"])]
+    if len(usable) < len(clusters):
+        print(f"   ⚠️ Ignoring {len(clusters) - len(usable)} stale cluster(s); "
+              "rerun: embeddings --cluster", flush=True)
+    clusters = usable
 
     if projects_list:
         # Comma-separated list of projects
