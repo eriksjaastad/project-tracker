@@ -4001,7 +4001,7 @@ def info_group(ctx, project, json_output):
       db_backend           Database backend (local SQLite or Turso)
       default_doppler_config  Default doppler config (dev)
       mac_mini_ssh         SSH connection string for Mac Mini
-      git_identity         gha vs git vs gh conventions (bot identity)
+      git_identity         gha vs git vs gh conventions (personal identity)
       pr_merge_policy      PR review/merge procedure (mirrors agent-runtime-config)
       pr_sizing_policy     ~500-line PR target for reviewability (with fallback)
 
