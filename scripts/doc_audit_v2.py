@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["openai>=1.40", "numpy>=1.26", "api-trust-tracker"]
+# dependencies = ["openai>=1.40", "numpy>=1.26", "send2trash>=1.8", "api-trust-tracker"]
 #
 # [tool.uv.sources]
 # api-trust-tracker = { path = "../../synth-insight-labs/api-trust-tracker/client" }
@@ -120,7 +120,11 @@ def openrouter_client() -> OpenAI:
 
 def generate_text(client: OpenAI, prompt: str, *, temperature: float,
                   caller: str, max_tokens: Optional[int] = None) -> str:
-    """One generation call through OpenRouter, cost-tracked. Raises on empty output."""
+    """One generation call through OpenRouter, cost-tracked.
+
+    Raises on empty or truncated output, so a cut-off response is never
+    parsed as a result or written over a document.
+    """
     kwargs = {"max_tokens": max_tokens} if max_tokens else {}
     resp = client.chat.completions.create(
         model=GENERATION_MODEL,
@@ -130,6 +134,10 @@ def generate_text(client: OpenAI, prompt: str, *, temperature: float,
     )
     track(resp, "openrouter", project=TRACK_PROJECT, caller=f"doc-audit-{caller}")
     choice = resp.choices[0]
+    if choice.finish_reason == "length":
+        raise RuntimeError(
+            f"{GENERATION_MODEL} output was truncated at the token limit"
+        )
     if not choice.message.content:
         raise RuntimeError(
             f"{GENERATION_MODEL} returned no content (finish_reason={choice.finish_reason})"
@@ -969,8 +977,8 @@ def _count_embeddings(atlas_path: Path) -> str:
     if not atlas_path.exists():
         return "N/A"
     atlas = json.loads(atlas_path.read_text())
-    with_emb = sum(1 for e in atlas if e.get("embedding"))
-    return f"{with_emb}/{len(atlas)}"
+    with_emb = sum(1 for e in atlas if _has_current_embedding(e))
+    return f"{with_emb}/{len(atlas)} ({EMBEDDING_MODEL})"
 
 
 def _count_clusters() -> str:
