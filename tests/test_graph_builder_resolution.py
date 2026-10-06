@@ -123,3 +123,18 @@ def test_python_shadowing_relative_levels_and_ambiguity(tmp_path):
         ("gamma/tools/run.py", "gamma/tools/helpers.py"),
         ("gamma/deep/a/b/c.py", "gamma/helpers.py"),
     }
+
+
+def test_project_qualified_python_imports_resolve(tmp_path):
+    # A project directory can itself be the importable package
+    _write(tmp_path, "alpha/use.py", "import alpha.foo\nfrom alpha import bar\n")
+    _write(tmp_path, "alpha/foo.py")
+    _write(tmp_path, "alpha/bar.py")
+
+    builder = GraphBuilder(tmp_path)
+    builder.scan()
+
+    assert _file_edges(builder) == {
+        ("alpha/use.py", "alpha/foo.py"),
+        ("alpha/use.py", "alpha/bar.py"),
+    }

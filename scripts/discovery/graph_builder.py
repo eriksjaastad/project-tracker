@@ -173,10 +173,9 @@ class GraphBuilder:
             self._nodes_by_project_name[(project, node["name"])].append(node)
             self._nodes_by_project_stem[(project, Path(node["name"]).stem)].append(node)
             if node["name"].endswith(".py"):
+                # proj/a/b.py is importable as b, a.b or proj.a.b depending on
+                # sys.path; the project directory can itself be the package
                 parts = Path(node["id"]).with_suffix("").parts
-                if project != "root":
-                    parts = parts[1:]
-                # a/b/c.py is importable as c, b.c or a.b.c depending on sys.path
                 for i in range(len(parts)):
                     self._python_modules[(project, ".".join(parts[i:]))].append(node["id"])
 
