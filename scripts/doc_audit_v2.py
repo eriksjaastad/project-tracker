@@ -122,8 +122,8 @@ def generate_text(client: OpenAI, prompt: str, *, temperature: float,
                   caller: str, max_tokens: Optional[int] = None) -> str:
     """One generation call through OpenRouter, cost-tracked.
 
-    Raises on empty or truncated output, so a cut-off response is never
-    parsed as a result or written over a document.
+    Raises on empty, whitespace-only or truncated output, so a blank or
+    cut-off response is never parsed as a result or written over a document.
     """
     kwargs = {"max_tokens": max_tokens} if max_tokens else {}
     resp = client.chat.completions.create(
@@ -138,7 +138,7 @@ def generate_text(client: OpenAI, prompt: str, *, temperature: float,
         raise RuntimeError(
             f"{GENERATION_MODEL} output was truncated at the token limit"
         )
-    if not choice.message.content:
+    if not (choice.message.content or "").strip():
         raise RuntimeError(
             f"{GENERATION_MODEL} returned no content (finish_reason={choice.finish_reason})"
         )
@@ -1362,6 +1362,8 @@ def cmd_refine(project: str = None, auto: bool = False):
                 ).strip()
                 if refined.startswith('```'):
                     refined = refined.split('\n', 1)[1].rsplit('```', 1)[0]
+                if not refined.strip():
+                    raise RuntimeError("model returned only an empty code block")
 
                 output_path.write_text(refined)
                 total_refined += 1
