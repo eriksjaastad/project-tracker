@@ -102,7 +102,7 @@ pip freeze > requirements.txt
 
 ---
 
-*See also: [ARCHITECTURE](../../hypocrisynow/ARCHITECTURE.md), [SCAFFOLDING_TRANSFER_GUIDE](SCAFFOLDING_TRANSFER_GUIDE.md), and [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md).*
+*See also: [ARCHITECTURE](../../hypocrisynow/ARCHITECTURE.md), and [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md).*
 
 ## Related Documentation
 

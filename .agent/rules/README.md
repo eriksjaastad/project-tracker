@@ -7,11 +7,9 @@
 - [ARCHITECTURE](ARCHITECTURE.md)
 - [CODE QUALITY STANDARDS](CODE_QUALITY_STANDARDS.md)
 - [CODE REVIEW PHASE4 TELEMETRY](CODE_REVIEW_PHASE4_TELEMETRY.md)
-- [INTEGRATION WITH SCAFFOLDING](INTEGRATION_WITH_SCAFFOLDING.md)
 - [OPERATIONS](OPERATIONS.md)
 - [README](README.md)
 - [REVIEWS AND GOVERNANCE PROTOCOL](REVIEWS_AND_GOVERNANCE_PROTOCOL.md)
-- [SCAFFOLDING TRANSFER GUIDE](SCAFFOLDING_TRANSFER_GUIDE.md)
 
 ## Archives / Planning
 
@@ -74,17 +72,6 @@
 - [PROMPT V5 CRON HEALTH](archives/planning/phase4_verification/PROMPT_V5_CRON_HEALTH.md)
 - [VERIFICATION PROMPTS INDEX](archives/planning/phase4_verification/VERIFICATION_PROMPTS_INDEX.md)
 
-## Archives / Planning / Scaffolding_Alignment
-
-- [PROMPT 1a UPDATE STATUS](archives/planning/scaffolding_alignment/PROMPT_1a_UPDATE_STATUS.md)
-- [PROMPT 1b UPDATE INDEX](archives/planning/scaffolding_alignment/PROMPT_1b_UPDATE_INDEX.md)
-- [PROMPT 2a COPY STANDARDS](archives/planning/scaffolding_alignment/PROMPT_2a_COPY_STANDARDS.md)
-- [PROMPT 2b CREATE ARCHITECTURE](archives/planning/scaffolding_alignment/PROMPT_2b_CREATE_ARCHITECTURE.md)
-- [PROMPT 2c CREATE OPERATIONS](archives/planning/scaffolding_alignment/PROMPT_2c_CREATE_OPERATIONS.md)
-- [PROMPT 3a VERIFY AGENTS](archives/planning/scaffolding_alignment/PROMPT_3a_VERIFY_AGENTS.md)
-- [PROMPT 3b VERIFY CURSORRULES](archives/planning/scaffolding_alignment/PROMPT_3b_VERIFY_CURSORRULES.md)
-- [SCAFFOLDING PROMPTS INDEX](archives/planning/scaffolding_alignment/SCAFFOLDING_PROMPTS_INDEX.md)
-
 ## Archives / Reviews
 
 - [CODE REVIEW](archives/reviews/CODE_REVIEW.md)
@@ -108,6 +95,3 @@
 - [LOCAL MODEL LEARNINGS](reference/LOCAL_MODEL_LEARNINGS.md)
 - [MODEL LEARNINGS](reference/MODEL_LEARNINGS.md)
 
-## Reports
-
-- [2026 01 11 protocol deviation report](reports/2026-01-11_protocol_deviation_report.md)
