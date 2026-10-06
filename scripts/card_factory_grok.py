@@ -4,7 +4,7 @@
 # dependencies = ["openai>=1.40", "api-trust-tracker"]
 #
 # [tool.uv.sources]
-# api-trust-tracker = { path = "../../synth-insight-labs/api-cost-tracker/client" }
+# api-trust-tracker = { path = "../../synth-insight-labs/api-trust-tracker/client" }
 # ///
 #
 # NOTE: the api-trust-tracker source path assumes the standard laptop layout
