@@ -37,9 +37,10 @@ run_step() {
 
 # Each step still runs after an earlier failure (later steps skip work that is
 # already done), but any failure makes the whole run exit nonzero.
+# atlas --compile is not run here (unchanged from before #7973); keeping the
+# cached batches, atlas and clusters fresh is #7975.
 FAILED_STEPS=()
 run_step "Rebuilding Semantic Atlas" atlas --build --auto
-run_step "Compiling Semantic Atlas" atlas --compile
 run_step "Updating embeddings" embeddings --generate
 run_step "Finding similarity clusters" embeddings --cluster
 run_step "Running audit pass" audit --auto
