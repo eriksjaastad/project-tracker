@@ -65,7 +65,7 @@ MD_LINK_PATTERN = re.compile(r'\[([^\]]+)\]\(([^)]+\.[a-zA-Z0-9]+)\)')
 WIKILINK_PATTERN = re.compile(r'\[\[([^\]]+)\]\]')
 
 # Python: from x import y OR import x
-PYTHON_IMPORT_FROM = re.compile(r'^\s*from\s+([\w.]+)\s+import', re.MULTILINE)
+PYTHON_IMPORT_FROM = re.compile(r'^\s*from\s+([\w.]+)\s+import\s+(\([^)]*\)|[\w ,]*)', re.MULTILINE)
 PYTHON_IMPORT = re.compile(r'^\s*import\s+([\w.,\s]+)', re.MULTILINE)
 
 # Python CLI invocations in markdown code blocks: `python scripts/run.py`
@@ -74,6 +74,7 @@ MD_PYTHON_CLI = re.compile(r'`(?:python|python3|uv run)\s+([^\s`]+\.py)', re.MUL
 # JS/TS: import x from 'y' OR import {x} from 'y' OR require('y')
 JS_IMPORT = re.compile(r'import\s+.*?\s+from\s+[\'"]([^\'"]+)[\'"]', re.MULTILINE)
 JS_REQUIRE = re.compile(r'require\([\'"]([^\'"]+)[\'"]\)', re.MULTILINE)
+JS_EXTENSIONS = ('.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs')
 
 # Go: import "x"
 GO_IMPORT = re.compile(r'import\s+[\'"]([^\'"]+)[\'"]', re.MULTILINE)
@@ -138,7 +139,7 @@ class GraphBuilder:
         }
         self.projects = set()
         self._gitignore_cache = {}  # project_name -> set of ignored dirs
-        self._swift_types = {}  # type_name -> node_id (for cross-file type references)
+        self._swift_types = defaultdict(dict)  # project -> {type_name: node_id}
 
     def _get_project_name(self, path: Path) -> str:
         """Extract project name from file path."""
@@ -156,12 +157,35 @@ class GraphBuilder:
             return str(path)
 
     def _build_indexes(self):
-        """Build lookup indexes for O(1) node resolution."""
-        from collections import defaultdict
+        """Build lookup indexes for O(1) node resolution.
+
+        Every project is its own repository, so a bare file name or module
+        name can only mean a file in the referring project. The name indexes
+        are keyed by project for that reason; only an explicit relative path
+        may reach another project.
+        """
         self.node_by_id = {node["id"]: node for node in self.nodes}
-        self.node_by_name = defaultdict(list)
+        self._nodes_by_project_name = defaultdict(list)  # (project, filename) -> nodes
+        self._nodes_by_project_stem = defaultdict(list)  # (project, stem) -> nodes
+        self._python_modules = defaultdict(list)  # (project, dotted suffix) -> node ids
         for node in self.nodes:
-            self.node_by_name[node["name"]].append(node)
+            project = node["project"]
+            self._nodes_by_project_name[(project, node["name"])].append(node)
+            self._nodes_by_project_stem[(project, Path(node["name"]).stem)].append(node)
+            if node["name"].endswith(".py"):
+                parts = Path(node["id"]).with_suffix("").parts
+                if project != "root":
+                    parts = parts[1:]
+                # a/b/c.py is importable as c, b.c or a.b.c depending on sys.path
+                for i in range(len(parts)):
+                    self._python_modules[(project, ".".join(parts[i:]))].append(node["id"])
+
+    def _project_of(self, node_id: str) -> str:
+        return self.node_by_id[node_id]["project"]
+
+    def _nodes_named(self, source_id: str, name: str) -> list:
+        """Nodes called ``name`` in the source file's own project."""
+        return self._nodes_by_project_name.get((self._project_of(source_id), name), [])
 
     def scan(self):
         """Scan the ecosystem for files and build nodes."""
@@ -240,8 +264,9 @@ class GraphBuilder:
                 try:
                     content = file_path.read_text(encoding='utf-8', errors='ignore')
                     node_id = self._get_node_id(file_path)
+                    project = self._project_of(node_id)
                     for type_name in SWIFT_TYPE_DEF.findall(content):
-                        self._swift_types[type_name] = node_id
+                        self._swift_types[project][type_name] = node_id
                 except Exception as e:
                     logger.warning("Failed to parse Swift file %s: %s", file_path, e)
 
@@ -393,13 +418,20 @@ class GraphBuilder:
                 self._add_edge(source_id, target_id, "markdown_link", f"[{text}]({path})")
             except Exception:
                 target_name = Path(path).name
-                for node in self.node_by_name.get(target_name, []):
+                for node in self._nodes_named(source_id, target_name):
                     self._add_edge(source_id, node["id"], "markdown_link", f"[{text}]({path})")
                     break
 
     def _extract_python_relationships(self, source_id: str, content: str):
-        for match in PYTHON_IMPORT_FROM.findall(content):
-            self._resolve_python_module(source_id, match, "python_import")
+        for module, names in PYTHON_IMPORT_FROM.findall(content):
+            if self._resolve_python_module(source_id, module, "python_import"):
+                continue
+            # `from pkg import mod` names a submodule when pkg itself is not a file
+            prefix = module if module.endswith('.') else module + '.'
+            for name in names.strip('()').split(','):
+                words = name.split()
+                if words:
+                    self._resolve_python_module(source_id, prefix + words[0], "python_import")
 
         for match in PYTHON_IMPORT.findall(content):
             for part in match.split(','):
@@ -408,18 +440,37 @@ class GraphBuilder:
                     module = parts[0]
                     self._resolve_python_module(source_id, module, "python_import")
 
-    def _resolve_python_module(self, source_id: str, module_path: str, edge_type: str):
-        path_parts = module_path.split('.')
-        potential_suffixes = [
-            os.path.join(*path_parts) + ".py",
-            os.path.join(*path_parts, "__init__.py")
-        ]
-        # Check node_map keys (which are paths) for suffix matches
-        for suffix in potential_suffixes:
-            for node_id in self.node_map:
-                if node_id.endswith(suffix):
-                    self._add_edge(source_id, node_id, edge_type, f"import {module_path}")
-                    return
+    def _resolve_python_module(self, source_id: str, module_path: str, edge_type: str) -> bool:
+        """Link a Python import to a file in the importing project.
+
+        Returns True when an edge target was found.
+        """
+        source_dir = Path(source_id).parent
+        if module_path.startswith('.'):
+            rest = module_path.lstrip('.')
+            if not rest:
+                return False
+            base = source_dir
+            for _ in range(len(module_path) - len(rest) - 1):
+                base = base.parent
+            target_id = str(base.joinpath(*rest.split('.'))) + ".py"
+            if target_id in self.node_map:
+                self._add_edge(source_id, target_id, edge_type, f"import {module_path}")
+                return True
+            return False
+
+        if module_path.split('.')[0] in sys.stdlib_module_names:
+            return False
+        candidates = self._python_modules.get((self._project_of(source_id), module_path))
+        if not candidates:
+            return False
+        # Prefer a module beside the importer, then the shallowest path
+        target_id = min(
+            candidates,
+            key=lambda c: (Path(c).parent != source_dir, len(Path(c).parts), c),
+        )
+        self._add_edge(source_id, target_id, edge_type, f"import {module_path}")
+        return True
 
     def _extract_js_ts_relationships(self, source_id: str, content: str):
         for match in JS_IMPORT.findall(content):
@@ -428,23 +479,26 @@ class GraphBuilder:
             self._resolve_js_module(source_id, match, "js_require")
 
     def _resolve_js_module(self, source_id: str, module_path: str, edge_type: str):
-        if module_path.startswith('.'):
-            target_name = Path(module_path).name
-            # Check exact name match first, then prefix match
-            for node in self.node_by_name.get(target_name, []):
-                self._add_edge(source_id, node["id"], edge_type, f"import {module_path}")
+        """Link a relative JS/TS import to the file it names.
+
+        Bare specifiers (``react``, ``@scope/pkg``) are npm packages, not
+        project files, and path aliases such as ``@/lib`` need the project's
+        bundler config to resolve, so neither produces an edge.
+        """
+        if not module_path.startswith('.'):
+            return
+        base = os.path.normpath(os.path.join(os.path.dirname(source_id), module_path))
+        stem, ext = os.path.splitext(base)
+        candidates = [base]
+        if ext in ('.js', '.jsx', '.mjs', '.cjs'):
+            # ESM TypeScript imports name the compiled .js file
+            candidates += [stem + '.ts', stem + '.tsx']
+        candidates += [base + e for e in JS_EXTENSIONS]
+        candidates += [os.path.join(base, 'index' + e) for e in JS_EXTENSIONS]
+        for target_id in candidates:
+            if target_id in self.node_map:
+                self._add_edge(source_id, target_id, edge_type, f"import {module_path}")
                 return
-            # Prefix match — check names starting with target_name
-            for name, nodes in self.node_by_name.items():
-                if name.startswith(target_name):
-                    self._add_edge(source_id, nodes[0]["id"], edge_type, f"import {module_path}")
-                    return
-        else:
-            # Path contains — must scan node_map keys
-            for node_id in self.node_map:
-                if module_path in node_id:
-                    self._add_edge(source_id, node_id, edge_type, f"import {module_path}")
-                    return
 
     def _extract_swift_relationships(self, source_id: str, content: str):
         """Extract Swift cross-file type references.
@@ -453,7 +507,7 @@ class GraphBuilder:
         module see each other.  Instead, we connect files by detecting when
         file A references a type (class/struct/protocol/enum) defined in file B.
         """
-        for type_name, target_id in self._swift_types.items():
+        for type_name, target_id in self._swift_types[self._project_of(source_id)].items():
             if target_id == source_id:
                 continue  # skip self-references
             # Look for the type name as a whole word in the content
@@ -474,7 +528,7 @@ class GraphBuilder:
 
     def _resolve_go_module(self, source_id: str, module_path: str):
         target_name = Path(module_path).name + ".go"
-        for node in self.node_by_name.get(target_name, []):
+        for node in self._nodes_named(source_id, target_name):
             self._add_edge(source_id, node["id"], "go_import", f"import {module_path}")
             return
 
@@ -500,7 +554,7 @@ class GraphBuilder:
 
             # Try as filename match
             target_name = Path(path_str).name
-            for node in self.node_by_name.get(target_name, []):
+            for node in self._nodes_named(source_id, target_name):
                 self._add_edge(source_id, node["id"], "file_reference", f"See: {path_str}")
                 break
 
@@ -524,17 +578,13 @@ class GraphBuilder:
 
             # Try as filename match (with or without .md extension)
             candidates = (
-                self.node_by_name.get(link_text, [])
-                or self.node_by_name.get(f"{link_text}.md", [])
+                self._nodes_named(source_id, link_text)
+                or self._nodes_named(source_id, f"{link_text}.md")
+                # Fallback: match by stem (filename without extension)
+                or self._nodes_by_project_stem.get((self._project_of(source_id), link_text), [])
             )
             if candidates:
                 self._add_edge(source_id, candidates[0]["id"], "wikilink", f"[[{link_text}]]")
-            else:
-                # Fallback: match by stem (filename without extension)
-                for name, nodes in self.node_by_name.items():
-                    if Path(name).stem == link_text:
-                        self._add_edge(source_id, nodes[0]["id"], "wikilink", f"[[{link_text}]]")
-                        break
 
     def _extract_python_cli_from_markdown(self, source_id: str, content: str, file_path: Path):
         """Extract Python CLI invocations from markdown code blocks."""
@@ -552,7 +602,7 @@ class GraphBuilder:
 
             # Try as filename match
             target_name = Path(script_path).name
-            for node in self.node_by_name.get(target_name, []):
+            for node in self._nodes_named(source_id, target_name):
                 self._add_edge(source_id, node["id"], "python_cli", f"`python {script_path}`")
                 break
 
@@ -582,7 +632,7 @@ class GraphBuilder:
 
         # Try as filename match
         target_name = Path(script_path).name
-        for node in self.node_by_name.get(target_name, []):
+        for node in self._nodes_named(source_id, target_name):
             self._add_edge(source_id, node["id"], edge_type, script_path)
             return
 
@@ -606,7 +656,7 @@ class GraphBuilder:
 
             # Try as filename match
             target_name = Path(copy_path).name
-            for node in self.node_by_name.get(target_name, []):
+            for node in self._nodes_named(source_id, target_name):
                 self._add_edge(source_id, node["id"], "dockerfile_copy", f"COPY {copy_path}")
                 break
 
@@ -636,7 +686,7 @@ class GraphBuilder:
 
         # Try as filename match
         target_name = Path(yaml_path).name
-        for node in self.node_by_name.get(target_name, []):
+        for node in self._nodes_named(source_id, target_name):
             self._add_edge(source_id, node["id"], edge_type, yaml_path)
             return
 
@@ -656,7 +706,7 @@ class GraphBuilder:
 
             # Try as filename match
             target_name = Path(include_path).name
-            for node in self.node_by_name.get(target_name, []):
+            for node in self._nodes_named(source_id, target_name):
                 self._add_edge(source_id, node["id"], "makefile_include", f"include {include_path}")
                 break
 
