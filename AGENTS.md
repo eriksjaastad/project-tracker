@@ -56,7 +56,7 @@ This repo runs **self-contained** through Doppler. There is no `.env`, no export
 | `TURSO_KANBAN_URL` | Turso cloud endpoint for the Kanban DB (tasks, projects, calendar) | Only when `~/projects/.turso-config.json` has `turso_enabled: true`. It is currently **false**, so this is dormant and the backend is local `data/tracker.db`. |
 | `TURSO_KANBAN_TOKEN` | Turso auth token, paired with `TURSO_KANBAN_URL` | Same as above |
 | `COST_TRACKER_API_KEY` | Auth for the SIL cost-tracker API the dashboard queries (`dashboard/app.py`) | Whenever the dashboard's cost panel needs live data |
-| `OPENROUTER_API_KEY` | OpenRouter credits (not BYOK) for `scripts/card_factory_grok.py`'s grok-build-0.1 calls (#7699) and `scripts/doc_audit_v2.py`'s generation and embedding calls (#7973) | Whenever the Grok card-factory shadow run or an `--auto`/`embeddings --generate` doc-audit step executes |
+| `OPENROUTER_API_KEY` | OpenRouter credits (not BYOK) for `scripts/card_factory_grok.py`'s grok-build-0.1 calls (#7699) | Whenever the Grok card-factory shadow run executes |
 | `DOPPLER_PROJECT`, `DOPPLER_CONFIG`, `DOPPLER_ENVIRONMENT` | Doppler's own metadata, injected automatically | Never set by hand |
 
 **Secrets this repo's scripts need that do *not* live in `project-tracker/dev`.** This is a real deviation from the portfolio pattern: several scripts pass an explicit `--project/--config` because their secret belongs to a different product's Doppler project. Do not "fix" this by copying the secret into `project-tracker/dev`.

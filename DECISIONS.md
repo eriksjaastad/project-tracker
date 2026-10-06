@@ -3,6 +3,21 @@
 Deliberate architectural choices. Read before changing anything structural.
 To revisit a decision, don't edit — add a new entry that supersedes it.
 
+## Retire doc_audit_v2 instead of redesigning its cache
+**Accepted 2026-10-05 (Erik, via Architect, #7975).**
+
+`scripts/doc_audit_v2.py`, its wrapper `scripts/doc_audit_daily.sh` and the
+`com.eriksjaastad.doc-audit` launchd template are removed. The launchd job was
+never installed and nothing consumed the output. Its pipeline reused cached
+batches, atlas entries and clusters without checking they were current, and
+fixing that properly would mean redesigning the cache around what each stage
+consumes. #7973 had just moved it to OpenRouter. Retiring it is cheaper than
+that redesign. The older prompt-only `scripts/doc_audit.py` is not affected.
+To bring document auditing back, start from git history (last version at the
+#7973 merge, 4d5f637) and design cache invalidation first.
+
+---
+
 ## Retire dbmed; use consistent snapshots and rclone
 **Accepted 2026-09-22; supersedes the 2026-09-17 database lockdown initiative.**
 
