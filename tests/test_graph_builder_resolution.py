@@ -100,3 +100,26 @@ def test_genuine_same_project_references_still_resolve(tmp_path):
         ("alpha/Uses.swift", "alpha/Widget.swift"),
         ("alpha/notes.md", "alpha/design.md"),
     }
+
+
+def test_python_shadowing_relative_levels_and_ambiguity(tmp_path):
+    # A stdlib name is the stdlib even with a same-named file beside the
+    # importer: inside a package Python 3 never loads the sibling.
+    _write(tmp_path, "gamma/tools/run.py",
+           "import queue\nimport logging\nfrom ..core.base import B\nimport helpers\n")
+    _write(tmp_path, "gamma/tools/queue.py")
+    _write(tmp_path, "gamma/lib/logging.py")
+    _write(tmp_path, "gamma/core/base.py")
+    # two modules named helpers: the importer's sibling wins over the shallower one
+    _write(tmp_path, "gamma/helpers.py")
+    _write(tmp_path, "gamma/tools/helpers.py")
+    _write(tmp_path, "gamma/deep/a/b/c.py", "import helpers\n")
+
+    builder = GraphBuilder(tmp_path)
+    builder.scan()
+
+    assert _file_edges(builder) == {
+        ("gamma/tools/run.py", "gamma/core/base.py"),
+        ("gamma/tools/run.py", "gamma/tools/helpers.py"),
+        ("gamma/deep/a/b/c.py", "gamma/helpers.py"),
+    }

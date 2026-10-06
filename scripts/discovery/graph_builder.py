@@ -66,7 +66,7 @@ WIKILINK_PATTERN = re.compile(r'\[\[([^\]]+)\]\]')
 
 # Python: from x import y OR import x
 PYTHON_IMPORT_FROM = re.compile(r'^\s*from\s+([\w.]+)\s+import\s+(\([^)]*\)|[\w ,]*)', re.MULTILINE)
-PYTHON_IMPORT = re.compile(r'^\s*import\s+([\w.,\s]+)', re.MULTILINE)
+PYTHON_IMPORT = re.compile(r'^[ \t]*import[ \t]+([\w., \t]+)', re.MULTILINE)
 
 # Python CLI invocations in markdown code blocks: `python scripts/run.py`
 MD_PYTHON_CLI = re.compile(r'`(?:python|python3|uv run)\s+([^\s`]+\.py)', re.MULTILINE)
@@ -459,6 +459,10 @@ class GraphBuilder:
                 return True
             return False
 
+        # A stdlib name means the stdlib. A same-named file beside the importer
+        # shadows it only when that file runs as a script; inside a package
+        # (src/utils/logging.py next to `import logging`) it never does, and
+        # every such case in the portfolio was the stdlib.
         if module_path.split('.')[0] in sys.stdlib_module_names:
             return False
         candidates = self._python_modules.get((self._project_of(source_id), module_path))
