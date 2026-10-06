@@ -107,5 +107,3 @@ This section details the AI agents currently employed within the `project-tracke
 - `CLAUDE.md` - AI Working Instructions
 - `Documents/reference/LEARNINGS.md` - Learning Loop & Debt Tracker
 - `Documents/reference/MODEL_LEARNINGS.md` - AI Model Behavior
-
-<!-- Source of truth: .agentsync/rules/ -->
