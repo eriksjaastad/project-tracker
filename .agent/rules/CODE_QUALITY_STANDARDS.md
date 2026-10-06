@@ -199,4 +199,3 @@ See: Trustworthy AI Report *(historical reference — was under scaffolding's `D
 - [Safety Systems](patterns/safety-systems.md) - security
 - [Agent Skills Library](../agent-skills-library/README.md) - Agent Skills
 - [analyze-youtube-videos/README](../../ai-model-scratch-build/README.md) - YouTube Analyzer
-- [Project Scaffolding](../project-scaffolding/README.md) - Project Scaffolding
