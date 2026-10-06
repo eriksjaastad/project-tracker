@@ -56,7 +56,7 @@ This repo runs **self-contained** through Doppler. There is no `.env`, no export
 | `TURSO_KANBAN_URL` | Turso cloud endpoint for the Kanban DB (tasks, projects, calendar) | Only when `~/projects/.turso-config.json` has `turso_enabled: true`. It is currently **false**, so this is dormant and the backend is local `data/tracker.db`. |
 | `TURSO_KANBAN_TOKEN` | Turso auth token, paired with `TURSO_KANBAN_URL` | Same as above |
 | `COST_TRACKER_API_KEY` | Auth for the SIL cost-tracker API the dashboard queries (`dashboard/app.py`) | Whenever the dashboard's cost panel needs live data |
-| `OPENROUTER_API_KEY` | OpenRouter credits (not BYOK) for `scripts/card_factory_grok.py`'s grok-build-0.1 calls (#7699) | Whenever the Grok card-factory shadow run executes |
+| `OPENROUTER_API_KEY` | OpenRouter credits (not BYOK) for `scripts/card_factory_grok.py`'s grok-build-0.1 calls (#7699) and `scripts/doc_audit_v2.py`'s generation and embedding calls (#7973) | Whenever the Grok card-factory shadow run or an `--auto`/`embeddings --generate` doc-audit step executes |
 | `DOPPLER_PROJECT`, `DOPPLER_CONFIG`, `DOPPLER_ENVIRONMENT` | Doppler's own metadata, injected automatically | Never set by hand |
 
 **Secrets this repo's scripts need that do *not* live in `project-tracker/dev`.** This is a real deviation from the portfolio pattern: several scripts pass an explicit `--project/--config` because their secret belongs to a different product's Doppler project. Do not "fix" this by copying the secret into `project-tracker/dev`.
@@ -66,7 +66,6 @@ This repo runs **self-contained** through Doppler. There is no `.env`, no export
 | `RESEND_API_KEY` | `synth-insight-labs` / `prd` | `scripts/alert_digest.py` (daily portfolio digest email), wrapped by `scripts/alert-digest.sh` and `make digest` |
 | `TURSO_KANBAN_URL` / `TURSO_KANBAN_TOKEN` | `openclaw` / `dev` | `scripts/turso_to_local.py` one-time Turso → local dump (`make turso-sync`) — historically these creds lived in `openclaw`, and that script still reads them there |
 | `TURSO_BRAIN_URL` / `TURSO_BRAIN_TOKEN` | `ai-memory` / `dev` | `pt memory ...` shells out to `brain.py` under `doppler run --project ai-memory --config dev` itself; you do not wrap it |
-| `GOOGLE_API_KEY` | `trading-copilot` / `dev` | `scripts/doc_audit_v2.py`, which fetches it via `doppler secrets get` at runtime. Stayed on direct Gemini (#7699): its generation model `gemini-2.0-flash-exp` and its embedding model `text-embedding-004` are both absent from OpenRouter's public model list (checked 2026-09-30 against `GET /api/v1/models`), and embeddings specifically must never move providers once an index exists — a provider swap changes the vector space and silently corrupts similarity search. |
 
 **`XAI_API_KEY` (`synth-insight-labs` / `prd`) is no longer used by this repo.** `scripts/card_factory_grok.py` moved to `OPENROUTER_API_KEY` in `project-tracker/dev` (#7699), routed through OpenRouter credits rather than xAI BYOK. The `synth-insight-labs` key itself was left in Doppler untouched — other projects (e.g. Auxesis) may still read it.
 

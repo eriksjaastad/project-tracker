@@ -1,4 +1,16 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["openai>=1.40", "numpy>=1.26", "send2trash>=1.8", "api-trust-tracker"]
+#
+# [tool.uv.sources]
+# api-trust-tracker = { path = "../../synth-insight-labs/api-trust-tracker/client" }
+# ///
+#
+# NOTE: the api-trust-tracker source path assumes sibling repos under the
+# projects root (the main checkout). From a git worktree, run with plain
+# `python` and supply the deps yourself, e.g. `uv run --no-project --with
+# openai --with <client path> python scripts/doc_audit_v2.py ...`.
 """
 Document Quality Audit System v2 - Semantic Atlas Architecture
 
@@ -32,18 +44,11 @@ Usage:
     # Clean up
     python doc_audit_v2.py cleanup
 
-OpenRouter routing (#7699): this file's Gemini calls were evaluated for a
-move to OpenRouter and deliberately left on direct Google/GOOGLE_API_KEY.
-Neither model this file calls is in OpenRouter's catalog (checked 2026-09-30
-against GET https://openrouter.ai/api/v1/models):
-  - generation: "gemini-2.0-flash-exp" is absent (Google has moved its
-    public lineup to 2.5/3.x; the exp preview this file pins is gone).
-  - embeddings: "text-embedding-004" is absent, and even if it reappeared
-    under another host, embeddings must never move providers once an index
-    exists — a different embedding model changes the vector space and
-    silently corrupts stored similarity data (semantic_atlas.json).
-Re-check if this file is ever upgraded to a current Gemini generation model;
-leave the embedding call on Google regardless.
+Model access (#7973): every generation and embedding call goes through
+OpenRouter, billed to OpenRouter credits. OPENROUTER_API_KEY comes from
+Doppler project-tracker/dev (never hardcoded):
+    doppler run --project project-tracker --config dev -- \
+        uv run scripts/doc_audit_v2.py atlas --build --auto
 """
 
 import argparse
@@ -62,12 +67,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.config import projects_root
 
-# Optional imports for embeddings
-try:
-    import google.generativeai as genai
-    GENAI_AVAILABLE = True
-except ImportError:
-    GENAI_AVAILABLE = False
+from openai import OpenAI
+
+from api_trust_tracker import track, track_tokens  # cost-tracking wrapper (governance-required)
 
 try:
     import numpy as np
@@ -89,6 +91,76 @@ CLUSTERS_DIR = AUDIT_DIR / "clusters"
 PROMPTS_DIR = AUDIT_DIR / "prompts"
 REPORTS_DIR = AUDIT_DIR / "reports"
 ACTIONS_DIR = AUDIT_DIR / "actions"
+
+# ============================================================
+# Model access — OpenRouter (#7973)
+# ============================================================
+# Model ids checked 2026-10-05: generation against GET /api/v1/models,
+# embeddings against GET /api/v1/embeddings/models (a separate catalog).
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+GENERATION_MODEL = "google/gemini-3.8-flash"
+# Vectors are only comparable within one embedding model. Each Atlas entry
+# records the model that produced its vector, and entries from any other
+# model are re-embedded and left out of similarity search until they are.
+EMBEDDING_MODEL = "google/gemini-embedding-2"
+TRACK_PROJECT = "project-tracker"
+
+
+def openrouter_client() -> OpenAI:
+    """Return an OpenRouter client, or exit nonzero when the key is missing."""
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        sys.exit(
+            "Error: OPENROUTER_API_KEY not set. Run via "
+            "`doppler run --project project-tracker --config dev -- "
+            "uv run scripts/doc_audit_v2.py ...`"
+        )
+    return OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL)
+
+
+def generate_text(client: OpenAI, prompt: str, *, temperature: float,
+                  caller: str, max_tokens: Optional[int] = None) -> str:
+    """One generation call through OpenRouter, cost-tracked.
+
+    Raises on empty, whitespace-only or truncated output, so a blank or
+    cut-off response is never parsed as a result or written over a document.
+    """
+    kwargs = {"max_tokens": max_tokens} if max_tokens else {}
+    resp = client.chat.completions.create(
+        model=GENERATION_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=temperature,
+        **kwargs,
+    )
+    track(resp, "openrouter", project=TRACK_PROJECT, caller=f"doc-audit-{caller}")
+    choice = resp.choices[0]
+    if choice.finish_reason == "length":
+        raise RuntimeError(
+            f"{GENERATION_MODEL} output was truncated at the token limit"
+        )
+    if not (choice.message.content or "").strip():
+        raise RuntimeError(
+            f"{GENERATION_MODEL} returned no content (finish_reason={choice.finish_reason})"
+        )
+    return choice.message.content
+
+
+def embed_text(client: OpenAI, text: str) -> list[float]:
+    """One embedding call through OpenRouter, cost-tracked."""
+    resp = client.embeddings.create(model=EMBEDDING_MODEL, input=text)
+    # Embedding usage has no completion_tokens, which track() requires.
+    track_tokens("openrouter", resp.model or EMBEDDING_MODEL,
+                 resp.usage.prompt_tokens if resp.usage else 0, 0,
+                 project=TRACK_PROJECT, caller="doc-audit-embeddings",
+                 service="embeddings")
+    return resp.data[0].embedding
+
+
+def exit_if_failed(failures: list[str], what: str) -> None:
+    """Exit nonzero after a batch run in which any item failed, naming them."""
+    if failures:
+        sys.exit(f"Error: {len(failures)} {what} failed: {', '.join(failures)}")
+
 
 SKIP_DIRS = {
     "node_modules", "venv", ".venv", "__pycache__", ".git",
@@ -126,8 +198,8 @@ class AtlasEntry:
     title: str                   # Document title
     size_bytes: int              # File size
     lines: int                   # Line count
-    core_purpose: str            # One-sentence purpose (filled by Gemini)
-    key_points: list[str]        # 5 bullet points (filled by Gemini)
+    core_purpose: str            # One-sentence purpose (filled by the model)
+    key_points: list[str]        # 5 bullet points (filled by the model)
     doc_type: str                # readme, guide, reference, config, archive, etc.
     last_modified: str           # ISO timestamp
     content_hash: str            # For change detection
@@ -235,7 +307,7 @@ def get_all_docs() -> list[dict]:
 # ============================================================
 
 def generate_atlas_prompt(docs: list[dict], batch_num: int) -> str:
-    """Generate prompt for Gemini to create Atlas entries."""
+    """Generate the prompt that asks the model for Atlas entries."""
 
     prompt = f"""# Semantic Atlas Generation - Batch {batch_num}
 
@@ -323,8 +395,8 @@ def cmd_atlas_build(auto: bool = False):
         print(f"      Batch {i}: {len(batch)} docs → {prompt_path.name}")
 
     if auto:
-        # Process batches automatically with Gemini API
-        print(f"\n🤖 Auto-processing {len(batches)} batches with Gemini...\n")
+        # Process batches automatically through OpenRouter
+        print(f"\n🤖 Auto-processing {len(batches)} batches via OpenRouter...\n")
         _auto_process_batches(batches)
     else:
         print(f"""
@@ -333,8 +405,8 @@ def cmd_atlas_build(auto: bool = False):
 📂 Prompts location: {PROMPTS_DIR}
 
 💡 Next steps:
-   1. Feed each batch prompt to Gemini (in order)
-   2. Save Gemini's JSON responses to: {ATLAS_DIR}/atlas_batch_XXX.json
+   1. Feed each batch prompt to the model (in order)
+   2. Save the model's JSON responses to: {ATLAS_DIR}/atlas_batch_XXX.json
    3. Run: python doc_audit_v2.py atlas --compile
 
 💡 Or run with --auto to process automatically via API:
@@ -343,37 +415,14 @@ def cmd_atlas_build(auto: bool = False):
 
 
 def _auto_process_batches(batches: list[list[dict]]):
-    """Process atlas batches automatically via Gemini API."""
+    """Process atlas batches automatically through OpenRouter."""
     import time
 
-    if not GENAI_AVAILABLE:
-        print("Error: google-generativeai not installed", flush=True)
-        print("Run: pip install google-generativeai", flush=True)
-        return
-
-    # Get API key
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        import subprocess
-        try:
-            result = subprocess.run(
-                ["doppler", "secrets", "get", "GOOGLE_API_KEY", "--plain",
-                 "--project", "trading-copilot", "--config", "dev"],
-                capture_output=True, text=True
-            )
-            api_key = result.stdout.strip()
-        except (subprocess.SubprocessError, FileNotFoundError) as e:
-            print(f"Could not fetch API key from Doppler: {e}", flush=True)
-
-    if not api_key:
-        print("Error: GOOGLE_API_KEY not found in environment or Doppler", flush=True)
-        return
-
-    print(f"   🔑 API key loaded ({len(api_key)} chars)", flush=True)
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    client = openrouter_client()
+    print(f"   🔑 OpenRouter key loaded ({GENERATION_MODEL})", flush=True)
 
     success_count = 0
+    failures = []
     for i, batch in enumerate(batches, 1):
         batch_num = f"{i:03d}"
         response_path = ATLAS_DIR / f"atlas_batch_{batch_num}.json"
@@ -387,22 +436,17 @@ def _auto_process_batches(batches: list[list[dict]]):
         prompt_path = PROMPTS_DIR / f"atlas_batch_{batch_num}.md"
         if not prompt_path.exists():
             print(f"      Batch {i}/{len(batches)}: Prompt not found ⚠️", flush=True)
+            failures.append(f"batch {batch_num}")
             continue
 
         prompt = prompt_path.read_text()
         print(f"      Batch {i}/{len(batches)}: Processing...", end=" ", flush=True)
 
+        result_text = None
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    temperature=0.3
-                )
-            )
+            result_text = generate_text(client, prompt, temperature=0.3, caller="atlas")
 
             # Parse and save response
-            result_text = response.text
             # Handle potential markdown code blocks
             if result_text.startswith("```"):
                 result_text = result_text.split("```")[1]
@@ -420,11 +464,13 @@ def _auto_process_batches(batches: list[list[dict]]):
 
         except json.JSONDecodeError as e:
             print(f"JSON parse error ⚠️ ({e})", flush=True)
+            failures.append(f"batch {batch_num}")
             # Save raw response for debugging
             error_path = ATLAS_DIR / f"atlas_batch_{batch_num}_raw.txt"
-            error_path.write_text(response.text if response else "No response")
+            error_path.write_text(result_text or "No response")
         except Exception as e:
             print(f"API error ⚠️ ({e})", flush=True)
+            failures.append(f"batch {batch_num}")
             time.sleep(5)  # Longer pause on error
 
     print(f"\n✅ Auto-processing complete: {success_count}/{len(batches)} batches", flush=True)
@@ -432,6 +478,7 @@ def _auto_process_batches(batches: list[list[dict]]):
     if success_count == len(batches):
         print("\n💡 All batches processed! Now run:", flush=True)
         print("   python doc_audit_v2.py atlas --compile", flush=True)
+    exit_if_failed(failures, "atlas batch(es)")
 
 
 def cmd_atlas_compile():
@@ -442,8 +489,7 @@ def cmd_atlas_compile():
     # Load inventory for metadata
     inventory_path = ATLAS_DIR / "doc_inventory.json"
     if not inventory_path.exists():
-        print("Error: Run 'atlas --build' first")
-        return
+        sys.exit("Error: Run 'atlas --build' first")
 
     inventory = {d["path"]: d for d in json.loads(inventory_path.read_text())}
 
@@ -452,10 +498,10 @@ def cmd_atlas_compile():
     batch_files = sorted(ATLAS_DIR.glob("atlas_batch_*.json"))
 
     if not batch_files:
-        print("No atlas batch responses found.")
-        print(f"Save Gemini's responses to: {ATLAS_DIR}/atlas_batch_001.json, etc.")
-        return
+        print(f"Save the model's responses to: {ATLAS_DIR}/atlas_batch_001.json, etc.")
+        sys.exit("Error: No atlas batch responses found.")
 
+    failures = []
     for batch_file in batch_files:
         try:
             batch_data = json.loads(batch_file.read_text())
@@ -477,6 +523,7 @@ def cmd_atlas_compile():
             print(f"   ✅ {batch_file.name}: {len(batch_data)} entries")
         except Exception as e:
             print(f"   ⚠️ {batch_file.name}: {e}")
+            failures.append(batch_file.name)
 
     # Save compiled atlas
     atlas_path = ATLAS_DIR / "semantic_atlas.json"
@@ -495,6 +542,7 @@ def cmd_atlas_compile():
    1. Generate embeddings: python doc_audit_v2.py embeddings --generate
    2. Find similar docs: python doc_audit_v2.py embeddings --cluster
 """)
+    exit_if_failed(failures, "atlas batch file(s)")
 
 
 # ============================================================
@@ -505,48 +553,23 @@ def cmd_embeddings_generate():
     """Generate embeddings for all Atlas entries."""
     import time
 
-    if not GENAI_AVAILABLE:
-        print("Error: google-generativeai not installed", flush=True)
-        print("Run: pip install google-generativeai", flush=True)
-        return
-
     atlas_path = ATLAS_DIR / "semantic_atlas.json"
     if not atlas_path.exists():
-        print("Error: Compile the Atlas first (atlas --compile)", flush=True)
-        return
+        sys.exit("Error: Compile the Atlas first (atlas --compile)")
 
     print("\n🧬 Generating embeddings...\n", flush=True)
 
-    # Configure API
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        # Try Doppler
-        import subprocess
-        try:
-            result = subprocess.run(
-                ["doppler", "secrets", "get", "GOOGLE_API_KEY", "--plain",
-                 "--project", "trading-copilot", "--config", "dev"],
-                capture_output=True, text=True
-            )
-            api_key = result.stdout.strip()
-        except (subprocess.SubprocessError, FileNotFoundError) as e:
-            print(f"Could not fetch API key from Doppler: {e}", flush=True)
-
-    if not api_key:
-        print("Error: GOOGLE_API_KEY not found", flush=True)
-        return
-
-    print(f"   🔑 API key loaded", flush=True)
-    genai.configure(api_key=api_key)
+    client = openrouter_client()
+    print(f"   🔑 OpenRouter key loaded ({EMBEDDING_MODEL})", flush=True)
 
     atlas = json.loads(atlas_path.read_text())
 
-    # Count docs needing embeddings
-    needs_embedding = [e for e in atlas if not e.get("embedding")]
+    # Count docs needing embeddings: none yet, or one from another model
+    needs_embedding = [e for e in atlas if not _has_current_embedding(e)]
     already_done = len(atlas) - len(needs_embedding)
 
     if already_done > 0:
-        print(f"   ✓ {already_done} documents already have embeddings", flush=True)
+        print(f"   ✓ {already_done} documents already have {EMBEDDING_MODEL} embeddings", flush=True)
 
     if not needs_embedding:
         print(f"\n✅ All {len(atlas)} documents already have embeddings!", flush=True)
@@ -557,19 +580,17 @@ def cmd_embeddings_generate():
     # Generate embeddings for each entry
     # We embed: core_purpose + key_points joined
     processed = 0
+    failures = []
     for i, entry in enumerate(atlas):
-        if entry.get("embedding"):
-            continue  # Skip if already has embedding
+        if _has_current_embedding(entry):
+            continue  # Skip if already embedded by the current model
 
         # Create text to embed
         text = f"{entry['core_purpose']} " + " ".join(entry.get('key_points', []))
 
         try:
-            result = genai.embed_content(
-                model="models/text-embedding-004",
-                content=text
-            )
-            entry["embedding"] = result['embedding']
+            entry["embedding"] = embed_text(client, text)
+            entry["embedding_model"] = EMBEDDING_MODEL
             processed += 1
 
             if processed % 50 == 0:
@@ -583,13 +604,20 @@ def cmd_embeddings_generate():
 
         except Exception as e:
             print(f"   ⚠️ {entry['path']}: {e}", flush=True)
+            failures.append(entry['path'])
             time.sleep(2)
 
     # Final save
     atlas_path.write_text(json.dumps(atlas, indent=2))
 
-    embedded_count = sum(1 for e in atlas if e.get("embedding"))
+    embedded_count = sum(1 for e in atlas if _has_current_embedding(e))
     print(f"\n✅ Embeddings complete: {embedded_count}/{len(atlas)} documents")
+    exit_if_failed(failures, "embedding(s)")
+
+
+def _has_current_embedding(entry: dict) -> bool:
+    """True when the entry's vector came from EMBEDDING_MODEL (others are not comparable)."""
+    return bool(entry.get("embedding")) and entry.get("embedding_model") == EMBEDDING_MODEL
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -610,17 +638,21 @@ def cmd_find_similar(threshold: float = 0.85):
 
     atlas_path = ATLAS_DIR / "semantic_atlas.json"
     if not atlas_path.exists():
-        print("Error: Build and compile Atlas first")
-        return
+        sys.exit("Error: Build and compile Atlas first")
 
     atlas = json.loads(atlas_path.read_text())
 
-    # Filter to entries with embeddings
-    with_embeddings = [e for e in atlas if e.get("embedding")]
+    # Filter to entries embedded by the current model; vectors from another
+    # model live in a different space and would produce meaningless scores.
+    with_embeddings = [e for e in atlas if _has_current_embedding(e)]
 
+    clusters_path = CLUSTERS_DIR / "similar_docs.json"
     if not with_embeddings:
-        print("No embeddings found. Run: embeddings --generate")
-        return
+        # Replace any earlier cluster file so audit never reads results
+        # computed from vectors that are no longer current.
+        CLUSTERS_DIR.mkdir(parents=True, exist_ok=True)
+        clusters_path.write_text("[]")
+        sys.exit(f"Error: No {EMBEDDING_MODEL} embeddings found. Run: embeddings --generate")
 
     print(f"\n🔍 Finding similar documents (threshold: {threshold})...\n")
 
@@ -657,7 +689,8 @@ def cmd_find_similar(threshold: float = 0.85):
                     "core_purpose": doc_a.get("core_purpose", "")
                 },
                 "similar": sorted(similar, key=lambda x: -x["similarity"]),
-                "size": len(similar) + 1
+                "size": len(similar) + 1,
+                "embedding_model": EMBEDDING_MODEL,
             }
             clusters.append(cluster)
             seen.add(doc_a["path"])
@@ -668,7 +701,6 @@ def cmd_find_similar(threshold: float = 0.85):
     clusters.sort(key=lambda x: -x["size"])
 
     # Save clusters
-    clusters_path = CLUSTERS_DIR / "similar_docs.json"
     clusters_path.write_text(json.dumps(clusters, indent=2))
 
     # Generate report
@@ -818,11 +850,17 @@ def cmd_audit(project: Optional[str] = None, projects_list: Optional[str] = None
     clusters_path = CLUSTERS_DIR / "similar_docs.json"
 
     if not atlas_path.exists():
-        print("Error: Build the Atlas first", flush=True)
-        return
+        sys.exit("Error: Build the Atlas first")
 
     atlas = json.loads(atlas_path.read_text())
     clusters = json.loads(clusters_path.read_text()) if clusters_path.exists() else []
+    # Similarity scores are only meaningful within the embedding model that
+    # produced them; ignore clusters computed with any other (or untagged).
+    usable = [c for c in clusters if c.get("embedding_model") == EMBEDDING_MODEL]
+    if len(usable) < len(clusters):
+        print(f"   ⚠️ Ignoring {len(clusters) - len(usable)} cluster(s) not computed with "
+              f"{EMBEDDING_MODEL}; rerun: embeddings --cluster", flush=True)
+    clusters = usable
 
     if projects_list:
         # Comma-separated list of projects
@@ -834,36 +872,14 @@ def cmd_audit(project: Optional[str] = None, projects_list: Optional[str] = None
 
     print(f"\n⚖️  Auditor Pass: {len(projects)} projects\n", flush=True)
 
-    # Get API key if auto mode
-    api_key = None
-    model = None
+    # OpenRouter client if auto mode
+    client = None
     if auto:
-        if not GENAI_AVAILABLE:
-            print("Error: google-generativeai not installed", flush=True)
-            return
-
-        api_key = os.environ.get("GOOGLE_API_KEY")
-        if not api_key:
-            import subprocess
-            try:
-                result = subprocess.run(
-                    ["doppler", "secrets", "get", "GOOGLE_API_KEY", "--plain",
-                     "--project", "trading-copilot", "--config", "dev"],
-                    capture_output=True, text=True
-                )
-                api_key = result.stdout.strip()
-            except (subprocess.SubprocessError, FileNotFoundError) as e:
-                print(f"Could not fetch API key from Doppler: {e}", flush=True)
-
-        if not api_key:
-            print("Error: GOOGLE_API_KEY not found", flush=True)
-            return
-
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
-        print(f"   🔑 API key loaded, auto-processing enabled\n", flush=True)
+        client = openrouter_client()
+        print(f"   🔑 OpenRouter key loaded ({GENERATION_MODEL}), auto-processing enabled\n", flush=True)
 
     success_count = 0
+    failures = []
     for proj in projects:
         proj_docs = [e for e in atlas if e["project"] == proj]
         if len(proj_docs) < 2:
@@ -882,18 +898,12 @@ def cmd_audit(project: Optional[str] = None, projects_list: Optional[str] = None
         prompt_path = PROMPTS_DIR / f"audit_{proj}.md"
         prompt_path.write_text(prompt)
 
-        if auto and model:
+        if auto and client:
             print(f"   🔄 {proj}: Processing {len(proj_docs)} docs...", end=" ", flush=True)
+            result_text = None
             try:
-                response = model.generate_content(
-                    prompt,
-                    generation_config=genai.GenerationConfig(
-                        response_mime_type="application/json",
-                        temperature=0.3
-                    )
-                )
+                result_text = generate_text(client, prompt, temperature=0.3, caller="audit")
 
-                result_text = response.text
                 if result_text.startswith("```"):
                     result_text = result_text.split("```")[1]
                     if result_text.startswith("json"):
@@ -906,23 +916,26 @@ def cmd_audit(project: Optional[str] = None, projects_list: Optional[str] = None
                 time.sleep(1)  # Rate limiting
 
             except json.JSONDecodeError:
-                print(f"JSON error ⚠️", flush=True)
+                print("JSON error ⚠️", flush=True)
+                failures.append(proj)
                 error_path = ACTIONS_DIR / f"audit_{proj}_raw.txt"
-                error_path.write_text(response.text if response else "No response")
+                error_path.write_text(result_text or "No response")
             except Exception as e:
                 print(f"API error: {e} ⚠️", flush=True)
+                failures.append(proj)
                 time.sleep(3)
         else:
             print(f"   ✅ {proj}: {len(proj_docs)} docs → {prompt_path.name}", flush=True)
 
     if auto:
         print(f"\n✅ Auditor complete: {success_count}/{len(projects)} projects processed", flush=True)
+        exit_if_failed(failures, "audit project(s)")
     else:
         print(f"""
 📂 Prompts saved to: {PROMPTS_DIR}
 
 💡 Next steps:
-   1. Feed each audit prompt to Gemini
+   1. Feed each audit prompt to the model
    2. Save responses to: {ACTIONS_DIR}/audit_{{project}}.json
    3. Run: python doc_audit_v2.py report
 """, flush=True)
@@ -973,8 +986,8 @@ def _count_embeddings(atlas_path: Path) -> str:
     if not atlas_path.exists():
         return "N/A"
     atlas = json.loads(atlas_path.read_text())
-    with_emb = sum(1 for e in atlas if e.get("embedding"))
-    return f"{with_emb}/{len(atlas)}"
+    with_emb = sum(1 for e in atlas if _has_current_embedding(e))
+    return f"{with_emb}/{len(atlas)} ({EMBEDDING_MODEL})"
 
 
 def _count_clusters() -> str:
@@ -1151,8 +1164,7 @@ def cmd_surgeon(action: str = "list", dry_run: bool = True):
 
 
 def cmd_merge_process(task_id: str = None, auto: bool = False, dry_run: bool = True):
-    """Process merge tasks via Gemini API."""
-    import subprocess
+    """Process merge tasks via OpenRouter."""
     import time
 
     MERGE_DIR = AUDIT_DIR / "merge_tasks"
@@ -1189,20 +1201,12 @@ def cmd_merge_process(task_id: str = None, auto: bool = False, dry_run: bool = T
     print(f"\n📋 Pending: {len(pending)} merge tasks", flush=True)
 
     if not auto:
-        print("\nRun with --auto to process via Gemini API", flush=True)
+        print("\nRun with --auto to process via OpenRouter", flush=True)
         return
 
-    # Get API key
-    result = subprocess.run(
-        ['doppler', 'secrets', 'get', 'GOOGLE_API_KEY', '--plain',
-         '--project', 'trading-copilot', '--config', 'dev'],
-        capture_output=True, text=True
-    )
-    api_key = result.stdout.strip()
+    client = openrouter_client()
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
-
+    failures = []
     for i, task in enumerate(pending):
         task_file = MERGE_DIR / f"{task['task_id']}.md"
         task_content = task_file.read_text()
@@ -1224,15 +1228,9 @@ OUTPUT: The complete merged document in markdown format.
 """
 
         try:
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.1,
-                    max_output_tokens=8192,
-                )
-            )
-
-            merged_content = response.text.strip()
+            merged_content = generate_text(
+                client, prompt, temperature=0.1, max_tokens=8192, caller="merge"
+            ).strip()
 
             # Save merged output
             output_path = MERGE_OUTPUT_DIR / f"{task['task_id']}_merged.md"
@@ -1248,6 +1246,7 @@ OUTPUT: The complete merged document in markdown format.
 
         except Exception as e:
             print(f"❌ Error: {e}", flush=True)
+            failures.append(task['task_id'])
 
         # Rate limit
         if i < len(pending) - 1:
@@ -1255,6 +1254,7 @@ OUTPUT: The complete merged document in markdown format.
 
     print(f"\n✅ Processed {len(pending)} merge tasks", flush=True)
     print(f"   Output: {MERGE_OUTPUT_DIR}/", flush=True)
+    exit_if_failed(failures, "merge task(s)")
 
 
 # ============================================================
@@ -1262,8 +1262,7 @@ OUTPUT: The complete merged document in markdown format.
 # ============================================================
 
 def cmd_refine(project: str = None, auto: bool = False):
-    """Process refinement tasks via Gemini API."""
-    import subprocess
+    """Process refinement tasks via OpenRouter."""
     import time
 
     REFINE_DIR = AUDIT_DIR / "refine_tasks"
@@ -1308,21 +1307,13 @@ def cmd_refine(project: str = None, auto: bool = False):
             output_dir = REFINE_OUTPUT_DIR / b['project']
             done = len(list(output_dir.glob('*.md'))) if output_dir.exists() else 0
             print(f"   {b['project']}: {b['count']} docs ({done} done)", flush=True)
-        print("\nRun with --auto to process via Gemini API", flush=True)
+        print("\nRun with --auto to process via OpenRouter", flush=True)
         return
 
-    # Get API key
-    result = subprocess.run(
-        ['doppler', 'secrets', 'get', 'GOOGLE_API_KEY', '--plain',
-         '--project', 'trading-copilot', '--config', 'dev'],
-        capture_output=True, text=True
-    )
-    api_key = result.stdout.strip()
-
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    client = openrouter_client()
 
     total_refined = 0
+    failures = []
     for batch in batches:
         proj = batch['project']
         batch_file = REFINE_DIR / batch['batch_file']
@@ -1366,17 +1357,13 @@ def cmd_refine(project: str = None, auto: bool = False):
 """
 
             try:
-                response = model.generate_content(
-                    prompt,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=0.3,
-                        max_output_tokens=4096,
-                    )
-                )
-
-                refined = response.text.strip()
+                refined = generate_text(
+                    client, prompt, temperature=0.3, max_tokens=4096, caller="refine"
+                ).strip()
                 if refined.startswith('```'):
                     refined = refined.split('\n', 1)[1].rsplit('```', 1)[0]
+                if not refined.strip():
+                    raise RuntimeError("model returned only an empty code block")
 
                 output_path.write_text(refined)
                 total_refined += 1
@@ -1384,12 +1371,14 @@ def cmd_refine(project: str = None, auto: bool = False):
 
             except Exception as e:
                 print(f"❌ {e}", flush=True)
+                failures.append(doc['path'])
 
             # Rate limit
             time.sleep(7)
 
     print(f"\n✅ Refined {total_refined} documents", flush=True)
     print(f"   Output: {REFINE_OUTPUT_DIR}/", flush=True)
+    exit_if_failed(failures, "refinement(s)")
 
 
 # ============================================================
@@ -1483,7 +1472,7 @@ def main():
     atlas_parser = subparsers.add_parser("atlas", help="Semantic Atlas operations")
     atlas_parser.add_argument("--build", action="store_true", help="Build Atlas prompts")
     atlas_parser.add_argument("--compile", action="store_true", help="Compile Atlas from responses")
-    atlas_parser.add_argument("--auto", action="store_true", help="Auto-process batches via Gemini API")
+    atlas_parser.add_argument("--auto", action="store_true", help="Auto-process batches via OpenRouter")
 
     # Embeddings commands
     emb_parser = subparsers.add_parser("embeddings", help="Embedding operations")
@@ -1495,7 +1484,7 @@ def main():
     audit_parser = subparsers.add_parser("audit", help="Run Auditor pass")
     audit_parser.add_argument("--project", type=str, help="Target specific project")
     audit_parser.add_argument("--projects", type=str, help="Comma-separated list of projects")
-    audit_parser.add_argument("--auto", action="store_true", help="Auto-process via Gemini API")
+    audit_parser.add_argument("--auto", action="store_true", help="Auto-process via OpenRouter")
 
     # Surgeon command
     surgeon_parser = subparsers.add_parser("surgeon", help="Content Surgeon - execute merges/deletes")
@@ -1503,15 +1492,15 @@ def main():
     surgeon_parser.add_argument("--delete", action="store_true", help="Execute delete operations")
     surgeon_parser.add_argument("--merge", action="store_true", help="Execute merge operations (simple append)")
     surgeon_parser.add_argument("--merge-export", action="store_true", help="Export merge tasks to files")
-    surgeon_parser.add_argument("--merge-process", action="store_true", help="Process merge tasks via Gemini")
+    surgeon_parser.add_argument("--merge-process", action="store_true", help="Process merge tasks via OpenRouter")
     surgeon_parser.add_argument("--task", type=str, help="Specific task ID for merge-process")
-    surgeon_parser.add_argument("--auto", action="store_true", help="Auto-process via Gemini API")
+    surgeon_parser.add_argument("--auto", action="store_true", help="Auto-process via OpenRouter")
     surgeon_parser.add_argument("--execute", action="store_true", help="Actually execute (default is dry-run)")
 
     # Refine command
-    refine_parser = subparsers.add_parser("refine", help="Refine documents via Gemini")
+    refine_parser = subparsers.add_parser("refine", help="Refine documents via OpenRouter")
     refine_parser.add_argument("--project", type=str, help="Process specific project")
-    refine_parser.add_argument("--auto", action="store_true", help="Auto-process via Gemini API")
+    refine_parser.add_argument("--auto", action="store_true", help="Auto-process via OpenRouter")
 
     # QC command
     qc_parser = subparsers.add_parser("qc", help="Quality Control - review REFINE candidates")
