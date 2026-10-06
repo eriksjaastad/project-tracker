@@ -22,7 +22,7 @@ characters.
 Excluded from seats:
 
 - `scripts/card_factory_grok.py`: standalone Stage-2/shadow agentic-coding experiment, not an operational project chair
-- `scripts/doc_audit_v2.py`: dormant legacy automation; its launchd job is not installed and its historical dependency is absent
+- `scripts/doc_audit_v2.py`: dormant legacy automation, never installed under launchd; retired in #7975
 - `scripts/card-factory.sh` and `scripts/portfolio-architecture-review.sh`: real workflows whose model definitions and pins are owned outside this repository
 - provider catalogs, cost/shadow-pricing records, comments, examples, and tests: metadata rather than model invocation jobs
 
