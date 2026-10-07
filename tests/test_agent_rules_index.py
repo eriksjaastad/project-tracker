@@ -27,7 +27,7 @@ def _local_targets(text: str) -> list[str]:
 def test_every_index_link_resolves() -> None:
     targets = _local_targets(INDEX.read_text())
     assert targets, "index lists no documents"
-    dead = [t for t in targets if not (RULES_DIR / t).exists()]
+    dead = [t for t in targets if not (RULES_DIR / t).is_file()]
     assert dead == [], f"dead links in {INDEX.name}: {dead}"
 
 
