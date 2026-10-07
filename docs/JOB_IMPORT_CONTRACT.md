@@ -34,7 +34,7 @@ Each line must be a valid JSON object with these fields:
 
 HN "Who's Hiring" comments are free text, and one comment often advertises several roles. Their headers cannot be parsed completely, so the contract guarantees one row per comment and treats per-role rows as extras:
 
-1. **Guaranteed `#post` row**: Every exported HN comment produces exactly one JSONL line with URL `{comment_url}#post` and the **full comment text** in `raw`. `company` and `title` are best-effort; when they cannot be parsed, use `company: "Unknown"` and `title: "See raw text"`. Because this row always carries the whole comment, no advertised role is lost even when parsing fails.
+1. **Guaranteed `#post` row**: Every exported HN comment produces exactly one JSONL line with URL `{comment_url}#post` and the **full comment text** in `raw`. Its `title` is always `"Full HN post (read for every role)"`. `company` is best-effort; when the header cannot be parsed, use `company: "Hacker News (company not parsed)"`. Because this row always carries the whole comment, no advertised role is lost even when parsing fails.
 2. **Best-effort `#role-N` rows**: When the exporter can confidently split out individual roles, it may also emit one line per role with URL `{comment_url}#role-{N}` (N starting at 1, stable for the same comment text). These are optional and may be incomplete; consumers must not assume every role has one.
 
 **Contract violation**: Omitting the `#post` row for an exported comment, or emitting it without the full comment text, is not allowed. Missing or partial `#role-N` rows are not a violation.
@@ -52,9 +52,9 @@ The importer needs no special handling: `url` is the unique key, so `#post` and 
 
 ```jsonl
 {"company": "Acme Corp", "title": "Senior React Engineer", "url": "https://jobs.acme.com/123", "source": "ats_sweep", "location": "Remote", "category": "Frontend/React", "raw": "<html>...original ATS posting...</html>"}
-{"company": "Widget Inc", "title": "See raw text", "url": "https://news.ycombinator.com/item?id=12345678#post", "source": "hn", "category": "Other", "raw": "Widget Inc | Full Stack, Backend | Remote | $120k-$180k\n\nWe're looking for..."}
+{"company": "Widget Inc", "title": "Full HN post (read for every role)", "url": "https://news.ycombinator.com/item?id=12345678#post", "source": "hn", "category": "Other", "raw": "Widget Inc | Full Stack, Backend | Remote | $120k-$180k\n\nWe're looking for..."}
 {"company": "Widget Inc", "title": "Full Stack Developer", "url": "https://news.ycombinator.com/item?id=12345678#role-1", "source": "hn", "category": "Full Stack", "raw": "Widget Inc | Full Stack, Backend | Remote | $120k-$180k\n\nWe're looking for..."}
-{"company": "Unknown", "title": "See raw text", "url": "https://news.ycombinator.com/item?id=87654321#post", "source": "hn", "category": "Other", "raw": "Stealth startup | multiple roles | contact jobs@example.com"}
+{"company": "Hacker News (company not parsed)", "title": "Full HN post (read for every role)", "url": "https://news.ycombinator.com/item?id=87654321#post", "source": "hn", "category": "Other", "raw": "Stealth startup | multiple roles | contact jobs@example.com"}
 ```
 
 ## Usage
@@ -78,7 +78,7 @@ The job-search repository will need:
 2. Print normal stdout by default (unchanged behavior)
 3. When `--export-jsonl` is set, write JSONL to stdout instead (or to a specified file)
 4. For HN comments:
-   - Always export one `#post` line per comment with the full comment text in `raw` ("Unknown"/"See raw text" when the header can't be parsed)
+   - Always export one `#post` line per comment with the full comment text in `raw`, titled "Full HN post (read for every role)" (company "Hacker News (company not parsed)" when the header can't be parsed)
    - Optionally add `#role-N` lines (stable fragments #role-1, #role-2, ...) for roles that parse cleanly
 5. Always include `raw` field when available
 

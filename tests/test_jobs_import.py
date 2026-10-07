@@ -136,8 +136,10 @@ def test_hn_multi_role_contract_documented_in_import_contract() -> None:
     assert "full comment text" in contract.lower()
     assert "#role-{N}" in contract
     assert "best-effort" in contract.lower()
-    assert "Unknown" in contract
-    assert "See raw text" in contract
+    assert "Hacker News (company not parsed)" in contract
+    assert "Full HN post (read for every role)" in contract
+    assert '"Unknown"' not in contract  # retired label (job-search PR #20)
+    assert '"See raw text"' not in contract
     assert "Contract violation" in contract
     assert "Every advertised position must produce one JSONL line" not in contract
 
@@ -146,7 +148,7 @@ def test_hn_post_and_role_rows_import_as_separate_jobs(db, tmp_path: Path) -> No
     """A comment's guaranteed #post row and its best-effort #role-N rows are distinct jobs."""
     jsonl = tmp_path / "hn_multi.jsonl"
     jsonl.write_text(
-        '{"company": "Widget Inc", "title": "See raw text", '
+        '{"company": "Widget Inc", "title": "Full HN post (read for every role)", '
         '"url": "https://news.ycombinator.com/item?id=12345678#post", '
         '"source": "hn", "category": "Other", '
         '"raw": "Widget Inc | Full Stack, Backend | Remote | Apply at jobs@widget.com"}\n'
@@ -156,7 +158,7 @@ def test_hn_post_and_role_rows_import_as_separate_jobs(db, tmp_path: Path) -> No
         '"source": "hn", "category": "Full Stack", '
         '"raw": "Widget Inc | Full Stack, Backend | Remote | Apply at jobs@widget.com"}\n'
 
-        '{"company": "Unknown", "title": "See raw text", '
+        '{"company": "Hacker News (company not parsed)", "title": "Full HN post (read for every role)", '
         '"url": "https://news.ycombinator.com/item?id=87654321#post", '
         '"source": "hn", "category": "Other", '
         '"raw": "Stealth startup | multiple roles | contact: secret@example.com"}\n'
@@ -181,8 +183,8 @@ def test_hn_post_and_role_rows_import_as_separate_jobs(db, tmp_path: Path) -> No
 
     # An unparseable comment still arrives through its #post row.
     unknown = imported[2]
-    assert unknown["company"] == "Unknown"
-    assert unknown["title"] == "See raw text"
+    assert unknown["company"] == "Hacker News (company not parsed)"
+    assert unknown["title"] == "Full HN post (read for every role)"
     assert "Stealth startup" in unknown["raw"]
     
     # All have raw text
