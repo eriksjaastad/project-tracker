@@ -959,7 +959,7 @@ class TestLoadCodexLauncher:
         assert ad.sys.path == path_before
 
 
-_REAL_LAUNCHER =ad.Path.home() / ".claude" / "scripts" / "codex_pr_review.py"
+_REAL_LAUNCHER = ad.Path.home() / ".claude" / "scripts" / "codex_pr_review.py"
 
 
 @pytest.mark.skipif(not _REAL_LAUNCHER.is_file(), reason="claude-user-config launcher not installed")

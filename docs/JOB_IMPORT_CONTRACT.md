@@ -54,7 +54,7 @@ The importer needs no special handling: `url` is the unique key, so `#post` and 
 {"company": "Acme Corp", "title": "Senior React Engineer", "url": "https://jobs.acme.com/123", "source": "ats_sweep", "location": "Remote", "category": "Frontend/React", "raw": "<html>...original ATS posting...</html>"}
 {"company": "Widget Inc", "title": "Full HN post (read for every role)", "url": "https://news.ycombinator.com/item?id=12345678#post", "source": "hn", "category": "Other", "raw": "Widget Inc | Full Stack, Backend | Remote | $120k-$180k\n\nWe're looking for..."}
 {"company": "Widget Inc", "title": "Full Stack Developer", "url": "https://news.ycombinator.com/item?id=12345678#role-1", "source": "hn", "category": "Full Stack", "raw": "Widget Inc | Full Stack, Backend | Remote | $120k-$180k\n\nWe're looking for..."}
-{"company": "Hacker News (company not parsed)", "title": "Full HN post (read for every role)", "url": "https://news.ycombinator.com/item?id=87654321#post", "source": "hn", "category": "Other", "raw": "Stealth startup | multiple roles | contact jobs@example.com"}
+{"company": "Hacker News (company not parsed)", "title": "Full HN post (read for every role)", "url": "https://news.ycombinator.com/item?id=87654321#post", "source": "hn", "category": "Other", "raw": "Stealth startup hiring several engineers, contact jobs@example.com"}
 ```
 
 ## Usage

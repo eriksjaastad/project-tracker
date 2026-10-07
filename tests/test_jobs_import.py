@@ -161,7 +161,7 @@ def test_hn_post_and_role_rows_import_as_separate_jobs(db, tmp_path: Path) -> No
         '{"company": "Hacker News (company not parsed)", "title": "Full HN post (read for every role)", '
         '"url": "https://news.ycombinator.com/item?id=87654321#post", '
         '"source": "hn", "category": "Other", '
-        '"raw": "Stealth startup | multiple roles | contact: secret@example.com"}\n'
+        '"raw": "Stealth startup hiring several engineers, contact: secret@example.com"}\n'
     )
 
     import json
