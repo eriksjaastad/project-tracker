@@ -34,7 +34,7 @@ def test_every_index_link_resolves() -> None:
 def test_every_rules_document_is_indexed() -> None:
     linked = {(RULES_DIR / t).resolve() for t in _local_targets(INDEX.read_text())}
     unlisted = sorted(
-        p.name for p in RULES_DIR.glob("*.md")
+        p.relative_to(RULES_DIR).as_posix() for p in RULES_DIR.rglob("*.md")
         if p != INDEX and p.resolve() not in linked
     )
     assert unlisted == [], f"documents missing from {INDEX.name}: {unlisted}"
