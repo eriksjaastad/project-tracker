@@ -933,6 +933,32 @@ class TestPausedReviewLoops:
         assert "Subject: [Project Alerts] ⚠️ Digest degraded, ⏸️ 1 paused review loop" in out
 
 
+class TestLoadCodexLauncher:
+    def test_launcher_can_import_its_sibling_modules(self, monkeypatch, tmp_path):
+        # The real launcher does `import user_presence` from its own directory (#7915).
+        sibling = "_digest_test_sibling_module"
+        (tmp_path / f"{sibling}.py").write_text("VALUE = 7\n")
+        launcher_path = tmp_path / "launcher.py"
+        launcher_path.write_text(f"import {sibling}\nFAIL_LIMIT = {sibling}.VALUE\n")
+        monkeypatch.setattr(ad, "CODEX_LAUNCHER", launcher_path)
+        monkeypatch.delitem(ad.sys.modules, sibling, raising=False)
+        path_before = list(ad.sys.path)
+        try:
+            assert ad._load_codex_launcher().FAIL_LIMIT == 7
+        finally:
+            ad.sys.modules.pop(sibling, None)
+        assert ad.sys.path == path_before
+
+    def test_sys_path_is_restored_when_the_launcher_fails(self, monkeypatch, tmp_path):
+        launcher_path = tmp_path / "launcher.py"
+        launcher_path.write_text("raise RuntimeError('boom')\n")
+        monkeypatch.setattr(ad, "CODEX_LAUNCHER", launcher_path)
+        path_before = list(ad.sys.path)
+        with pytest.raises(RuntimeError, match="boom"):
+            ad._load_codex_launcher()
+        assert ad.sys.path == path_before
+
+
 _REAL_LAUNCHER = ad.Path.home() / ".claude" / "scripts" / "codex_pr_review.py"
 
 

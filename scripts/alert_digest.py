@@ -268,7 +268,14 @@ def _load_codex_launcher():
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load review launcher at {CODEX_LAUNCHER}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # The launcher imports siblings from its own directory (user_presence,
+    # #7915), which resolve when it runs as a script. Mirror that while loading.
+    launcher_dir = str(CODEX_LAUNCHER.parent)
+    sys.path.insert(0, launcher_dir)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(launcher_dir)
     return module
 
 
