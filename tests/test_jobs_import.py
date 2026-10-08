@@ -352,6 +352,16 @@ def test_cli_import_dry_run_mode(tmp_path: Path) -> None:
     assert "DRY RUN: Would import 1 job(s)" in result.stdout
 
 
+def _run_import_json(jsonl: Path) -> subprocess.CompletedProcess:
+    """`pt jobs import --json`, bounded; JSON mode reports line errors with exit 0."""
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl), "--json"],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    return result
+
+
 def test_cli_import_kind_and_rejects_unknown_kind(db, tmp_path: Path) -> None:
     """kind is optional (default 'job'); 'volunteer' lands on the Volunteer page; others are rejected."""
     jsonl = tmp_path / "kinds.jsonl"
@@ -360,10 +370,7 @@ def test_cli_import_kind_and_rejects_unknown_kind(db, tmp_path: Path) -> None:
         '{"company": "Food Bank", "title": "Website help", "url": "https://example.test/k2", "source": "manual", "kind": "volunteer"}\n'
         '{"company": "Gig Co", "title": "Driver", "url": "https://example.test/k3", "source": "manual", "kind": "gig"}\n'
     )
-    result = subprocess.run(
-        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl), "--json"],
-        capture_output=True, text=True, cwd=Path(__file__).parent.parent
-    )
+    result = _run_import_json(jsonl)
     response = json.loads(result.stdout)
     assert response["ok"] is False
     assert response["result"]["imported"] == 2
@@ -380,3 +387,44 @@ def test_cli_import_kind_and_rejects_unknown_kind(db, tmp_path: Path) -> None:
 def test_kind_documented_in_import_contract() -> None:
     contract = (Path(__file__).parent.parent / "docs" / "JOB_IMPORT_CONTRACT.md").read_text()
     assert "`kind`" in contract and "`volunteer`" in contract
+
+
+_GOOD = {"company": "Acme", "title": "Engineer", "source": "manual"}
+
+# Each bad line must reject only itself; a valid line after it still imports.
+_BAD_LINES = [
+    ("not an object", [1, 2], "must be a JSON object"),
+    ("number line", 5, "must be a JSON object"),
+    ("company list", {**_GOOD, "company": ["Acme"]}, "invalid company"),
+    ("title number", {**_GOOD, "title": 42}, "invalid title"),
+    ("url object", {**_GOOD, "url": {"href": "x"}}, "invalid url"),
+    ("source object", {**_GOOD, "source": {"hn": 1}}, "invalid source"),
+    ("source unknown", {**_GOOD, "source": "linkedin"}, "invalid source"),
+    ("category list", {**_GOOD, "category": ["SEO"]}, "invalid category"),
+    ("category null", {**_GOOD, "category": None}, "invalid category"),
+    ("kind list", {**_GOOD, "kind": []}, "invalid kind"),
+    ("kind object", {**_GOOD, "kind": {"a": 1}}, "invalid kind"),
+    ("kind unknown", {**_GOOD, "kind": "gig"}, "invalid kind"),
+    ("location list", {**_GOOD, "location": ["Remote"]}, "invalid location"),
+    ("posted_date number", {**_GOOD, "posted_date": 20261001}, "invalid posted_date"),
+    ("raw object", {**_GOOD, "raw": {"html": "<p>"}}, "invalid raw"),
+    ("missing company", {k: v for k, v in _GOOD.items() if k != "company"}, "missing required fields: company"),
+]
+
+
+@pytest.mark.parametrize("label,bad,reason", _BAD_LINES, ids=[row[0] for row in _BAD_LINES])
+def test_cli_import_rejects_only_the_bad_line(db, tmp_path: Path, label: str, bad, reason: str) -> None:
+    if isinstance(bad, dict) and "company" in bad:
+        bad = {**bad, "url": bad.get("url", "https://example.test/bad")}
+    good = {**_GOOD, "url": "https://example.test/good", "kind": "volunteer",
+            "location": None, "posted_date": "2026-10-01", "raw": "text"}
+    jsonl = tmp_path / "mixed.jsonl"
+    jsonl.write_text(json.dumps(bad) + "\n" + json.dumps(good) + "\n")
+
+    response = json.loads(_run_import_json(jsonl).stdout)
+    assert response["ok"] is False
+    assert response["result"]["imported"] == 1
+    [error] = response["result"]["details"]["errors"]
+    assert error["line"] == 1 and reason in error["reason"], error
+    assert [job["url"] for job in db.get_open_jobs("volunteer")] == ["https://example.test/good"]
+    assert db.get_open_jobs() == []

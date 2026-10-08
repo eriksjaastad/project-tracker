@@ -5716,7 +5716,7 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
     Upserts jobs by URL (unique key). Preserves first_seen, deleted_at, and existing
     raw text on conflict. See docs/JOB_IMPORT_CONTRACT.md for full contract.
     """
-    from db.jobs import JOB_CATEGORIES, JOB_KINDS, JOB_SOURCES
+    from db.jobs import validate_import_record
     
     errors: list[dict] = []
     imported: list[dict] = []
@@ -5738,44 +5738,11 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
                     })
                     continue
                 
-                # Validate required fields
-                missing_fields = [
-                    f for f in ("company", "title", "url", "source")
-                    if f not in record or not record[f]
-                ]
-                if missing_fields:
-                    errors.append({
-                        "line": line_num,
-                        "reason": f"missing required fields: {', '.join(missing_fields)}",
-                        "data": record,
-                    })
-                    continue
-                
-                source = record.get("source")
-                if source not in JOB_SOURCES:
-                    errors.append({
-                        "line": line_num,
-                        "reason": f"invalid source: {source!r}; must be one of {list(JOB_SOURCES)}",
-                        "data": record,
-                    })
-                    continue
-                
-                category = record.get("category", "Other")
-                if category not in JOB_CATEGORIES:
-                    errors.append({
-                        "line": line_num,
-                        "reason": f"invalid category: {category!r}; must be one of {list(JOB_CATEGORIES)}",
-                        "data": record,
-                    })
-                    continue
-                
-                kind = record.get("kind")
-                if kind is not None and kind not in JOB_KINDS:
-                    errors.append({
-                        "line": line_num,
-                        "reason": f"invalid kind: {kind!r}; must be one of {sorted(JOB_KINDS)}",
-                        "data": record,
-                    })
+                # Type and value checks reject only this line (#101668605654102016).
+                try:
+                    fields = validate_import_record(record)
+                except ValueError as exc:
+                    errors.append({"line": line_num, "reason": str(exc), "data": record})
                     continue
 
                 if dry_run:
@@ -5784,17 +5751,7 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
                 
                 try:
                     db = DatabaseManager()
-                    job = db.upsert_job(
-                        company=record["company"],
-                        title=record["title"],
-                        url=record["url"],
-                        source=source,
-                        location=record.get("location"),
-                        posted_date=record.get("posted_date"),
-                        category=category,
-                        raw=record.get("raw"),
-                        kind=kind,
-                    )
+                    job = db.upsert_job(**fields)
                     imported.append({
                         "line": line_num,
                         "url": record["url"],

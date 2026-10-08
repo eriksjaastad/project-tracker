@@ -21,6 +21,47 @@ _OPEN = """j.deleted_at IS NULL AND NOT EXISTS (
              SELECT 1 FROM job_submissions AS s WHERE s.job_id = j.id)"""
 
 
+_REQUIRED_IMPORT_FIELDS = ("company", "title", "url", "source")
+_OPTIONAL_TEXT_FIELDS = ("location", "posted_date", "raw")
+
+
+def validate_import_record(record: Any) -> dict[str, Any]:
+    """Check one decoded JSONL line; return upsert_job kwargs or raise ValueError.
+
+    Every value is type-checked before any set lookup, so a list or object
+    where a string belongs rejects only its own line instead of raising
+    TypeError out of the whole import.
+    """
+    if not isinstance(record, dict):
+        raise ValueError("line must be a JSON object")
+    missing = [f for f in _REQUIRED_IMPORT_FIELDS if not record.get(f)]
+    if missing:
+        raise ValueError(f"missing required fields: {', '.join(missing)}")
+    for field in _REQUIRED_IMPORT_FIELDS:
+        if not isinstance(record[field], str):
+            raise ValueError(f"invalid {field}: {record[field]!r}; must be a string")
+    source = record["source"]
+    if source not in JOB_SOURCES:
+        raise ValueError(f"invalid source: {source!r}; must be one of {sorted(JOB_SOURCES)}")
+    category = record.get("category", "Other")
+    if not isinstance(category, str) or category not in JOB_CATEGORIES:
+        raise ValueError(
+            f"invalid category: {category!r}; must be one of {sorted(JOB_CATEGORIES)}"
+        )
+    kind = record.get("kind")
+    if kind is not None and (not isinstance(kind, str) or kind not in JOB_KINDS):
+        raise ValueError(f"invalid kind: {kind!r}; must be one of {sorted(JOB_KINDS)}")
+    for field in _OPTIONAL_TEXT_FIELDS:
+        value = record.get(field)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"invalid {field}: {value!r}; must be a string or null")
+    return {
+        "company": record["company"], "title": record["title"], "url": record["url"],
+        "source": source, "category": category, "kind": kind,
+        **{field: record.get(field) for field in _OPTIONAL_TEXT_FIELDS},
+    }
+
+
 class JobsMigrationPendingError(ValueError):
     """A volunteer operation on a database still waiting for migration 016."""
 
@@ -63,14 +104,18 @@ class JobsMixin:
         import keeps whatever kind the row already has. A row that ends up
         a job loses any volunteering_since, which only volunteer roles carry.
         """
+        if not all(isinstance(value, str) for value in (company, title, url)):
+            raise ValueError("company, title and url must be strings")
         company, title, url = company.strip(), title.strip(), url.strip()
         if not company or not title or not url:
             raise ValueError("company, title and url are required")
-        if source not in JOB_SOURCES:
+        # isinstance first: an unhashable value must be a ValueError, not a
+        # TypeError from the set lookup.
+        if not isinstance(source, str) or source not in JOB_SOURCES:
             raise ValueError("invalid job source")
-        if category not in JOB_CATEGORIES:
+        if not isinstance(category, str) or category not in JOB_CATEGORIES:
             raise ValueError("invalid job category")
-        if kind is not None and kind not in JOB_KINDS:
+        if kind is not None and (not isinstance(kind, str) or kind not in JOB_KINDS):
             raise ValueError("invalid job kind")
         first_seen = datetime.now(timezone.utc).date().isoformat()
         with self._db._get_conn() as conn:

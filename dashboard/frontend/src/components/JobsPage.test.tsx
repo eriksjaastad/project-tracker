@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 
@@ -55,7 +55,7 @@ describe('JobsPage', () => {
     vi.resetAllMocks();
   });
 
-  it('groups jobs by company', async () => {
+  it('lists jobs flat in server rank order, never regrouped by company', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -74,19 +74,6 @@ describe('JobsPage', () => {
             raw: null,
           },
           {
-            id: 2,
-            company: 'Acme Corp',
-            title: 'Backend Engineer',
-            url: 'https://example.com/job2',
-            location: 'Remote',
-            posted_date: '2026-09-21',
-            first_seen: '2026-09-23',
-            category: 'Backend',
-            source: 'ats_sweep',
-            deleted_at: null,
-            raw: null,
-          },
-          {
             id: 3,
             company: 'Tech Inc',
             title: 'Full Stack Developer',
@@ -96,6 +83,19 @@ describe('JobsPage', () => {
             first_seen: '2026-09-21',
             category: 'Full Stack',
             source: 'hn',
+            deleted_at: null,
+            raw: null,
+          },
+          {
+            id: 2,
+            company: 'Acme Corp',
+            title: 'Backend Engineer',
+            url: 'https://example.com/job2',
+            location: 'Remote',
+            posted_date: '2026-09-21',
+            first_seen: '2026-09-23',
+            category: 'Backend',
+            source: 'ats_sweep',
             deleted_at: null,
             raw: null,
           },
@@ -109,12 +109,12 @@ describe('JobsPage', () => {
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
     });
 
-    expect(screen.getByText('Acme Corp')).toBeInTheDocument();
-    expect(screen.getByText('Tech Inc')).toBeInTheDocument();
-
-    expect(screen.getByText('Frontend Developer')).toBeInTheDocument();
-    expect(screen.getByText('Backend Engineer')).toBeInTheDocument();
-    expect(screen.getByText('Full Stack Developer')).toBeInTheDocument();
+    // Server rank: Acme (best), Tech Inc, then Acme's weaker role. Grouping
+    // by company would have pulled Backend Engineer above Full Stack.
+    const titles = screen.getAllByRole('link').map(link => link.textContent);
+    expect(titles).toEqual(['Frontend Developer', 'Full Stack Developer', 'Backend Engineer']);
+    expect(screen.getAllByText('Acme Corp')).toHaveLength(2);
+    expect(screen.getAllByText('Tech Inc')).toHaveLength(1);
   });
 
   it('deletes a job and removes it from view', async () => {
@@ -1062,6 +1062,24 @@ describe('JobsPage', () => {
     // The fresh list is still limited to its top 25.
     expect(screen.queryByText('Role 26')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Show all 30' })).toBeInTheDocument();
+  });
+
+  it('keeps older listings in server rank order across companies', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        jobs: [],
+        stale: [rankedJob(11, 'Acme'), rankedJob(12, 'Beta'), rankedJob(13, 'Acme')],
+      }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Show older listings' }));
+    const older = screen.getByRole('region', { name: 'Older listings' });
+    const titles = within(older).getAllByRole('link').map(link => link.textContent);
+    expect(titles).toEqual(['Role 11', 'Role 12', 'Role 13']);
   });
 
   it('offers the hidden older listings when no fresh ones remain', async () => {

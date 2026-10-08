@@ -21,11 +21,6 @@ interface Job {
   raw: string | null;
 }
 
-interface CompanyGroup {
-  company: string;
-  jobs: Job[];
-}
-
 interface JobStats {
   jobs_per_day: Array<{ date: string; count: number }>;
   submissions_per_day: Array<{ date: string; count: number }>;
@@ -179,25 +174,13 @@ export function JobsPage() {
   // render in their own section so the limit can never hide them.
   const shownJobs = showAll ? jobs : jobs.slice(0, TOP_LISTINGS);
 
-  // Groups appear in the order of their best-ranked listing.
-  function groupByCompany(list: Job[]): CompanyGroup[] {
-    return list.reduce((groups, job) => {
-      const existingGroup = groups.find(g => g.company === job.company);
-      if (existingGroup) {
-        existingGroup.jobs.push(job);
-      } else {
-        groups.push({ company: job.company, jobs: [job] });
-      }
-      return groups;
-    }, [] as CompanyGroup[]);
-  }
-
-  function renderGroups(list: Job[]) {
-    return groupByCompany(list).map(group => (
-      <div key={group.company} className="company-group">
-        <h2 className="company-name">{group.company}</h2>
+  // A flat list in server rank order (#101679546294759424): grouping by
+  // company would pull a low-fit listing above a better one elsewhere.
+  function renderRows(list: Job[]) {
+    return (
+      <div className="company-group">
         <div className="jobs-list">
-          {group.jobs.map(job => (
+          {list.map(job => (
             <div key={job.id} className="job-row">
               <div className="job-main">
                 <a
@@ -208,6 +191,7 @@ export function JobsPage() {
                 >
                   {job.title}
                 </a>
+                <span className="job-company">{job.company}</span>
                 {job.location && (
                   <span className="job-location">{job.location}</span>
                 )}
@@ -247,7 +231,7 @@ export function JobsPage() {
           ))}
         </div>
       </div>
-    ));
+    );
   }
 
   return (
@@ -285,11 +269,11 @@ export function JobsPage() {
             onToggleStale={() => setShowStale(prev => !prev)}
             onShowAll={() => setShowAll(true)}
           />
-          {renderGroups(shownJobs)}
+          {renderRows(shownJobs)}
           {showStale && stale.length > 0 && (
             <section className="older-listings" aria-label="Older listings">
               <h2 className="older-listings-heading">Older listings</h2>
-              {renderGroups(stale)}
+              {renderRows(stale)}
             </section>
           )}
         </div>

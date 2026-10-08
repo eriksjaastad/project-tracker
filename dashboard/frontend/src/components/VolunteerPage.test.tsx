@@ -165,6 +165,22 @@ describe('VolunteerPage', () => {
     expect(section('Applied').queryByText('Role 7')).not.toBeInTheDocument();
   });
 
+  it('lists Possible roles in server rank order, organisation shown on each row', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond({
+      current: [], applied: [],
+      possible: [
+        role(21, { company: 'Acme' }), role(22, { company: 'Beta' }), role(23, { company: 'Acme' }),
+      ],
+      possible_stale: [],
+    }));
+    render(<VolunteerPage />);
+    await waitFor(() => expect(screen.getByText('Role 21')).toBeInTheDocument());
+
+    const titles = section('Possible').getAllByRole('link').map(link => link.textContent);
+    expect(titles).toEqual(['Role 21', 'Role 22', 'Role 23']);
+    expect(section('Possible').getAllByText('Acme')).toHaveLength(2);
+  });
+
   it('says when the database still needs migration 016', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond({
       migration_pending: true, current: [], applied: [], possible: [], possible_stale: [],

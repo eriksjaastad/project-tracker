@@ -185,3 +185,14 @@ def test_reimport_as_job_moves_a_current_volunteer_role_to_jobs(db) -> None:
     places = _places(client)
     assert places["jobs"] == [role["id"]]
     assert places["current"] == [] and places["applied"] == [] and places["possible"] == []
+
+
+@pytest.mark.parametrize("field,value", [
+    ("kind", []), ("kind", {"a": 1}), ("source", ["hn"]), ("category", {"SEO": 1}),
+    ("company", 5), ("title", None), ("url", ["https://example.test/x"]),
+])
+def test_upsert_rejects_wrong_types_with_value_error(db, field: str, value) -> None:
+    fields = {"company": "Org", "title": "Role", "url": "https://example.test/types",
+              "source": "manual", field: value}
+    with pytest.raises(ValueError):
+        db.upsert_job(**fields)
