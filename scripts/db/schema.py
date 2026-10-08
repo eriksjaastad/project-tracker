@@ -1132,6 +1132,25 @@ def ensure_schema(cursor: Any) -> None:
         ON outreach_contacts(deleted_at, replied_at)
     """)
 
+    # Dated codebase size snapshots for `pt size` (#8083). Also defined in
+    # migration 017 for databases already at schema version 9; keep both in sync.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS codebase_size_snapshots (
+            id            INTEGER PRIMARY KEY NOT NULL,
+            snapshot_date TEXT NOT NULL,
+            kind          TEXT NOT NULL CHECK(kind IN ('baseline', 'scan')),
+            project       TEXT NOT NULL,
+            code_lines    INTEGER NOT NULL,
+            test_lines    INTEGER NOT NULL,
+            doc_files     INTEGER NOT NULL,
+            doc_lines     INTEGER NOT NULL,
+            last_commit   TEXT,
+            commits_90d   INTEGER,
+            scanned_at    TEXT NOT NULL,
+            UNIQUE(snapshot_date, kind, project)
+        )
+    """)
+
     # Update schema version
     cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (?, ?)", (CURRENT_SCHEMA_VERSION, datetime.now().isoformat()))
 

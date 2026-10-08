@@ -6403,6 +6403,125 @@ def migration_list(json_output: bool) -> None:
 
 
 # =============================================================================
+# pt size: codebase size, snapshots, optimization score (#8083)
+# =============================================================================
+
+
+def _size_db() -> "DatabaseManager":
+    """DatabaseManager with migration 017 confirmed, checked before any scan."""
+    db = DatabaseManager()
+    try:
+        db.codebase_baseline()
+    except Exception as exc:  # governance: allow-silent SF001: only "no such table" is mapped; anything else is re-raised
+        if "no such table" in str(exc):
+            raise click.ClickException(
+                "table codebase_size_snapshots is missing; run `pt db migrate`"
+            ) from exc
+        raise
+    return db
+
+
+def _size_score_text(score: Optional[float]) -> str:
+    # Adding 0.0 turns a rounded -0.0 into 0.0, so a change too small to show
+    # never reads as a regression.
+    return "-" if score is None else f"{round(score, 1) + 0.0:+.1f}"
+
+
+@click.group(name="size", invoke_without_command=True)
+@click.option("--json", "json_output", is_flag=True, help="Emit JSON")
+@click.option("--snapshot", is_flag=True, help="Store this scan as today's kind='scan' rows")
+@click.pass_context
+def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
+    """Codebase size per project and optimization score vs the baseline.
+
+    score = (baseline_lean - current_lean) / baseline_lean * 100, where
+    lean = non-test code lines + markdown doc lines. Positive = leaner.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    from scripts import codebase_size as cs
+    from scripts.config import projects_root
+
+    db = _size_db()
+    rows = cs.scan_portfolio(projects_root())
+    good = [r for r in rows if not r.error]
+    failed = [r for r in rows if r.error]
+
+    base_date, base = db.codebase_baseline()
+    if snapshot:
+        today = datetime.now().date().isoformat()
+        db.save_codebase_snapshot(good, "scan", today)
+
+    scored = []
+    for r in good:
+        d = r.as_dict()
+        d["score"] = cs.optimization_score(base.get(r.project), r)
+        scored.append(d)
+    pairs = [(base[r.project], r) for r in good if r.project in base and base[r.project].lean]
+    base_lean = sum(b.lean for b, _ in pairs)
+    total_score = (
+        None if not base_lean
+        else (base_lean - sum(c.lean for _, c in pairs)) / base_lean * 100
+    )
+    total = {
+        "code": sum(r.code for r in good),
+        "tests": sum(r.tests for r in good),
+        "doc_files": sum(r.doc_files for r in good),
+        "doc_lines": sum(r.doc_lines for r in good),
+        "repos": len(good),
+        "score": total_score,
+    }
+
+    if json_output:
+        click.echo(json.dumps({
+            "baseline_date": base_date,
+            "snapshot_stored": snapshot,
+            "rows": scored,
+            "total": total,
+            "errors": [{"project": r.project, "error": r.error} for r in failed],
+        }, indent=2))
+    else:
+        click.echo(
+            f"{'code':>7} {'tests':>7} {'docs':>5} {'doclines':>8} {'last':>10} "
+            f"{'c90':>4} {'score':>7}  project"
+        )
+        for d in scored:
+            click.echo(
+                f"{d['code']:>7} {d['tests']:>7} {d['doc_files']:>5} {d['doc_lines']:>8} "
+                f"{d['last_commit'] or '-':>10} {d['commits_90d'] if d['commits_90d'] is not None else '-':>4} "
+                f"{_size_score_text(d['score']):>7}  {d['project']}"
+            )
+        click.echo(
+            f"TOTAL code {total['code']} tests {total['tests']} docs {total['doc_files']} "
+            f"doclines {total['doc_lines']} repos {total['repos']} "
+            f"score {_size_score_text(total_score)}"
+        )
+        if snapshot:
+            click.echo(f"Stored {len(good)} scan rows for {today}.")
+    for r in failed:
+        click.echo(f"ERROR {r.project}: {r.error}", err=True)
+    if failed:
+        ctx.exit(1)
+
+
+@size_group.command(name="import-baseline")
+@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--at", "at", required=True,
+              help="ISO timestamp the file was written, e.g. 2026-10-08T10:41:29-0400")
+def size_import_baseline(file: Path, at: str) -> None:
+    """Store FILE's numbers as the baseline after verifying them against git at --at."""
+    from scripts import codebase_size as cs
+    from scripts.config import projects_root
+
+    db = _size_db()
+    try:
+        rows = db.import_codebase_baseline(file, at, projects_root())
+    except (cs.BaselineMismatch, ValueError) as exc:
+        raise click.ClickException(str(exc))
+    click.echo(f"Stored baseline for {len(rows)} repos dated {at[:10]}.")
+
+
+# =============================================================================
 # Register subgroups and run
 # =============================================================================
 
@@ -6424,6 +6543,7 @@ cli.add_command(db_group)
 cli.add_command(sync_group)
 cli.add_command(handoff_group)
 cli.add_command(jobs_group)
+cli.add_command(size_group)
 cli.add_command(migration_group)
 
 def main() -> NoReturn:
