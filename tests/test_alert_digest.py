@@ -1069,7 +1069,9 @@ class TestDeadlines:
         week = ad.upcoming_deadlines([_event(1, "2026-10-15")], self.TODAY)
         later = ad.upcoming_deadlines([_event(2, "2026-10-20")], self.TODAY)
         assert ad.build_subject([], None, week) == "[Project Alerts] 📅 1 deadline due or missed"
-        assert ad.build_subject([], None, later) == "[Project Alerts] ✅ All clear"
+        # Listed in the body, so never "All clear", but not flagged as urgent either.
+        assert ad.build_subject([], None, later) == "[Project Alerts] 📅 1 upcoming deadline"
+        assert ad.build_subject([], None, []) == "[Project Alerts] ✅ All clear"
         assert ad.build_subject([], None) == "[Project Alerts] ✅ All clear"
 
     def test_main_dry_run_shows_the_tax_deadline(self, monkeypatch, capsys):
@@ -1104,3 +1106,22 @@ class TestDeadlines:
             raise ad.urllib.error.URLError("refused")
         monkeypatch.setattr(ad.urllib.request, "urlopen", down)
         assert ad.fetch_calendar_events() is None
+
+
+    def test_non_object_event_is_a_read_failure(self, monkeypatch):
+        monkeypatch.setattr(ad, "fetch_calendar_events", _REAL_FETCH_CALENDAR)
+        monkeypatch.setattr(ad.urllib.request, "urlopen",
+                            lambda req, timeout=10: _FakeResp({"events": [_event(1, "2026-10-15"), "junk"]}))
+        assert ad.fetch_calendar_events() is None
+
+    def test_unparseable_events_still_send_the_digest_with_a_warning(self, monkeypatch, capsys):
+        monkeypatch.setattr(ad, "fetch_calendar_events", lambda: [_event(1, "2026-10-15")])
+        def boom(events, today):
+            raise TypeError("bad event")
+        monkeypatch.setattr(ad, "upcoming_deadlines", boom)
+        monkeypatch.setattr(ad, "fetch_alerts", lambda: [])
+        _stub_fetchers(monkeypatch, tasks=[], jobs=[])
+        assert ad.main(["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "calendar unreadable" in out.splitlines()[0]
+        assert "Could not read the calendar" in out

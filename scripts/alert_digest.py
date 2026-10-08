@@ -242,7 +242,7 @@ def fetch_calendar_events() -> list | None:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
             events = payload.get("events") if isinstance(payload, dict) else None
-            if not isinstance(events, list):
+            if not isinstance(events, list) or not all(isinstance(e, dict) for e in events):
                 raise RuntimeError("unexpected /api/calendar/events shape")
             log(f"fetched {len(events)} calendar events (attempt {attempt})")
             return events
@@ -459,10 +459,14 @@ def _deadline_subject_parts(deadlines: list | None) -> list[str]:
     if deadlines is None:
         return ["⚠️ calendar unreadable"]
     soon = [e for e in deadlines if e["days"] <= DEADLINE_SUBJECT_DAYS]
-    if not soon:
-        return []
-    n = len(soon)
-    return [f"📅 {n} deadline" + ("s" if n != 1 else "") + " due or missed"]
+    if soon:
+        n = len(soon)
+        return [f"📅 {n} deadline" + ("s" if n != 1 else "") + " due or missed"]
+    if deadlines:
+        # Listed in the body, so the subject must not claim "All clear".
+        n = len(deadlines)
+        return [f"📅 {n} upcoming deadline" + ("s" if n != 1 else "")]
+    return []
 
 
 def build_subject(
@@ -1019,7 +1023,14 @@ def main(argv: list[str] | None = None) -> int:
     jobs = fetch_scheduled_jobs()
     review_loops = fetch_paused_review_loops()
     events = fetch_calendar_events()
-    deadlines = None if events is None else upcoming_deadlines(events, date.today())
+    deadlines = None
+    if events is not None:
+        try:
+            deadlines = upcoming_deadlines(events, date.today())
+        except Exception as exc:  # noqa: BLE001
+            # Shown in the email as "Could not read the calendar"; never a crash
+            # that stops the whole digest from going out.
+            log(f"ERROR calendar events could not be read: {exc}")
 
     if degraded_reason:
         subject = ", ".join(
