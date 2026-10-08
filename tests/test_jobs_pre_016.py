@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dashboard.app import app
+from db.jobs import JobsMigrationPendingError  # same module object the app raises
 
 
 @pytest.fixture
@@ -55,13 +56,15 @@ def test_jobs_and_volunteer_endpoints_serve_before_migration_016(pre_016_db) -> 
         "migration_pending": True, "current": [], "applied": [],
         "possible": [], "possible_stale": [],
     }
-    assert client.post("/api/jobs/1/volunteering").status_code == 404
+    started = client.post("/api/jobs/1/volunteering")
+    assert started.status_code == 409
+    assert "pt db migrate" in started.json()["detail"]
 
 
 def test_upsert_before_migration_016_keeps_jobs_and_refuses_volunteer(pre_016_db) -> None:
     job = pre_016_db.upsert_job(company="New", title="Engineer", source="manual",
                                 url="https://example.test/pre/3")
     assert "kind" not in job
-    with pytest.raises(ValueError, match="pt db migrate"):
+    with pytest.raises(JobsMigrationPendingError, match="pt db migrate"):
         pre_016_db.upsert_job(company="Org", title="Helper", source="manual",
                               url="https://example.test/pre/4", kind="volunteer")

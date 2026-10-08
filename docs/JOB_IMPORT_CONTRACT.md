@@ -46,7 +46,7 @@ The importer needs no special handling: `url` is the unique key, so `#post` and 
 
 - Repeated imports are idempotent by `url` (the unique key)
 - On conflict: updates company, title, location, source, posted_date, category
-- On conflict: updates kind only when the line supplies it; a line without `kind` keeps the row's existing kind
+- On conflict: updates kind only when the line supplies it; a line without `kind` keeps the row's existing kind. A row changed to `job` drops its volunteering start date, so it returns to the Jobs page.
 - On conflict: preserves existing first_seen, deleted_at, and raw (if new raw is null)
 - A dismissed job (deleted_at set) stays dismissed after re-import
 

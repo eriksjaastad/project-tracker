@@ -7,10 +7,11 @@ submissions read only 'job' rows. ``volunteering_since`` records when Erik
 actually started volunteering somewhere, which moves a role from "Applied"
 to "Currently volunteering".
 
-Before this column existed, volunteer roles were entered by hand as
-``source='manual'`` rows titled ``Volunteer: <role>``. The backfill below
-converts exactly those rows to ``kind='volunteer'`` and strips the prefix.
-It touches only rows still marked 'job', so a second run changes nothing.
+Before this column existed, volunteer roles were stored as rows titled
+``Volunteer: <role>`` — entered by hand or imported from any source. The
+backfill below converts every such row to ``kind='volunteer'`` and strips
+the prefix (case-insensitively). It touches only rows still marked 'job',
+so a second run changes nothing.
 
 Classification: LOCAL_ONLY, like migration 013 — ``jobs`` has no sync
 contract. Additive only: two ADD COLUMNs and one UPDATE, no rebuild, no
@@ -58,7 +59,7 @@ def up(conn: sqlite3.Connection) -> None:
         f"""UPDATE jobs SET kind = 'volunteer',
               title = CASE WHEN trim(substr(title, {start})) <> ''
                            THEN trim(substr(title, {start})) ELSE title END
-            WHERE kind = 'job' AND source = 'manual'
+            WHERE kind = 'job'
               AND lower(substr(title, 1, {len(_PREFIX)})) = ?""",
         (_PREFIX.lower(),),
     )

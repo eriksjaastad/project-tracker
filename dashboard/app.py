@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.attachment_paths import attachments_dir
 from db.backend_manager import NotesConflictError
+from db.jobs import JobsMigrationPendingError
 from db.manager import DatabaseManager
 from db.outreach import ContactStateConflictError
 from discovery.project_scanner import discover_projects
@@ -4087,6 +4088,8 @@ async def start_volunteering(job_id: int):
     """Record that Erik started volunteering in this role (idempotent)."""
     try:
         job = DatabaseManager().start_volunteering(job_id)
+    except JobsMigrationPendingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except Exception:
         logger.exception("Failed to mark volunteering for job %s", job_id)
         raise HTTPException(status_code=500, detail="Failed to mark volunteering")

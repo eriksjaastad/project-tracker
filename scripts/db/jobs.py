@@ -21,6 +21,13 @@ _OPEN = """j.deleted_at IS NULL AND NOT EXISTS (
              SELECT 1 FROM job_submissions AS s WHERE s.job_id = j.id)"""
 
 
+class JobsMigrationPendingError(ValueError):
+    """A volunteer operation on a database still waiting for migration 016."""
+
+    def __init__(self) -> None:
+        super().__init__("volunteer roles need migration 016; run `pt db migrate`")
+
+
 def _has_kind_columns(conn: Any) -> bool:
     """True once migration 016 has added jobs.kind and jobs.volunteering_since.
 
@@ -53,7 +60,8 @@ class JobsMixin:
         """Update a URL's listing without changing first-seen or dismissal state.
 
         ``kind`` defaults to 'job' for a new row; omitting it on a later
-        import keeps whatever kind the row already has.
+        import keeps whatever kind the row already has. A row that ends up
+        a job loses any volunteering_since, which only volunteer roles carry.
         """
         company, title, url = company.strip(), title.strip(), url.strip()
         if not company or not title or not url:
@@ -68,12 +76,17 @@ class JobsMixin:
         with self._db._get_conn() as conn:
             migrated = _has_kind_columns(conn)
             if not migrated and kind == "volunteer":
-                raise ValueError(
-                    "kind 'volunteer' needs migration 016; run `pt db migrate`"
-                )
+                raise JobsMigrationPendingError()
             kind_column = ", kind" if migrated else ""
             kind_value = ", COALESCE(?, 'job')" if migrated else ""
-            kind_update = ", kind=COALESCE(?, jobs.kind)" if migrated else ""
+            # SET expressions read the pre-update row, so jobs.kind here is
+            # the kind before this import.
+            kind_update = (
+                """, kind=COALESCE(?, jobs.kind),
+                     volunteering_since=CASE WHEN COALESCE(?, jobs.kind) = 'job'
+                       THEN NULL ELSE jobs.volunteering_since END"""
+                if migrated else ""
+            )
             conn.execute(
                 f"""INSERT INTO jobs
                    (company, title, location, url, source, posted_date,
@@ -87,19 +100,25 @@ class JobsMixin:
                      category=excluded.category,
                      raw=COALESCE(excluded.raw, jobs.raw){kind_update}""",
                 (company, title, location, url, source, posted_date,
-                 first_seen, category, raw) + ((kind, kind) if migrated else ()),
+                 first_seen, category, raw) + ((kind, kind, kind) if migrated else ()),
             )
             row = conn.execute("SELECT * FROM jobs WHERE url = ?", (url,)).fetchone()
             conn.commit()
             return dict(row)
 
     def get_open_jobs(self, kind: str = "job") -> list[dict[str, Any]]:
-        """Listings of one kind neither dismissed nor submitted, newest first."""
+        """Listings of one kind neither dismissed nor submitted, newest first.
+
+        A volunteer role with volunteering_since is Current, not Possible; a
+        job is listed whatever that column holds, so no job can fall off
+        both pages.
+        """
         with self._db._get_conn() as conn:
             kind_sql, since_sql = _kind_sql(conn)
+            since_filter = f"AND {since_sql} IS NULL" if kind == "volunteer" else ""
             rows = conn.execute(
                 f"""SELECT j.* FROM jobs AS j
-                    WHERE {kind_sql} = ? AND {since_sql} IS NULL AND {_OPEN}
+                    WHERE {kind_sql} = ? {since_filter} AND {_OPEN}
                     ORDER BY j.first_seen DESC, j.id DESC""",
                 (kind,),
             ).fetchall()
@@ -142,10 +161,13 @@ class JobsMixin:
         }
 
     def start_volunteering(self, job_id: int) -> dict[str, Any] | None:
-        """Stamp volunteering_since once; None for a missing or dismissed volunteer role."""
+        """Stamp volunteering_since once; None for a missing or dismissed volunteer role.
+
+        Raises JobsMigrationPendingError before migration 016.
+        """
         with self._db._get_conn() as conn:
             if not _has_kind_columns(conn):
-                return None
+                raise JobsMigrationPendingError()
             conn.execute(
                 """UPDATE jobs SET volunteering_since = ?
                    WHERE id = ? AND kind = 'volunteer' AND deleted_at IS NULL

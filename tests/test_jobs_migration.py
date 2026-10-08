@@ -129,7 +129,10 @@ def _legacy_jobs_db(path: Path) -> sqlite3.Connection:
             ("Husky Crew", "Volunteer: Rowing coach", "https://example.test/v1", "manual"),
             ("Food Bank", "volunteer: Website help", "https://example.test/v2", "manual"),
             ("Acme", "Volunteer: Imported", "https://example.test/v3", "ats_sweep"),
+            ("HN", "VOLUNTEER: From HN", "https://example.test/v5", "hn"),
             ("Acme", "Frontend Engineer", "https://example.test/j1", "manual"),
+            # A paid role whose title merely starts with the word stays a job.
+            ("Org", "Volunteer Coordinator", "https://example.test/j2", "ats_sweep"),
             ("Bare", "Volunteer: ", "https://example.test/v4", "manual"),
         ],
     )
@@ -143,12 +146,14 @@ def test_kind_migration_backfills_volunteer_rows_and_is_idempotent(tmp_path: Pat
     first = conn.execute("SELECT url, title, kind, volunteering_since FROM jobs ORDER BY url").fetchall()
     assert first == [
         ("https://example.test/j1", "Frontend Engineer", "job", None),
+        ("https://example.test/j2", "Volunteer Coordinator", "job", None),
         ("https://example.test/v1", "Rowing coach", "volunteer", None),
         ("https://example.test/v2", "Website help", "volunteer", None),
-        # Only hand-entered (manual) rows were the old volunteer convention.
-        ("https://example.test/v3", "Volunteer: Imported", "job", None),
+        # The prefix marks a volunteer role whatever the source.
+        ("https://example.test/v3", "Imported", "volunteer", None),
         # Nothing after the prefix: keep the title rather than blank it.
         ("https://example.test/v4", "Volunteer: ", "volunteer", None),
+        ("https://example.test/v5", "From HN", "volunteer", None),
     ]
     _migration_up(conn, 16)
     assert conn.execute(
@@ -168,7 +173,7 @@ def test_ensure_schema_over_legacy_jobs_table_then_016_adds_kind(tmp_path: Path)
     conn.commit()
     columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
     assert "kind" not in columns and "volunteering_since" not in columns
-    assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 5
+    assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 7
 
     _migration_up(conn, 16)
     columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
@@ -176,5 +181,5 @@ def test_ensure_schema_over_legacy_jobs_table_then_016_adds_kind(tmp_path: Path)
     assert "idx_jobs_kind" in {row[1] for row in conn.execute("PRAGMA index_list(jobs)")}
     assert conn.execute(
         "SELECT kind, COUNT(*) FROM jobs GROUP BY kind ORDER BY kind"
-    ).fetchall() == [("job", 2), ("volunteer", 3)]
+    ).fetchall() == [("job", 2), ("volunteer", 5)]
     conn.close()

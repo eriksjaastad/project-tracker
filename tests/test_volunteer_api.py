@@ -121,3 +121,67 @@ def test_possible_role_goes_straight_to_current_without_an_application(db) -> No
     body = client.get("/api/volunteer").json()
     assert [row["id"] for row in body["current"]] == [role["id"]]
     assert body["applied"] == [] and body["possible"] == [] and body["possible_stale"] == []
+
+
+# Every undismissed row lands in exactly one place across both pages.
+# (kind, volunteering_since set, has submission) -> expected place.
+_STATE_MATRIX = [
+    ("job", False, False, "jobs"),
+    ("job", False, True, "submissions"),
+    # Not reachable through the API any more, but a job must never vanish.
+    ("job", True, False, "jobs"),
+    ("job", True, True, "submissions"),
+    ("volunteer", False, False, "possible"),
+    ("volunteer", False, True, "applied"),
+    ("volunteer", True, False, "current"),
+    ("volunteer", True, True, "current"),
+]
+
+
+def _places(client: TestClient) -> dict[str, list[int]]:
+    jobs = client.get("/api/jobs").json()
+    volunteer = client.get("/api/volunteer").json()
+    return {
+        "jobs": [row["id"] for row in jobs["jobs"] + jobs["stale"]],
+        "submissions": [g["job"]["id"] for g in client.get("/api/jobs/submissions").json()["jobs"]],
+        "current": [row["id"] for row in volunteer["current"]],
+        "applied": [row["id"] for row in volunteer["applied"]],
+        "possible": [row["id"] for row in volunteer["possible"] + volunteer["possible_stale"]],
+    }
+
+
+@pytest.mark.parametrize("kind,since,submitted,expected", _STATE_MATRIX)
+def test_every_undismissed_state_appears_in_exactly_one_place(
+    db, kind: str, since: bool, submitted: bool, expected: str,
+) -> None:
+    client = TestClient(app)
+    row = _role(db, "state", kind=kind)
+    with db._db._get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET volunteering_since = ? WHERE id = ?",
+            ("2026-09-01T00:00:00+00:00" if since else None, row["id"]),
+        )
+        conn.commit()
+    if submitted:
+        assert client.post(f"/api/jobs/{row['id']}/submissions", json={}).status_code == 201
+    places = _places(client)
+    assert [place for place, ids in places.items() if row["id"] in ids] == [expected]
+
+
+def test_reimport_as_job_moves_a_current_volunteer_role_to_jobs(db) -> None:
+    client = TestClient(app)
+    role = _role(db, "switch")
+    client.post(f"/api/jobs/{role['id']}/volunteering")
+
+    # Neighbours: re-importing without kind, or as volunteer, keeps the date.
+    for kind in (None, "volunteer"):
+        kept = db.upsert_job(company="Org switch", title="Role switch", source="manual",
+                             url=role["url"], kind=kind)
+        assert kept["volunteering_since"] and kept["kind"] == "volunteer"
+
+    switched = db.upsert_job(company="Org switch", title="Role switch", source="manual",
+                             url=role["url"], kind="job")
+    assert switched["kind"] == "job" and switched["volunteering_since"] is None
+    places = _places(client)
+    assert places["jobs"] == [role["id"]]
+    assert places["current"] == [] and places["applied"] == [] and places["possible"] == []
