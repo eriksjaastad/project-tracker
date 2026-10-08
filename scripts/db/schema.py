@@ -1138,8 +1138,7 @@ def ensure_schema(cursor: Any) -> None:
         CREATE TABLE IF NOT EXISTS codebase_size_snapshots (
             id            INTEGER PRIMARY KEY NOT NULL,
             run_id        TEXT NOT NULL,
-            kind          TEXT NOT NULL CHECK(kind IN ('baseline', 'scan')),
-            snapshot_date TEXT NOT NULL CHECK(kind <> 'baseline' OR snapshot_date = '2026-10-08'),
+            snapshot_date TEXT NOT NULL,
             project       TEXT NOT NULL,
             code_lines    INTEGER NOT NULL,
             test_lines    INTEGER NOT NULL,
@@ -1150,23 +1149,6 @@ def ensure_schema(cursor: Any) -> None:
             scanned_at    TEXT NOT NULL,
             UNIQUE(run_id, project)
         )
-    """)
-    cursor.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_codebase_size_one_baseline
-        ON codebase_size_snapshots(project) WHERE kind = 'baseline'
-    """)
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_codebase_size_kind_id
-        ON codebase_size_snapshots(kind, id)
-    """)
-    cursor.execute("""
-        CREATE TRIGGER IF NOT EXISTS codebase_size_one_baseline_run
-        BEFORE INSERT ON codebase_size_snapshots
-        WHEN NEW.kind = 'baseline' AND EXISTS (
-            SELECT 1 FROM codebase_size_snapshots
-            WHERE kind = 'baseline' AND run_id <> NEW.run_id
-        )
-        BEGIN SELECT RAISE(ABORT, 'the codebase size baseline is immutable'); END
     """)
     cursor.execute("""
         CREATE TRIGGER IF NOT EXISTS codebase_size_snapshots_no_update

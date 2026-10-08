@@ -6427,19 +6427,18 @@ def _size_score_text(score: Optional[float]) -> str:
     return "-" if score is None else f"{round(score, 1) + 0.0:+.1f}"
 
 
-@click.group(name="size", invoke_without_command=True)
+@click.command(name="size")
 @click.option("--json", "json_output", is_flag=True, help="Emit JSON")
 @click.option("--snapshot", is_flag=True, help="Append this scan as a new run (stored only if every repo scanned)")
 @click.pass_context
-def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
+def size_command(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
     """Codebase size per project and optimization score vs the baseline.
 
     score = (baseline_lean - current_lean) / baseline_lean * 100, where
     lean = non-test code lines + markdown doc lines and the baseline is the
-    repo's 2026-10-08 measurement. Positive = leaner.
+    repo's row in the earliest `pt size --snapshot` run. Positive = leaner.
+    Each repo's checked-out working tree is measured, best effort.
     """
-    if ctx.invoked_subcommand is not None:
-        return
     from scripts import codebase_size as cs
     from scripts.config import projects_root
 
@@ -6454,13 +6453,14 @@ def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
     good = [r for r in rows if not r.error]
     failed = [r for r in rows if r.error]
 
-    base_date, base = db.codebase_baseline()
     today = datetime.now().date().isoformat()
-    # A snapshot run is all-or-nothing, like the baseline import: a run with
-    # a repo missing would not be one complete measurement.
+    # A snapshot run is all-or-nothing: a run with a repo missing would not be
+    # one complete measurement (and the first run becomes the baseline).
     stored = bool(snapshot and not failed)
     if stored:
         db.save_codebase_scan(good, today)
+    # Read after saving, so the very first snapshot is its own baseline.
+    base_date, base = db.codebase_baseline()
 
     scored = []
     for r in good:
@@ -6492,6 +6492,10 @@ def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
         }, indent=2))
     else:
         click.echo(
+            f"baseline: {base_date}" if base_date
+            else "baseline: none yet (the first `pt size --snapshot` run becomes it)"
+        )
+        click.echo(
             f"{'code':>7} {'tests':>7} {'docs':>5} {'doclines':>8} {'last':>10} "
             f"{'c90':>4} {'score':>7}  project"
         )
@@ -6520,23 +6524,6 @@ def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
         ctx.exit(1)
 
 
-@size_group.command(name="import-baseline")
-@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--at", "at", required=True,
-              help="ISO timestamp the file was written, e.g. 2026-10-08T10:41:29-0400")
-def size_import_baseline(file: Path, at: str) -> None:
-    """Store FILE as the immutable 2026-10-08 baseline, verified against git at --at."""
-    from scripts import codebase_size as cs
-    from scripts.config import projects_root
-
-    db = _size_db()
-    try:
-        rows = db.import_codebase_baseline(file, at, projects_root())
-    except (cs.BaselineMismatch, ValueError) as exc:
-        raise click.ClickException(str(exc))
-    click.echo(f"Stored the {cs.BASELINE_DATE} baseline for {len(rows)} repos.")
-
-
 # =============================================================================
 # Register subgroups and run
 # =============================================================================
@@ -6559,7 +6546,7 @@ cli.add_command(db_group)
 cli.add_command(sync_group)
 cli.add_command(handoff_group)
 cli.add_command(jobs_group)
-cli.add_command(size_group)
+cli.add_command(size_command)
 cli.add_command(migration_group)
 
 def main() -> NoReturn:
