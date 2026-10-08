@@ -71,7 +71,7 @@ def test_navigation_api_returns_shared_contract():
     }
     assert children_by_group["group-kanban"] == ["kanban", "calendar"]
     assert children_by_group["group-jobs"] == ["jobs", "jobs-submitted"]
-    assert children_by_group["group-agents"] == ["agent-chat", "agentic", "code-reviews", "holoscape"]
+    assert children_by_group["group-agents"] == ["agent-chat", "agentic", "code-reviews", "codebase", "holoscape"]
     assert children_by_group["group-memory"] == ["memory", "graph"]
 
     for group in items:
@@ -94,6 +94,7 @@ def test_navigation_api_returns_shared_contract():
     assert leaves["agent-chat"]["label"] == "Chat"
     assert leaves["agentic"]["label"] == "Autonomy"
     assert leaves["code-reviews"]["label"] == "Code reviews"
+    assert leaves["codebase"]["label"] == "Codebase size"
     assert leaves["holoscape"]["label"] == "Holoscape progress (temporary)"
     assert leaves["memory"]["label"] == "Memory"
     assert leaves["graph"]["label"] == "Graph"
@@ -193,3 +194,15 @@ def test_holoscape_spa_route_and_navigation():
     assert leaf_by_id(build_navigation("/holoscape"), "holoscape")["active"]
     if response.status_code == 200:
         assert '"id": "holoscape"' in response.text
+
+
+def test_codebase_spa_route_and_navigation():
+    response = client.get("/codebase")
+    assert response.status_code in (200, 503)
+    nav = client.get("/api/navigation").json()["items"]
+    item = leaf_by_id(nav, "codebase")
+    assert item["href"] == "/codebase"
+    assert item["navigation_type"] == "spa"
+    assert leaf_by_id(build_navigation("/codebase"), "codebase")["active"]
+    if response.status_code == 200:
+        assert '"id": "codebase"' in response.text

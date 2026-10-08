@@ -202,6 +202,13 @@ NAVIGATION_ITEMS = [
                 "navigation_type": "spa",
             },
             {
+                "id": "codebase",
+                "label": "Codebase size",
+                "href": "/codebase",
+                "match_prefixes": ["/codebase"],
+                "navigation_type": "spa",
+            },
+            {
                 "id": "holoscape",
                 "label": "Holoscape progress (temporary)",
                 "href": "/holoscape",
@@ -391,6 +398,7 @@ async def serve_spa_shell(request: Request):
 @app.get("/jobs", response_class=HTMLResponse)
 @app.get("/jobs/submitted", response_class=HTMLResponse)
 @app.get("/code-reviews", response_class=HTMLResponse)
+@app.get("/codebase", response_class=HTMLResponse)
 @app.get("/morning", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
@@ -3267,6 +3275,101 @@ async def holoscape_series():
     from dashboard.holoscape_progress import progress_snapshot
 
     return progress_snapshot()
+
+
+# --- Codebase size API (#8083) ---
+
+
+# Overlapping refreshes are serialized: a second one while a scan runs gets
+# 409 instead of a concurrent scan, so each refresh reports the run it stored.
+_codebase_refresh_lock = threading.Lock()
+
+
+def _codebase_report(db: DatabaseManager) -> dict:
+    """Report for the newest stored run against the baseline run.
+
+    Both runs come from one read transaction (``codebase_runs``), so the
+    response reflects one consistent snapshot. No runs yet is the valid empty
+    state. A DB failure propagates: it must not read as "no runs".
+    """
+    from scripts import codebase_size as cs
+
+    base_date, base, latest_date, latest = db.codebase_runs()
+    return cs.build_report(list(latest.values()), base, base_date, latest_date)
+
+
+def _codebase_db_error(exc: Exception) -> HTTPException:
+    logger.exception("codebase size request failed")
+    if "no such table" in str(exc):
+        detail = "Table codebase_size_snapshots is missing; run `pt db migrate`."
+    else:
+        detail = f"Codebase size data is unavailable: {exc}"
+    return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail)
+
+
+@app.get("/api/codebase-size")
+def get_codebase_size():
+    """Latest stored codebase size run with score vs the baseline. No scan."""
+    try:
+        return _codebase_report(DatabaseManager())
+    except Exception as exc:
+        raise _codebase_db_error(exc)
+
+
+@app.post("/api/codebase-size/refresh")
+def refresh_codebase_size(request: Request):
+    """Scan the portfolio, store one run if every repo scanned, return the report.
+
+    A plain ``def`` so the multi-second scan runs in the threadpool.
+    """
+    _require_local_admin_request(request)
+    from scripts import codebase_size as cs
+
+    if not _codebase_refresh_lock.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A codebase scan is already running; wait for it to finish.",
+        )
+    try:
+        try:
+            db = DatabaseManager()
+            db.codebase_baseline()  # table check before the scan
+        except Exception as exc:
+            raise _codebase_db_error(exc)
+
+        try:
+            rows = cs.scan_portfolio(config_projects_root())
+        except cs.ProjectsRootMissing as exc:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        except Exception as exc:
+            logger.exception("codebase size scan failed")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Codebase scan failed: {exc}",
+            )
+        if not rows:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="No git repos found under the projects root.",
+            )
+        failed = [r for r in rows if r.error]
+        if failed:
+            listing = "; ".join(f"{r.project}: {r.error}" for r in failed)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Scan failed for {len(failed)} repo(s); nothing was stored. {listing}",
+            )
+        today = datetime.now().date().isoformat()
+        try:
+            db.save_codebase_scan(rows, today)
+            # Report the run this request stored; the baseline comes from one
+            # consistent read (it is this run when no run existed before).
+            base_date, base, _, _ = db.codebase_runs()
+        except Exception as exc:
+            raise _codebase_db_error(exc)
+        return cs.build_report(rows, base, base_date, today)
+    finally:
+        _codebase_refresh_lock.release()
 
 
 # --- Agentic Markers API (#5009) ---

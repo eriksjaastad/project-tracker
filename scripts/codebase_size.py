@@ -5,13 +5,12 @@ carries and scores a repo against its baseline. Runs are stored by
 ``db.codebase_size.CodebaseSizeMixin`` in ``codebase_size_snapshots``; this
 module has no database code.
 
-Optimization score, verbatim::
-
-    score = (baseline_lean - current_lean) / baseline_lean * 100
-
-where ``lean`` = non-test code lines + markdown doc lines, and the baseline is
-the repo's row in the earliest stored ``pt size --snapshot`` run. Positive =
-leaner. Tests are shown but excluded so cutting tests cannot raise the score.
+Optimization score: ``SCORE_FORMULA`` below is the single statement of the
+formula; the CLI help and the /codebase page both render it. In short,
+``score = (baseline_lean - current_lean) / baseline_lean * 100`` where ``lean``
+= non-test code lines + markdown doc lines, and the baseline is the repo's row
+in the earliest stored ``pt size --snapshot`` run. Positive = leaner. Tests are
+shown but excluded so cutting tests cannot raise the score.
 Doc LINES (not files) are counted so moving a doc into docstrings scores
 neutral, while deleting redundant docs or code scores positive. The score is
 ``None`` when the repo has no row in the baseline run or ``baseline_lean`` is 0.
@@ -45,6 +44,12 @@ SKIP = re.compile(
 )
 TEST = re.compile(
     r"(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]*$|_test\.|\.test\.|\.spec\."
+)
+
+SCORE_FORMULA = (
+    "score = (baseline_lean \u2212 current_lean) / baseline_lean \u00d7 100, "
+    "where lean = non-test code lines + markdown doc lines; "
+    "positive = leaner; tests shown but not scored"
 )
 
 GIT_TIMEOUT = 60
@@ -220,3 +225,56 @@ def optimization_score(baseline: Optional[RepoSize], current: RepoSize) -> Optio
     if baseline is None or baseline.lean == 0:
         return None
     return (baseline.lean - current.lean) / baseline.lean * 100
+
+
+def build_report(
+    current: list[RepoSize],
+    baseline: dict,
+    baseline_date: Optional[str],
+    latest_date: Optional[str] = None,
+) -> dict:
+    """The size report shared by ``pt size --json`` and the /codebase API.
+
+    ``current`` rows must be error-free. Each row gains ``score``,
+    ``baseline_lean`` (None when the repo is not in the baseline run) and
+    ``change`` (lean - baseline_lean, None without a baseline). The total
+    score sums only repos present in the baseline run with baseline lean > 0.
+    """
+    ordered = sorted(
+        current,
+        key=lambda r: (r.code, r.tests, r.doc_files, r.project),
+        reverse=True,
+    )
+    rows = []
+    for r in ordered:
+        d = r.as_dict()
+        base = baseline.get(r.project)
+        d["score"] = optimization_score(base, r)
+        d["baseline_lean"] = None if base is None else base.lean
+        d["change"] = None if base is None else r.lean - base.lean
+        rows.append(d)
+    pairs = [
+        (baseline[r.project], r)
+        for r in ordered
+        if r.project in baseline and baseline[r.project].lean
+    ]
+    base_lean = sum(b.lean for b, _ in pairs)
+    total_score = (
+        None if not base_lean
+        else (base_lean - sum(c.lean for _, c in pairs)) / base_lean * 100
+    )
+    total = {
+        "code": sum(r.code for r in ordered),
+        "tests": sum(r.tests for r in ordered),
+        "doc_files": sum(r.doc_files for r in ordered),
+        "doc_lines": sum(r.doc_lines for r in ordered),
+        "repos": len(ordered),
+        "score": total_score,
+    }
+    return {
+        "baseline_date": baseline_date,
+        "latest_date": latest_date,
+        "formula": SCORE_FORMULA,
+        "rows": rows,
+        "total": total,
+    }

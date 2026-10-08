@@ -5,6 +5,7 @@ import type {
   AgenticSummaryResponse,
   Attachment,
   BashStatsResponse,
+  CodebaseSizeReport,
   Idea,
   HoloscapeSeriesResponse,
   NavigationResponse,
@@ -23,6 +24,29 @@ export async function fetchHoloscapeSeries(signal?: AbortSignal): Promise<Holosc
   const response = await fetch(`${API_BASE}/holoscape/series`, { signal });
   if (!response.ok) throw new Error(`Holoscape feed returned HTTP ${response.status}`);
   return response.json();
+}
+
+async function codebaseSizeRequest(path: string, init?: RequestInit): Promise<CodebaseSizeReport> {
+  const response = await fetch(`${API_BASE}${path}`, init);
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === 'string') detail = body.detail;
+    } catch {
+      // Body was not JSON; the status line below is the message.
+    }
+    throw new Error(detail || `Codebase size request returned HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+export function fetchCodebaseSize(signal?: AbortSignal): Promise<CodebaseSizeReport> {
+  return codebaseSizeRequest('/codebase-size', { signal });
+}
+
+export function refreshCodebaseSize(signal?: AbortSignal): Promise<CodebaseSizeReport> {
+  return codebaseSizeRequest('/codebase-size/refresh', { method: 'POST', signal });
 }
 
 export interface TaskPolicyResponse {

@@ -41,6 +41,25 @@ def _check_rows(rows: list) -> None:
         raise ValueError(f"refusing to store duplicate repos: {', '.join(dupes)}")
 
 
+def _read_run(conn, newest: bool):
+    """(date, {project: RepoSize}) of the newest or earliest run on ``conn``."""
+    from scripts.codebase_size import RepoSize
+
+    order = "DESC" if newest else "ASC"
+    edge = conn.execute(
+        "SELECT run_id, snapshot_date FROM codebase_size_snapshots "
+        f"ORDER BY id {order} LIMIT 1"
+    ).fetchone()
+    if edge is None:
+        return None, {}
+    run_id, date = edge[0], edge[1]
+    found = conn.execute(
+        f"SELECT {_COLUMNS} FROM codebase_size_snapshots WHERE run_id = ?",
+        (run_id,),
+    ).fetchall()
+    return date, {r[0]: RepoSize(*tuple(r)) for r in found}
+
+
 class CodebaseSizeMixin:
     """Codebase size run operations exposed through the shared DatabaseManager."""
 
@@ -63,28 +82,29 @@ class CodebaseSizeMixin:
             conn.commit()
         return run_id
 
-    def _codebase_run(self, newest: bool):
-        from scripts.codebase_size import RepoSize
+    def codebase_runs(self):
+        """(baseline_date, baseline, latest_date, latest) from ONE read transaction.
 
-        order = "DESC" if newest else "ASC"
+        The single read path for `pt size` and the /codebase API. Both runs come
+        from the same database snapshot (WAL), so a run committed by a
+        concurrent refresh can never show up as the latest run while the
+        baseline read missed it. Each side is (None, {}) when no run exists.
+        """
         with self._db._get_conn() as conn:
-            edge = conn.execute(
-                "SELECT run_id, snapshot_date FROM codebase_size_snapshots "
-                f"ORDER BY id {order} LIMIT 1"
-            ).fetchone()
-            if edge is None:
-                return None, {}
-            run_id, date = edge[0], edge[1]
-            found = conn.execute(
-                f"SELECT {_COLUMNS} FROM codebase_size_snapshots WHERE run_id = ?",
-                (run_id,),
-            ).fetchall()
-            return date, {r[0]: RepoSize(*tuple(r)) for r in found}
+            conn.execute("BEGIN")
+            try:
+                base_date, base = _read_run(conn, newest=False)
+                latest_date, latest = _read_run(conn, newest=True)
+            finally:
+                conn.rollback()  # read-only: end the snapshot
+        return base_date, base, latest_date, latest
 
     def codebase_latest_scan(self):
         """(date, {project: RepoSize}) of the newest run, or (None, {})."""
-        return self._codebase_run(newest=True)
+        _, _, date, rows = self.codebase_runs()
+        return date, rows
 
     def codebase_baseline(self):
         """(date, {project: RepoSize}) of the earliest run, or (None, {})."""
-        return self._codebase_run(newest=False)
+        date, rows, _, _ = self.codebase_runs()
+        return date, rows
