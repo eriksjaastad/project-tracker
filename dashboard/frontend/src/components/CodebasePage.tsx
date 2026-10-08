@@ -19,6 +19,24 @@ function signed(value: number | null, digits: number): string {
 const formatChange = (value: number | null) => signed(value, 0);
 const formatScore = (value: number | null) => signed(value, 1);
 
+// A request that never answers would otherwise hold the one-request lock and
+// leave both buttons disabled until a reload. A refresh scans every repo
+// (seconds, bounded server-side by per-repo git timeouts), so it gets longer.
+const LOAD_TIMEOUT_MS = 30_000;
+const REFRESH_TIMEOUT_MS = 180_000;
+
+/** An abort signal that fires after `ms`, and whether that is why it fired. */
+function deadline(ms: number) {
+  const controller = new AbortController();
+  let expired = false;
+  const timer = setTimeout(() => { expired = true; controller.abort(); }, ms);
+  return {
+    controller,
+    expired: () => expired,
+    clear: () => clearTimeout(timer),
+  };
+}
+
 export function CodebasePage() {
   const [report, setReport] = useState<CodebaseSizeReport | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -43,18 +61,26 @@ export function CodebasePage() {
   const load = useCallback(async () => {
     const token = start();
     if (!token) return;
-    const controller = new AbortController();
-    loadAbort.current = controller;
+    const limit = deadline(LOAD_TIMEOUT_MS);
+    loadAbort.current = limit.controller;
     setLoading(true);
     setLoadError(null);
     try {
-      const next = await fetchCodebaseSize(controller.signal);
-      if (active.current === token) setReport(next);
+      const next = await fetchCodebaseSize(limit.controller.signal);
+      if (active.current === token) {
+        setReport(next);
+        // A refresh error from before this load describes data no longer shown.
+        setRefreshError(null);
+      }
     } catch (failure) {
-      if (active.current === token && !isAbortError(failure)) {
+      if (active.current !== token) return;
+      if (limit.expired()) {
+        setLoadError(`no answer after ${LOAD_TIMEOUT_MS / 1000}s`);
+      } else if (!isAbortError(failure)) {
         setLoadError(failure instanceof Error ? failure.message : 'Codebase size unavailable');
       }
     } finally {
+      limit.clear();
       if (active.current === token) {
         active.current = null;
         setLoading(false);
@@ -73,17 +99,25 @@ export function CodebasePage() {
   async function refresh() {
     const token = start();
     if (!token) return;
+    const limit = deadline(REFRESH_TIMEOUT_MS);
     setScanning(true);
     setRefreshError(null);
     try {
-      const next = await refreshCodebaseSize();
+      const next = await refreshCodebaseSize(limit.controller.signal);
       if (active.current !== token) return;
       setReport(next);
       setLoadError(null);
     } catch (failure) {
       if (active.current !== token) return;
-      setRefreshError(failure instanceof Error ? failure.message : 'Refresh failed');
+      if (limit.expired()) {
+        setRefreshError(
+          `no answer after ${REFRESH_TIMEOUT_MS / 60_000} minutes; the scan may still finish on the server, so reload to check.`,
+        );
+      } else {
+        setRefreshError(failure instanceof Error ? failure.message : 'Refresh failed');
+      }
     } finally {
+      limit.clear();
       if (active.current === token) {
         active.current = null;
         setScanning(false);

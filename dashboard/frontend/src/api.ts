@@ -45,8 +45,8 @@ export function fetchCodebaseSize(signal?: AbortSignal): Promise<CodebaseSizeRep
   return codebaseSizeRequest('/codebase-size', { signal });
 }
 
-export function refreshCodebaseSize(): Promise<CodebaseSizeReport> {
-  return codebaseSizeRequest('/codebase-size/refresh', { method: 'POST' });
+export function refreshCodebaseSize(signal?: AbortSignal): Promise<CodebaseSizeReport> {
+  return codebaseSizeRequest('/codebase-size/refresh', { method: 'POST', signal });
 }
 
 export interface TaskPolicyResponse {

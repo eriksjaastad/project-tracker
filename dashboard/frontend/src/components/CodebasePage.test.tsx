@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodebasePage } from './CodebasePage';
@@ -100,7 +100,7 @@ describe('CodebasePage', () => {
     await screen.findByText(/No runs yet/);
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(screen.getByRole('button', { name: 'Scanning…' })).toBeDisabled();
-    expect(fetcher).toHaveBeenLastCalledWith('/api/codebase-size/refresh', { method: 'POST' });
+    expect(fetcher).toHaveBeenLastCalledWith('/api/codebase-size/refresh', expect.objectContaining({ method: 'POST', signal: expect.any(AbortSignal) }));
     finish(reply(report));
     await screen.findByText('alpha');
     expect(screen.queryByText(/No runs yet/)).not.toBeInTheDocument();
@@ -175,5 +175,59 @@ describe('CodebasePage', () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
     resolvePost(reply(report));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled());
+  });
+
+  describe('timeouts', () => {
+    afterEach(() => { vi.useRealTimers(); });
+
+    function hang(init?: RequestInit) {
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })));
+      });
+    }
+
+    it('a load that never answers becomes a load error and frees the buttons', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => hang(init)));
+      render(<CodebasePage />);
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(await screen.findByText(/Could not load codebase size: no answer after 30s/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+    });
+
+    it('a refresh that never answers reports it and frees the buttons, keeping the rows', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) =>
+        init?.method === 'POST' ? hang(init) : Promise.resolve(reply(report))));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<CodebasePage />);
+      await screen.findByText('alpha');
+      await user.click(screen.getByRole('button', { name: 'Refresh' }));
+      expect(screen.getByRole('button', { name: 'Scanning…' })).toBeDisabled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
+      expect(await screen.findByText(/no answer after 3 minutes/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+      expect(screen.getByText('alpha')).toBeInTheDocument();
+    });
+  });
+
+  it('a successful Retry clears a refresh error that described older data', async () => {
+    let getCalls = 0;
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return Promise.resolve(reply({ detail: 'Scan failed for 1 repo(s)' }, false, 502));
+      getCalls += 1;
+      return Promise.resolve(getCalls === 1 ? reply({ detail: 'database locked' }, false, 500) : reply(report));
+    }));
+    const user = userEvent.setup();
+    render(<CodebasePage />);
+    await screen.findByRole('button', { name: 'Retry' });
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    await screen.findByText(/Refresh failed: Scan failed/);
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await screen.findByText('alpha');
+    expect(screen.queryByText(/Refresh failed/)).not.toBeInTheDocument();
   });
 });
