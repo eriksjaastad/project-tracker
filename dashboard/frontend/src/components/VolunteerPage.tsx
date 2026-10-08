@@ -81,7 +81,13 @@ export function VolunteerPage() {
     try {
       const response = await request();
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        // The server's detail (e.g. 409 "run `pt db migrate`") says what to
+        // do next; fall back to the generic failure text without one.
+        const body = await response.json().catch(() => null);
+        const detail = body && typeof body.detail === 'string' ? body.detail : null;
+        console.error(failure, `HTTP ${response.status}`, detail);
+        setNotification({ message: detail ? `${failure}: ${detail}` : failure, type: 'error' });
+        return;
       }
       setData(update);
       setNotification({ message: success, type: 'success' });

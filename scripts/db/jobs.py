@@ -151,6 +151,11 @@ class JobsMixin:
             conn.commit()
             return dict(row)
 
+    def volunteer_kind_supported(self) -> bool:
+        """False until migration 016 adds jobs.kind (see _has_kind_columns)."""
+        with self._db._get_conn() as conn:
+            return _has_kind_columns(conn)
+
     def get_open_jobs(self, kind: str = "job") -> list[dict[str, Any]]:
         """Listings of one kind neither dismissed nor submitted, newest first.
 

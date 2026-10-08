@@ -181,6 +181,26 @@ describe('VolunteerPage', () => {
     expect(section('Possible').getAllByText('Acme')).toHaveLength(2);
   });
 
+  it('shows the 409 migration message and leaves the role in place', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce(respond({
+      current: [], applied: [], possible: [role(8)], possible_stale: [],
+    }));
+    render(<VolunteerPage />);
+    await waitFor(() => expect(screen.getByText('Role 8')).toBeInTheDocument());
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ detail: 'volunteer roles need migration 016; run `pt db migrate`' }),
+    } as Response);
+    await user.click(section('Possible').getByLabelText('Started volunteering at Org 8'));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('run `pt db migrate`'));
+    expect(section('Possible').getByText('Role 8')).toBeInTheDocument();
+    expect(section('Currently volunteering').queryByText('Role 8')).not.toBeInTheDocument();
+  });
+
   it('says when the database still needs migration 016', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond({
       migration_pending: true, current: [], applied: [], possible: [], possible_stale: [],

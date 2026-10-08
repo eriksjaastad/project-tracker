@@ -109,3 +109,18 @@ def test_jobs_api_returns_ranked_fresh_and_stale_separately(db) -> None:
     assert [job["id"] for job in body["jobs"]] == [fit["id"], plain["id"]]
     assert [job["id"] for job in body["stale"]] == [old["id"]]
     assert body["jobs"][0]["fit_score"] > body["jobs"][1]["fit_score"]
+
+
+def _remote_points(location: str) -> int:
+    plain = score_listing(_row(1, "Support specialist"), TODAY)
+    return score_listing({**_row(2, "Support specialist"), "location": location}, TODAY) - plain
+
+
+def test_remote_us_points_need_remote_wording_next_to_the_us_phrase() -> None:
+    for remote_us in ("Remote (US)", "Remote - United States", "US remote",
+                      "Fully remote; candidates must be US-based", "Remote (U.S.)"):
+        assert _remote_points(remote_us) == 2, remote_us
+    for not_remote_us in ("Seattle, United States", "Hybrid - United States",
+                          "On-site in Austin. US-based company", "Remote (Canada)",
+                          "work with us remotely"):
+        assert _remote_points(not_remote_us) == 0, not_remote_us

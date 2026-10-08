@@ -7,7 +7,11 @@ A database still in the 013 shape must not turn the Jobs page into a 500.
 
 from __future__ import annotations
 
+import json
 import sqlite3
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -68,3 +72,28 @@ def test_upsert_before_migration_016_keeps_jobs_and_refuses_volunteer(pre_016_db
     with pytest.raises(JobsMigrationPendingError, match="pt db migrate"):
         pre_016_db.upsert_job(company="Org", title="Helper", source="manual",
                               url="https://example.test/pre/4", kind="volunteer")
+
+
+def test_dry_run_flags_volunteer_lines_before_migration_016(pre_016_db, tmp_path) -> None:
+    """A dry run reports what a real run would reject (rule E1)."""
+    jsonl = tmp_path / "dry.jsonl"
+    jsonl.write_text(
+        json.dumps({"company": "Acme", "title": "Engineer", "url": "https://example.test/dry/1",
+                    "source": "manual"}) + "\n"
+        + json.dumps({"company": "Food Bank", "title": "Helper", "url": "https://example.test/dry/2",
+                      "source": "manual", "kind": "volunteer"}) + "\n"
+    )
+    reasons = {}
+    for mode in (["--dry-run"], []):
+        result = subprocess.run(
+            [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl), "--json", *mode],
+            capture_output=True, text=True, cwd=Path(__file__).parent.parent, timeout=120,
+        )
+        assert result.returncode == 0, result.stderr
+        response = json.loads(result.stdout)
+        assert response["result"]["imported"] == 1
+        [error] = response["result"]["details"]["errors"]
+        assert error["line"] == 2
+        reasons[bool(mode)] = error["reason"]
+    assert "pt db migrate" in reasons[True]
+    assert reasons[True] == reasons[False]

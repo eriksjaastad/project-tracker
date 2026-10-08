@@ -1082,6 +1082,34 @@ describe('JobsPage', () => {
     expect(titles).toEqual(['Role 11', 'Role 12', 'Role 13']);
   });
 
+  it('dismisses and submits rows from the older-listings section', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: [rankedJob(1)], stale: [rankedJob(31), rankedJob(32)] }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Show older listings' }));
+    // Each action refetches stats; answer those with a well-formed payload.
+    vi.mocked(fetch).mockImplementation(async input => ({
+      ok: true,
+      json: async () => (String(input) === '/api/jobs/stats'
+        ? { jobs_per_day: [], submissions_per_day: [], categories: [] }
+        : {}),
+    }) as Response);
+
+    await user.click(screen.getByLabelText('Dismiss Role 31'));
+    expect(fetch).toHaveBeenCalledWith('/api/jobs/31', { method: 'DELETE' });
+    await waitFor(() => expect(screen.queryByText('Role 31')).not.toBeInTheDocument());
+
+    await user.click(screen.getByLabelText('Mark Role 32 as submitted'));
+    expect(fetch).toHaveBeenCalledWith('/api/jobs/32/submissions', expect.objectContaining({ method: 'POST' }));
+    await waitFor(() => expect(screen.queryByText('Role 32')).not.toBeInTheDocument());
+    expect(screen.getByText('Role 1')).toBeInTheDocument();
+  });
+
   it('offers the hidden older listings when no fresh ones remain', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,

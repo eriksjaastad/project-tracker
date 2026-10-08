@@ -50,9 +50,18 @@ _KEYWORD_PATTERNS = tuple(_word_pattern(k) for k in FIT_KEYWORDS)
 _PAY_RE = re.compile(
     r"\$\s?\d|\d\s*/\s*(?:hr|hour)\b|\bper hour\b|\bsalary\b", re.IGNORECASE
 )
+# A US phrase counts only next to remote wording: "Remote (US)", "Remote -
+# United States", "US remote", "remotely from the US", or "remote ... US
+# only/US-based" within one line. A bare "United States" (an on-site or
+# hybrid location) earns nothing.
+_US = r"(?:usa|us|u\.s\.a\.|u\.s\.|united states)"
+_NOT_WORD_AFTER = r"(?![a-z0-9])"
+_NOT_WORD_BEFORE = r"(?<![a-z0-9])"
 _REMOTE_US_RE = re.compile(
-    r"\bremote\W{0,3}(?:us|usa|u\.s\.|united states)\b"
-    r"|\b(?:us|usa)\W{0,3}remote\b|\bus[- ]based\b|\bunited states\b",
+    rf"\bremote(?:ly)?\W{{0,3}}(?:(?:from|in|within|across)\s+(?:the\s+)?)?{_US}{_NOT_WORD_AFTER}"
+    rf"|{_NOT_WORD_BEFORE}{_US}\W{{0,3}}remote\b"
+    rf"|\bremote\b[^\n]{{0,60}}?{_NOT_WORD_BEFORE}{_US}[- ](?:only|based){_NOT_WORD_AFTER}"
+    rf"|{_NOT_WORD_BEFORE}{_US}[- ](?:only|based)\b[^\n]{{0,60}}?\bremote\b",
     re.IGNORECASE,
 )
 

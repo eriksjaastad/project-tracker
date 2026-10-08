@@ -5716,11 +5716,14 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
     Upserts jobs by URL (unique key). Preserves first_seen, deleted_at, and existing
     raw text on conflict. See docs/JOB_IMPORT_CONTRACT.md for full contract.
     """
-    from db.jobs import validate_import_record
+    from db.jobs import JobsMigrationPendingError, validate_import_record
     
     errors: list[dict] = []
     imported: list[dict] = []
     skipped: list[dict] = []
+    # Dry run must flag what a real run rejects (#101668605654102016):
+    # volunteer lines need migration 016. Checked once, on first need.
+    volunteer_supported: bool | None = None
     
     try:
         with jsonl_path.open("r", encoding="utf-8") as f:
@@ -5746,6 +5749,16 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
                     continue
 
                 if dry_run:
+                    if fields["kind"] == "volunteer":
+                        if volunteer_supported is None:
+                            volunteer_supported = DatabaseManager().volunteer_kind_supported()
+                        if not volunteer_supported:
+                            errors.append({
+                                "line": line_num,
+                                "reason": str(JobsMigrationPendingError()),
+                                "data": record,
+                            })
+                            continue
                     imported.append({"line": line_num, "url": record["url"]})
                     continue
                 
