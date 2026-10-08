@@ -11,8 +11,9 @@ IF NOT EXISTS makes this migration safe after either creation path.
 
 The table is append-only: triggers abort any UPDATE or DELETE, so a stored
 measurement can never be lost or altered. Each run is one complete scan under
-its own run_id, and the partial unique index allows exactly one baseline row
-per project, which makes the baseline immutable.
+its own run_id. The baseline is immutable at the database level: baseline
+rows must be dated 2026-10-08, a trigger refuses any baseline row from a
+second run, and the partial unique index allows one baseline row per project.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ DDL = (
         id            INTEGER PRIMARY KEY NOT NULL,
         run_id        TEXT NOT NULL,
         kind          TEXT NOT NULL CHECK(kind IN ('baseline', 'scan')),
-        snapshot_date TEXT NOT NULL,
+        snapshot_date TEXT NOT NULL CHECK(kind <> 'baseline' OR snapshot_date = '2026-10-08'),
         project       TEXT NOT NULL,
         code_lines    INTEGER NOT NULL,
         test_lines    INTEGER NOT NULL,
@@ -46,6 +47,15 @@ DDL = (
     """
     CREATE INDEX IF NOT EXISTS idx_codebase_size_kind_id
     ON codebase_size_snapshots(kind, id)
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS codebase_size_one_baseline_run
+    BEFORE INSERT ON codebase_size_snapshots
+    WHEN NEW.kind = 'baseline' AND EXISTS (
+        SELECT 1 FROM codebase_size_snapshots
+        WHERE kind = 'baseline' AND run_id <> NEW.run_id
+    )
+    BEGIN SELECT RAISE(ABORT, 'the codebase size baseline is immutable'); END
     """,
     """
     CREATE TRIGGER IF NOT EXISTS codebase_size_snapshots_no_update

@@ -403,7 +403,7 @@ def test_schema_py_and_migration_017_create_the_same_objects(tmp_path: Path, con
     assert set(expected) == {
         "codebase_size_snapshots", "idx_codebase_size_one_baseline",
         "idx_codebase_size_kind_id", "codebase_size_snapshots_no_update",
-        "codebase_size_snapshots_no_delete",
+        "codebase_size_snapshots_no_delete", "codebase_size_one_baseline_run",
     }
     # `conn` is the per-test DB that schema.py built.
     assert _codebase_objects(conn) == expected
@@ -618,3 +618,63 @@ def test_scan_repo_at_ignores_branch_commits_merged_after_the_instant(tmp_path: 
     # At 11:00 the mainline had only a.py; the branch commit was not on it yet.
     assert cs.scan_repo_at(repo, "2026-01-15T11:00:00+00:00").code == 1
     assert cs.scan_repo_at(repo, "2026-01-15T12:30:00+00:00").code == 5
+
+
+def _raw_baseline_insert(conn, run_id: str, project: str, date: str = "2026-10-08") -> None:
+    conn.execute(
+        "INSERT INTO codebase_size_snapshots (run_id, kind, snapshot_date, project, "
+        "code_lines, test_lines, doc_files, doc_lines, scanned_at) "
+        "VALUES (?, 'baseline', ?, ?, 1, 0, 0, 0, 't')",
+        (run_id, date, project),
+    )
+
+
+def test_database_refuses_a_second_baseline_run_even_for_other_projects(mgr, conn) -> None:
+    _raw_baseline_insert(conn, "run-1", "a")
+    _raw_baseline_insert(conn, "run-1", "b")
+    conn.commit()
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        _raw_baseline_insert(conn, "run-2", "c")
+    conn.rollback()
+    with pytest.raises(sqlite3.IntegrityError):
+        _raw_baseline_insert(conn, "run-1", "z", date="2026-10-09")  # pinned date
+    conn.rollback()
+    assert sorted(mgr.codebase_baseline()[1]) == ["a", "b"]
+
+
+def test_import_race_loser_gets_a_clean_refusal(tmp_path: Path, mgr, conn, monkeypatch) -> None:
+    make_repo(tmp_path, "proj", FILES)
+    make_repo(tmp_path, "other", {"x.py": "1\n2\n"})
+    one = _baseline_file(tmp_path / "one.txt", [(9, 6, 2, "proj")])
+    two = _baseline_file(tmp_path / "two.txt", [(2, 0, 0, "other")])
+    mgr.import_codebase_baseline(one, IMPORT_TS, tmp_path)
+    # A second import that raced past the app-level check (it saw no baseline
+    # yet) is refused by the database, whole, with a clean error.
+    monkeypatch.setattr(type(mgr), "codebase_baseline", lambda self: (None, {}))
+    with pytest.raises(ValueError, match="immutable"):
+        mgr.import_codebase_baseline(two, IMPORT_TS, tmp_path)
+    monkeypatch.undo()
+    assert sorted(mgr.codebase_baseline()[1]) == ["proj"]
+    assert _count(conn, "baseline") == 1
+
+
+def test_repo_with_no_commits_is_measured_not_an_error(tmp_path: Path) -> None:
+    repo = tmp_path / "fresh"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "a.py").write_text("1\n2\n")
+    _git(repo, "add", "a.py")
+    size = cs.scan_repo(repo)
+    assert size.error is None
+    assert (size.code, size.last_commit, size.commits_90d) == (2, None, 0)
+
+
+def test_import_from_a_feature_branch_head_is_refused_not_stored(tmp_path: Path, mgr, conn) -> None:
+    repo = make_repo(tmp_path, "proj", FILES, date="2026-10-01T00:00:00+0000")
+    _git(repo, "checkout", "-q", "-b", "feature")
+    commit(repo, {"extra.py": "1\n2\n"}, "2026-10-05T00:00:00+0000")
+    # The file records the mainline (9 code lines); HEAD is the feature branch.
+    file = _baseline_file(tmp_path / "base.txt", [(9, 6, 2, "proj")])
+    with pytest.raises(cs.BaselineMismatch, match="proj"):
+        mgr.import_codebase_baseline(file, IMPORT_TS, tmp_path)
+    assert _count(conn) == 0

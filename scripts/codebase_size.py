@@ -137,7 +137,26 @@ def _wanted(path: str) -> bool:
     return path.endswith(".md") or bool(CODE.search(path))
 
 
-def _activity(path: Path) -> tuple[str, int]:
+def _has_commits(path: Path) -> bool:
+    """False for an unborn HEAD (``git init`` with no commit yet)."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "--verify", "-q", "HEAD"],
+            capture_output=True, timeout=GIT_TIMEOUT, check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise GitError(f"git rev-parse timed out after {GIT_TIMEOUT}s") from exc
+    if proc.returncode == 0:
+        return True
+    if proc.returncode == 1:
+        return False  # no HEAD commit yet: an expected state, measured as no activity
+    detail = proc.stderr.decode("utf-8", "replace").strip()[:200]
+    raise GitError(f"git rev-parse exited {proc.returncode}: {detail}")
+
+
+def _activity(path: Path) -> tuple[Optional[str], int]:
+    if not _has_commits(path):
+        return None, 0
     last = _git(path, "log", "-1", "--format=%cs").decode().strip()
     count = _git(
         path, "rev-list", "--count", f"--since={RECENT_DAYS} days ago", "HEAD"

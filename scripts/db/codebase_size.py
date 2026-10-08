@@ -12,11 +12,14 @@ adds triggers that abort either), so nothing here can lose a measurement:
   measurement, never a mix of two.
 - The baseline is a single ``kind='baseline'`` run dated
   ``BASELINE_DATE``. Importing it a second time, or for any other date, is
-  refused, and a unique index allows one baseline row per project.
+  refused here and by the database itself (a CHECK on the date, a trigger
+  refusing a second baseline run, a unique index per project), so a race
+  between two imports cannot replace it.
 """
 
 from __future__ import annotations
 
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -118,7 +121,12 @@ class CodebaseSizeMixin:
             raise ValueError("a baseline is already stored and is immutable")
         rebuilt = cs.verify_baseline(file, at, root)
         _check_rows(rebuilt)
-        with self._db._get_conn() as conn:
-            _insert_run(conn, rebuilt, "baseline", date)
-            conn.commit()
+        try:
+            with self._db._get_conn() as conn:
+                _insert_run(conn, rebuilt, "baseline", date)
+                conn.commit()
+        except sqlite3.IntegrityError as exc:
+            # Another import stored a baseline after the check above: the
+            # database's trigger and unique index refused this one whole.
+            raise ValueError("a baseline is already stored and is immutable") from exc
         return rebuilt
