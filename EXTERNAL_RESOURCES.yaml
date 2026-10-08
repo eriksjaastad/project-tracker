@@ -1,13 +1,13 @@
 # External Resources & Services
 # Purpose: Track which external services, APIs, and resources are used across all projects
-# Last Updated: 2026-09-05
+# Last Updated: 2026-10-07 (PROPOSED audit pass — see recent_changes 2026-10-07)
 #
 # NOTE: Moved from project-scaffolding to project-tracker on 2026-09-18
 #       (project-tracker is now the canonical home for portfolio-wide resource registry)
 
 metadata:
   purpose: "Track external services and costs across all projects"
-  last_updated: "2026-09-05"
+  last_updated: "2026-10-07"
   why_exists: "When you get a bill or notification, you need to know which project uses that service"
 
 # MARKET DATA POLICY
@@ -29,7 +29,7 @@ accounts:
     type: personal
     email: "spudlogic@gmail.com"
     github: "eriksjaastad"
-    notes: "Personal account. Most services default here (legacy). GitHub, personal bank."
+    notes: "Personal account. Most services default here (legacy). GitHub, personal bank. GitHub eriksjaastad owns the public portfolio repos (pickkit, clipstash, duplicate-image-highlighter; ledgercheck going public 2026-10, card 101480241093046272)."
   synthinsightlabs:
     type: business
     email: "admin@synthinsightlabs.com"
@@ -82,7 +82,8 @@ multi_account_vendors:
 # This is the main data structure - parsed by project-tracker dashboard
 projects:
   project-scaffolding:  # ARCHIVED 2026-09-19 → ~/projects/_archive/project-scaffolding
-    monthly_cost: 5
+    status: archived
+    monthly_cost: 0  # archived; was 5. No live consumer.
     account: spudlogic
     credential_file: ".env"
     services:
@@ -90,7 +91,9 @@ projects:
         purpose: "Logic drafting"
         type: ai
         env_var: "SCAFFOLDING_DEEPSEEK_KEY"
-        cost: 0.27
+        cost: 0
+        status: unhooked
+        notes: "Direct DeepSeek API access fully unhooked portfolio-wide 2026-09-30 (MODEL_SEATS.md; card 97746682943533056; ARC #7709 key retirement)."
       - name: Discord
         purpose: "Governance alerts"
         type: notifications
@@ -152,12 +155,15 @@ projects:
         type: ai
         env_var: "HOLOSCAPE_OPENAI_KEY"
         cost: 0
+        status: no_code_consumer
+        notes: "2026-10-07 audit: no OpenAI reference in holoscape/Sources. Candidate to drop."
       - name: Anthropic
-        purpose: "LLM Provider"
+        purpose: "Agent sessions — Claude subscription by default; optional API key from macOS Keychain"
         type: ai
-        env_var: "HOLOSCAPE_ANTHROPIC_KEY"
+        env_var: "ANTHROPIC_API_KEY (Keychain service, not Doppler/.env)"
         cost: 0
-    notes: "Removed from Doppler March 2026"
+        notes: "2026-10-07 audit: Sources/Holoscape/Services/AuthEnvironmentBuilder.swift + AgentAPIKeyStore.swift. HOLOSCAPE_ANTHROPIC_KEY no longer read by code."
+    notes: "Removed from Doppler March 2026 (repo still has holoscape/doppler.yaml pinning holoscape/dev — verify)."
 
   trading-copilot:
     monthly_cost: 1
@@ -174,6 +180,13 @@ projects:
         type: data
         env_var: "FINNHUB_API_KEY"
         cost: 0
+        status: unverified
+        notes: "2026-10-07 audit: named in .env.example only; no code reference outside docs. Confirm before dropping."
+      - name: FRED (St. Louis Fed)
+        purpose: "Macro data for the dashboard (dashboard/data_sources/fred.py)"
+        type: data
+        env_var: "FRED_API_KEY (optional)"
+        cost: 0
       - name: Tradier
         purpose: "Paper trading + free real-time US equity data"
         type: broker
@@ -186,7 +199,11 @@ projects:
           MCP: https://mcp.tradier.com/mcp registered at user scope with PAPER_TRADING: true.
           REST sandbox: https://sandbox.tradier.com (confirmed real-time quotes, not 15-min delayed).
           Live trading blocked until #5968 risk gates are filled in.
+          2026-10-07 audit: no REST code path in the repo now; used via the Tradier MCP (Codex config).
+          PROGRESS.md #7884 has a pending key move out of .codex/config.toml + rotation.
     notes: |
+      2026-10-07 audit: Anthropic calls in scripts/alpha_audit.py, alpha_digest.py, alpha_analysis.py and
+      morning_brief.py use the Anthropic SDK DIRECTLY, not OpenRouter — an exception to the OpenRouter-only rule.
       Model Arena ecosystem (Railway + Postgres + Discord + arena scripts) removed 2026-04-17.
       Project is now local-only: macOS LaunchAgent watches Alfa reports/, converts PDFs to JSON,
       and scripts/alpha_audit.py analyzes them. Archive of 4 months of arena data preserved at
@@ -196,13 +213,26 @@ projects:
   cortana-personal-ai:
     monthly_cost: 0.60
     account: spudlogic
-    credential_file: ".env"
+    credential_file: "Doppler (cortana-personal-ai/dev)"
     services:
+      - name: OpenRouter
+        purpose: "External Claude calls (scripts/core/openrouter_client.py, router.py)"
+        type: ai
+        env_var: "OPENROUTER_API_KEY"
+        cost: "Variable"
+        added: "2026-10-04"
+        notes: "Card 97734684243554304 (Route Cortana's external Claude calls through OpenRouter), Done 2026-10-04."
       - name: OpenAI
-        purpose: "gpt-4o-mini"
+        purpose: "gpt-4o-mini (legacy)"
         type: ai
         env_var: "CORTANA_OPENAI_API_KEY"
-        cost: 0.60
+        cost: 0
+        status: no_code_consumer
+        notes: "2026-10-07 audit: not read by current code; .env.example lists OPENROUTER_API_KEY + ANTHROPIC_API_KEY instead."
+      - name: Ollama (Mac Mini)
+        purpose: "Local model endpoint (scripts/core/local_client.py → Eriks-Mac-mini.local:11435)"
+        type: local
+        cost: 0
       - name: Discord
         purpose: "Daily update notifications"
         type: notifications
@@ -219,8 +249,9 @@ projects:
         type: local
         cost: 0
 
-  image-workflow:
-    monthly_cost: 10
+  image-workflow:  # ARCHIVED 2026-10-01 → ~/projects/_archive/image-workflow (pt retire-project, #7835)
+    status: archived
+    monthly_cost: 0  # archived; was 10. Verify the OpenAI key is revoked.
     account: spudlogic
     credential_file: ".env"
     services:
@@ -263,8 +294,9 @@ projects:
         cost: "Pay-per-use"
 
   project-tracker:
-    monthly_cost: 0
+    monthly_cost: "audit"
     account: spudlogic
+    credential_file: "Doppler (project-tracker/dev); Agent Chat client in ~/.claude/agent-chat.env"
     services:
       - name: SQLite
         purpose: "Local database"
@@ -274,13 +306,87 @@ projects:
         purpose: "Local web server"
         type: local
         cost: 0
-    notes: "100% local, no external services"
+      - name: Turso
+        purpose: "Kanban DB sync"
+        type: database
+        env_var: "TURSO_KANBAN_TOKEN, TURSO_KANBAN_URL"
+        cost: "audit"
+      - name: Google Cloud (Cloud Run + Cloud SQL, project synth-insight-labs)
+        purpose: "Agent Chat API behind pt message (Makefile deploy-chat; see agent-chat entry)"
+        type: cloud
+        env_var: "AGENT_CHAT_API_KEY, AGENT_CHAT_URL, AGENT_CHAT_DATABASE_URL"
+        cost: "audit"
+      - name: OpenRouter
+        purpose: "Grok/Gemini model tools (card_factory_grok.py, doc_audit_v2.py)"
+        type: ai
+        env_var: "OPENROUTER_API_KEY"
+        cost: "Variable"
+        notes: "Cards 97734686982434816 (2026-09-30) and 100631286834688000 (2026-10-05)."
+      - name: Resend
+        purpose: "Morning alert digest email"
+        type: email
+        env_var: "RESEND_API_KEY"
+        cost: 0
+      - name: Cost Tracker API
+        purpose: "Spend logging (api.synthinsightlabs.com)"
+        type: monitoring
+        env_var: "COST_TRACKER_API_KEY"
+        cost: 0
+      - name: Google Drive (rclone gbackup)
+        purpose: "Offsite DB backups (gbackup:db-backups/project-tracker/)"
+        type: storage
+        cost: 0
+      - name: Tailscale
+        purpose: "Laptop ↔ Mac Mini network (com.pt.tailscale-up)"
+        type: network
+        cost: 0
+      - name: GitHub Actions
+        purpose: "CI (.github/workflows/tests.yml)"
+        type: ci
+        cost: 0
+    notes: "NOT 100% local (corrected 2026-10-07). Core board is local SQLite, but sync, chat, model tools and alerts use the services above."
 
   muffinpanrecipes:
     monthly_cost: 12
     account: spudlogic
-    credential_file: ".env"
+    credential_file: "Doppler (muffinpanrecipes/dev, prd, stg)"
     services:
+      - name: OpenRouter
+        purpose: "Recipe/dialogue/judge model routing (backend/utils/model_router.py, stop_check.py)"
+        type: ai
+        env_var: "OPENROUTER_API_KEY"
+        cost: "Variable"
+        notes: "2026-10-07 audit: model_router.py still also has direct OPENAI_API_KEY / ANTHROPIC_API_KEY paths — confirm whether they are live or fallback-only."
+      - name: Cloudflare R2
+        purpose: "Job files for image generation (scripts/trigger_generation.py)"
+        type: storage
+        env_var: "MUFFINPANRECIPES_R2_ACCESS_KEY_ID, MUFFINPANRECIPES_R2_SECRET_ACCESS_KEY, MUFFINPANRECIPES_R2_ENDPOINT"
+        cost: "audit"
+      - name: Vercel Blob
+        purpose: "Image/asset storage"
+        type: storage
+        env_var: "BLOB_READ_WRITE_TOKEN"
+        cost: "audit"
+      - name: Resend
+        purpose: "Pipeline alert email (backend/utils/alerts.py)"
+        type: email
+        env_var: "RESEND_API_KEY"
+        cost: 0
+      - name: Discord
+        purpose: "Pipeline notifications"
+        type: notifications
+        env_var: "MUFFINPAN_DISCORD_WEBHOOK"
+        cost: 0
+      - name: Google OAuth + Gemini image ("Nano Banana")
+        purpose: "Admin login (GOOGLE_CLIENT_ID/SECRET) and image-provider comparison (scripts/compare_image_providers.py)"
+        type: cloud
+        env_var: "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_API_KEY, NANOBANANA_API_KEY"
+        cost: "Pay-per-use"
+      - name: Bing Webmaster API
+        purpose: "SEO baseline (scripts/bing_webmaster_baseline.py)"
+        type: data
+        env_var: "BING_WEBMASTER_API_KEY"
+        cost: 0
       - name: Vercel
         purpose: "Site hosting"
         type: hosting
@@ -309,13 +415,39 @@ projects:
         cost: 0
         plan: "Free tier (10GB)"
         bucket: "open-brain-backups"
-        notes: "S3-compatible keys + CF_API_TOKEN. Created 2026-03-20 under SIL Cloudflare account."
+        status: unverified
+        notes: "S3-compatible keys + CF_API_TOKEN. Created 2026-03-20 under SIL Cloudflare account. 2026-10-07 audit: no R2 reference left in ai-memory code; backups now go to Google Drive gbackup:ai-memory-encrypted (monitoring._backups). Confirm the bucket/keys are retired before dropping."
       - name: Anthropic
-        purpose: "Haiku 3.5 for scope classification (shared vs agent-scoped)"
+        purpose: "Haiku 4.5 Message Batches for scope classification (batcher.py) — stays DIRECT"
         type: ai
         env_var: "ANTHROPIC_API_KEY"
-        cost: "<$0.01"
-        notes: "Extremely low usage — classifies ~10 words per memory entry"
+        cost: "<$1"
+        notes: "Batcher spend ~$0.35/mo. Move to OpenRouter batch API is blocked by vendor (card 98877448037494784, Backlog). Benchmarks also use ANTHROPIC_API_KEY + OPENAI_API_KEY (judge)."
+      - name: OpenRouter
+        purpose: "Default route for other model calls (model_route.py, BRAIN_MODEL_ROUTE)"
+        type: ai
+        env_var: "OPENROUTER_API_KEY"
+        cost: "Variable"
+        notes: "Card 97734681395621888, Done 2026-09-30."
+      - name: Turso
+        purpose: "Optional cloud mode for brain.db (libsql)"
+        type: database
+        env_var: "TURSO_BRAIN_TOKEN, TURSO_BRAIN_URL"
+        cost: "audit"
+      - name: Resend
+        purpose: "Health/alert email"
+        type: email
+        env_var: "RESEND_API_KEY"
+        cost: 0
+      - name: Discord (bot)
+        purpose: "Brain health messages"
+        type: notifications
+        env_var: "DISCORD_BRAIN_HEALTH_BOT_TOKEN"
+        cost: 0
+      - name: Google Drive (rclone gbackup)
+        purpose: "Encrypted offsite backups (gbackup:ai-memory-encrypted)"
+        type: storage
+        cost: 0
       - name: Ollama
         purpose: "Local embeddings (nomic-embed-text-v2-moe)"
         type: ai
@@ -363,12 +495,29 @@ projects:
         type: dev
         env_var: "QODO_API_KEY"
         cost: "audit"
+        status: unverified
+        notes: "2026-10-07 audit: no code reference anywhere in ~/projects. Possibly unused."
+      - name: OpenRouter
+        purpose: "Grok architecture review script (scripts/grok_arch_review.py)"
+        type: ai
+        env_var: "OPENROUTER_API_KEY"
+        cost: "Variable"
+        notes: "Card 97734688387526656, Done 2026-09-30 (own OpenRouter key; replaces XAI_API_KEY use)."
+      - name: Vercel
+        purpose: "Company site hosting"
+        type: hosting
+        cost: 0
+      - name: Google Cloud (Cloud Run + Cloud SQL)
+        purpose: "Cost Tracker API at api.synthinsightlabs.com (api-cost-tracker/server writes to Cloud SQL Postgres); also hosts agent-chat"
+        type: cloud
+        env_var: "COST_TRACKER_API_KEY, COST_TRACKER_DATABASE_URL"
+        cost: "audit"
     notes: |
       COMPANY IDENTITY/INFRA HUB (not the near-empty entity the accounts block implied). Central GitHub App
       credential store + Google OAuth + Resend send domain. Holds SYNTH_INSIGHT_LABS_LLC_EIN (verify LLC status).
       Natural home for the portfolio alert-email digest (RESEND_API_KEY lives here).
 
-  auxesis:
+  auxesis:  # Laptop tree ARCHIVED 2026-10-01 (_archive/auxesis); Mac Mini instance still exists — status there unverified from the laptop.
     monthly_cost: "audit"
     account: synthinsightlabs
     credential_file: "Doppler (auxesis/dev)"
@@ -378,6 +527,7 @@ projects:
         type: ai
         env_var: "ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY, INCEPTIONLABS_API_KEY"
         cost: "Variable (capped by MAX_PIPELINE_BUDGET_USD)"
+        notes: "DeepSeek direct access unhooked portfolio-wide 2026-09-30; DEEPSEEK_API_KEY here is retired/pending deletion (ARC #7709)."
       - name: Stripe / Paddle / Gumroad
         purpose: "Sales platforms for autonomous ventures"
         type: payments
@@ -405,7 +555,7 @@ projects:
         cost: 0
     notes: "Auxesis = autonomous venture control plane (Mac Mini). Holds its own GitHub Apps (auxesis, auxesis_caretaker_mini), SYNTH_INSIGHT_LABS_LLC_EIN, encryption/JWT keys, RAILWAY_API_TOKEN."
 
-  auxesis-research-labs:
+  auxesis-research-labs:  # Laptop tree ARCHIVED 2026-10-01; Mac Mini status unverified from the laptop.
     monthly_cost: "audit"
     account: synthinsightlabs
     credential_file: "Doppler (auxesis-research-labs/dev)"
@@ -415,6 +565,7 @@ projects:
         type: ai
         env_var: "ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY, GOOGLE_API_KEY"
         cost: "Variable"
+        notes: "DeepSeek direct access unhooked 2026-09-30."
       - name: Firecrawl
         purpose: "Web scraping"
         type: data
@@ -447,11 +598,31 @@ projects:
         type: ai
         env_var: "LEONARDO_API_KEY"
         cost: "Pay-per-use"
+        status: legacy
+        notes: "Last logged use 2026-04-06 (card 97734689821978624)."
       - name: Meshy
         purpose: "Image-to-3D generation"
         type: ai
         env_var: "MESHY_API_KEY"
         cost: "Pay-per-use"
+        status: unverified
+        notes: "2026-10-07 audit: no code reference in flo-fi. Key left in Doppler (Erik's call)."
+      - name: OpenRouter
+        purpose: "Aurora video via x-ai/grok-imagine-video (shared/aurora.py)"
+        type: ai
+        env_var: "OPENROUTER_API_KEY"
+        cost: "Pay-per-use"
+        notes: "PR #33 merged 2026-10-02 (card 97734689821978624). Direct XAI_API_KEY no longer needed. ElevenLabs STS, PixVerse and Fal Kontext stay direct."
+      - name: PixVerse
+        purpose: "Video generation"
+        type: ai
+        env_var: "PIXVERSE_API_KEY"
+        cost: "Pay-per-use"
+      - name: Vercel Blob
+        purpose: "Asset storage"
+        type: storage
+        env_var: "VERCEL_BLOB_READ_WRITE_TOKEN"
+        cost: "audit"
       - name: Cloudflare R2
         purpose: "Asset storage"
         type: storage
@@ -479,6 +650,7 @@ projects:
         type: ai
         env_var: "OPENROUTER_API_KEY, OPENAI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY, GOOGLE_API_KEY"
         cost: "Variable"
+        notes: "DeepSeek direct access unhooked 2026-09-30. Remaining providers unverified from the laptop (Mini-only project)."
     notes: "OpenClaw agent gateway (Mac Mini). Launches under doppler run --project openclaw --config dev."
 
   hermes:
@@ -491,6 +663,7 @@ projects:
         type: ai
         env_var: "OPEN_ROUTER_API_KEY, DEEPSEEK_API_KEY"
         cost: "Variable"
+        notes: "DeepSeek direct access unhooked 2026-09-30 — OpenRouter only."
       - name: Discord
         purpose: "Agent comms"
         type: communications
@@ -504,16 +677,16 @@ projects:
     credential_file: "Doppler (land-tracker/dev)"
     services:
       - name: Discord
-        purpose: "Posts new high-interest parcel alerts — the ONLY active send channel (notify.py)"
+        purpose: "Posts new high-interest parcel alerts (notify.py)"
         type: notifications
-        env_var: "DISCORD_WEBHOOK_URL"
+        env_var: "LAND_TRACKER_DISCORD_WEBHOOK"
         cost: 0
-      - name: Gmail SMTP
-        purpose: "STAGED, NOT WIRED — creds provisioned for a future email channel notify.py does not yet use"
+      - name: Gmail (SMTP + IMAP)
+        purpose: "WIRED — failure/stale-run paging via notify.send_email (smtp.gmail.com) and inbox reads via gmail_imap.py, both run from scripts/daily_run.sh"
         type: email
         env_var: "GMAIL_ADDRESS, GMAIL_APP_PASSWORD"
         cost: 0
-        notes: "Corrected 2026-06-29: land-tracker does NOT send email yet — notify.py only posts to Discord; email is a carded-but-unbuilt channel."
+        notes: "Corrected 2026-10-07: email is now live (land_tracker/alert.py, notify.py, gmail_imap.py; last changed 2026-10-01). Supersedes the 2026-06-29 'not wired' note."
     notes: "Active daily cron (per-state land-deal sourcing). Real feature momentum as of June 2026."
 
   agent-runtime-config:
@@ -521,35 +694,50 @@ projects:
     account: spudlogic
     credential_file: "Doppler (agent-runtime-config/dev)"
     services:
-      - name: DeepSeek / OpenAI
-        purpose: "Rewriter+verifier in the runtime-config translation gate"
+      - name: OpenRouter
+        purpose: "Rewriter+verifier in the runtime-config translation gate (runtime_doctor/gate/llm.py)"
+        type: ai
+        env_var: "OPENROUTER_API_KEY"
+        cost: "Variable"
+        notes: "tests/test_gate_llm.py: direct DeepSeek/OpenAI API-key clients were retired. DeepSeek models are reached via OpenRouter slugs."
+      - name: OpenRouter management key
+        purpose: "Account-level key management (mint/rotate keys) — isolated, no runtime consumers"
+        type: security
+        env_var: "OPENROUTER_MANAGEMENT_KEY (agent-runtime-config/stg)"
+        cost: 0
+        notes: "Card 97820163831918592, Done 2026-10-02."
+      - name: DeepSeek / OpenAI (direct)
+        purpose: "Former rewriter+verifier"
         type: ai
         env_var: "DEEPSEEK_API_KEY, OPENAI_API_KEY"
-        cost: "Variable"
-    notes: "Cross-provider agent runtime-config drift detection/translation."
+        cost: 0
+        status: unhooked
+        notes: "DeepSeek unhooked 2026-09-30; OpenAI direct client retired in the same move."
+    notes: "Cross-provider agent runtime-config drift detection/translation. Owns account-level management credentials."
 
   agent-chat:
     monthly_cost: "audit"
     account: spudlogic
     credential_file: "Doppler (agent-chat/dev)"
     services:
-      - name: Agent Chat API
-        purpose: "Cross-agent messaging (Cloud Run) — backs pt message"
-        type: api
+      - name: Google Cloud Run + Cloud SQL
+        purpose: "Cross-agent messaging API — backs pt message. Service agent-chat, GCP project synth-insight-labs, us-central1; Postgres on Cloud SQL instance synth-insight-labs-pg"
+        type: cloud
         env_var: "AGENT_CHAT_API_KEY, AGENT_CHAT_DATABASE_URL"
         cost: "audit"
-    notes: "Cloud Run Agent Chat API."
+    notes: "Cloud Run Agent Chat API. Code lives in project-tracker/agent-chat (Makefile deploy-chat). Deploys need Erik's gcloud auth."
 
   ai-memory-replay:
     monthly_cost: "Pay-per-use"
     account: synthinsightlabs
     credential_file: "Doppler (ai-memory-replay/dev)"
     services:
-      - name: Anthropic
+      - name: OpenRouter
         purpose: "Memory replay analysis"
         type: ai
-        env_var: "ANTHROPIC_API_KEY"
+        env_var: "OPENROUTER_API_KEY"
         cost: "Variable"
+        notes: "2026-10-07 audit: code reads OPENROUTER_API_KEY only; no ANTHROPIC_API_KEY consumer left (was: Anthropic)."
       - name: ElevenLabs
         purpose: "Audio narration (dream/replay)"
         type: ai
@@ -572,12 +760,63 @@ projects:
   # Projects needing audit for service usage
   hypocrisynow:
     account: synthinsightlabs
+    credential_file: "Doppler (hypocrisynow/dev, dev_personal, stg, prd)"
     resources:
       - name: Firecrawl
         purpose: "Web scraping for funding-source research (scripts/funding/fetch_firecrawl.py)"
         type: data
         env_var: "FIRECRAWL_API_KEY"
         cost: 0  # Free tier as of 2026-09-05; was $99/mo Standard, see multi_account_vendors
+      - name: OpenRouter
+        purpose: "Production chat/extraction inference (config/llm_client.py, LLM_PROVIDER=openrouter)"
+        type: ai
+        env_var: "OPENROUTER_API_KEY"
+        cost: "Variable"
+        notes: "Live since the 2026-10-02 cron (card 97734685619286016)."
+      - name: OpenAI (direct)
+        purpose: "Embeddings (LLM_EMBEDDINGS_PROVIDER) + org cost reconciliation (config/reconcile_costs.py)"
+        type: ai
+        env_var: "OPENAI_API_KEY, OPENAI_ADMIN_API_KEY"
+        cost: "Variable"
+        notes: "OPENAI_API_KEY retirement is a separate later step; OPENAI_ADMIN_API_KEY is account-level (see card 97820163831918592)."
+      - name: Railway
+        purpose: "API + cron + Postgres (private network, #7240)"
+        type: hosting
+        env_var: "RAILWAY_API_TOKEN, DATABASE_URL"
+        cost: "audit"
+      - name: Vercel
+        purpose: "Next.js frontend"
+        type: hosting
+        env_var: "VERCEL_TOKEN"
+        cost: 0
+      - name: SerpAPI
+        purpose: "Contradiction-detector search (ai_agent/search_tool.py)"
+        type: data
+        env_var: "SEARCH_API_KEY"
+        cost: "audit"
+      - name: OpenFEC API
+        purpose: "Campaign-finance data (funding/fec.py)"
+        type: data
+        env_var: "FEC_API_KEY"
+        cost: 0
+      - name: Bluesky public API
+        purpose: "Post ingest (ingest/bluesky.py) — keyless"
+        type: data
+        cost: 0
+      - name: Google OAuth
+        purpose: "Admin sign-in (api/auth.py)"
+        type: identity
+        env_var: "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET"
+        cost: 0
+      - name: Discord
+        purpose: "Ingest watchdog + CI alerts"
+        type: notifications
+        env_var: "DISCORD_WEBHOOK_URL (Doppler + GitHub Actions secret)"
+        cost: 0
+      - name: GitHub Actions
+        purpose: "CI, frontend, ingest-health workflows"
+        type: ci
+        cost: 0
     notes: >
       Account ownership confirmed 2026-09-05: the FIRECRAWL_API_KEY in this project's
       Doppler config belongs to the synthinsightlabs (admin@) Firecrawl account, NOT
@@ -595,7 +834,87 @@ projects:
 
   prospector:
     account: TODO
-    notes: "Audit needed: check for web scraping or search API usage."
+    notes: "Audit needed: check for web scraping or search API usage. 2026-10-07: no ~/projects/prospector or _archive/prospector on the laptop — confirm whether it still exists anywhere before keeping this entry."
+
+  # --- Added 2026-10-07 audit: active projects with third-party use that were missing. ---
+  ledgercheck:
+    monthly_cost: 0
+    account: spudlogic
+    credential_file: "Doppler (planned; TF_VAR_* at plan time) — nothing provisioned"
+    services:
+      - name: OpenRouter
+        purpose: "Small/large model routing + eval judge (ledgercheck/agents/routing.py, eval/judge.py) — spend-gated; mock mode by default"
+        type: ai
+        env_var: "OPENROUTER_API_KEY"
+        cost: 0  # no live spend unless the key is set
+      - name: GitHub (public repo + Actions + GHCR)
+        purpose: "Public repo eriksjaastad/ledgercheck, CI (pytest + mock evals), container image at ghcr.io/eriksjaastad/ledgercheck"
+        type: ci
+        env_var: "GITHUB_TOKEN (Actions-provided only)"
+        cost: 0
+        status: planned
+        notes: "Card 101480241093046272 (To Do). Free for public repos/packages."
+      - name: Langfuse
+        purpose: "Optional tracing (ledgercheck/observability.py) — NullTracer unless LANGFUSE_* keys are set"
+        type: monitoring
+        env_var: "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY"
+        cost: 0
+        status: not_signed_up
+      - name: Azure Container Apps
+        purpose: "Deployment target in terraform/ (write-only, never applied)"
+        type: cloud
+        cost: 0
+        status: not_signed_up
+        notes: "No Azure account exists; Erik declined to sign up (2026-10-07). See rejected_services."
+
+  twitter-growth:
+    monthly_cost: "audit"
+    account: spudlogic
+    credential_file: "Doppler (twitter-growth/dev)"
+    services:
+      - name: X API v2
+        purpose: "Account/feed analysis scripts (scripts/*.py → api.x.com/2)"
+        type: social
+        env_var: "CONSUMER_KEY, CONSUMER_KEY_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET"
+        cost: "audit"
+      - name: Congress.gov API
+        purpose: "Legislator data"
+        type: data
+        env_var: "CONGRESS_API_KEY"
+        cost: 0
+
+  # Portfolio-wide accounts that are not tied to one project.
+  portfolio-wide:
+    account: spudlogic
+    monthly_cost: "audit"
+    services:
+      - name: OpenRouter
+        purpose: "Single gateway for API model calls; one key per project in that project's Doppler config"
+        type: ai
+        env_var: "OPENROUTER_API_KEY (per project); OPENROUTER_MANAGEMENT_KEY in agent-runtime-config/stg"
+        cost: "Variable (credits)"
+        notes: "Known direct-provider exceptions as of 2026-10-07: ai-memory batcher (Anthropic batches), trading-copilot (Anthropic SDK), hypocrisynow embeddings + admin (OpenAI), flo-fi ElevenLabs/PixVerse/Fal, muffinpanrecipes direct paths in model_router.py."
+      - name: Claude Code (Anthropic subscription)
+        purpose: "Coding seat (MODEL_SEATS.md)"
+        type: dev
+        cost: "subscription"
+      - name: Codex CLI (ChatGPT login)
+        purpose: "Local review/judge seat (MODEL_SEATS.md, 2026-09-27)"
+        type: dev
+        cost: "subscription"
+        notes: "The Codex GitHub review connector was unhooked 2026-09-24; Codex runs locally only."
+      - name: GitHub (eriksjaastad)
+        purpose: "All repos; gh/gha CLI; Actions CI (hypocrisynow, project-tracker, ai-memory, _tools, tax-organizer, picasa2, state-business-tax-skills)"
+        type: dev
+        cost: 0
+      - name: Google Drive (rclone remote gbackup)
+        purpose: "Offsite DB backups (monitoring._backups)"
+        type: storage
+        cost: 0
+      - name: Tailscale
+        purpose: "Laptop ↔ Mac Mini networking"
+        type: network
+        cost: 0
 
   # Services signed up under synthinsightlabs but not yet assigned to a project
   unassigned-synthinsightlabs:
@@ -639,14 +958,24 @@ projects:
 # Purpose: Prevent signing up for duplicate services
 services_by_function:
   ai_apis:
+    - OpenRouter (default gateway for all API model calls — check here first)
     - OpenAI (GPT-4o, 4o-mini, o1)
     - Stability AI (SDXL, SD 1.6)
     - Anthropic (Claude Opus 4, Sonnet 4, Haiku 3.5)
     - Google AI (Gemini 2.0/2.5 Flash)
-    - xAI (Grok-3)
+    - xAI (Grok-3) — direct key no longer needed by flo-fi or synth-insight-labs (via OpenRouter)
+    # DeepSeek direct API removed 2026-09-30 (see rejected_services)
+
+  observability:
+    - Langfuse (optional in ledgercheck; no account yet)
+
+  ci_and_containers:
+    - GitHub Actions (free for public repos)
+    - GitHub Container Registry / GHCR (free for public images; ledgercheck planned)
   
   search:
     - Brave Search API (web search)
+    - SerpAPI (hypocrisynow contradiction search)
 
   scraping:
     - Firecrawl (AI-native scraping) — TWO accounts, both free; see multi_account_vendors
@@ -663,8 +992,9 @@ services_by_function:
     - Doppler (secrets management — paid plan as of 2026-03-12, was free tier 10-project limit)
   
   hosting:
-    - Railway (Python cron jobs + Postgres)
+    - Railway (Python cron jobs + Postgres) — hypocrisynow only since trading-copilot left 2026-04-17
     - Vercel (serverless, static sites)
+    - Google Cloud Run (agent-chat, Cost Tracker API — GCP project synth-insight-labs)
 
   auth:
     - Auth0 (standard for SaaS — email/password, magic link, OAuth)
@@ -684,6 +1014,8 @@ services_by_function:
 
   databases:
     - PostgreSQL (Railway)
+    - PostgreSQL (Google Cloud SQL — synth-insight-labs-pg)
+    - Turso / libsql (project-tracker Kanban, ai-memory cloud mode)
     - SQLite (local)
 
   email:
@@ -700,7 +1032,7 @@ services_by_function:
 
   monitoring:
     - Discord Webhooks
-    - Slack (OpenClaw agent communication)
+    - Slack (OpenClaw agent communication) — UNVERIFIED: slack-listener was archived 2026-10-01
     - Autonomous Loops (Janitor)
   
   voice_to_text:
@@ -717,7 +1049,7 @@ api_key_pattern:
   template: "{PROJECTS_ROOT}/.env.project-template"
   naming_rule: "Provider API keys use canonical provider names inside each project scope; project prefixes are legacy."
   examples:
-    - "DEEPSEEK_API_KEY → _archive/project-scaffolding/.env or Doppler project project-scaffolding (archived)"
+    - "OPENROUTER_API_KEY → each project's own Doppler config (e.g. hypocrisynow/prd, ai-memory/dev)"
     - "OPENAI_API_KEY → cortana-personal-ai/.env or cortana-personal-ai Doppler config"
     - "OPENAI_API_KEY → trading-copilot Doppler config"
   why:
@@ -973,8 +1305,16 @@ rejected_services:
     reason: "Couldn't log into account. Replaced with Resend."
   - name: WhatsApp (via Twilio)
     reason: "Needs dedicated phone number. Google Voice doesn't work. Dropped for OpenClaw comms."
+  - name: Azure (Container Apps, ACR)
+    reason: "Never provisioned. Erik does not want to sign up (2026-10-07): card required at signup. ledgercheck keeps write-only Terraform; real deploys use free GitHub/GHCR paths instead."
 
-cancelled_accounts: []
+cancelled_accounts:
+  - name: DeepSeek (direct API)
+    date: "2026-09-30"
+    notes: "All direct access unhooked; models still reachable via OpenRouter slugs. Key deletion tracked on ARC #7709. Leftover Homebrew deepcode CLI has no key wired."
+  - name: Codex GitHub review connector
+    date: "2026-09-24"
+    notes: "GitHub-side Codex review connection unhooked; Codex review now runs locally via the CLI."
 
 # ACTION ITEMS
 action_items:
@@ -1162,6 +1502,17 @@ security:
 
 # RECENT DISCOVERIES
 recent_changes:
+  - date: "2026-10-07"
+    change: |
+      Audit pass against code in ~/projects (env var NAMES, SDK imports, workflows; no secret values
+      read). Added portfolio-wide (OpenRouter, Claude Code, Codex CLI, GitHub, Google Drive, Tailscale),
+      ledgercheck and twitter-growth. Corrected project-tracker (not 100% local), cortana and
+      ai-memory-replay (now OpenRouter), agent-runtime-config (OpenRouter; DeepSeek/OpenAI direct
+      retired), land-tracker (Gmail email now wired), agent-chat (Cloud Run + Cloud SQL), and filled in
+      hypocrisynow, muffinpanrecipes, flo-fi, ai-memory and synth-insight-labs services. Marked DeepSeek
+      direct unhooked (2026-09-30) and the Codex GitHub connector unhooked (2026-09-24); recorded Azure as
+      never provisioned. image-workflow marked archived. Flagged but did NOT remove: Finnhub, Meshy, Qodo,
+      ai-memory R2, holoscape OpenAI, prospector, Slack, and all Mac Mini-only projects.
   - date: "2026-09-05"
     change: |
       Firecrawl: found and killed a $99/mo subscription that had been billing since May.
