@@ -23,7 +23,8 @@ Excluded from seats:
 
 - `scripts/card_factory_grok.py`: standalone shadow agentic-coding experiment, never an operational project chair; retired in #8050
 - `scripts/doc_audit_v2.py`: dormant legacy automation, never installed under launchd; retired in #7975
-- `scripts/card-factory.sh` and `scripts/portfolio-architecture-review.sh`: real workflows whose model definitions and pins are owned outside this repository
+- `scripts/card-factory.sh`, `card-factory-morning.sh` and `card-factory-scan.py`: the Card Factory runner, its morning LaunchAgent wrapper and its Tier 1 lint scanner; retired in #8045 (the LaunchAgent had not run since 2026-08-10)
+- `scripts/portfolio-architecture-review.sh`: a real workflow whose model definitions and pins are owned outside this repository
 - provider catalogs, cost/shadow-pricing records, comments, examples, and tests: metadata rather than model invocation jobs
 
 No production pin or runtime file changes are part of this card.

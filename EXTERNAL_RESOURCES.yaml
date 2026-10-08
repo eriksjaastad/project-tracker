@@ -1830,7 +1830,7 @@ monitoring:
       - {id: com.eriksjaastad.pt-backup,              project: project-tracker,      schedule: every 21600s, log: ~/.project-tracker/backup.log}
       - {id: com.eriksjaastad.alert-digest,           project: project-tracker,      schedule: daily 07:00,  log: ~/projects/project-tracker/logs/alert_digest.stdout.log}
       - {id: com.eriksjaastad.card-factory,           project: project-tracker,      schedule: none (retired), log: ~/projects/project-tracker/logs/card-factory.stdout.log,
-         expect: "Retired 2026-10-08 (#8045): not loaded since 2026-08-10 and not expected to run; do not alert on it. The plist file remains in ~/Library/LaunchAgents."}
+         expect: "Retired 2026-10-08 (#8045): not loaded since 2026-08-10 and not expected to run; do not alert on it. The plist file remains in ~/Library/LaunchAgents but its script, scripts/card-factory-morning.sh, was deleted with the rest of the Card Factory scripts."}
       - {id: com.pt.tailscale-up,                     project: project-tracker,      schedule: UNKNOWN,      log: ~/projects/project-tracker/logs/tailscale-up.log}
       - {id: pt-calendar-poller,                      project: project-tracker,      schedule: "*/10 * * * * (crontab)", log: ~/projects/project-tracker/data/logs/poller.log}
       - {id: com.eriksjaastad.landtracker.daily,      project: land-tracker,         schedule: daily 07:00,  log: ~/projects/land-tracker/daily_run.log}
