@@ -1,15 +1,18 @@
 """Add the codebase_size_snapshots table for #8083.
 
-Dated snapshots of how much code and documentation each repo under the
-projects root carries, plus one imported baseline per repo, so `pt size` can
-score how much leaner a repo has become.
+Dated runs measuring how much code and documentation each repo under the
+projects root carries, plus the single imported 2026-10-08 baseline run, so
+`pt size` can score how much leaner a repo has become.
 
 Classification: LOCAL_ONLY. Snapshots are measured from the laptop's own
 checkouts; the Mini has no use for them and replicating them would only create
 conflicting copies. The same DDL lives in schema.py for fresh databases;
-CREATE IF NOT EXISTS makes this migration safe after either creation path.
-`kind` is part of the unique key so a scan taken on the baseline's date can
-never overwrite the baseline.
+IF NOT EXISTS makes this migration safe after either creation path.
+
+The table is append-only: triggers abort any UPDATE or DELETE, so a stored
+measurement can never be lost or altered. Each run is one complete scan under
+its own run_id, and the partial unique index allows exactly one baseline row
+per project, which makes the baseline immutable.
 """
 
 from __future__ import annotations
@@ -18,21 +21,45 @@ import sqlite3
 
 CRR_TABLES: frozenset[str] = frozenset()
 
+DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS codebase_size_snapshots (
+        id            INTEGER PRIMARY KEY NOT NULL,
+        run_id        TEXT NOT NULL,
+        kind          TEXT NOT NULL CHECK(kind IN ('baseline', 'scan')),
+        snapshot_date TEXT NOT NULL,
+        project       TEXT NOT NULL,
+        code_lines    INTEGER NOT NULL,
+        test_lines    INTEGER NOT NULL,
+        doc_files     INTEGER NOT NULL,
+        doc_lines     INTEGER NOT NULL,
+        last_commit   TEXT,
+        commits_90d   INTEGER,
+        scanned_at    TEXT NOT NULL,
+        UNIQUE(run_id, project)
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_codebase_size_one_baseline
+    ON codebase_size_snapshots(project) WHERE kind = 'baseline'
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_codebase_size_kind_id
+    ON codebase_size_snapshots(kind, id)
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS codebase_size_snapshots_no_update
+    BEFORE UPDATE ON codebase_size_snapshots
+    BEGIN SELECT RAISE(ABORT, 'codebase_size_snapshots is append-only'); END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS codebase_size_snapshots_no_delete
+    BEFORE DELETE ON codebase_size_snapshots
+    BEGIN SELECT RAISE(ABORT, 'codebase_size_snapshots is append-only'); END
+    """,
+)
+
 
 def up(conn: sqlite3.Connection) -> None:
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS codebase_size_snapshots (
-            id            INTEGER PRIMARY KEY NOT NULL,
-            snapshot_date TEXT NOT NULL,
-            kind          TEXT NOT NULL CHECK(kind IN ('baseline', 'scan')),
-            project       TEXT NOT NULL,
-            code_lines    INTEGER NOT NULL,
-            test_lines    INTEGER NOT NULL,
-            doc_files     INTEGER NOT NULL,
-            doc_lines     INTEGER NOT NULL,
-            last_commit   TEXT,
-            commits_90d   INTEGER,
-            scanned_at    TEXT NOT NULL,
-            UNIQUE(snapshot_date, kind, project)
-        )
-    """)
+    for statement in DDL:
+        conn.execute(statement)

@@ -1132,13 +1132,14 @@ def ensure_schema(cursor: Any) -> None:
         ON outreach_contacts(deleted_at, replied_at)
     """)
 
-    # Dated codebase size snapshots for `pt size` (#8083). Also defined in
-    # migration 017 for databases already at schema version 9; keep both in sync.
+    # Append-only codebase size runs for `pt size` (#8083). Same DDL as
+    # migration 017; tests/test_codebase_size.py asserts the two match.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS codebase_size_snapshots (
             id            INTEGER PRIMARY KEY NOT NULL,
-            snapshot_date TEXT NOT NULL,
+            run_id        TEXT NOT NULL,
             kind          TEXT NOT NULL CHECK(kind IN ('baseline', 'scan')),
+            snapshot_date TEXT NOT NULL,
             project       TEXT NOT NULL,
             code_lines    INTEGER NOT NULL,
             test_lines    INTEGER NOT NULL,
@@ -1147,8 +1148,26 @@ def ensure_schema(cursor: Any) -> None:
             last_commit   TEXT,
             commits_90d   INTEGER,
             scanned_at    TEXT NOT NULL,
-            UNIQUE(snapshot_date, kind, project)
+            UNIQUE(run_id, project)
         )
+    """)
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_codebase_size_one_baseline
+        ON codebase_size_snapshots(project) WHERE kind = 'baseline'
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_codebase_size_kind_id
+        ON codebase_size_snapshots(kind, id)
+    """)
+    cursor.execute("""
+        CREATE TRIGGER IF NOT EXISTS codebase_size_snapshots_no_update
+        BEFORE UPDATE ON codebase_size_snapshots
+        BEGIN SELECT RAISE(ABORT, 'codebase_size_snapshots is append-only'); END
+    """)
+    cursor.execute("""
+        CREATE TRIGGER IF NOT EXISTS codebase_size_snapshots_no_delete
+        BEFORE DELETE ON codebase_size_snapshots
+        BEGIN SELECT RAISE(ABORT, 'codebase_size_snapshots is append-only'); END
     """)
 
     # Update schema version

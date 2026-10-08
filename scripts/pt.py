@@ -6429,13 +6429,14 @@ def _size_score_text(score: Optional[float]) -> str:
 
 @click.group(name="size", invoke_without_command=True)
 @click.option("--json", "json_output", is_flag=True, help="Emit JSON")
-@click.option("--snapshot", is_flag=True, help="Store this scan as today's kind='scan' rows")
+@click.option("--snapshot", is_flag=True, help="Append this scan as a new run (stored only if every repo scanned)")
 @click.pass_context
 def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
     """Codebase size per project and optimization score vs the baseline.
 
     score = (baseline_lean - current_lean) / baseline_lean * 100, where
-    lean = non-test code lines + markdown doc lines. Positive = leaner.
+    lean = non-test code lines + markdown doc lines and the baseline is the
+    repo's 2026-10-08 measurement. Positive = leaner.
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -6444,7 +6445,10 @@ def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
 
     db = _size_db()
     root = projects_root()
-    rows = cs.scan_portfolio(root)
+    try:
+        rows = cs.scan_portfolio(root)
+    except cs.ProjectsRootMissing as exc:
+        raise click.ClickException(str(exc)) from exc
     if not rows:
         raise click.ClickException(f"no git repos found under {root}")
     good = [r for r in rows if not r.error]
@@ -6452,12 +6456,11 @@ def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
 
     base_date, base = db.codebase_baseline()
     today = datetime.now().date().isoformat()
-    # A snapshot is all-or-nothing, like the baseline import: storing only the
-    # good repos would leave a failed repo's older same-day row in place and
-    # make the day's snapshot a mix of two scans.
+    # A snapshot run is all-or-nothing, like the baseline import: a run with
+    # a repo missing would not be one complete measurement.
     stored = bool(snapshot and not failed)
     if stored:
-        db.save_codebase_snapshot(good, "scan", today)
+        db.save_codebase_scan(good, today)
 
     scored = []
     for r in good:
@@ -6522,7 +6525,7 @@ def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
 @click.option("--at", "at", required=True,
               help="ISO timestamp the file was written, e.g. 2026-10-08T10:41:29-0400")
 def size_import_baseline(file: Path, at: str) -> None:
-    """Store FILE's numbers as the baseline after verifying them against git at --at."""
+    """Store FILE as the immutable 2026-10-08 baseline, verified against git at --at."""
     from scripts import codebase_size as cs
     from scripts.config import projects_root
 
@@ -6531,7 +6534,7 @@ def size_import_baseline(file: Path, at: str) -> None:
         rows = db.import_codebase_baseline(file, at, projects_root())
     except (cs.BaselineMismatch, ValueError) as exc:
         raise click.ClickException(str(exc))
-    click.echo(f"Stored baseline for {len(rows)} repos dated {at[:10]}.")
+    click.echo(f"Stored the {cs.BASELINE_DATE} baseline for {len(rows)} repos.")
 
 
 # =============================================================================

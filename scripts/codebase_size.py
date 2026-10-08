@@ -9,7 +9,8 @@ Optimization score, verbatim::
 
     score = (baseline_lean - current_lean) / baseline_lean * 100
 
-where ``lean`` = non-test code lines + markdown doc lines. Positive = leaner.
+where ``lean`` = non-test code lines + markdown doc lines, and the baseline
+is the repo's 2026-10-08 measurement (``BASELINE_DATE``). Positive = leaner.
 Tests are shown but excluded so cutting tests cannot raise the score. Doc LINES
 (not files) are counted so moving a doc into docstrings scores neutral, while
 deleting redundant docs or code scores positive. The score is ``None`` when the
@@ -17,13 +18,14 @@ repo has no baseline row or ``baseline_lean`` is 0.
 
 Classification (CODE / SKIP / TEST regexes and the line-count rule) is the
 same as the 2026-10-08 portfolio survey so totals match it exactly. The
-baseline is a ``kind='baseline'`` row; a ``kind='scan'`` row on the same date
-never overwrites it because ``kind`` is part of the unique key.
+baseline is imported once from that survey and is immutable; scans are
+appended as runs and never replace it.
 
 Failure handling: every git call has a timeout and a checked return code. A
 repo whose git call fails is reported with ``error`` set and is never counted
 as zero lines. A file git lists but that is gone from disk is an expected
-absence and is skipped; nothing else is swallowed.
+absence and is skipped; nothing else is swallowed. A missing projects root
+raises ProjectsRootMissing rather than reading as an empty portfolio.
 """
 
 from __future__ import annotations
@@ -48,6 +50,8 @@ TEST = re.compile(
 GIT_TIMEOUT = 60
 GIT_BULK_TIMEOUT = 300
 RECENT_DAYS = 90
+# The score's fixed reference point: the Architect's 2026-10-08 survey.
+BASELINE_DATE = "2026-10-08"
 
 
 class GitError(RuntimeError):
@@ -192,17 +196,21 @@ def parse_at(timestamp: str) -> datetime:
 def scan_repo_at(path: Path, timestamp: str) -> RepoSize:
     """Rebuild the numbers for one repo from git history at ``timestamp``.
 
-    Uses the last commit at or before the timestamp on HEAD's history, so
-    later commits and the working tree are ignored.
+    Uses the last commit at or before the timestamp on HEAD's first-parent
+    (mainline) history, so branch commits merged later, later commits and
+    the working tree are ignored.
     """
     path = Path(path)
     name = path.name
     try:
         when = parse_at(timestamp)
         since = int(when.timestamp()) - RECENT_DAYS * 86400
-        # Give git the same instant Python parsed, as a Unix epoch.
+        # Give git the same instant Python parsed, as a Unix epoch. Follow
+        # first parents only: a branch merged after ``when`` can carry commits
+        # dated before it that were never on the mainline at that moment.
         sha = _git(
-            path, "rev-list", "-1", f"--before={int(when.timestamp())}", "HEAD"
+            path, "rev-list", "-1", "--first-parent",
+            f"--before={int(when.timestamp())}", "HEAD",
         ).decode().strip()
         if not sha:
             return RepoSize(project=name, error=f"no commit at or before {timestamp}")
@@ -246,7 +254,13 @@ def _blob_line_counts(path: Path, wanted: list[tuple[str, str]]) -> list[tuple[s
     return counts
 
 
+class ProjectsRootMissing(FileNotFoundError):
+    """The projects root does not exist or is not a directory."""
+
+
 def _project_dirs(root: Path) -> list[Path]:
+    if not root.is_dir():
+        raise ProjectsRootMissing(f"projects root {root} does not exist")
     return [
         p for p in sorted(root.iterdir())
         if (p / ".git").is_dir() and "-wt-" not in p.name

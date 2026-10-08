@@ -22,6 +22,8 @@ from scripts import codebase_size as cs  # noqa: E402
 
 MIGRATIONS_DIR = Path(__file__).parent.parent / "scripts" / "db" / "migrations"
 BASELINE_TS = "2026-01-15T12:00:00+0000"
+# Imports are pinned to cs.BASELINE_DATE; the real survey was written at this instant.
+IMPORT_TS = "2026-10-08T10:41:29-0400"
 
 
 # ---------------------------------------------------------------------------
@@ -227,60 +229,55 @@ def test_score_none_without_usable_baseline() -> None:
 
 
 # ---------------------------------------------------------------------------
-# storage
+# storage (append-only runs)
 # ---------------------------------------------------------------------------
 
 
-def _rows(conn, kind, date="2026-10-08"):
+def _count(conn, kind=None) -> int:
+    if kind is None:
+        return conn.execute("SELECT COUNT(*) FROM codebase_size_snapshots").fetchone()[0]
     return conn.execute(
-        "SELECT project, code_lines FROM codebase_size_snapshots "
-        "WHERE kind=? AND snapshot_date=? ORDER BY project", (kind, date)
-    ).fetchall()
+        "SELECT COUNT(*) FROM codebase_size_snapshots WHERE kind = ?", (kind,)
+    ).fetchone()[0]
 
 
-def test_same_day_same_kind_replaces_the_whole_snapshot(mgr, conn) -> None:
-    mgr.save_codebase_snapshot([cs.RepoSize("a", code=1), cs.RepoSize("b", code=2)], "scan", "2026-10-08")
-    mgr.save_codebase_snapshot([cs.RepoSize("a", code=9)], "scan", "2026-10-08")
-    # b left the projects root between the two runs: it must not linger.
-    assert _rows(conn, "scan") == [("a", 9)]
+def test_scan_runs_append_and_the_newest_complete_run_is_read(mgr, conn) -> None:
+    first = mgr.save_codebase_scan([cs.RepoSize("a", code=1), cs.RepoSize("b", code=2)], "2026-10-08")
+    second = mgr.save_codebase_scan([cs.RepoSize("a", code=9)], "2026-10-08")
+    assert first != second
+    # Nothing was replaced or deleted: both runs are stored.
+    assert _count(conn, "scan") == 3
+    # b left the projects root between the runs; the newest run is read whole,
+    # so b does not leak in from the first run.
     date, scan = mgr.codebase_latest_scan()
-    assert set(scan) == {"a"}
-    # Other dates are untouched.
-    mgr.save_codebase_snapshot([cs.RepoSize("c", code=3)], "scan", "2026-10-09")
-    assert _rows(conn, "scan") == [("a", 9)]
-    assert _rows(conn, "scan", "2026-10-09") == [("c", 3)]
+    assert date == "2026-10-08"
+    assert {p: r.code for p, r in scan.items()} == {"a": 9}
 
 
-def test_scan_does_not_overwrite_baseline_on_same_date(mgr, conn) -> None:
-    mgr.save_codebase_snapshot([cs.RepoSize("a", code=100)], "baseline", "2026-10-08")
-    mgr.save_codebase_snapshot([cs.RepoSize("a", code=80)], "scan", "2026-10-08")
-    assert _rows(conn, "baseline") == [("a", 100)]
-    assert _rows(conn, "scan") == [("a", 80)]
-    date, base = mgr.codebase_baseline()
-    assert date == "2026-10-08" and base["a"].code == 100
-    date, scan = mgr.codebase_latest_scan()
-    assert scan["a"].code == 80
-
-
-def test_save_refuses_errored_rows_and_bad_kind(mgr, conn) -> None:
-    with pytest.raises(ValueError):
-        mgr.save_codebase_snapshot([cs.RepoSize("a", error="boom")], "scan", "2026-10-08")
-    with pytest.raises(ValueError):
-        mgr.save_codebase_snapshot([cs.RepoSize("a")], "weekly", "2026-10-08")
-    assert _rows(conn, "scan") == []
-
-
-def test_save_refuses_empty_or_duplicate_sets_without_touching_existing_rows(mgr, conn) -> None:
-    mgr.save_codebase_snapshot([cs.RepoSize("a", code=5)], "scan", "2026-10-08")
+def test_save_refuses_errored_empty_or_duplicate_sets_before_any_write(mgr, conn) -> None:
+    mgr.save_codebase_scan([cs.RepoSize("a", code=5)], "2026-10-08")
+    with pytest.raises(ValueError, match="errored"):
+        mgr.save_codebase_scan([cs.RepoSize("a", error="boom")], "2026-10-08")
     with pytest.raises(ValueError, match="empty"):
-        mgr.save_codebase_snapshot([], "scan", "2026-10-08")
+        mgr.save_codebase_scan([], "2026-10-08")
     with pytest.raises(ValueError, match="duplicate"):
-        mgr.save_codebase_snapshot([cs.RepoSize("b"), cs.RepoSize("b")], "scan", "2026-10-08")
-    assert _rows(conn, "scan") == [("a", 5)]
+        mgr.save_codebase_scan([cs.RepoSize("b"), cs.RepoSize("b")], "2026-10-08")
+    assert _count(conn) == 1
+    assert mgr.codebase_latest_scan()[1]["a"].code == 5
+
+
+def test_table_refuses_update_and_delete(mgr, conn) -> None:
+    mgr.save_codebase_scan([cs.RepoSize("a", code=5)], "2026-10-08")
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        conn.execute("UPDATE codebase_size_snapshots SET code_lines = 0")
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        conn.execute("DELETE FROM codebase_size_snapshots")
+    conn.rollback()
+    assert _count(conn) == 1
 
 
 # ---------------------------------------------------------------------------
-# import_baseline
+# baseline import (pinned to 2026-10-08, immutable)
 # ---------------------------------------------------------------------------
 
 
@@ -300,17 +297,48 @@ def test_import_baseline_stores_rows_with_doc_lines(tmp_path: Path, mgr, conn) -
     make_repo(tmp_path, "proj", FILES)
     make_repo(tmp_path, "other", {"x.py": "1\n2\n"})
     file = _baseline_file(tmp_path / "base.txt", [(9, 6, 2, "proj"), (2, 0, 0, "other")])
-    assert len(mgr.import_codebase_baseline(file, BASELINE_TS, tmp_path)) == 2
+    assert len(mgr.import_codebase_baseline(file, IMPORT_TS, tmp_path)) == 2
     stored = conn.execute(
         "SELECT project, code_lines, test_lines, doc_files, doc_lines, kind, snapshot_date "
         "FROM codebase_size_snapshots ORDER BY project"
     ).fetchall()
     assert stored == [
-        ("other", 2, 0, 0, 0, "baseline", "2026-01-15"),
-        ("proj", 9, 6, 2, 5, "baseline", "2026-01-15"),
+        ("other", 2, 0, 0, 0, "baseline", "2026-10-08"),
+        ("proj", 9, 6, 2, 5, "baseline", "2026-10-08"),
     ]
-    mgr.import_codebase_baseline(file, BASELINE_TS, tmp_path)  # re-import replaces
-    assert conn.execute("SELECT COUNT(*) FROM codebase_size_snapshots").fetchone()[0] == 2
+    date, base = mgr.codebase_baseline()
+    assert date == cs.BASELINE_DATE and base["proj"].doc_lines == 5
+
+
+def test_baseline_is_immutable_once_stored(tmp_path: Path, mgr, conn) -> None:
+    make_repo(tmp_path, "proj", FILES)
+    make_repo(tmp_path, "other", {"x.py": "1\n2\n"})
+    both = _baseline_file(tmp_path / "both.txt", [(9, 6, 2, "proj"), (2, 0, 0, "other")])
+    mgr.import_codebase_baseline(both, IMPORT_TS, tmp_path)
+    one = _baseline_file(tmp_path / "one.txt", [(9, 6, 2, "proj")])
+    with pytest.raises(ValueError, match="immutable"):
+        mgr.import_codebase_baseline(one, IMPORT_TS, tmp_path)
+    assert _count(conn, "baseline") == 2
+    # The database itself allows one baseline row per project.
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO codebase_size_snapshots (run_id, kind, snapshot_date, project, "
+            "code_lines, test_lines, doc_files, doc_lines, scanned_at) "
+            "VALUES ('r2', 'baseline', '2026-10-08', 'proj', 1, 0, 0, 0, 't')"
+        )
+    conn.rollback()
+    # A scan never touches it.
+    mgr.save_codebase_scan([cs.RepoSize("proj", code=1)], "2026-10-08")
+    assert mgr.codebase_baseline()[1]["proj"].code == 9
+
+
+@pytest.mark.parametrize("at", [BASELINE_TS, "2026-10-09T10:00:00-0400", "2026-10-07T23:00:00-0400"])
+def test_baseline_on_any_other_date_is_refused(tmp_path: Path, mgr, conn, at: str) -> None:
+    make_repo(tmp_path, "proj", FILES)
+    file = _baseline_file(tmp_path / "base.txt", [(9, 6, 2, "proj")])
+    with pytest.raises(ValueError, match="pinned"):
+        mgr.import_codebase_baseline(file, at, tmp_path)
+    assert _count(conn) == 0
 
 
 def test_import_baseline_mismatch_or_unknown_stores_nothing(tmp_path: Path, mgr, conn) -> None:
@@ -321,10 +349,10 @@ def test_import_baseline_mismatch_or_unknown_stores_nothing(tmp_path: Path, mgr,
         [(9, 6, 2, "proj"), (3, 0, 0, "other"), (1, 0, 0, "ghost")],
     )
     with pytest.raises(cs.BaselineMismatch) as err:
-        mgr.import_codebase_baseline(file, BASELINE_TS, tmp_path)
+        mgr.import_codebase_baseline(file, IMPORT_TS, tmp_path)
     assert "other" in str(err.value) and "ghost" in str(err.value)
     assert "proj:" not in str(err.value)
-    assert conn.execute("SELECT COUNT(*) FROM codebase_size_snapshots").fetchone()[0] == 0
+    assert _count(conn) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -342,13 +370,13 @@ def test_migration_017_on_fresh_db_and_after_015(tmp_path: Path) -> None:
     _m(17).up(fresh)  # idempotent
     cols = [r[1] for r in fresh.execute("PRAGMA table_info(codebase_size_snapshots)")]
     assert cols == [
-        "id", "snapshot_date", "kind", "project", "code_lines", "test_lines",
+        "id", "run_id", "kind", "snapshot_date", "project", "code_lines", "test_lines",
         "doc_files", "doc_lines", "last_commit", "commits_90d", "scanned_at",
     ]
     with pytest.raises(sqlite3.IntegrityError):
         fresh.execute(
-            "INSERT INTO codebase_size_snapshots (snapshot_date, kind, project, code_lines,"
-            " test_lines, doc_files, doc_lines, scanned_at) VALUES ('d','bogus','p',0,0,0,0,'t')"
+            "INSERT INTO codebase_size_snapshots (run_id, kind, snapshot_date, project, code_lines,"
+            " test_lines, doc_files, doc_lines, scanned_at) VALUES ('r','bogus','d','p',0,0,0,0,'t')"
         )
 
     after = sqlite3.connect(tmp_path / "after.db")
@@ -356,6 +384,29 @@ def test_migration_017_on_fresh_db_and_after_015(tmp_path: Path) -> None:
     _m(17).up(after)
     tables = {r[0] for r in after.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"outreach_contacts", "codebase_size_snapshots"} <= tables
+
+
+def _codebase_objects(db: sqlite3.Connection) -> dict[str, str]:
+    return {
+        name: " ".join(sql.split())
+        for name, sql in db.execute(
+            "SELECT name, sql FROM sqlite_master "
+            "WHERE tbl_name = 'codebase_size_snapshots' AND sql IS NOT NULL"
+        )
+    }
+
+
+def test_schema_py_and_migration_017_create_the_same_objects(tmp_path: Path, conn) -> None:
+    migrated = sqlite3.connect(tmp_path / "migrated.db")
+    _m(17).up(migrated)
+    expected = _codebase_objects(migrated)
+    assert set(expected) == {
+        "codebase_size_snapshots", "idx_codebase_size_one_baseline",
+        "idx_codebase_size_kind_id", "codebase_size_snapshots_no_update",
+        "codebase_size_snapshots_no_delete",
+    }
+    # `conn` is the per-test DB that schema.py built.
+    assert _codebase_objects(conn) == expected
 
 
 def test_table_is_local_only_and_migration_declares_no_crr() -> None:
@@ -388,20 +439,23 @@ def test_pt_size_json_snapshot_and_score(tmp_path: Path, monkeypatch, conn) -> N
         "proj", 9, 6, 2, 5)
     assert row["score"] is None  # no baseline yet
 
-    result = _pt(monkeypatch, root, ["size", "import-baseline", str(file), "--at", BASELINE_TS])
+    result = _pt(monkeypatch, root, ["size", "import-baseline", str(file), "--at", IMPORT_TS])
     assert result.exit_code == 0, result.output
 
     commit(repo, {"app.py": "a\n"}, "2026-02-01T00:00:00+0000")  # code 9 -> 7
     result = _pt(monkeypatch, root, ["size", "--json", "--snapshot"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["baseline_date"] == "2026-01-15"
+    assert payload["baseline_date"] == "2026-10-08"
     assert payload["rows"][0]["code"] == 7
     assert payload["rows"][0]["score"] == pytest.approx(2 / 14 * 100)
     assert payload["total"]["score"] == pytest.approx(2 / 14 * 100)
     assert conn.execute(
         "SELECT code_lines FROM codebase_size_snapshots WHERE kind='scan'"
     ).fetchall() == [(7,)]
+    # A second same-day snapshot appends a run; the first stays stored.
+    assert _pt(monkeypatch, root, ["size", "--snapshot"]).exit_code == 0
+    assert _count(conn, "scan") == 2
 
     text = _pt(monkeypatch, root, ["size"])
     assert text.exit_code == 0
@@ -413,7 +467,7 @@ def test_pt_size_import_baseline_mismatch_exits_nonzero(tmp_path: Path, monkeypa
     root.mkdir()
     make_repo(root, "proj", FILES)
     file = _baseline_file(tmp_path / "base.txt", [(10, 6, 2, "proj")])
-    result = _pt(monkeypatch, root, ["size", "import-baseline", str(file), "--at", BASELINE_TS])
+    result = _pt(monkeypatch, root, ["size", "import-baseline", str(file), "--at", IMPORT_TS])
     assert result.exit_code != 0
     assert "proj" in result.output
     assert conn.execute("SELECT COUNT(*) FROM codebase_size_snapshots").fetchone()[0] == 0
@@ -485,16 +539,6 @@ def test_pt_size_snapshot_stores_nothing_when_a_repo_fails(tmp_path: Path, monke
     assert conn.execute("SELECT COUNT(*) FROM codebase_size_snapshots").fetchone()[0] == 0
 
 
-def test_reimport_with_fewer_repos_drops_the_missing_one(tmp_path: Path, mgr, conn) -> None:
-    make_repo(tmp_path, "proj", FILES)
-    make_repo(tmp_path, "other", {"x.py": "1\n2\n"})
-    both = _baseline_file(tmp_path / "both.txt", [(9, 6, 2, "proj"), (2, 0, 0, "other")])
-    mgr.import_codebase_baseline(both, BASELINE_TS, tmp_path)
-    one = _baseline_file(tmp_path / "one.txt", [(9, 6, 2, "proj")])
-    mgr.import_codebase_baseline(one, BASELINE_TS, tmp_path)
-    assert _rows(conn, "baseline", "2026-01-15") == [("proj", 9)]
-
-
 @pytest.mark.parametrize("damage, expected", [
     (lambda t: t.replace("      2       0     0 2026-01-01    1  other\n",
                          "      2       0     0 2026-01-01  other\n"), "not a repo row"),
@@ -511,7 +555,7 @@ def test_damaged_baseline_file_is_refused_and_stores_nothing(
     file = _baseline_file(tmp_path / "base.txt", [(9, 6, 2, "proj"), (2, 0, 0, "other")])
     file.write_text(damage(file.read_text()))
     with pytest.raises(cs.BaselineMismatch, match=expected):
-        mgr.import_codebase_baseline(file, BASELINE_TS, tmp_path)
+        mgr.import_codebase_baseline(file, IMPORT_TS, tmp_path)
     assert conn.execute("SELECT COUNT(*) FROM codebase_size_snapshots").fetchone()[0] == 0
 
 
@@ -549,3 +593,28 @@ def test_at_without_an_offset_is_refused(tmp_path: Path, at: str) -> None:
     file = _baseline_file(tmp_path / "base.txt", [(9, 6, 2, "proj")])
     with pytest.raises(ValueError, match="--at"):
         cs.verify_baseline(file, at, tmp_path)
+
+
+def test_pt_size_with_a_missing_projects_root_is_a_clear_error(tmp_path: Path, monkeypatch, conn) -> None:
+    result = _pt(monkeypatch, tmp_path / "does-not-exist", ["size", "--snapshot"])
+    assert result.exit_code == 1
+    assert "does not exist" in result.output
+    assert "Traceback" not in result.output
+    assert _count(conn) == 0
+    with pytest.raises(cs.ProjectsRootMissing):
+        cs.scan_portfolio(tmp_path / "does-not-exist")
+
+
+def test_scan_repo_at_ignores_branch_commits_merged_after_the_instant(tmp_path: Path) -> None:
+    # The ai-memory shape on 2026-10-08: a branch commit dated before the
+    # baseline instant, merged into the mainline after it.
+    repo = make_repo(tmp_path, "proj", {"a.py": "1\n"}, date="2026-01-15T10:00:00+0000")
+    main = _git(repo, "symbolic-ref", "--short", "HEAD")
+    _git(repo, "checkout", "-q", "-b", "feature")
+    commit(repo, {"b.py": "1\n2\n3\n4\n"}, "2026-01-15T10:30:00+0000")
+    _git(repo, "checkout", "-q", main)
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge", "feature", date="2026-01-15T12:00:00+0000")
+    assert cs.scan_repo(repo).code == 5
+    # At 11:00 the mainline had only a.py; the branch commit was not on it yet.
+    assert cs.scan_repo_at(repo, "2026-01-15T11:00:00+00:00").code == 1
+    assert cs.scan_repo_at(repo, "2026-01-15T12:30:00+00:00").code == 5
