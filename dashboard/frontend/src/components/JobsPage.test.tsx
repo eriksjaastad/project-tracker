@@ -1042,6 +1042,28 @@ describe('JobsPage', () => {
     expect(screen.queryByText('Role 2')).not.toBeInTheDocument();
   });
 
+  it('reveals older listings even when 25 or more fresh listings fill the limit', async () => {
+    const user = userEvent.setup();
+    const fresh = Array.from({ length: 30 }, (_, i) => rankedJob(i + 1));
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: fresh, stale: [rankedJob(91), rankedJob(92)] }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('2 older listings hidden')).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: 'Show older listings' }));
+    const older = screen.getByRole('region', { name: 'Older listings' });
+    expect(older).toHaveTextContent('Role 91');
+    expect(older).toHaveTextContent('Role 92');
+    // The fresh list is still limited to its top 25.
+    expect(screen.queryByText('Role 26')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show all 30' })).toBeInTheDocument();
+  });
+
   it('offers the hidden older listings when no fresh ones remain', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,

@@ -21,6 +21,7 @@ interface Role {
 }
 
 interface VolunteerData {
+  migration_pending?: boolean;
   current: Role[];
   applied: Role[];
   possible: Role[];
@@ -127,16 +128,60 @@ export function VolunteerPage() {
   function handleStarted(role: Role) {
     const since = new Date().toISOString();
     act(role.id, () => fetch(`/api/jobs/${role.id}/volunteering`, { method: 'POST' }),
+      // From Applied or straight from Possible: a role Erik already
+      // volunteers at needs no fictitious application first.
       prev => ({
-        ...prev,
+        ...withoutPossible(prev, role.id),
         applied: prev.applied.filter(item => item.id !== role.id),
         current: [{ ...role, volunteering_since: since }, ...prev.current],
       }),
       'Marked as volunteering', 'Failed to mark as volunteering');
   }
 
-  const visiblePossible = showStale ? [...data.possible, ...data.possible_stale] : data.possible;
-  const shownPossible = showAll ? visiblePossible : visiblePossible.slice(0, TOP_LISTINGS);
+  // The top-25 limit applies to fresh listings; older ones, once shown,
+  // render in their own list so the limit can never hide them.
+  const shownPossible = showAll ? data.possible : data.possible.slice(0, TOP_LISTINGS);
+
+  function renderPossibleRow(role: Role) {
+    return (
+      <div key={role.id} className="job-row">
+        <div className="job-main">
+          <RoleLink role={role} />
+          <span className="job-location">{role.company}</span>
+          {role.location && <span className="job-location">{role.location}</span>}
+          {role.posted_date && <span className="job-date">{role.posted_date}</span>}
+        </div>
+        <div className="job-actions">
+          <button
+            className="job-submit-btn"
+            onClick={() => handleStarted(role)}
+            disabled={busy.has(role.id)}
+            aria-label={`Started volunteering at ${role.company}`}
+            title="Record that you already volunteer here"
+          >
+            {busy.has(role.id) ? '...' : 'Started volunteering'}
+          </button>
+          <button
+            className="job-submit-btn"
+            onClick={() => handleSubmitted(role)}
+            disabled={busy.has(role.id)}
+            aria-label={`Mark ${role.title} as submitted`}
+            title="Record that you applied"
+          >
+            {busy.has(role.id) ? '...' : 'Submitted'}
+          </button>
+          <button
+            className="job-delete-btn"
+            onClick={() => handleDelete(role)}
+            disabled={busy.has(role.id)}
+            aria-label={`Dismiss ${role.title}`}
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <PageShell title="Volunteer" subtitle="Where you volunteer, where you applied, and what to look at next">
@@ -154,6 +199,11 @@ export function VolunteerPage() {
         </div>
       ) : (
         <div className="jobs-container">
+          {data.migration_pending && (
+            <p className="volunteer-empty">
+              Volunteer roles need a database update: run <code>pt db migrate</code>.
+            </p>
+          )}
           <section className="company-group" aria-label="Currently volunteering">
             <h2 className="company-name">Currently volunteering</h2>
             {data.current.length === 0 ? (
@@ -208,45 +258,21 @@ export function VolunteerPage() {
             <h2 className="company-name">Possible</h2>
             <RankedListControls
               shownCount={shownPossible.length}
-              visibleCount={visiblePossible.length}
+              totalCount={data.possible.length}
               staleCount={data.possible_stale.length}
               showStale={showStale}
               onToggleStale={() => setShowStale(prev => !prev)}
               onShowAll={() => setShowAll(true)}
             />
-            {visiblePossible.length === 0 ? (
+            {data.possible.length === 0 ? (
               <p className="volunteer-empty">No open volunteer listings</p>
             ) : (
-              <div className="jobs-list">
-                {shownPossible.map(role => (
-                  <div key={role.id} className="job-row">
-                    <div className="job-main">
-                      <RoleLink role={role} />
-                      <span className="job-location">{role.company}</span>
-                      {role.location && <span className="job-location">{role.location}</span>}
-                      {role.posted_date && <span className="job-date">{role.posted_date}</span>}
-                    </div>
-                    <div className="job-actions">
-                      <button
-                        className="job-submit-btn"
-                        onClick={() => handleSubmitted(role)}
-                        disabled={busy.has(role.id)}
-                        aria-label={`Mark ${role.title} as submitted`}
-                        title="Record that you applied"
-                      >
-                        {busy.has(role.id) ? '...' : 'Submitted'}
-                      </button>
-                      <button
-                        className="job-delete-btn"
-                        onClick={() => handleDelete(role)}
-                        disabled={busy.has(role.id)}
-                        aria-label={`Dismiss ${role.title}`}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className="jobs-list">{shownPossible.map(renderPossibleRow)}</div>
+            )}
+            {showStale && data.possible_stale.length > 0 && (
+              <div className="older-listings" aria-label="Older volunteer listings" role="region">
+                <h3 className="older-listings-heading">Older listings</h3>
+                <div className="jobs-list">{data.possible_stale.map(renderPossibleRow)}</div>
               </div>
             )}
           </section>

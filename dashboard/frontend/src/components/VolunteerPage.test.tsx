@@ -139,10 +139,37 @@ describe('VolunteerPage', () => {
     expect(screen.getByText('1 older listing hidden')).toBeInTheDocument();
     expect(screen.queryByText('Role 900')).not.toBeInTheDocument();
 
+    // Older listings appear on their own, even while the top-25 limit holds.
+    await user.click(screen.getByRole('button', { name: 'Show older listings' }));
+    expect(screen.getByRole('region', { name: 'Older volunteer listings' })).toHaveTextContent('Role 900');
+    expect(screen.queryByText('Role 125')).not.toBeInTheDocument();
+
     await user.click(screen.getByRole('button', { name: 'Show all 27' }));
     expect(screen.getByText('Role 126')).toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole('button', { name: 'Show older listings' }));
-    expect(screen.getByText('Role 900')).toBeInTheDocument();
+  it('moves a possible role straight to Currently volunteering', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce(respond({
+      current: [], applied: [], possible: [role(7)], possible_stale: [],
+    }));
+    render(<VolunteerPage />);
+    await waitFor(() => expect(screen.getByText('Role 7')).toBeInTheDocument());
+
+    vi.mocked(fetch).mockResolvedValueOnce(respond({ job: { id: 7 } }));
+    await user.click(section('Possible').getByLabelText('Started volunteering at Org 7'));
+
+    expect(fetch).toHaveBeenLastCalledWith('/api/jobs/7/volunteering', { method: 'POST' });
+    await waitFor(() => expect(section('Currently volunteering').getByText('Role 7')).toBeInTheDocument());
+    expect(section('Possible').queryByText('Role 7')).not.toBeInTheDocument();
+    expect(section('Applied').queryByText('Role 7')).not.toBeInTheDocument();
+  });
+
+  it('says when the database still needs migration 016', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond({
+      migration_pending: true, current: [], applied: [], possible: [], possible_stale: [],
+    }));
+    render(<VolunteerPage />);
+    await waitFor(() => expect(screen.getByText('pt db migrate')).toBeInTheDocument());
   });
 });

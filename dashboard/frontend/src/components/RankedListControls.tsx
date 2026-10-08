@@ -1,13 +1,15 @@
 import './RankedListControls.css';
 
 // The API returns open listings already ranked by fit (#101679546294759424):
-// `fresh` (posted within 30 days) and `stale`. The page shows the top
+// `fresh` (posted within 30 days) and `stale`. A page shows the top
 // TOP_LISTINGS fresh ones and offers controls to widen; nothing is deleted.
+// "Show all" applies to fresh listings; older ones, when shown, render in
+// their own section outside the top-N limit.
 export const TOP_LISTINGS = 25;
 
 interface Props {
   shownCount: number;
-  visibleCount: number;
+  totalCount: number;
   staleCount: number;
   showStale: boolean;
   onToggleStale: () => void;
@@ -15,16 +17,16 @@ interface Props {
 }
 
 export function RankedListControls({
-  shownCount, visibleCount, staleCount, showStale, onToggleStale, onShowAll,
+  shownCount, totalCount, staleCount, showStale, onToggleStale, onShowAll,
 }: Props) {
-  if (staleCount === 0 && shownCount >= visibleCount) {
+  if (staleCount === 0 && shownCount >= totalCount) {
     return null;
   }
   return (
     <div className="ranked-list-controls">
-      {shownCount < visibleCount && (
+      {shownCount < totalCount && (
         <button type="button" className="ranked-list-btn" onClick={onShowAll}>
-          Show all {visibleCount}
+          Show all {totalCount}
         </button>
       )}
       {staleCount > 0 && (

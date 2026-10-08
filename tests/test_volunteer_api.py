@@ -99,7 +99,7 @@ def test_dismissed_volunteer_roles_leave_every_section(db) -> None:
         assert client.delete(f"/api/jobs/{role['id']}").status_code == 200
 
     body = client.get("/api/volunteer").json()
-    assert body == {"current": [], "applied": [], "possible": [], "possible_stale": []}
+    assert body == {"migration_pending": False, "current": [], "applied": [], "possible": [], "possible_stale": []}
 
 
 def test_started_volunteering_rejects_dismissed_role(db) -> None:
@@ -112,3 +112,12 @@ def test_started_volunteering_rejects_dismissed_role(db) -> None:
             "SELECT volunteering_since FROM jobs WHERE id = ?", (role["id"],)
         ).fetchone()
     assert row[0] is None
+
+
+def test_possible_role_goes_straight_to_current_without_an_application(db) -> None:
+    client = TestClient(app)
+    role = _role(db, "already")
+    assert client.post(f"/api/jobs/{role['id']}/volunteering").status_code == 200
+    body = client.get("/api/volunteer").json()
+    assert [row["id"] for row in body["current"]] == [role["id"]]
+    assert body["applied"] == [] and body["possible"] == [] and body["possible_stale"] == []

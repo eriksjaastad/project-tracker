@@ -21,6 +21,26 @@ _OPEN = """j.deleted_at IS NULL AND NOT EXISTS (
              SELECT 1 FROM job_submissions AS s WHERE s.job_id = j.id)"""
 
 
+def _has_kind_columns(conn: Any) -> bool:
+    """True once migration 016 has added jobs.kind and jobs.volunteering_since.
+
+    Numbered migrations reach an existing database only through
+    `pt db migrate`, which takes a verified backup first; neither the
+    dashboard nor `pt` applies them at startup. Until an operator runs it,
+    every row is a job and none has a volunteering date, so the Jobs page
+    keeps working and the Volunteer page is empty instead of a 500.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+    return {"kind", "volunteering_since"} <= columns
+
+
+def _kind_sql(conn: Any) -> tuple[str, str]:
+    """SQL for ``j.kind`` and ``j.volunteering_since``, as literals before 016."""
+    if _has_kind_columns(conn):
+        return "j.kind", "j.volunteering_since"
+    return "'job'", "NULL"
+
+
 class JobsMixin:
     """Job operations exposed through the shared DatabaseManager."""
 
@@ -46,21 +66,28 @@ class JobsMixin:
             raise ValueError("invalid job kind")
         first_seen = datetime.now(timezone.utc).date().isoformat()
         with self._db._get_conn() as conn:
+            migrated = _has_kind_columns(conn)
+            if not migrated and kind == "volunteer":
+                raise ValueError(
+                    "kind 'volunteer' needs migration 016; run `pt db migrate`"
+                )
+            kind_column = ", kind" if migrated else ""
+            kind_value = ", COALESCE(?, 'job')" if migrated else ""
+            kind_update = ", kind=COALESCE(?, jobs.kind)" if migrated else ""
             conn.execute(
-                """INSERT INTO jobs
+                f"""INSERT INTO jobs
                    (company, title, location, url, source, posted_date,
-                    first_seen, category, raw, kind)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'job'))
+                    first_seen, category, raw{kind_column})
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?{kind_value})
                    ON CONFLICT(url) DO UPDATE SET
                      company=excluded.company, title=excluded.title,
                      location=COALESCE(excluded.location, jobs.location),
                      source=excluded.source,
                      posted_date=COALESCE(excluded.posted_date, jobs.posted_date),
                      category=excluded.category,
-                     raw=COALESCE(excluded.raw, jobs.raw),
-                     kind=COALESCE(?, jobs.kind)""",
+                     raw=COALESCE(excluded.raw, jobs.raw){kind_update}""",
                 (company, title, location, url, source, posted_date,
-                 first_seen, category, raw, kind, kind),
+                 first_seen, category, raw) + ((kind, kind) if migrated else ()),
             )
             row = conn.execute("SELECT * FROM jobs WHERE url = ?", (url,)).fetchone()
             conn.commit()
@@ -69,9 +96,10 @@ class JobsMixin:
     def get_open_jobs(self, kind: str = "job") -> list[dict[str, Any]]:
         """Listings of one kind neither dismissed nor submitted, newest first."""
         with self._db._get_conn() as conn:
+            kind_sql, since_sql = _kind_sql(conn)
             rows = conn.execute(
                 f"""SELECT j.* FROM jobs AS j
-                    WHERE j.kind = ? AND j.volunteering_since IS NULL AND {_OPEN}
+                    WHERE {kind_sql} = ? AND {since_sql} IS NULL AND {_OPEN}
                     ORDER BY j.first_seen DESC, j.id DESC""",
                 (kind,),
             ).fetchall()
@@ -83,23 +111,30 @@ class JobsMixin:
         return ranked_split(self.get_open_jobs(kind), today)
 
     def get_volunteer_roles(self) -> dict[str, Any]:
-        """The Volunteer page: current, applied, and ranked possible roles."""
+        """The Volunteer page: current, applied, and ranked possible roles.
+
+        A role with volunteering_since is Current whether or not it was ever
+        submitted; Applied and Possible both exclude it.
+        """
         with self._db._get_conn() as conn:
+            migration_pending = not _has_kind_columns(conn)
+            kind_sql, since_sql = _kind_sql(conn)
             current = conn.execute(
-                """SELECT j.* FROM jobs AS j
-                   WHERE j.kind = 'volunteer' AND j.deleted_at IS NULL
-                     AND j.volunteering_since IS NOT NULL
-                   ORDER BY j.volunteering_since DESC, j.id DESC"""
+                f"""SELECT j.* FROM jobs AS j
+                    WHERE {kind_sql} = 'volunteer' AND j.deleted_at IS NULL
+                      AND {since_sql} IS NOT NULL
+                    ORDER BY {since_sql} DESC, j.id DESC"""
             ).fetchall()
             applied = conn.execute(
-                """SELECT j.*, MAX(s.submitted_at) AS last_submitted_at
-                   FROM jobs AS j JOIN job_submissions AS s ON s.job_id = j.id
-                   WHERE j.kind = 'volunteer' AND j.deleted_at IS NULL
-                     AND j.volunteering_since IS NULL
-                   GROUP BY j.id ORDER BY last_submitted_at DESC, j.id DESC"""
+                f"""SELECT j.*, MAX(s.submitted_at) AS last_submitted_at
+                    FROM jobs AS j JOIN job_submissions AS s ON s.job_id = j.id
+                    WHERE {kind_sql} = 'volunteer' AND j.deleted_at IS NULL
+                      AND {since_sql} IS NULL
+                    GROUP BY j.id ORDER BY last_submitted_at DESC, j.id DESC"""
             ).fetchall()
         possible = self.get_ranked_open_jobs("volunteer")
         return {
+            "migration_pending": migration_pending,
             "current": [dict(row) for row in current],
             "applied": [dict(row) for row in applied],
             "possible": possible["fresh"],
@@ -109,6 +144,8 @@ class JobsMixin:
     def start_volunteering(self, job_id: int) -> dict[str, Any] | None:
         """Stamp volunteering_since once; None for a missing or dismissed volunteer role."""
         with self._db._get_conn() as conn:
+            if not _has_kind_columns(conn):
+                return None
             conn.execute(
                 """UPDATE jobs SET volunteering_since = ?
                    WHERE id = ? AND kind = 'volunteer' AND deleted_at IS NULL
@@ -172,11 +209,12 @@ class JobsMixin:
     def get_submitted_jobs(self) -> list[dict[str, Any]]:
         """Group every submission under its listing, latest activity first."""
         with self._db._get_conn() as conn:
+            kind_sql, _ = _kind_sql(conn)
             rows = conn.execute(
-                """SELECT j.*, s.id AS submission_id, s.submitted_at,
+                f"""SELECT j.*, s.id AS submission_id, s.submitted_at,
                           s.resume_path, s.cover_letter_path, s.notes
                    FROM jobs AS j JOIN job_submissions AS s ON s.job_id = j.id
-                   WHERE j.kind = 'job'
+                   WHERE {kind_sql} = 'job'
                    ORDER BY s.submitted_at DESC, s.id DESC"""
             ).fetchall()
         groups: dict[int, dict[str, Any]] = {}
@@ -203,19 +241,20 @@ class JobsMixin:
     def get_job_stats(self) -> dict[str, list[dict[str, Any]]]:
         """Discovery/submission history and current open category counts."""
         with self._db._get_conn() as conn:
+            kind_sql, _ = _kind_sql(conn)
             jobs = conn.execute(
-                """SELECT first_seen AS date, COUNT(*) AS count FROM jobs
-                   WHERE kind = 'job' GROUP BY first_seen ORDER BY first_seen"""
+                f"""SELECT j.first_seen AS date, COUNT(*) AS count FROM jobs AS j
+                    WHERE {kind_sql} = 'job' GROUP BY j.first_seen ORDER BY j.first_seen"""
             ).fetchall()
             submissions = conn.execute(
-                """SELECT substr(s.submitted_at, 1, 10) AS date, COUNT(*) AS count
+                f"""SELECT substr(s.submitted_at, 1, 10) AS date, COUNT(*) AS count
                    FROM job_submissions AS s JOIN jobs AS j ON j.id = s.job_id
-                   WHERE j.kind = 'job'
+                   WHERE {kind_sql} = 'job'
                    GROUP BY substr(s.submitted_at, 1, 10) ORDER BY date"""
             ).fetchall()
             categories = conn.execute(
                 f"""SELECT j.category, COUNT(*) AS count FROM jobs AS j
-                    WHERE j.kind = 'job' AND {_OPEN}
+                    WHERE {kind_sql} = 'job' AND {_OPEN}
                     GROUP BY j.category ORDER BY count DESC, j.category"""
             ).fetchall()
             return {

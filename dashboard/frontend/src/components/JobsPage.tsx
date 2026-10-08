@@ -175,19 +175,80 @@ export function JobsPage() {
     }
   }
 
-  const visibleJobs = showStale ? [...jobs, ...stale] : jobs;
-  const shownJobs = showAll ? visibleJobs : visibleJobs.slice(0, TOP_LISTINGS);
+  // The top-25 limit applies to fresh listings only; older ones, once shown,
+  // render in their own section so the limit can never hide them.
+  const shownJobs = showAll ? jobs : jobs.slice(0, TOP_LISTINGS);
 
   // Groups appear in the order of their best-ranked listing.
-  const companyGroups: CompanyGroup[] = shownJobs.reduce((groups, job) => {
-    const existingGroup = groups.find(g => g.company === job.company);
-    if (existingGroup) {
-      existingGroup.jobs.push(job);
-    } else {
-      groups.push({ company: job.company, jobs: [job] });
-    }
-    return groups;
-  }, [] as CompanyGroup[]);
+  function groupByCompany(list: Job[]): CompanyGroup[] {
+    return list.reduce((groups, job) => {
+      const existingGroup = groups.find(g => g.company === job.company);
+      if (existingGroup) {
+        existingGroup.jobs.push(job);
+      } else {
+        groups.push({ company: job.company, jobs: [job] });
+      }
+      return groups;
+    }, [] as CompanyGroup[]);
+  }
+
+  function renderGroups(list: Job[]) {
+    return groupByCompany(list).map(group => (
+      <div key={group.company} className="company-group">
+        <h2 className="company-name">{group.company}</h2>
+        <div className="jobs-list">
+          {group.jobs.map(job => (
+            <div key={job.id} className="job-row">
+              <div className="job-main">
+                <a
+                  href={job.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="job-title"
+                >
+                  {job.title}
+                </a>
+                {job.location && (
+                  <span className="job-location">{job.location}</span>
+                )}
+                {job.posted_date && (
+                  <span className="job-date">{job.posted_date}</span>
+                )}
+                <span className="job-category">{job.category}</span>
+              </div>
+              <div className="job-actions">
+                <button
+                  className="job-agent-btn"
+                  onClick={() => handleQueuePrompt(job.id)}
+                  disabled={queuingPrompts.has(job.id)}
+                  aria-label={`Queue agent prompt for ${job.title}`}
+                  title="Queue agent to tailor resume and cover letter"
+                >
+                  {queuingPrompts.has(job.id) ? '...' : '🤖'}
+                </button>
+                <button
+                  className="job-submit-btn"
+                  onClick={() => handleSubmit(job.id)}
+                  disabled={submittingJobs.has(job.id)}
+                  aria-label={`Mark ${job.title} as submitted`}
+                  title="Record that you submitted to this job"
+                >
+                  {submittingJobs.has(job.id) ? '...' : 'Submitted'}
+                </button>
+                <button
+                  className="job-delete-btn"
+                  onClick={() => handleDelete(job.id)}
+                  aria-label={`Dismiss ${job.title}`}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    ));
+  }
 
   return (
     <PageShell title="Jobs" subtitle="Open job listings">
@@ -210,7 +271,7 @@ export function JobsPage() {
         <div className="jobs-loading">
           <Spinner size="large" />
         </div>
-      ) : visibleJobs.length === 0 && stale.length === 0 ? (
+      ) : jobs.length === 0 && stale.length === 0 ? (
         <div className="jobs-empty">
           <p>No open job listings</p>
         </div>
@@ -218,67 +279,19 @@ export function JobsPage() {
         <div className="jobs-container">
           <RankedListControls
             shownCount={shownJobs.length}
-            visibleCount={visibleJobs.length}
+            totalCount={jobs.length}
             staleCount={stale.length}
             showStale={showStale}
             onToggleStale={() => setShowStale(prev => !prev)}
             onShowAll={() => setShowAll(true)}
           />
-          {companyGroups.map(group => (
-            <div key={group.company} className="company-group">
-              <h2 className="company-name">{group.company}</h2>
-              <div className="jobs-list">
-                {group.jobs.map(job => (
-                  <div key={job.id} className="job-row">
-                    <div className="job-main">
-                      <a
-                        href={job.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="job-title"
-                      >
-                        {job.title}
-                      </a>
-                      {job.location && (
-                        <span className="job-location">{job.location}</span>
-                      )}
-                      {job.posted_date && (
-                        <span className="job-date">{job.posted_date}</span>
-                      )}
-                      <span className="job-category">{job.category}</span>
-                    </div>
-                    <div className="job-actions">
-                      <button
-                        className="job-agent-btn"
-                        onClick={() => handleQueuePrompt(job.id)}
-                        disabled={queuingPrompts.has(job.id)}
-                        aria-label={`Queue agent prompt for ${job.title}`}
-                        title="Queue agent to tailor resume and cover letter"
-                      >
-                        {queuingPrompts.has(job.id) ? '...' : '🤖'}
-                      </button>
-                      <button
-                        className="job-submit-btn"
-                        onClick={() => handleSubmit(job.id)}
-                        disabled={submittingJobs.has(job.id)}
-                        aria-label={`Mark ${job.title} as submitted`}
-                        title="Record that you submitted to this job"
-                      >
-                        {submittingJobs.has(job.id) ? '...' : 'Submitted'}
-                      </button>
-                      <button
-                        className="job-delete-btn"
-                        onClick={() => handleDelete(job.id)}
-                        aria-label={`Dismiss ${job.title}`}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+          {renderGroups(shownJobs)}
+          {showStale && stale.length > 0 && (
+            <section className="older-listings" aria-label="Older listings">
+              <h2 className="older-listings-heading">Older listings</h2>
+              {renderGroups(stale)}
+            </section>
+          )}
         </div>
       )}
     </PageShell>
