@@ -273,7 +273,7 @@ def upcoming_deadlines(events: list, today: date) -> list[dict]:
         days = (due - today).days
         if -OVERDUE_LOOKBACK_DAYS <= days <= DEADLINE_WINDOW_DAYS:
             found.append({**event, "days": days})
-    return sorted(found, key=lambda e: (e["days"], e.get("event_time") or ""))
+    return sorted(found, key=lambda e: (e["days"], str(e.get("event_time") or "")))
 
 
 def fetch_scheduled_jobs() -> list | None:

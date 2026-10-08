@@ -1125,3 +1125,12 @@ class TestDeadlines:
         out = capsys.readouterr().out
         assert "calendar unreadable" in out.splitlines()[0]
         assert "Could not read the calendar" in out
+
+    def test_mixed_event_time_types_sort_without_crashing(self):
+        rows = ad.upcoming_deadlines(
+            [_event(1, "2026-10-15", "a", event_time=900), _event(2, "2026-10-15", "b"),
+             _event(3, "2026-10-15", "c", event_time="08:00")],
+            self.TODAY,
+        )
+        assert [e["id"] for e in rows] == [2, 3, 1]
+        assert "900" in ad.render_deadlines_section(rows)
