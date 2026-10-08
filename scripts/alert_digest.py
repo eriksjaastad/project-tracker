@@ -29,13 +29,16 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 # --- Config -----------------------------------------------------------------
 
 ALERTS_URL = os.environ.get("PT_ALERTS_URL", "http://localhost:8000/api/alerts")
 TASKS_URL = os.environ.get("PT_TASKS_URL", "http://localhost:8000/api/tasks")
+CALENDAR_URL = os.environ.get(
+    "PT_CALENDAR_URL", "http://localhost:8000/api/calendar/events?include_all=true"
+)
 RECIPIENT = os.environ.get("ALERT_DIGEST_TO", "spudlogic@gmail.com")
 FROM_ADDR = os.environ.get(
     "ALERT_DIGEST_FROM", "Project Alerts <alerts@send.synthinsightlabs.com>"
@@ -223,6 +226,56 @@ def fetch_tasks() -> list | None:
     return None
 
 
+# Deadlines (#8137): the calendar's only route to Erik. Show what is due soon or
+# was missed recently; an event missed more than a month ago is stale
+# bookkeeping, not this morning's problem, so it stays out of the email.
+DEADLINE_WINDOW_DAYS = 14
+OVERDUE_LOOKBACK_DAYS = 30
+DEADLINE_SUBJECT_DAYS = 7
+
+
+def fetch_calendar_events() -> list | None:
+    """Fetch every calendar event from the dashboard. None on failure (graceful)."""
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            req = urllib.request.Request(CALENDAR_URL, headers={"User-Agent": BROWSER_UA})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            events = payload.get("events") if isinstance(payload, dict) else None
+            if not isinstance(events, list):
+                raise RuntimeError("unexpected /api/calendar/events shape")
+            log(f"fetched {len(events)} calendar events (attempt {attempt})")
+            return events
+        except Exception as exc:  # noqa: BLE001
+            log(f"WARN calendar fetch attempt {attempt}/{MAX_RETRIES} failed: {exc}")
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_BACKOFF_SECONDS)
+    log("ERROR calendar unreachable after retries")
+    return None
+
+
+def upcoming_deadlines(events: list, today: date) -> list[dict]:
+    """Active events due within the window or missed within the lookback.
+
+    Event dates are stored as local wall-clock dates, so ``today`` must be the
+    local date. Each result gains ``days`` (negative = overdue); soonest first.
+    """
+    found = []
+    for event in events:
+        if event.get("status") != "active":
+            continue
+        raw = str(event.get("event_date") or "")[:10]
+        try:
+            due = date.fromisoformat(raw)
+        except ValueError:
+            log(f"WARN calendar event {event.get('id')} has an unreadable date {raw!r}")
+            continue
+        days = (due - today).days
+        if -OVERDUE_LOOKBACK_DAYS <= days <= DEADLINE_WINDOW_DAYS:
+            found.append({**event, "days": days})
+    return sorted(found, key=lambda e: (e["days"], e.get("event_time") or ""))
+
+
 def fetch_scheduled_jobs() -> list | None:
     """Return our launchd jobs with status via `launchctl list`.
 
@@ -402,12 +455,24 @@ def _review_loop_subject_parts(review_loops: dict | None) -> list[str]:
     return parts
 
 
-def build_subject(alerts: list, review_loops: dict | None = None) -> str:
+def _deadline_subject_parts(deadlines: list | None) -> list[str]:
+    if deadlines is None:
+        return ["⚠️ calendar unreadable"]
+    soon = [e for e in deadlines if e["days"] <= DEADLINE_SUBJECT_DAYS]
+    if not soon:
+        return []
+    n = len(soon)
+    return [f"📅 {n} deadline" + ("s" if n != 1 else "") + " due or missed"]
+
+
+def build_subject(
+    alerts: list, review_loops: dict | None = None, deadlines: list | None = (),
+) -> str:
     c = _summary_counts(alerts)
-    loop_parts = _review_loop_subject_parts(review_loops)
-    if not alerts and not loop_parts:
+    early = _deadline_subject_parts(deadlines) + _review_loop_subject_parts(review_loops)
+    if not alerts and not early:
         return "[Project Alerts] ✅ All clear"
-    parts = list(loop_parts)
+    parts = list(early)
     if c["critical"]:
         parts.append(f"🔴 {c['critical']} critical")
     if c["warning"]:
@@ -753,10 +818,57 @@ def render_review_loops_section(review_loops: dict) -> str:
     )
 
 
+def _when(days: int) -> str:
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "tomorrow"
+    if days > 1:
+        return f"in {days} days"
+    if days == -1:
+        return "missed yesterday"
+    return f"missed {-days} days ago"
+
+
+def render_deadlines_section(deadlines: list | None) -> str:
+    """Rows for due or recently missed events; '' when there are none.
+
+    ``None`` means the calendar could not be read, which is shown rather than
+    hidden: an empty section must never stand in for a failed fetch.
+    """
+    if deadlines is None:
+        return (
+            '<div style="background:#fff3f3;border:1px solid #e0b4b4;border-radius:6px;'
+            'padding:12px;color:#8a1f1f;"><strong>⚠️ Could not read the calendar.</strong> '
+            'Upcoming deadlines may be missing from this email.</div>'
+        )
+    if not deadlines:
+        return ""
+    rows = []
+    for e in deadlines:
+        overdue = e["days"] < 0
+        colour = "#8a1f1f" if overdue or e["days"] <= DEADLINE_SUBJECT_DAYS else "#555"
+        when = _when(e["days"])
+        time_part = f" {_esc(str(e['event_time']))}" if e.get("event_time") else ""
+        project = f" · {_esc(str(e['project_id']))}" if e.get("project_id") else ""
+        rows.append(
+            '<tr>'
+            f'<td style="padding:4px 10px;white-space:nowrap;color:{colour};">'
+            f'<strong>{_esc(when)}</strong></td>'
+            f'<td style="padding:4px 10px;white-space:nowrap;color:#888;">'
+            f'{_esc(str(e.get("event_date", ""))[:10])}{time_part}</td>'
+            f'<td style="padding:4px 10px;">{_esc(str(e.get("title", "")))}'
+            f'<span style="color:#888;">{project}</span></td>'
+            '</tr>'
+        )
+    return '<table style="border-collapse:collapse;width:100%;font-size:13px;">' + "".join(rows) + "</table>"
+
+
 def render_html(
     macbook_alerts: list, mini_data: dict | None, mini_ignore: set,
     tasks: list | None, jobs: list | None,
     degraded_reason: str | None, sent_at: str, review_loops: dict | None = None,
+    deadlines: list | None = (),
 ) -> str:
     """Render the full email: cards + jobs, then machine-sectioned alerts."""
     if degraded_reason:
@@ -780,6 +892,14 @@ def render_html(
             + '</table>'
         )
 
+    deadlines_body = render_deadlines_section(deadlines)
+    deadlines_html = (
+        '  <h3 style="border-bottom:2px solid #333;padding-bottom:4px;">📅 Deadlines</h3>\n  '
+        + deadlines_body
+        + '\n  <div style="height:16px;"></div>\n'
+        if deadlines_body else ""
+    )
+
     review_loops_html = (
         '  <h3 style="border-bottom:2px solid #333;padding-bottom:4px;">⏸️ Paused Review Loops</h3>\n  '
         + render_review_loops_section(review_loops)
@@ -795,7 +915,7 @@ def render_html(
   <h2 style="margin:0 0 4px;">Portfolio Morning Digest</h2>
   <div style="color:#888;font-size:13px;margin-bottom:20px;">{sent_at}</div>
 
-{review_loops_html}
+{deadlines_html}{review_loops_html}
   <h3 style="border-bottom:2px solid #333;padding-bottom:4px;">🎫 Cards</h3>
   {render_cards_section(tasks)}
 
@@ -898,15 +1018,20 @@ def main(argv: list[str] | None = None) -> int:
     tasks = fetch_tasks()
     jobs = fetch_scheduled_jobs()
     review_loops = fetch_paused_review_loops()
+    events = fetch_calendar_events()
+    deadlines = None if events is None else upcoming_deadlines(events, date.today())
 
     if degraded_reason:
         subject = ", ".join(
-            ["[Project Alerts] ⚠️ Digest degraded"] + _review_loop_subject_parts(review_loops)
+            ["[Project Alerts] ⚠️ Digest degraded"]
+            + _deadline_subject_parts(deadlines)
+            + _review_loop_subject_parts(review_loops)
         )
     else:
-        subject = build_subject(alerts, review_loops)
+        subject = build_subject(alerts, review_loops, deadlines)
     html = render_html(
-        alerts, mini_data, mini_ignore, tasks, jobs, degraded_reason, sent_at, review_loops
+        alerts, mini_data, mini_ignore, tasks, jobs, degraded_reason, sent_at, review_loops,
+        deadlines,
     )
 
     if args.dry_run:
