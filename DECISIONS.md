@@ -3,6 +3,24 @@
 Deliberate architectural choices. Read before changing anything structural.
 To revisit a decision, don't edit — add a new entry that supersedes it.
 
+## Retire card_factory_grok instead of fixing its dependency path
+**Accepted 2026-10-08 (Erik, #8050).**
+
+`scripts/card_factory_grok.py` and its test are removed. It was a shadow
+experiment to judge grok-build-0.1's tool use before wiring it into Auxesis,
+and Auxesis is canceled. In its life it had one shadow run (2026-06-24,
+muffinpanrecipes) and never created a card, yet it was patched four times
+(worktree-safe projects root, OpenRouter routing, acceptance criteria, a
+dependency-path fix in #7974), and a second path fix was in flight after
+synth-insight-labs renamed its cost-tracker client. Erik's
+direction going forward: build less infrastructure that serves every project,
+because it is unmaintainable and generates work nobody follows through on.
+Nothing in this repo now reads `OPENROUTER_API_KEY` or `XAI_API_KEY`; both
+were left in Doppler. To trial a model this way again, start from git history
+(last version at 3048f60) and depend on `api-cost-tracker` from PyPI.
+
+---
+
 ## Retire doc_audit_v2 instead of redesigning its cache
 **Accepted 2026-10-05 (Erik, via Architect, #7975).**
 

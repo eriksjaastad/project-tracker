@@ -56,7 +56,6 @@ This repo runs **self-contained** through Doppler. There is no `.env`, no export
 | `TURSO_KANBAN_URL` | Turso cloud endpoint for the Kanban DB (tasks, projects, calendar) | Only when `~/projects/.turso-config.json` has `turso_enabled: true`. It is currently **false**, so this is dormant and the backend is local `data/tracker.db`. |
 | `TURSO_KANBAN_TOKEN` | Turso auth token, paired with `TURSO_KANBAN_URL` | Same as above |
 | `COST_TRACKER_API_KEY` | Auth for the SIL cost-tracker API the dashboard queries (`dashboard/app.py`) | Whenever the dashboard's cost panel needs live data |
-| `OPENROUTER_API_KEY` | OpenRouter credits (not BYOK) for `scripts/card_factory_grok.py`'s grok-build-0.1 calls (#7699) | Whenever the Grok card-factory shadow run executes |
 | `DOPPLER_PROJECT`, `DOPPLER_CONFIG`, `DOPPLER_ENVIRONMENT` | Doppler's own metadata, injected automatically | Never set by hand |
 
 **Secrets this repo's scripts need that do *not* live in `project-tracker/dev`.** This is a real deviation from the portfolio pattern: several scripts pass an explicit `--project/--config` because their secret belongs to a different product's Doppler project. Do not "fix" this by copying the secret into `project-tracker/dev`.
@@ -67,7 +66,7 @@ This repo runs **self-contained** through Doppler. There is no `.env`, no export
 | `TURSO_KANBAN_URL` / `TURSO_KANBAN_TOKEN` | `openclaw` / `dev` | `scripts/turso_to_local.py` one-time Turso → local dump (`make turso-sync`) — historically these creds lived in `openclaw`, and that script still reads them there |
 | `TURSO_BRAIN_URL` / `TURSO_BRAIN_TOKEN` | `ai-memory` / `dev` | `pt memory ...` shells out to `brain.py` under `doppler run --project ai-memory --config dev` itself; you do not wrap it |
 
-**`XAI_API_KEY` (`synth-insight-labs` / `prd`) is no longer used by this repo.** `scripts/card_factory_grok.py` moved to `OPENROUTER_API_KEY` in `project-tracker/dev` (#7699), routed through OpenRouter credits rather than xAI BYOK. The `synth-insight-labs` key itself was left in Doppler untouched — other projects (e.g. Auxesis) may still read it.
+**`XAI_API_KEY` and `OPENROUTER_API_KEY` are no longer used by this repo.** Their only consumer, the grok-build card-factory experiment `scripts/card_factory_grok.py`, was retired in #8050. Both keys were left in Doppler untouched (`OPENROUTER_API_KEY` in `project-tracker/dev`, `XAI_API_KEY` in `synth-insight-labs/prd`).
 
 **Not in Doppler at all:** Agent Chat reads `AGENT_CHAT_URL`, `AGENT_CHAT_API_KEY`, and `AGENT_CHAT_SENDER` from `~/.claude/agent-chat.env` (or the environment) — see `_load_chat_config` in `scripts/pt.py`. If `pt message ...` says "Agent Chat not configured", the fix is that file, not Doppler.
 
