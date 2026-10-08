@@ -238,10 +238,17 @@ def _rows(conn, kind, date="2026-10-08"):
     ).fetchall()
 
 
-def test_same_day_same_kind_replaces(mgr, conn) -> None:
+def test_same_day_same_kind_replaces_the_whole_snapshot(mgr, conn) -> None:
     mgr.save_codebase_snapshot([cs.RepoSize("a", code=1), cs.RepoSize("b", code=2)], "scan", "2026-10-08")
     mgr.save_codebase_snapshot([cs.RepoSize("a", code=9)], "scan", "2026-10-08")
-    assert _rows(conn, "scan") == [("a", 9), ("b", 2)]
+    # b left the projects root between the two runs: it must not linger.
+    assert _rows(conn, "scan") == [("a", 9)]
+    date, scan = mgr.codebase_latest_scan()
+    assert set(scan) == {"a"}
+    # Other dates are untouched.
+    mgr.save_codebase_snapshot([cs.RepoSize("c", code=3)], "scan", "2026-10-09")
+    assert _rows(conn, "scan") == [("a", 9)]
+    assert _rows(conn, "scan", "2026-10-09") == [("c", 3)]
 
 
 def test_scan_does_not_overwrite_baseline_on_same_date(mgr, conn) -> None:
@@ -263,6 +270,15 @@ def test_save_refuses_errored_rows_and_bad_kind(mgr, conn) -> None:
     assert _rows(conn, "scan") == []
 
 
+def test_save_refuses_empty_or_duplicate_sets_without_touching_existing_rows(mgr, conn) -> None:
+    mgr.save_codebase_snapshot([cs.RepoSize("a", code=5)], "scan", "2026-10-08")
+    with pytest.raises(ValueError, match="empty"):
+        mgr.save_codebase_snapshot([], "scan", "2026-10-08")
+    with pytest.raises(ValueError, match="duplicate"):
+        mgr.save_codebase_snapshot([cs.RepoSize("b"), cs.RepoSize("b")], "scan", "2026-10-08")
+    assert _rows(conn, "scan") == [("a", 5)]
+
+
 # ---------------------------------------------------------------------------
 # import_baseline
 # ---------------------------------------------------------------------------
@@ -272,7 +288,10 @@ def _baseline_file(path: Path, rows: list[tuple]) -> Path:
     lines = ["   code   tests  docs       last  c90  project"]
     for code, tests, docs, project in rows:
         lines.append(f"{code:>7} {tests:>7} {docs:>5} 2026-01-01    1  {project}")
-    lines.append("TOTAL code 0 tests 0 docs 0 repos 0")
+    lines.append(
+        f"TOTAL code {sum(r[0] for r in rows)} tests {sum(r[1] for r in rows)} "
+        f"docs {sum(r[2] for r in rows)} repos {len(rows)}"
+    )
     path.write_text("\n".join(lines) + "\n")
     return path
 
@@ -463,4 +482,49 @@ def test_pt_size_snapshot_stores_nothing_when_a_repo_fails(tmp_path: Path, monke
     assert result.exit_code == 1
     assert "Snapshot NOT stored" in result.output
     assert json.loads(result.output[: result.output.rindex("}") + 1])["snapshot_stored"] is False
+    assert conn.execute("SELECT COUNT(*) FROM codebase_size_snapshots").fetchone()[0] == 0
+
+
+def test_reimport_with_fewer_repos_drops_the_missing_one(tmp_path: Path, mgr, conn) -> None:
+    make_repo(tmp_path, "proj", FILES)
+    make_repo(tmp_path, "other", {"x.py": "1\n2\n"})
+    both = _baseline_file(tmp_path / "both.txt", [(9, 6, 2, "proj"), (2, 0, 0, "other")])
+    mgr.import_codebase_baseline(both, BASELINE_TS, tmp_path)
+    one = _baseline_file(tmp_path / "one.txt", [(9, 6, 2, "proj")])
+    mgr.import_codebase_baseline(one, BASELINE_TS, tmp_path)
+    assert _rows(conn, "baseline", "2026-01-15") == [("proj", 9)]
+
+
+@pytest.mark.parametrize("damage, expected", [
+    (lambda t: t.replace("      2       0     0 2026-01-01    1  other\n",
+                         "      2       0     0 2026-01-01  other\n"), "not a repo row"),
+    (lambda t: t.replace("TOTAL code 11 tests 6 docs 2 repos 2\n", ""), "no TOTAL line"),
+    (lambda t: t.replace("repos 2", "repos 3"), "rows add up to"),
+    (lambda t: t.replace("      2       0     0 2026-01-01    1  other\n", ""), "rows add up to"),
+    (lambda t: t + "      9       6     2 2026-01-01    1  proj\n", "row after the TOTAL"),
+    (lambda t: t.replace("   code   tests", "   lines   tests"), "survey header"),
+])
+def test_damaged_baseline_file_is_refused_and_stores_nothing(
+        tmp_path: Path, mgr, conn, damage, expected) -> None:
+    make_repo(tmp_path, "proj", FILES)
+    make_repo(tmp_path, "other", {"x.py": "1\n2\n"})
+    file = _baseline_file(tmp_path / "base.txt", [(9, 6, 2, "proj"), (2, 0, 0, "other")])
+    file.write_text(damage(file.read_text()))
+    with pytest.raises(cs.BaselineMismatch, match=expected):
+        mgr.import_codebase_baseline(file, BASELINE_TS, tmp_path)
+    assert conn.execute("SELECT COUNT(*) FROM codebase_size_snapshots").fetchone()[0] == 0
+
+
+def test_duplicate_repo_row_is_refused(tmp_path: Path) -> None:
+    file = _baseline_file(tmp_path / "base.txt", [(9, 6, 2, "proj"), (9, 6, 2, "proj")])
+    with pytest.raises(cs.BaselineMismatch, match="appears twice"):
+        cs.parse_baseline_file(file)
+
+
+def test_pt_size_with_no_repos_is_an_error_and_stores_nothing(tmp_path: Path, monkeypatch, conn) -> None:
+    root = tmp_path / "projects"
+    root.mkdir()
+    result = _pt(monkeypatch, root, ["size", "--snapshot"])
+    assert result.exit_code != 0
+    assert "no git repos found" in result.output
     assert conn.execute("SELECT COUNT(*) FROM codebase_size_snapshots").fetchone()[0] == 0

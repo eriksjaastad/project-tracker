@@ -14,32 +14,39 @@ from typing import Iterable, Optional
 
 KINDS = ("baseline", "scan")
 
-_UPSERT = """
+_INSERT = """
     INSERT INTO codebase_size_snapshots
         (snapshot_date, kind, project, code_lines, test_lines, doc_files,
          doc_lines, last_commit, commits_90d, scanned_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(snapshot_date, kind, project) DO UPDATE SET
-        code_lines = excluded.code_lines,
-        test_lines = excluded.test_lines,
-        doc_files = excluded.doc_files,
-        doc_lines = excluded.doc_lines,
-        last_commit = excluded.last_commit,
-        commits_90d = excluded.commits_90d,
-        scanned_at = excluded.scanned_at
 """
 
 
 def _store(conn, rows: list, kind: str, snapshot_date: str, scanned_at: Optional[str]) -> int:
-    """Validate and upsert rows on an open connection. The caller commits."""
+    """Replace the whole (snapshot_date, kind) snapshot on an open connection.
+
+    The date's rows of that kind are deleted and the new set inserted, so a
+    repo missing from the new set cannot linger from an earlier same-day run.
+    Validation happens before any write. The caller commits.
+    """
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {KINDS}, got {kind!r}")
+    if not rows:
+        raise ValueError("refusing to store an empty snapshot")
     bad = [r.project for r in rows if r.error]
     if bad:
         raise ValueError(f"refusing to store errored repos: {', '.join(bad)}")
+    projects = [r.project for r in rows]
+    dupes = sorted({p for p in projects if projects.count(p) > 1})
+    if dupes:
+        raise ValueError(f"refusing to store duplicate repos: {', '.join(dupes)}")
     stamp = scanned_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn.execute(
+        "DELETE FROM codebase_size_snapshots WHERE snapshot_date = ? AND kind = ?",
+        (snapshot_date, kind),
+    )
     for r in rows:
-        conn.execute(_UPSERT, (
+        conn.execute(_INSERT, (
             snapshot_date, kind, r.project, r.code, r.tests, r.doc_files,
             r.doc_lines, r.last_commit, r.commits_90d, stamp,
         ))
@@ -51,10 +58,11 @@ class CodebaseSizeMixin:
 
     def save_codebase_snapshot(self, rows: Iterable, kind: str, snapshot_date: str,
                                scanned_at: Optional[str] = None) -> int:
-        """Upsert one row per project for (snapshot_date, kind), atomically.
+        """Replace the (snapshot_date, kind) snapshot with ``rows``, atomically.
 
-        Errored rows are refused: an unmeasured repo must not be stored as
-        zero lines.
+        Errored rows, duplicates and an empty set are refused: an unmeasured
+        repo must not be stored as zero lines, and an empty scan must not wipe
+        the day's snapshot.
         """
         rows = list(rows)
         with self._db._get_conn() as conn:

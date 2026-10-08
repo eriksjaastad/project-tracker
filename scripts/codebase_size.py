@@ -258,15 +258,63 @@ def optimization_score(baseline: Optional[RepoSize], current: RepoSize) -> Optio
 # ---------------------------------------------------------------------------
 
 
+_SURVEY_HEADER = ["code", "tests", "docs", "last", "c90", "project"]
+_SURVEY_ROW = re.compile(
+    r"^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d+)\s+(\S+)\s*$"
+)
+_SURVEY_TOTAL = re.compile(r"^TOTAL code (\d+) tests (\d+) docs (\d+) repos (\d+)\s*$")
+
+
 def parse_baseline_file(file: Path) -> dict[str, tuple[int, int, int]]:
-    """Rows ``code tests docs last c90 project`` -> {project: (code, tests, docs)}."""
+    """Rows ``code tests docs last c90 project`` -> {project: (code, tests, docs)}.
+
+    Strict: every non-blank line must be the survey header, a repo row or the
+    single TOTAL line, no repo may repeat, and the TOTAL must equal the rows'
+    sums and count. A damaged file raises BaselineMismatch instead of
+    importing as a partial baseline.
+    """
+    lines = [line for line in Path(file).read_text().splitlines() if line.strip()]
+    if not lines or lines[0].split() != _SURVEY_HEADER:
+        raise BaselineMismatch(f"{file}: first line is not the survey header")
     parsed: dict[str, tuple[int, int, int]] = {}
-    for line in Path(file).read_text().splitlines():
-        parts = line.split()
-        if len(parts) == 6 and parts[0].isdigit():
-            parsed[parts[5]] = (int(parts[0]), int(parts[1]), int(parts[2]))
+    total: Optional[tuple[int, int, int, int]] = None
+    problems: list[str] = []
+    for number, line in enumerate(lines[1:], start=2):
+        match = _SURVEY_TOTAL.match(line)
+        if match:
+            if total is not None:
+                problems.append(f"line {number}: a second TOTAL line")
+            total = tuple(int(g) for g in match.groups())  # type: ignore[assignment]
+            continue
+        match = _SURVEY_ROW.match(line)
+        if not match:
+            problems.append(f"line {number}: not a repo row: {line.strip()!r}")
+            continue
+        if total is not None:
+            problems.append(f"line {number}: repo row after the TOTAL line")
+        project = match.group(6)
+        if project in parsed:
+            problems.append(f"line {number}: {project} appears twice")
+        parsed[project] = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
     if not parsed:
-        raise BaselineMismatch(f"no baseline rows found in {file}")
+        problems.append("no repo rows")
+    if total is None:
+        problems.append("no TOTAL line")
+    else:
+        sums = (
+            sum(v[0] for v in parsed.values()),
+            sum(v[1] for v in parsed.values()),
+            sum(v[2] for v in parsed.values()),
+            len(parsed),
+        )
+        if sums != total:
+            problems.append(
+                f"TOTAL line says code/tests/docs/repos {total}, rows add up to {sums}"
+            )
+    if problems:
+        raise BaselineMismatch(
+            f"{file} is not a complete survey output:\n  " + "\n  ".join(problems)
+        )
     return parsed
 
 

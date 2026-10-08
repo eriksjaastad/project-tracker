@@ -6443,7 +6443,10 @@ def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
     from scripts.config import projects_root
 
     db = _size_db()
-    rows = cs.scan_portfolio(projects_root())
+    root = projects_root()
+    rows = cs.scan_portfolio(root)
+    if not rows:
+        raise click.ClickException(f"no git repos found under {root}")
     good = [r for r in rows if not r.error]
     failed = [r for r in rows if r.error]
 
