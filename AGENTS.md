@@ -31,10 +31,6 @@ If `PROGRESS.md` exists in the project root, read it FIRST before doing anything
 
 **`PROGRESS.md` is always dirty in `git status`.** It's updated daily as part of normal operation — an `M PROGRESS.md` line is the expected state, not a finding. Don't flag it as uncommitted work, don't offer to commit it, and don't suggest the user review it unless you yourself just modified it in this session.
 
-## Card Factory Auto-Validation
-
-When you start a task whose text begins with `[Card Factory]`, run `/validate-card-factory <task-id>` FIRST before doing any work. If the validation cancels the card (issue already resolved), move on to the next task. This prevents wasting sessions on stale findings.
-
 ## Server Ownership
 
 The dashboard server (uvicorn on port 8000) is yours to manage. Restart it whenever you need to — after code changes, after a crash, whenever. No need to ask Erik.
