@@ -124,3 +124,22 @@ def test_refresh_with_missing_projects_root_is_500(monkeypatch, tmp_path: Path, 
     assert response.status_code == 500
     assert "does not exist" in response.json()["detail"]
     assert _runs(conn) == 0
+
+
+def test_refresh_with_no_repos_is_500_and_stores_nothing(monkeypatch, conn) -> None:
+    _scan_returns(monkeypatch, [])
+    response = LOCAL.post("/api/codebase-size/refresh")
+    assert response.status_code == 500
+    assert "No git repos found" in response.json()["detail"]
+    assert _runs(conn) == 0
+
+
+def test_refresh_when_the_scan_itself_raises_is_500_and_stores_nothing(monkeypatch, conn) -> None:
+    def boom(root=None):
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr(cs, "scan_portfolio", boom)
+    response = LOCAL.post("/api/codebase-size/refresh")
+    assert response.status_code == 500
+    assert "disk on fire" in response.json()["detail"]
+    assert _runs(conn) == 0

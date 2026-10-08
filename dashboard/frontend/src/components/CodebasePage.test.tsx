@@ -120,4 +120,25 @@ describe('CodebasePage', () => {
     expect(screen.getByText('alpha')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
   });
+
+  it('a load still in flight when Refresh is pressed cannot overwrite the newer refresh', async () => {
+    let resolveGet: (value: unknown) => void = () => {};
+    let resolvePost: (value: unknown) => void = () => {};
+    const fresh: CodebaseSizeReport = { ...report, latest_date: '2026-10-09', rows: [row({ project: 'newest', code: 7 })] };
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise(resolve => {
+      if (init?.method === 'POST') resolvePost = resolve;
+      else resolveGet = resolve;
+    })));
+    const user = userEvent.setup();
+    render(<CodebasePage />);
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    resolvePost(reply(fresh));
+    await screen.findByText('newest');
+    resolveGet(reply(report));  // the stale initial load lands last
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(screen.getByText('newest')).toBeInTheDocument();
+    expect(screen.queryByText('alpha')).not.toBeInTheDocument();
+    expect(screen.getByText('Latest run: 2026-10-09')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchCodebaseSize, isAbortError, refreshCodebaseSize } from '../api';
 import type { CodebaseSizeReport } from '../types';
 import { PageShell } from './PageShell';
@@ -26,35 +26,53 @@ export function CodebasePage() {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  // Only the newest request may update the page: a load still in flight when
+  // Refresh is pressed would otherwise land after it and show older data.
+  const generation = useRef(0);
+  const inflightLoad = useRef<AbortController | null>(null);
+
+  const claim = useCallback(() => {
+    inflightLoad.current?.abort();
+    inflightLoad.current = null;
+    generation.current += 1;
+    return generation.current;
+  }, []);
+
+  const load = useCallback(async () => {
+    const gen = claim();
+    const controller = new AbortController();
+    inflightLoad.current = controller;
     setLoading(true);
     setLoadError(null);
     try {
-      const next = await fetchCodebaseSize(signal);
-      if (signal?.aborted) return;
+      const next = await fetchCodebaseSize(controller.signal);
+      if (gen !== generation.current) return;
       setReport(next);
     } catch (failure) {
-      if (isAbortError(failure) || signal?.aborted) return;
+      if (isAbortError(failure) || gen !== generation.current) return;
       setLoadError(failure instanceof Error ? failure.message : 'Codebase size unavailable');
     } finally {
-      if (!signal?.aborted) setLoading(false);
+      if (gen === generation.current) setLoading(false);
     }
-  }, []);
+  }, [claim]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
-  }, [load]);
+    void load();
+    return () => { claim(); };
+  }, [load, claim]);
 
   async function refresh() {
+    const gen = claim();
+    setLoading(false);
     setScanning(true);
     setRefreshError(null);
     try {
       const next = await refreshCodebaseSize();
+      if (gen !== generation.current) return;
       setReport(next);
       setLoadError(null);
     } catch (failure) {
+      if (gen !== generation.current) return;
       setRefreshError(failure instanceof Error ? failure.message : 'Refresh failed');
     } finally {
       setScanning(false);
