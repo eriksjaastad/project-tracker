@@ -6460,7 +6460,7 @@ def size_command(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
     if stored:
         db.save_codebase_scan(good, today)
     # Read after saving, so the very first snapshot is its own baseline.
-    base_date, base = db.codebase_baseline()
+    base_date, base, _, _ = db.codebase_runs()
 
     report = cs.build_report(good, base, base_date)
     scored = report["rows"]

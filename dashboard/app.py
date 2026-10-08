@@ -3280,16 +3280,21 @@ async def holoscape_series():
 # --- Codebase size API (#8083) ---
 
 
+# Overlapping refreshes are serialized: a second one while a scan runs gets
+# 409 instead of a concurrent scan, so each refresh reports the run it stored.
+_codebase_refresh_lock = threading.Lock()
+
+
 def _codebase_report(db: DatabaseManager) -> dict:
     """Report for the newest stored run against the baseline run.
 
-    No runs yet is the valid empty state. A DB failure propagates: it must not
-    read as "no runs".
+    Both runs come from one read transaction (``codebase_runs``), so the
+    response reflects one consistent snapshot. No runs yet is the valid empty
+    state. A DB failure propagates: it must not read as "no runs".
     """
     from scripts import codebase_size as cs
 
-    base_date, base = db.codebase_baseline()
-    latest_date, latest = db.codebase_latest_scan()
+    base_date, base, latest_date, latest = db.codebase_runs()
     return cs.build_report(list(latest.values()), base, base_date, latest_date)
 
 
@@ -3320,39 +3325,51 @@ def refresh_codebase_size(request: Request):
     _require_local_admin_request(request)
     from scripts import codebase_size as cs
 
+    if not _codebase_refresh_lock.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A codebase scan is already running; wait for it to finish.",
+        )
     try:
-        db = DatabaseManager()
-        db.codebase_baseline()  # table check before the scan
-    except Exception as exc:
-        raise _codebase_db_error(exc)
+        try:
+            db = DatabaseManager()
+            db.codebase_baseline()  # table check before the scan
+        except Exception as exc:
+            raise _codebase_db_error(exc)
 
-    try:
-        rows = cs.scan_portfolio(config_projects_root())
-    except cs.ProjectsRootMissing as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
-    except Exception as exc:
-        logger.exception("codebase size scan failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Codebase scan failed: {exc}",
-        )
-    if not rows:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No git repos found under the projects root.",
-        )
-    failed = [r for r in rows if r.error]
-    if failed:
-        listing = "; ".join(f"{r.project}: {r.error}" for r in failed)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Scan failed for {len(failed)} repo(s); nothing was stored. {listing}",
-        )
-    try:
-        db.save_codebase_scan(rows, datetime.now().date().isoformat())
-        return _codebase_report(db)
-    except Exception as exc:
-        raise _codebase_db_error(exc)
+        try:
+            rows = cs.scan_portfolio(config_projects_root())
+        except cs.ProjectsRootMissing as exc:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        except Exception as exc:
+            logger.exception("codebase size scan failed")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Codebase scan failed: {exc}",
+            )
+        if not rows:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="No git repos found under the projects root.",
+            )
+        failed = [r for r in rows if r.error]
+        if failed:
+            listing = "; ".join(f"{r.project}: {r.error}" for r in failed)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Scan failed for {len(failed)} repo(s); nothing was stored. {listing}",
+            )
+        today = datetime.now().date().isoformat()
+        try:
+            db.save_codebase_scan(rows, today)
+            # Report the run this request stored; the baseline comes from one
+            # consistent read (it is this run when no run existed before).
+            base_date, base, _, _ = db.codebase_runs()
+        except Exception as exc:
+            raise _codebase_db_error(exc)
+        return cs.build_report(rows, base, base_date, today)
+    finally:
+        _codebase_refresh_lock.release()
 
 
 # --- Agentic Markers API (#5009) ---

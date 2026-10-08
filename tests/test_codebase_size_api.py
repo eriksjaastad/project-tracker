@@ -143,3 +143,65 @@ def test_refresh_when_the_scan_itself_raises_is_500_and_stores_nothing(monkeypat
     assert response.status_code == 500
     assert "disk on fire" in response.json()["detail"]
     assert _runs(conn) == 0
+
+
+def test_both_runs_come_from_one_consistent_snapshot(monkeypatch, conn) -> None:
+    # Force the race Codex found: a first run commits on another connection
+    # between the baseline read and the latest-run read.
+    import db.codebase_size as storage
+
+    real_read = storage._read_run
+    calls = []
+
+    def read_then_commit_elsewhere(c, newest):
+        result = real_read(c, newest)
+        if not calls:
+            DatabaseManager().save_codebase_scan([_repo("a", 10)], "2026-10-08")
+        calls.append(newest)
+        return result
+
+    monkeypatch.setattr(storage, "_read_run", read_then_commit_elsewhere)
+    base_date, base, latest_date, latest = DatabaseManager().codebase_runs()
+    assert calls == [False, True]
+    assert _runs(conn) == 1  # the concurrent run did commit
+    # Both reads saw the snapshot from before it: no run on either side.
+    assert (base_date, base, latest_date, latest) == (None, {}, None, {})
+
+    monkeypatch.setattr(storage, "_read_run", real_read)
+    body = LOCAL.get("/api/codebase-size").json()
+    assert body["baseline_date"] == "2026-10-08"
+    assert body["rows"][0]["score"] == 0.0
+
+
+def test_overlapping_refresh_is_refused_with_409_and_stores_nothing(monkeypatch, conn) -> None:
+    import dashboard.app as app_module
+
+    _scan_returns(monkeypatch, [_repo("a", 10)])
+    assert app_module._codebase_refresh_lock.acquire(blocking=False)
+    try:
+        response = LOCAL.post("/api/codebase-size/refresh")
+        assert response.status_code == 409
+        assert "already running" in response.json()["detail"]
+        assert _runs(conn) == 0
+    finally:
+        app_module._codebase_refresh_lock.release()
+    assert LOCAL.post("/api/codebase-size/refresh").status_code == 200
+    assert _runs(conn) == 1
+
+
+def test_lock_is_released_after_a_failed_refresh(monkeypatch, conn) -> None:
+    _scan_returns(monkeypatch, [_repo("broken", 0, error="git exited 128")])
+    assert LOCAL.post("/api/codebase-size/refresh").status_code == 502
+    _scan_returns(monkeypatch, [_repo("a", 10)])
+    assert LOCAL.post("/api/codebase-size/refresh").status_code == 200
+
+
+def test_refresh_reports_the_run_it_stored(monkeypatch, conn) -> None:
+    _scan_returns(monkeypatch, [_repo("a", 10), _repo("b", 5)])
+    first = LOCAL.post("/api/codebase-size/refresh").json()
+    assert first["baseline_date"] == first["latest_date"]
+    assert {r["project"]: r["score"] for r in first["rows"]} == {"a": 0.0, "b": 0.0}
+    _scan_returns(monkeypatch, [_repo("a", 8)])
+    second = LOCAL.post("/api/codebase-size/refresh").json()
+    assert [r["project"] for r in second["rows"]] == ["a"]
+    assert second["rows"][0]["change"] == -2
