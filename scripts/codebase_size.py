@@ -220,5 +220,3 @@ def optimization_score(baseline: Optional[RepoSize], current: RepoSize) -> Optio
     if baseline is None or baseline.lean == 0:
         return None
     return (baseline.lean - current.lean) / baseline.lean * 100
-
-

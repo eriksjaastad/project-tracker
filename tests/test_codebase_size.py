@@ -478,3 +478,19 @@ def test_pt_size_with_a_missing_projects_root_is_a_clear_error(tmp_path: Path, m
     assert "does not exist" in result.output
     assert "Traceback" not in result.output
     assert _count(conn) == 0
+
+
+def test_total_score_counts_only_repos_in_the_baseline_run(tmp_path: Path, monkeypatch, conn) -> None:
+    root = tmp_path / "projects"
+    root.mkdir()
+    old = make_repo(root, "old", {"a.py": "x\n" * 10, "README.md": "d\n" * 10})  # lean 20
+    assert _pt(monkeypatch, root, ["size", "--snapshot"]).exit_code == 0     # baseline: old only
+    commit(old, {"a.py": "x\n" * 5}, "2026-02-01T00:00:00+0000")               # lean 15
+    make_repo(root, "new", {"b.py": "y\n" * 100})                              # not in baseline
+    payload = _json(_pt(monkeypatch, root, ["size", "--json"]).output)
+    scores = {r["project"]: r["score"] for r in payload["rows"]}
+    assert scores["new"] is None
+    assert scores["old"] == pytest.approx(25.0)
+    # The new repo's 100 lines neither count against nor toward the total.
+    assert payload["total"]["score"] == pytest.approx(25.0)
+    assert payload["total"]["code"] == 105
