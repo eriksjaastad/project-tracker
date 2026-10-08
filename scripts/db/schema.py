@@ -1132,6 +1132,35 @@ def ensure_schema(cursor: Any) -> None:
         ON outreach_contacts(deleted_at, replied_at)
     """)
 
+    # Append-only codebase size runs for `pt size` (#8083). Same DDL as
+    # migration 017; tests/test_codebase_size.py asserts the two match.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS codebase_size_snapshots (
+            id            INTEGER PRIMARY KEY NOT NULL,
+            run_id        TEXT NOT NULL,
+            snapshot_date TEXT NOT NULL,
+            project       TEXT NOT NULL,
+            code_lines    INTEGER NOT NULL,
+            test_lines    INTEGER NOT NULL,
+            doc_files     INTEGER NOT NULL,
+            doc_lines     INTEGER NOT NULL,
+            last_commit   TEXT,
+            commits_90d   INTEGER,
+            scanned_at    TEXT NOT NULL,
+            UNIQUE(run_id, project)
+        )
+    """)
+    cursor.execute("""
+        CREATE TRIGGER IF NOT EXISTS codebase_size_snapshots_no_update
+        BEFORE UPDATE ON codebase_size_snapshots
+        BEGIN SELECT RAISE(ABORT, 'codebase_size_snapshots is append-only'); END
+    """)
+    cursor.execute("""
+        CREATE TRIGGER IF NOT EXISTS codebase_size_snapshots_no_delete
+        BEFORE DELETE ON codebase_size_snapshots
+        BEGIN SELECT RAISE(ABORT, 'codebase_size_snapshots is append-only'); END
+    """)
+
     # Update schema version
     cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (?, ?)", (CURRENT_SCHEMA_VERSION, datetime.now().isoformat()))
 
