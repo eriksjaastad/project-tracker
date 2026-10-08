@@ -202,6 +202,13 @@ NAVIGATION_ITEMS = [
                 "navigation_type": "spa",
             },
             {
+                "id": "codebase",
+                "label": "Codebase size",
+                "href": "/codebase",
+                "match_prefixes": ["/codebase"],
+                "navigation_type": "spa",
+            },
+            {
                 "id": "holoscape",
                 "label": "Holoscape progress (temporary)",
                 "href": "/holoscape",
@@ -391,6 +398,7 @@ async def serve_spa_shell(request: Request):
 @app.get("/jobs", response_class=HTMLResponse)
 @app.get("/jobs/submitted", response_class=HTMLResponse)
 @app.get("/code-reviews", response_class=HTMLResponse)
+@app.get("/codebase", response_class=HTMLResponse)
 @app.get("/morning", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
@@ -3267,6 +3275,84 @@ async def holoscape_series():
     from dashboard.holoscape_progress import progress_snapshot
 
     return progress_snapshot()
+
+
+# --- Codebase size API (#8083) ---
+
+
+def _codebase_report(db: DatabaseManager) -> dict:
+    """Report for the newest stored run against the baseline run.
+
+    No runs yet is the valid empty state. A DB failure propagates: it must not
+    read as "no runs".
+    """
+    from scripts import codebase_size as cs
+
+    base_date, base = db.codebase_baseline()
+    latest_date, latest = db.codebase_latest_scan()
+    return cs.build_report(list(latest.values()), base, base_date, latest_date)
+
+
+def _codebase_db_error(exc: Exception) -> HTTPException:
+    logger.exception("codebase size request failed")
+    if "no such table" in str(exc):
+        detail = "Table codebase_size_snapshots is missing; run `pt db migrate`."
+    else:
+        detail = f"Codebase size data is unavailable: {exc}"
+    return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail)
+
+
+@app.get("/api/codebase-size")
+def get_codebase_size():
+    """Latest stored codebase size run with score vs the baseline. No scan."""
+    try:
+        return _codebase_report(DatabaseManager())
+    except Exception as exc:
+        raise _codebase_db_error(exc)
+
+
+@app.post("/api/codebase-size/refresh")
+def refresh_codebase_size(request: Request):
+    """Scan the portfolio, store one run if every repo scanned, return the report.
+
+    A plain ``def`` so the multi-second scan runs in the threadpool.
+    """
+    _require_local_admin_request(request)
+    from scripts import codebase_size as cs
+
+    try:
+        db = DatabaseManager()
+        db.codebase_baseline()  # table check before the scan
+    except Exception as exc:
+        raise _codebase_db_error(exc)
+
+    try:
+        rows = cs.scan_portfolio(config_projects_root())
+    except cs.ProjectsRootMissing as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+    except Exception as exc:
+        logger.exception("codebase size scan failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Codebase scan failed: {exc}",
+        )
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No git repos found under the projects root.",
+        )
+    failed = [r for r in rows if r.error]
+    if failed:
+        listing = "; ".join(f"{r.project}: {r.error}" for r in failed)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Scan failed for {len(failed)} repo(s); nothing was stored. {listing}",
+        )
+    try:
+        db.save_codebase_scan(rows, datetime.now().date().isoformat())
+        return _codebase_report(db)
+    except Exception as exc:
+        raise _codebase_db_error(exc)
 
 
 # --- Agentic Markers API (#5009) ---

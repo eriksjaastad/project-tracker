@@ -6462,25 +6462,10 @@ def size_command(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
     # Read after saving, so the very first snapshot is its own baseline.
     base_date, base = db.codebase_baseline()
 
-    scored = []
-    for r in good:
-        d = r.as_dict()
-        d["score"] = cs.optimization_score(base.get(r.project), r)
-        scored.append(d)
-    pairs = [(base[r.project], r) for r in good if r.project in base and base[r.project].lean]
-    base_lean = sum(b.lean for b, _ in pairs)
-    total_score = (
-        None if not base_lean
-        else (base_lean - sum(c.lean for _, c in pairs)) / base_lean * 100
-    )
-    total = {
-        "code": sum(r.code for r in good),
-        "tests": sum(r.tests for r in good),
-        "doc_files": sum(r.doc_files for r in good),
-        "doc_lines": sum(r.doc_lines for r in good),
-        "repos": len(good),
-        "score": total_score,
-    }
+    report = cs.build_report(good, base, base_date)
+    scored = report["rows"]
+    total = report["total"]
+    total_score = total["score"]
 
     if json_output:
         click.echo(json.dumps({
@@ -6488,6 +6473,7 @@ def size_command(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
             "snapshot_stored": stored,
             "rows": scored,
             "total": total,
+            "formula": report["formula"],
             "errors": [{"project": r.project, "error": r.error} for r in failed],
         }, indent=2))
     else:
