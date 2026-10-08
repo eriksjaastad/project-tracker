@@ -1,0 +1,111 @@
+"""Fit score, ranking and the 30-day stale split (#101679546294759424)."""
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+
+from fastapi.testclient import TestClient
+
+from dashboard.app import app
+from scripts.db.job_ranking import (
+    FIT_KEYWORDS,
+    rank_listings,
+    score_listing,
+    split_stale,
+)
+
+TODAY = date(2026, 10, 8)
+
+
+def _row(job_id: int, title: str, *, raw: str = "", url: str | None = None,
+         posted: date | None = TODAY, first_seen: date = TODAY) -> dict:
+    return {
+        "id": job_id, "title": title, "raw": raw, "location": None,
+        "url": url or f"https://example.test/{job_id}",
+        "posted_date": posted.isoformat() if posted else None,
+        "first_seen": first_seen.isoformat(),
+    }
+
+
+def test_relevant_listing_outranks_unrelated_one() -> None:
+    react = _row(1, "React Developer", raw="WordPress and TypeScript")
+    wordpress = _row(2, "WordPress site maintainer")
+    unrelated = _row(3, "Warehouse Associate", raw="Forklift certification")
+    ranked = rank_listings([unrelated, wordpress, react], TODAY)
+    assert [job["id"] for job in ranked] == [1, 2, 3]
+    assert ranked[0]["fit_score"] > ranked[2]["fit_score"]
+
+
+def test_title_matches_weigh_more_than_raw_matches() -> None:
+    in_title = _row(1, "Python engineer")
+    in_raw = _row(2, "Engineer", raw="We use Python")
+    assert score_listing(in_title, TODAY) > score_listing(in_raw, TODAY)
+
+
+def test_keywords_match_whole_words_case_insensitively() -> None:
+    assert score_listing(_row(1, "Senior AI Engineer"), TODAY) > score_listing(
+        _row(2, "Senior Engineer"), TODAY
+    )
+    # "ai" must not fire inside "said" or "maintain".
+    assert score_listing(_row(3, "Maintainer", raw="he said"), TODAY) == score_listing(
+        _row(4, "Plumber", raw="he spoke"), TODAY
+    )
+    assert "ai" in FIT_KEYWORDS
+
+
+def test_pay_and_remote_us_signals_raise_score() -> None:
+    plain = _row(1, "Support specialist")
+    paid = _row(2, "Support specialist", raw="$45/hr, remote (US)")
+    assert score_listing(paid, TODAY) - score_listing(plain, TODAY) == 4
+
+
+def test_hn_full_post_and_review_rows_rank_below_role_rows() -> None:
+    raw = "Acme | React engineer | Remote US | $150k"
+    post = _row(1, "Full HN post (read for every role)", raw=raw,
+                url="https://news.ycombinator.com/item?id=1#post")
+    role = _row(2, "React engineer", raw=raw,
+                url="https://news.ycombinator.com/item?id=1#role-1")
+    review = _row(3, "[REVIEW] React engineer", raw=raw)
+    ranked = rank_listings([post, review, role], TODAY)
+    assert [job["id"] for job in ranked] == [2, 3, 1]
+
+
+def test_seniority_words_do_not_demote() -> None:
+    assert score_listing(_row(1, "Staff React Engineer"), TODAY) == score_listing(
+        _row(2, "React Engineer"), TODAY
+    )
+
+
+def test_ties_break_newest_first() -> None:
+    older = _row(1, "Sales", posted=TODAY - timedelta(days=20))
+    newer = _row(2, "Sales", posted=TODAY - timedelta(days=16))
+    assert score_listing(older, TODAY) == score_listing(newer, TODAY)
+    assert [job["id"] for job in rank_listings([older, newer], TODAY)] == [2, 1]
+
+
+def test_stale_split_at_thirty_day_boundary() -> None:
+    edge = _row(1, "Edge", posted=TODAY - timedelta(days=30))
+    stale = _row(2, "Stale", posted=TODAY - timedelta(days=31))
+    # posted_date absent: first_seen decides.
+    seen_old = _row(3, "Seen old", posted=None, first_seen=TODAY - timedelta(days=31))
+    # posted_date wins over a recent first_seen.
+    posted_old = _row(4, "Posted old", posted=TODAY - timedelta(days=45))
+    undated = {**_row(5, "Undated", posted=None), "first_seen": "not-a-date"}
+    fresh, old = split_stale([edge, stale, seen_old, posted_old, undated], TODAY)
+    assert [job["id"] for job in fresh] == [1, 5]
+    assert [job["id"] for job in old] == [2, 3, 4]
+
+
+def test_jobs_api_returns_ranked_fresh_and_stale_separately(db) -> None:
+    today = date.today()
+    old = db.upsert_job(company="Old", title="React engineer", source="manual",
+                        url="https://example.test/old",
+                        posted_date=(today - timedelta(days=60)).isoformat())
+    plain = db.upsert_job(company="Plain", title="Account executive", source="manual",
+                          url="https://example.test/plain")
+    fit = db.upsert_job(company="Fit", title="Frontend developer (React)", source="manual",
+                        url="https://example.test/fit")
+    body = TestClient(app).get("/api/jobs").json()
+    assert [job["id"] for job in body["jobs"]] == [fit["id"], plain["id"]]
+    assert [job["id"] for job in body["stale"]] == [old["id"]]
+    assert body["jobs"][0]["fit_score"] > body["jobs"][1]["fit_score"]

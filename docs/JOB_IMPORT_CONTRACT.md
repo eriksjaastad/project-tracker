@@ -29,6 +29,7 @@ Each line must be a valid JSON object with these fields:
   - `Backend`
   - `Other` (default if omitted)
 - `raw` (string | null): Original posting text/HTML for reference. **Must be preserved**; never omit this field if the source has it.
+- `kind` (string): `job` or `volunteer`. A new row defaults to `job`. `volunteer` rows appear only on the dashboard's Volunteer page (`/jobs/volunteer`), never in Jobs listings, stats or submissions. Any other value is rejected like an unknown `source` or `category`.
 
 ### HN Multi-Role Handling
 
@@ -45,6 +46,7 @@ The importer needs no special handling: `url` is the unique key, so `#post` and 
 
 - Repeated imports are idempotent by `url` (the unique key)
 - On conflict: updates company, title, location, source, posted_date, category
+- On conflict: updates kind only when the line supplies it; a line without `kind` keeps the row's existing kind
 - On conflict: preserves existing first_seen, deleted_at, and raw (if new raw is null)
 - A dismissed job (deleted_at set) stays dismissed after re-import
 
@@ -55,6 +57,7 @@ The importer needs no special handling: `url` is the unique key, so `#post` and 
 {"company": "Widget Inc", "title": "Full HN post (read for every role)", "url": "https://news.ycombinator.com/item?id=12345678#post", "source": "hn", "category": "Other", "raw": "Widget Inc | Full Stack, Backend | Remote | $120k-$180k\n\nWe're looking for..."}
 {"company": "Widget Inc", "title": "Full Stack Developer", "url": "https://news.ycombinator.com/item?id=12345678#role-1", "source": "hn", "category": "Full Stack", "raw": "Widget Inc | Full Stack, Backend | Remote | $120k-$180k\n\nWe're looking for..."}
 {"company": "Hacker News (company not parsed)", "title": "Full HN post (read for every role)", "url": "https://news.ycombinator.com/item?id=87654321#post", "source": "hn", "category": "Other", "raw": "Stealth startup hiring several engineers, contact jobs@example.com"}
+{"company": "Example Food Bank", "title": "Website volunteer", "url": "https://volunteer.example.org/roles/42", "source": "manual", "kind": "volunteer", "raw": "Help keep our WordPress site current, a few hours a week."}
 ```
 
 ## Usage

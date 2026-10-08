@@ -4,6 +4,7 @@ import { Spinner } from './Spinner';
 import { Notification } from './Notification';
 import { JobStatsChart } from './JobStatsChart';
 import { CategoryTable } from './CategoryTable';
+import { RankedListControls, TOP_LISTINGS } from './RankedListControls';
 import './JobsPage.css';
 
 interface Job {
@@ -33,7 +34,11 @@ interface JobStats {
 
 export function JobsPage() {
   const [loading, setLoading] = useState(true);
+  // Both arrive ranked best-first from the API; `stale` is older than 30 days.
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [stale, setStale] = useState<Job[]>([]);
+  const [showStale, setShowStale] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [stats, setStats] = useState<JobStats | null>(null);
   const [statsError, setStatsError] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -57,6 +62,7 @@ export function JobsPage() {
       }
       const data = await response.json();
       setJobs(data.jobs || []);
+      setStale(data.stale || []);
     } catch (error) {
       console.error('Failed to load jobs:', error);
       setNotification({ message: 'Failed to load jobs', type: 'error' });
@@ -100,6 +106,7 @@ export function JobsPage() {
       // still be in flight, so filtering against a captured `jobs` snapshot
       // would resurrect whatever that other request already removed.
       setJobs(prev => prev.filter(job => job.id !== jobId));
+      setStale(prev => prev.filter(job => job.id !== jobId));
       setNotification({ message: 'Job dismissed', type: 'success' });
       // Dismissing a job changes the open-category counts; refresh so the
       // chart/table don't keep showing the pre-dismissal snapshot.
@@ -127,6 +134,7 @@ export function JobsPage() {
       // Same reasoning as handleDelete: use the latest state, not a snapshot
       // captured when this handler started.
       setJobs(prev => prev.filter(job => job.id !== jobId));
+      setStale(prev => prev.filter(job => job.id !== jobId));
       setNotification({ message: 'Job marked as submitted', type: 'success' });
       // A submission moves the job out of the open-category counts and into
       // submissions_per_day; refresh so the stats panel reflects that.
@@ -167,7 +175,11 @@ export function JobsPage() {
     }
   }
 
-  const companyGroups: CompanyGroup[] = jobs.reduce((groups, job) => {
+  const visibleJobs = showStale ? [...jobs, ...stale] : jobs;
+  const shownJobs = showAll ? visibleJobs : visibleJobs.slice(0, TOP_LISTINGS);
+
+  // Groups appear in the order of their best-ranked listing.
+  const companyGroups: CompanyGroup[] = shownJobs.reduce((groups, job) => {
     const existingGroup = groups.find(g => g.company === job.company);
     if (existingGroup) {
       existingGroup.jobs.push(job);
@@ -198,12 +210,20 @@ export function JobsPage() {
         <div className="jobs-loading">
           <Spinner size="large" />
         </div>
-      ) : jobs.length === 0 ? (
+      ) : visibleJobs.length === 0 && stale.length === 0 ? (
         <div className="jobs-empty">
           <p>No open job listings</p>
         </div>
       ) : (
         <div className="jobs-container">
+          <RankedListControls
+            shownCount={shownJobs.length}
+            visibleCount={visibleJobs.length}
+            staleCount={stale.length}
+            showStale={showStale}
+            onToggleStale={() => setShowStale(prev => !prev)}
+            onShowAll={() => setShowAll(true)}
+          />
           {companyGroups.map(group => (
             <div key={group.company} className="company-group">
               <h2 className="company-name">{group.company}</h2>

@@ -5710,12 +5710,13 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
     """Import job listings from JSONL file.
     
     Each line must be a JSON object with required fields: company, title, url, source.
-    Optional fields: location, posted_date, category, raw.
+    Optional fields: location, posted_date, category, raw, kind ('job' or
+    'volunteer'; new rows default to 'job').
     
     Upserts jobs by URL (unique key). Preserves first_seen, deleted_at, and existing
     raw text on conflict. See docs/JOB_IMPORT_CONTRACT.md for full contract.
     """
-    from db.jobs import JOB_CATEGORIES, JOB_SOURCES
+    from db.jobs import JOB_CATEGORIES, JOB_KINDS, JOB_SOURCES
     
     errors: list[dict] = []
     imported: list[dict] = []
@@ -5768,6 +5769,15 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
                     })
                     continue
                 
+                kind = record.get("kind")
+                if kind is not None and kind not in JOB_KINDS:
+                    errors.append({
+                        "line": line_num,
+                        "reason": f"invalid kind: {kind!r}; must be one of {sorted(JOB_KINDS)}",
+                        "data": record,
+                    })
+                    continue
+
                 if dry_run:
                     imported.append({"line": line_num, "url": record["url"]})
                     continue
@@ -5783,6 +5793,7 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
                         posted_date=record.get("posted_date"),
                         category=category,
                         raw=record.get("raw"),
+                        kind=kind,
                     )
                     imported.append({
                         "line": line_num,

@@ -174,6 +174,13 @@ NAVIGATION_ITEMS = [
                 "match_prefixes": ["/jobs/submitted"],
                 "navigation_type": "spa",
             },
+            {
+                "id": "jobs-volunteer",
+                "label": "Volunteer",
+                "href": "/jobs/volunteer",
+                "match_prefixes": ["/jobs/volunteer"],
+                "navigation_type": "spa",
+            },
         ],
     },
     {
@@ -390,6 +397,7 @@ async def serve_spa_shell(request: Request):
 @app.get("/agent-chat", response_class=HTMLResponse)
 @app.get("/jobs", response_class=HTMLResponse)
 @app.get("/jobs/submitted", response_class=HTMLResponse)
+@app.get("/jobs/volunteer", response_class=HTMLResponse)
 @app.get("/code-reviews", response_class=HTMLResponse)
 @app.get("/morning", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
@@ -4009,8 +4017,10 @@ class JobSubmissionRequest(BaseModel):
 
 @app.get("/api/jobs")
 async def list_open_jobs():
+    """Ranked open listings; ones older than 30 days come back separately."""
     try:
-        return {"jobs": DatabaseManager().get_open_jobs()}
+        ranked = DatabaseManager().get_ranked_open_jobs()
+        return {"jobs": ranked["fresh"], "stale": ranked["stale"]}
     except Exception:
         logger.exception("Failed to list open jobs")
         raise HTTPException(status_code=500, detail="Failed to list jobs")
@@ -4060,6 +4070,29 @@ async def record_job_submission(job_id: int, payload: JobSubmissionRequest):
     if submission is None:
         raise HTTPException(status_code=404, detail="Open job not found")
     return {"submission": submission}
+
+
+@app.get("/api/volunteer")
+async def list_volunteer_roles():
+    """Volunteer page sections: current, applied, possible (+ stale possible)."""
+    try:
+        return DatabaseManager().get_volunteer_roles()
+    except Exception:
+        logger.exception("Failed to list volunteer roles")
+        raise HTTPException(status_code=500, detail="Failed to list volunteer roles")
+
+
+@app.post("/api/jobs/{job_id}/volunteering")
+async def start_volunteering(job_id: int):
+    """Record that Erik started volunteering in this role (idempotent)."""
+    try:
+        job = DatabaseManager().start_volunteering(job_id)
+    except Exception:
+        logger.exception("Failed to mark volunteering for job %s", job_id)
+        raise HTTPException(status_code=500, detail="Failed to mark volunteering")
+    if job is None:
+        raise HTTPException(status_code=404, detail="Volunteer role not found")
+    return {"job": job}
 
 
 @app.post("/api/jobs/{job_id}/agent-prompt")

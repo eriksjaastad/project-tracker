@@ -70,7 +70,7 @@ def test_navigation_api_returns_shared_contract():
         for item in items
     }
     assert children_by_group["group-kanban"] == ["kanban", "calendar"]
-    assert children_by_group["group-jobs"] == ["jobs", "jobs-submitted"]
+    assert children_by_group["group-jobs"] == ["jobs", "jobs-submitted", "jobs-volunteer"]
     assert children_by_group["group-agents"] == ["agent-chat", "agentic", "code-reviews", "holoscape"]
     assert children_by_group["group-memory"] == ["memory", "graph"]
 
@@ -91,6 +91,7 @@ def test_navigation_api_returns_shared_contract():
     assert leaves["calendar"]["label"] == "Calendar"
     assert leaves["jobs"]["label"] == "Listings"
     assert leaves["jobs-submitted"]["label"] == "Submissions"
+    assert leaves["jobs-volunteer"]["label"] == "Volunteer"
     assert leaves["agent-chat"]["label"] == "Chat"
     assert leaves["agentic"]["label"] == "Autonomy"
     assert leaves["code-reviews"]["label"] == "Code reviews"
@@ -113,6 +114,7 @@ def test_build_navigation_marks_expected_active_items():
 def test_child_paths_activate_only_the_matching_group_and_child():
     cases = {
         "/jobs/submitted": {"group-jobs", "jobs-submitted"},
+        "/jobs/volunteer": {"group-jobs", "jobs-volunteer"},
         "/kanban/project-tracker": {"group-kanban", "kanban"},
         "/graph": {"group-memory", "graph"},
     }

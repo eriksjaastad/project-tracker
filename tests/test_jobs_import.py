@@ -350,3 +350,33 @@ def test_cli_import_dry_run_mode(tmp_path: Path) -> None:
     
     assert result.returncode == 0
     assert "DRY RUN: Would import 1 job(s)" in result.stdout
+
+
+def test_cli_import_kind_and_rejects_unknown_kind(db, tmp_path: Path) -> None:
+    """kind is optional (default 'job'); 'volunteer' lands on the Volunteer page; others are rejected."""
+    jsonl = tmp_path / "kinds.jsonl"
+    jsonl.write_text(
+        '{"company": "Acme", "title": "Engineer", "url": "https://example.test/k1", "source": "manual"}\n'
+        '{"company": "Food Bank", "title": "Website help", "url": "https://example.test/k2", "source": "manual", "kind": "volunteer"}\n'
+        '{"company": "Gig Co", "title": "Driver", "url": "https://example.test/k3", "source": "manual", "kind": "gig"}\n'
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl), "--json"],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent
+    )
+    response = json.loads(result.stdout)
+    assert response["ok"] is False
+    assert response["result"]["imported"] == 2
+    [error] = response["result"]["details"]["errors"]
+    assert error["line"] == 3 and "invalid kind" in error["reason"]
+
+    assert [job["url"] for job in db.get_open_jobs()] == ["https://example.test/k1"]
+    assert [job["url"] for job in db.get_open_jobs("volunteer")] == ["https://example.test/k2"]
+    assert "https://example.test/k3" not in {
+        job["url"] for kind in ("job", "volunteer") for job in db.get_open_jobs(kind)
+    }
+
+
+def test_kind_documented_in_import_contract() -> None:
+    contract = (Path(__file__).parent.parent / "docs" / "JOB_IMPORT_CONTRACT.md").read_text()
+    assert "`kind`" in contract and "`volunteer`" in contract

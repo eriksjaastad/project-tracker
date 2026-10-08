@@ -977,4 +977,82 @@ describe('JobsPage', () => {
       expect(agentButton).toHaveTextContent('🤖');
     });
   });
+
+  function rankedJob(id: number, company = `Company ${id}`) {
+    return {
+      id,
+      company,
+      title: `Role ${id}`,
+      url: `https://example.com/ranked/${id}`,
+      location: 'Remote',
+      posted_date: null,
+      first_seen: '2026-10-01',
+      category: 'Other',
+      source: 'ats_sweep',
+      deleted_at: null,
+      raw: null,
+    };
+  }
+
+  it('shows the top 25 in server rank order and a Show all control', async () => {
+    const user = userEvent.setup();
+    const fresh = Array.from({ length: 30 }, (_, i) => rankedJob(i + 1));
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: fresh, stale: [] }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Role 1')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Role 25')).toBeInTheDocument();
+    expect(screen.queryByText('Role 26')).not.toBeInTheDocument();
+    const titles = screen.getAllByRole('link').map(link => link.textContent);
+    expect(titles.slice(0, 3)).toEqual(['Role 1', 'Role 2', 'Role 3']);
+    expect(screen.queryByText(/older listing/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show all 30' }));
+    expect(screen.getByText('Role 30')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Show all/ })).not.toBeInTheDocument();
+  });
+
+  it('hides stale listings behind a count until asked', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: [rankedJob(1)], stale: [rankedJob(2), rankedJob(3)] }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Role 1')).toBeInTheDocument();
+    });
+    expect(screen.getByText('2 older listings hidden')).toBeInTheDocument();
+    expect(screen.queryByText('Role 2')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show older listings' }));
+    expect(screen.getByText('Role 2')).toBeInTheDocument();
+    expect(screen.getByText('Role 3')).toBeInTheDocument();
+    expect(screen.queryByText('2 older listings hidden')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Hide older listings' }));
+    expect(screen.queryByText('Role 2')).not.toBeInTheDocument();
+  });
+
+  it('offers the hidden older listings when no fresh ones remain', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: [], stale: [rankedJob(4)] }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 older listing hidden')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('No open job listings')).not.toBeInTheDocument();
+  });
 });
