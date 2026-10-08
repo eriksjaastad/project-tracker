@@ -121,24 +121,59 @@ describe('CodebasePage', () => {
     expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
   });
 
-  it('a load still in flight when Refresh is pressed cannot overwrite the newer refresh', async () => {
+  it('serializes requests: Refresh is disabled while the initial load is in flight', async () => {
     let resolveGet: (value: unknown) => void = () => {};
-    let resolvePost: (value: unknown) => void = () => {};
-    const fresh: CodebaseSizeReport = { ...report, latest_date: '2026-10-09', rows: [row({ project: 'newest', code: 7 })] };
-    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise(resolve => {
-      if (init?.method === 'POST') resolvePost = resolve;
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => new Promise(resolve => {
+      if (init?.method === 'POST') resolve(reply(report));
       else resolveGet = resolve;
-    })));
+    }));
+    vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
     render(<CodebasePage />);
+    const refresh = screen.getByRole('button', { name: 'Refresh' });
+    expect(refresh).toBeDisabled();
+    await user.click(refresh);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+    resolveGet(reply(report));
+    await screen.findByText('alpha');
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+  });
+
+  it('serializes requests: Retry is disabled while a refresh runs, and the refresh result is shown', async () => {
+    let resolvePost: (value: unknown) => void = () => {};
+    const fresh: CodebaseSizeReport = { ...report, latest_date: '2026-10-09', rows: [row({ project: 'newest', code: 7 })] };
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return new Promise(resolve => { resolvePost = resolve; });
+      return Promise.resolve(reply({ detail: 'database locked' }, false, 500));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CodebasePage />);
+    const retry = await screen.findByRole('button', { name: 'Retry' });
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(screen.getByRole('button', { name: 'Scanning…' })).toBeDisabled();
+    expect(retry).toBeDisabled();
+    await user.click(retry);  // must not start a GET that would supersede the refresh
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method !== 'POST')).toHaveLength(1);
     resolvePost(reply(fresh));
     await screen.findByText('newest');
-    resolveGet(reply(report));  // the stale initial load lands last
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(screen.getByText('newest')).toBeInTheDocument();
-    expect(screen.queryByText('alpha')).not.toBeInTheDocument();
     expect(screen.getByText('Latest run: 2026-10-09')).toBeInTheDocument();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Could not load/)).not.toBeInTheDocument();
+  });
+
+  it('a double click on Refresh sends one scan', async () => {
+    let resolvePost: (value: unknown) => void = () => {};
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return new Promise(resolve => { resolvePost = resolve; });
+      return Promise.resolve(reply(report));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CodebasePage />);
+    await screen.findByText('alpha');
+    await user.dblClick(screen.getByRole('button', { name: 'Refresh' }));
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+    resolvePost(reply(report));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled());
   });
 });

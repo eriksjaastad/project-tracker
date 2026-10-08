@@ -26,61 +26,74 @@ export function CodebasePage() {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
 
-  // Only the newest request may update the page: a load still in flight when
-  // Refresh is pressed would otherwise land after it and show older data.
-  const generation = useRef(0);
-  const inflightLoad = useRef<AbortController | null>(null);
+  // One request at a time: the initial load, Retry and Refresh never overlap,
+  // so a response can never land on top of a newer one. Each request holds a
+  // token; only the active token may update state or release the lock, and
+  // unmount abandons it (which also keeps StrictMode's double mount sound).
+  const active = useRef<symbol | null>(null);
+  const loadAbort = useRef<AbortController | null>(null);
 
-  const claim = useCallback(() => {
-    inflightLoad.current?.abort();
-    inflightLoad.current = null;
-    generation.current += 1;
-    return generation.current;
+  const start = useCallback((): symbol | null => {
+    if (active.current) return null;
+    const token = Symbol('codebase-request');
+    active.current = token;
+    return token;
   }, []);
 
   const load = useCallback(async () => {
-    const gen = claim();
+    const token = start();
+    if (!token) return;
     const controller = new AbortController();
-    inflightLoad.current = controller;
+    loadAbort.current = controller;
     setLoading(true);
     setLoadError(null);
     try {
       const next = await fetchCodebaseSize(controller.signal);
-      if (gen !== generation.current) return;
-      setReport(next);
+      if (active.current === token) setReport(next);
     } catch (failure) {
-      if (isAbortError(failure) || gen !== generation.current) return;
-      setLoadError(failure instanceof Error ? failure.message : 'Codebase size unavailable');
+      if (active.current === token && !isAbortError(failure)) {
+        setLoadError(failure instanceof Error ? failure.message : 'Codebase size unavailable');
+      }
     } finally {
-      if (gen === generation.current) setLoading(false);
+      if (active.current === token) {
+        active.current = null;
+        setLoading(false);
+      }
     }
-  }, [claim]);
+  }, [start]);
 
   useEffect(() => {
     void load();
-    return () => { claim(); };
-  }, [load, claim]);
+    return () => {
+      active.current = null;
+      loadAbort.current?.abort();
+    };
+  }, [load]);
 
   async function refresh() {
-    const gen = claim();
-    setLoading(false);
+    const token = start();
+    if (!token) return;
     setScanning(true);
     setRefreshError(null);
     try {
       const next = await refreshCodebaseSize();
-      if (gen !== generation.current) return;
+      if (active.current !== token) return;
       setReport(next);
       setLoadError(null);
     } catch (failure) {
-      if (gen !== generation.current) return;
+      if (active.current !== token) return;
       setRefreshError(failure instanceof Error ? failure.message : 'Refresh failed');
     } finally {
-      setScanning(false);
+      if (active.current === token) {
+        active.current = null;
+        setScanning(false);
+      }
     }
   }
 
+  const busy = loading || scanning;
   const actions = (
-    <button type="button" onClick={() => void refresh()} disabled={scanning}>
+    <button type="button" onClick={() => void refresh()} disabled={busy}>
       {scanning ? 'Scanning…' : 'Refresh'}
     </button>
   );
@@ -96,7 +109,7 @@ export function CodebasePage() {
       {loadError && (
         <div role="alert" className="codebase-error">
           <p>Could not load codebase size: {loadError}</p>
-          <button type="button" onClick={() => void load()}>Retry</button>
+          <button type="button" onClick={() => void load()} disabled={busy}>Retry</button>
         </div>
       )}
       {refreshError && (
