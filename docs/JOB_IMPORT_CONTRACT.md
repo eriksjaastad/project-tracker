@@ -19,6 +19,8 @@ Each line must be a valid JSON object with these fields:
 
 ### Optional Fields
 
+`location`, `posted_date` and `raw` accept `null`, which means the same as omitting them. `category` and `kind` do not: omit them to get the default. A required field that is `null` or empty is reported as missing. A value of the wrong type rejects only its own line.
+
 - `location` (string | null): Job location (e.g., "Remote", "San Francisco, CA")
 - `posted_date` (string | null): ISO date string when job was posted (e.g., "2026-09-20")
 - `category` (string): Must be one of:
@@ -28,8 +30,10 @@ Each line must be a valid JSON object with these fields:
   - `SEO`
   - `Backend`
   - `Other` (default if omitted)
+
+  An explicit `null` is not omission: `"category": null` is rejected.
 - `raw` (string | null): Original posting text/HTML for reference. **Must be preserved**; never omit this field if the source has it.
-- `kind` (string): `job` or `volunteer`. A new row defaults to `job`. `volunteer` rows appear only on the dashboard's Volunteer page (`/jobs/volunteer`), never in Jobs listings, stats or submissions. Any other value is rejected like an unknown `source` or `category`.
+- `kind` (string): `job` or `volunteer`. A new row defaults to `job`. `volunteer` rows appear only on the dashboard's Volunteer page (`/jobs/volunteer`), never in Jobs listings, stats or submissions. Any other value, including an explicit `null`, is rejected like an unknown `source` or `category`; only omitting the field gets the default.
 
 ### HN Multi-Role Handling
 

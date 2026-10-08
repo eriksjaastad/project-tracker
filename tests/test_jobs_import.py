@@ -403,6 +403,10 @@ _BAD_LINES = [
     ("category list", {**_GOOD, "category": ["SEO"]}, "invalid category"),
     ("category null", {**_GOOD, "category": None}, "invalid category"),
     ("kind list", {**_GOOD, "kind": []}, "invalid kind"),
+    ("kind null", {**_GOOD, "kind": None}, "invalid kind"),
+    ("kind empty", {**_GOOD, "kind": ""}, "invalid kind"),
+    ("source null", {**_GOOD, "source": None}, "missing required fields: source"),
+    ("title null", {**_GOOD, "title": None}, "missing required fields: title"),
     ("kind object", {**_GOOD, "kind": {"a": 1}}, "invalid kind"),
     ("kind unknown", {**_GOOD, "kind": "gig"}, "invalid kind"),
     ("location list", {**_GOOD, "location": ["Remote"]}, "invalid location"),
@@ -428,3 +432,25 @@ def test_cli_import_rejects_only_the_bad_line(db, tmp_path: Path, label: str, ba
     assert error["line"] == 1 and reason in error["reason"], error
     assert [job["url"] for job in db.get_open_jobs("volunteer")] == ["https://example.test/good"]
     assert db.get_open_jobs() == []
+
+
+def test_cli_import_omitted_kind_defaults_then_keeps_existing_kind(db, tmp_path: Path) -> None:
+    """Omitted kind: new row is a job; on conflict the row keeps its kind. Null is an error."""
+    jsonl = tmp_path / "omitted.jsonl"
+    new_job = {**_GOOD, "url": "https://example.test/omit/job"}
+    volunteer = {**_GOOD, "url": "https://example.test/omit/vol", "kind": "volunteer"}
+    jsonl.write_text(json.dumps(new_job) + "\n" + json.dumps(volunteer) + "\n")
+    assert json.loads(_run_import_json(jsonl).stdout)["ok"] is True
+
+    # Re-import the volunteer row without kind (kept), then with kind null (rejected).
+    refresh = {k: v for k, v in volunteer.items() if k != "kind"}
+    jsonl.write_text(json.dumps({**refresh, "title": "Renamed"}) + "\n"
+                     + json.dumps({**refresh, "kind": None}) + "\n")
+    response = json.loads(_run_import_json(jsonl).stdout)
+    assert response["result"]["imported"] == 1
+    [error] = response["result"]["details"]["errors"]
+    assert error["line"] == 2 and "invalid kind" in error["reason"]
+
+    assert [job["url"] for job in db.get_open_jobs()] == ["https://example.test/omit/job"]
+    [kept] = db.get_open_jobs("volunteer")
+    assert kept["url"] == "https://example.test/omit/vol" and kept["title"] == "Renamed"
