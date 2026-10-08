@@ -87,13 +87,15 @@ class JobsMixin:
         with self._db._get_conn() as conn:
             current = conn.execute(
                 """SELECT j.* FROM jobs AS j
-                   WHERE j.kind = 'volunteer' AND j.volunteering_since IS NOT NULL
+                   WHERE j.kind = 'volunteer' AND j.deleted_at IS NULL
+                     AND j.volunteering_since IS NOT NULL
                    ORDER BY j.volunteering_since DESC, j.id DESC"""
             ).fetchall()
             applied = conn.execute(
                 """SELECT j.*, MAX(s.submitted_at) AS last_submitted_at
                    FROM jobs AS j JOIN job_submissions AS s ON s.job_id = j.id
-                   WHERE j.kind = 'volunteer' AND j.volunteering_since IS NULL
+                   WHERE j.kind = 'volunteer' AND j.deleted_at IS NULL
+                     AND j.volunteering_since IS NULL
                    GROUP BY j.id ORDER BY last_submitted_at DESC, j.id DESC"""
             ).fetchall()
         possible = self.get_ranked_open_jobs("volunteer")
@@ -105,15 +107,18 @@ class JobsMixin:
         }
 
     def start_volunteering(self, job_id: int) -> dict[str, Any] | None:
-        """Stamp volunteering_since once; None when no such volunteer role exists."""
+        """Stamp volunteering_since once; None for a missing or dismissed volunteer role."""
         with self._db._get_conn() as conn:
             conn.execute(
                 """UPDATE jobs SET volunteering_since = ?
-                   WHERE id = ? AND kind = 'volunteer' AND volunteering_since IS NULL""",
+                   WHERE id = ? AND kind = 'volunteer' AND deleted_at IS NULL
+                     AND volunteering_since IS NULL""",
                 (datetime.now(timezone.utc).isoformat(), job_id),
             )
             row = conn.execute(
-                "SELECT * FROM jobs WHERE id = ? AND kind = 'volunteer'", (job_id,)
+                """SELECT * FROM jobs
+                   WHERE id = ? AND kind = 'volunteer' AND deleted_at IS NULL""",
+                (job_id,),
             ).fetchone()
             conn.commit()
             return dict(row) if row else None

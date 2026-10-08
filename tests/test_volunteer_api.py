@@ -86,3 +86,29 @@ def test_upsert_rejects_unknown_kind_and_keeps_kind_when_omitted(db) -> None:
     refreshed = db.upsert_job(company="Org keep", title="Role keep", source="manual",
                               url=role["url"])
     assert refreshed["kind"] == "volunteer"
+
+
+def test_dismissed_volunteer_roles_leave_every_section(db) -> None:
+    client = TestClient(app)
+    applied = _role(db, "applied")
+    current = _role(db, "current")
+    for role in (applied, current):
+        assert client.post(f"/api/jobs/{role['id']}/submissions", json={}).status_code == 201
+    assert client.post(f"/api/jobs/{current['id']}/volunteering").status_code == 200
+    for role in (applied, current):
+        assert client.delete(f"/api/jobs/{role['id']}").status_code == 200
+
+    body = client.get("/api/volunteer").json()
+    assert body == {"current": [], "applied": [], "possible": [], "possible_stale": []}
+
+
+def test_started_volunteering_rejects_dismissed_role(db) -> None:
+    client = TestClient(app)
+    role = _role(db, "dismissed")
+    assert client.delete(f"/api/jobs/{role['id']}").status_code == 200
+    assert client.post(f"/api/jobs/{role['id']}/volunteering").status_code == 404
+    with db._db._get_conn() as conn:
+        row = conn.execute(
+            "SELECT volunteering_since FROM jobs WHERE id = ?", (role["id"],)
+        ).fetchone()
+    assert row[0] is None

@@ -1090,7 +1090,12 @@ def ensure_schema(cursor: Any) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_first_seen ON jobs(first_seen)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_category ON jobs(category)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_deleted_at ON jobs(deleted_at)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_kind ON jobs(kind)")
+    # A jobs table created before migration 016 has no kind column, and
+    # CREATE TABLE IF NOT EXISTS above did not add one. Index it only once the
+    # column exists; migration 016 adds the column and this index itself.
+    cursor.execute("PRAGMA table_info(jobs)")
+    if any(column[1] == "kind" for column in cursor.fetchall()):
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_kind ON jobs(kind)")
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_job_submissions_job_submitted
         ON job_submissions(job_id, submitted_at)

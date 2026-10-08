@@ -159,3 +159,22 @@ def test_kind_migration_backfills_volunteer_rows_and_is_idempotent(tmp_path: Pat
             "INSERT INTO jobs (company, title, url, kind) VALUES ('X', 'Y', 'https://example.test/x', 'gig')"
         )
     conn.close()
+
+
+def test_ensure_schema_over_legacy_jobs_table_then_016_adds_kind(tmp_path: Path) -> None:
+    """Startup DDL must not touch kind on a 013-shape table; 016 adds it afterwards."""
+    conn = _legacy_jobs_db(tmp_path / "legacy.db")
+    ensure_schema(conn.cursor())
+    conn.commit()
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    assert "kind" not in columns and "volunteering_since" not in columns
+    assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 5
+
+    _migration_up(conn, 16)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    assert {"kind", "volunteering_since"} <= columns
+    assert "idx_jobs_kind" in {row[1] for row in conn.execute("PRAGMA index_list(jobs)")}
+    assert conn.execute(
+        "SELECT kind, COUNT(*) FROM jobs GROUP BY kind ORDER BY kind"
+    ).fetchall() == [("job", 2), ("volunteer", 3)]
+    conn.close()
