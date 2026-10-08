@@ -10,8 +10,9 @@ To revisit a decision, don't edit — add a new entry that supersedes it.
 experiment to judge grok-build-0.1's tool use before wiring it into Auxesis,
 and Auxesis is canceled. In its life it had one shadow run (2026-06-24,
 muffinpanrecipes) and never created a card, yet it was patched four times
-(OpenRouter routing, acceptance criteria, two dependency-path fixes, the last
-needed after synth-insight-labs renamed its cost-tracker client). Erik's
+(worktree-safe projects root, OpenRouter routing, acceptance criteria, a
+dependency-path fix in #7974), and a second path fix was in flight after
+synth-insight-labs renamed its cost-tracker client. Erik's
 direction going forward: build less infrastructure that serves every project,
 because it is unmaintainable and generates work nobody follows through on.
 Nothing in this repo now reads `OPENROUTER_API_KEY` or `XAI_API_KEY`; both
