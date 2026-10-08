@@ -1038,11 +1038,42 @@ class TestDeadlines:
         got = ad.upcoming_deadlines(events, self.TODAY)
         assert [(e["id"], e["days"]) for e in got] == [(3, -30), (6, 0), (7, 7), (1, 14)]
 
-    def test_unreadable_date_is_logged_and_skipped(self, monkeypatch):
+    def test_unreadable_date_is_shown_not_dropped(self, monkeypatch):
         lines = []
         monkeypatch.setattr(ad, "log", lines.append)
-        assert ad.upcoming_deadlines([_event(9, "not-a-date")], self.TODAY) == []
+        rows = ad.upcoming_deadlines(
+            [_event(1, "2026-10-15", "fine"), _event(9, "15/10/2026", "Tax return"),
+             _event(8, None, "No date at all")],
+            self.TODAY,
+        )
+        assert [(e["id"], e["days"]) for e in rows] == [(9, None), (8, None), (1, 7)]
+        assert rows[0]["problem"] == "date unreadable: '15/10/2026'"
+        assert rows[1]["problem"] == "date unreadable: None"
         assert any("unreadable date" in line for line in lines)
+        html = ad.render_deadlines_section(rows)
+        assert "date unreadable: &#x27;15/10/2026&#x27;" in html or "date unreadable: '15/10/2026'" in html
+        assert "Tax return" in html and "No date at all" in html
+
+    def test_unknown_status_is_shown_finished_ones_are_not(self):
+        rows = ad.upcoming_deadlines(
+            [_event(1, "2026-10-15", "done one", status="done"),
+             _event(2, "2026-10-15", "cancelled one", status="cancelled"),
+             _event(3, "2026-10-15", "odd one", status="Active "),
+             _event(4, "2026-10-15", "no status", status=None)],
+            self.TODAY,
+        )
+        assert [(e["id"], e["problem"]) for e in rows] == [
+            (3, "status unreadable: 'Active '"), (4, "status unreadable: None")]
+
+    def test_an_unreadable_event_alone_is_never_all_clear(self, monkeypatch, capsys):
+        monkeypatch.setattr(ad, "fetch_calendar_events", lambda: [_event(9, "Oct 15", "Tax return")])
+        monkeypatch.setattr(ad, "fetch_alerts", lambda: [])
+        _stub_fetchers(monkeypatch, tasks=[], jobs=[])
+        assert ad.main(["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        subject = out.splitlines()[0]
+        assert "All clear" not in subject and "📅 1 deadline due or missed" in subject
+        assert "date unreadable" in out and "Tax return" in out
 
     def test_section_is_absent_on_empty_days(self):
         assert ad.render_deadlines_section([]) == ""

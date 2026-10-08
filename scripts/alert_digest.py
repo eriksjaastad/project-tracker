@@ -254,26 +254,44 @@ def fetch_calendar_events() -> list | None:
     return None
 
 
+FINISHED_STATUSES = ("done", "cancelled")
+
+
 def upcoming_deadlines(events: list, today: date) -> list[dict]:
-    """Active events due within the window or missed within the lookback.
+    """Deadline rows: active events due within the window or missed within the lookback.
+
+    The rule: an active event is never silently dropped. Only finished events
+    (done, cancelled) and events outside the window are left out; an event
+    whose status or date can't be interpreted becomes a row with ``days`` None
+    and a ``problem`` saying what was unreadable, so it reaches the email.
 
     Event dates are stored as local wall-clock dates, so ``today`` must be the
-    local date. Each result gains ``days`` (negative = overdue); soonest first.
+    local date. Each row gains ``days`` (negative = overdue). Unreadable rows
+    come first, then soonest first.
     """
     found = []
     for event in events:
-        if event.get("status") != "active":
+        status = event.get("status")
+        if status in FINISHED_STATUSES:
             continue
-        raw = str(event.get("event_date") or "")[:10]
+        if status != "active":
+            log(f"WARN calendar event {event.get('id')} has an unreadable status {status!r}")
+            found.append({**event, "days": None, "problem": f"status unreadable: {status!r}"})
+            continue
+        raw = event.get("event_date")
         try:
-            due = date.fromisoformat(raw)
+            due = date.fromisoformat(str(raw or "")[:10])
         except ValueError:
             log(f"WARN calendar event {event.get('id')} has an unreadable date {raw!r}")
+            found.append({**event, "days": None, "problem": f"date unreadable: {raw!r}"})
             continue
         days = (due - today).days
         if -OVERDUE_LOOKBACK_DAYS <= days <= DEADLINE_WINDOW_DAYS:
             found.append({**event, "days": days})
-    return sorted(found, key=lambda e: (e["days"], str(e.get("event_time") or "")))
+    return sorted(
+        found,
+        key=lambda e: (e["days"] is not None, e["days"] or 0, str(e.get("event_time") or "")),
+    )
 
 
 def fetch_scheduled_jobs() -> list | None:
@@ -458,7 +476,7 @@ def _review_loop_subject_parts(review_loops: dict | None) -> list[str]:
 def _deadline_subject_parts(deadlines: list | None) -> list[str]:
     if deadlines is None:
         return ["⚠️ calendar unreadable"]
-    soon = [e for e in deadlines if e["days"] <= DEADLINE_SUBJECT_DAYS]
+    soon = [e for e in deadlines if e["days"] is None or e["days"] <= DEADLINE_SUBJECT_DAYS]
     if soon:
         n = len(soon)
         return [f"📅 {n} deadline" + ("s" if n != 1 else "") + " due or missed"]
@@ -850,9 +868,10 @@ def render_deadlines_section(deadlines: list | None) -> str:
         return ""
     rows = []
     for e in deadlines:
-        overdue = e["days"] < 0
-        colour = "#8a1f1f" if overdue or e["days"] <= DEADLINE_SUBJECT_DAYS else "#555"
-        when = _when(e["days"])
+        unreadable = e["days"] is None
+        urgent = unreadable or e["days"] <= DEADLINE_SUBJECT_DAYS
+        colour = "#8a1f1f" if urgent else "#555"
+        when = e["problem"] if unreadable else _when(e["days"])
         time_part = f" {_esc(str(e['event_time']))}" if e.get("event_time") else ""
         project = f" · {_esc(str(e['project_id']))}" if e.get("project_id") else ""
         rows.append(
