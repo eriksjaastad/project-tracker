@@ -6448,8 +6448,12 @@ def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
     failed = [r for r in rows if r.error]
 
     base_date, base = db.codebase_baseline()
-    if snapshot:
-        today = datetime.now().date().isoformat()
+    today = datetime.now().date().isoformat()
+    # A snapshot is all-or-nothing, like the baseline import: storing only the
+    # good repos would leave a failed repo's older same-day row in place and
+    # make the day's snapshot a mix of two scans.
+    stored = bool(snapshot and not failed)
+    if stored:
         db.save_codebase_snapshot(good, "scan", today)
 
     scored = []
@@ -6475,7 +6479,7 @@ def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
     if json_output:
         click.echo(json.dumps({
             "baseline_date": base_date,
-            "snapshot_stored": snapshot,
+            "snapshot_stored": stored,
             "rows": scored,
             "total": total,
             "errors": [{"project": r.project, "error": r.error} for r in failed],
@@ -6496,10 +6500,16 @@ def size_group(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
             f"doclines {total['doc_lines']} repos {total['repos']} "
             f"score {_size_score_text(total_score)}"
         )
-        if snapshot:
+        if stored:
             click.echo(f"Stored {len(good)} scan rows for {today}.")
     for r in failed:
         click.echo(f"ERROR {r.project}: {r.error}", err=True)
+    if snapshot and not stored:
+        click.echo(
+            f"Snapshot NOT stored: {len(failed)} repo(s) failed to scan. "
+            "Fix them and re-run `pt size --snapshot`.",
+            err=True,
+        )
     if failed:
         ctx.exit(1)
 

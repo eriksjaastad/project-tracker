@@ -430,3 +430,37 @@ def test_score_text_never_shows_negative_zero():
     assert _size_score_text(-0.006) == "+0.0"
     assert _size_score_text(-0.06) == "-0.1"
     assert _size_score_text(12.34) == "+12.3"
+
+
+def test_listed_but_absent_md_counts_as_a_doc_file_like_the_survey(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path, "proj", FILES)
+    blob = _git(repo, "hash-object", "-w", "--stdin", data=b"l1\nl2\n")
+    _git(repo, "update-index", "--add", "--cacheinfo", f"100644,{blob},ghost.md")
+    size = cs.scan_repo(repo)
+    assert size.error is None
+    assert size.doc_files == EXPECTED[2] + 1
+    assert size.doc_lines == EXPECTED[3]  # nothing on disk to count
+    assert (size.code, size.tests, size.doc_files) == survey(repo)
+
+
+def test_scan_repo_at_counts_empty_blobs_as_zero_lines(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path, "proj", {**FILES, "empty.py": "", "empty.md": ""})
+    then = cs.scan_repo_at(repo, BASELINE_TS)
+    assert then.error is None
+    assert (then.code, then.tests, then.doc_files, then.doc_lines) == (
+        EXPECTED[0], EXPECTED[1], EXPECTED[2] + 1, EXPECTED[3])
+    now = cs.scan_repo(repo)
+    assert (now.code, now.tests, now.doc_files, now.doc_lines) == (
+        then.code, then.tests, then.doc_files, then.doc_lines)
+
+
+def test_pt_size_snapshot_stores_nothing_when_a_repo_fails(tmp_path: Path, monkeypatch, conn) -> None:
+    root = tmp_path / "projects"
+    root.mkdir()
+    make_repo(root, "good", {"a.py": "x\n"})
+    (root / "bad" / ".git").mkdir(parents=True)
+    result = _pt(monkeypatch, root, ["size", "--json", "--snapshot"])
+    assert result.exit_code == 1
+    assert "Snapshot NOT stored" in result.output
+    assert json.loads(result.output[: result.output.rindex("}") + 1])["snapshot_stored"] is False
+    assert conn.execute("SELECT COUNT(*) FROM codebase_size_snapshots").fetchone()[0] == 0

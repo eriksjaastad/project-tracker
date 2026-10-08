@@ -159,7 +159,11 @@ def scan_repo(path: Path) -> RepoSize:
             try:
                 data = (path / rel).read_bytes()
             except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
-                continue  # listed by git, absent on disk: expected, not counted
+                # Listed by git, absent on disk: expected. The survey counts a
+                # tracked .md without opening it, so keep it as a 0-line doc.
+                if rel.endswith(".md"):
+                    counts.append((rel, 0))
+                continue
             counts.append((rel, count_lines(data)))
         last, c90 = _activity(path)
     except (GitError, OSError) as exc:
