@@ -172,6 +172,23 @@ def scan_repo(path: Path) -> RepoSize:
     return RepoSize(name, code, tests, doc_files, doc_lines, last, c90)
 
 
+def parse_at(timestamp: str) -> datetime:
+    """Parse an ISO timestamp that names one instant, or raise ValueError.
+
+    A date-only or naive value is refused: git and Python could read it in
+    different time zones and pick different commits.
+    """
+    try:
+        when = datetime.fromisoformat(timestamp)
+    except ValueError as exc:
+        raise ValueError(f"--at must be an ISO timestamp, got {timestamp!r}") from exc
+    if when.tzinfo is None:
+        raise ValueError(
+            f"--at must include a UTC offset, e.g. 2026-10-08T10:41:29-0400; got {timestamp!r}"
+        )
+    return when
+
+
 def scan_repo_at(path: Path, timestamp: str) -> RepoSize:
     """Rebuild the numbers for one repo from git history at ``timestamp``.
 
@@ -181,8 +198,12 @@ def scan_repo_at(path: Path, timestamp: str) -> RepoSize:
     path = Path(path)
     name = path.name
     try:
-        since = int(datetime.fromisoformat(timestamp).timestamp()) - RECENT_DAYS * 86400
-        sha = _git(path, "rev-list", "-1", f"--before={timestamp}", "HEAD").decode().strip()
+        when = parse_at(timestamp)
+        since = int(when.timestamp()) - RECENT_DAYS * 86400
+        # Give git the same instant Python parsed, as a Unix epoch.
+        sha = _git(
+            path, "rev-list", "-1", f"--before={int(when.timestamp())}", "HEAD"
+        ).decode().strip()
         if not sha:
             return RepoSize(project=name, error=f"no commit at or before {timestamp}")
         tree = _git(path, "ls-tree", "-r", "-z", sha).decode("utf-8", "replace")
@@ -319,11 +340,8 @@ def parse_baseline_file(file: Path) -> dict[str, tuple[int, int, int]]:
 
 
 def baseline_date(at: str) -> str:
-    """The date part of an ISO timestamp."""
-    try:
-        return datetime.fromisoformat(at).date().isoformat()
-    except ValueError as exc:
-        raise ValueError(f"--at must be an ISO timestamp, got {at!r}") from exc
+    """The date part of an ISO timestamp, in the timestamp's own offset."""
+    return parse_at(at).date().isoformat()
 
 
 def verify_baseline(file: Path, at: str, root: Optional[Path] = None) -> list[RepoSize]:
@@ -333,10 +351,7 @@ def verify_baseline(file: Path, at: str, root: Optional[Path] = None) -> list[Re
     the file for every repo. Raises BaselineMismatch naming every repo that is
     unknown, unmeasurable or different.
     """
-    try:
-        datetime.fromisoformat(at)
-    except ValueError as exc:
-        raise ValueError(f"--at must be an ISO timestamp, got {at!r}") from exc
+    parse_at(at)
     if root is None:
         from scripts.config import projects_root
         root = projects_root()

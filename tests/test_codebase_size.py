@@ -528,3 +528,24 @@ def test_pt_size_with_no_repos_is_an_error_and_stores_nothing(tmp_path: Path, mo
     assert result.exit_code != 0
     assert "no git repos found" in result.output
     assert conn.execute("SELECT COUNT(*) FROM codebase_size_snapshots").fetchone()[0] == 0
+
+
+def test_at_selects_the_same_commit_in_any_offset(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path, "proj", {"a.py": "1\n"}, date="2026-01-15T10:00:00+0000")
+    commit(repo, {"a.py": "1\n2\n3\n"}, "2026-01-15T12:00:00+0000")
+    # 11:00Z written three ways: before the second commit.
+    for at in ("2026-01-15T11:00:00+00:00", "2026-01-15T07:00:00-04:00", "2026-01-15T20:00:00+09:00"):
+        assert cs.scan_repo_at(repo, at).code == 1, at
+    # 12:30Z: after the second commit.
+    assert cs.scan_repo_at(repo, "2026-01-15T08:30:00-04:00").code == 3
+    assert cs.baseline_date("2026-01-15T22:30:00-04:00") == "2026-01-15"
+
+
+@pytest.mark.parametrize("at", ["2026-01-15", "2026-01-15T11:00:00", "yesterday"])
+def test_at_without_an_offset_is_refused(tmp_path: Path, at: str) -> None:
+    with pytest.raises(ValueError, match="--at"):
+        cs.parse_at(at)
+    make_repo(tmp_path, "proj", FILES)
+    file = _baseline_file(tmp_path / "base.txt", [(9, 6, 2, "proj")])
+    with pytest.raises(ValueError, match="--at"):
+        cs.verify_baseline(file, at, tmp_path)
