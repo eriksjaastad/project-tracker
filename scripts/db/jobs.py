@@ -34,7 +34,12 @@ def validate_import_record(record: Any) -> dict[str, Any]:
     """
     if not isinstance(record, dict):
         raise ValueError("line must be a JSON object")
-    missing = [f for f in _REQUIRED_IMPORT_FIELDS if not record.get(f)]
+    # Whitespace-only counts as missing, as upsert_job's strip would find it,
+    # so a dry run rejects exactly what a real run rejects.
+    missing = [
+        f for f in _REQUIRED_IMPORT_FIELDS
+        if not record.get(f) or (isinstance(record[f], str) and not record[f].strip())
+    ]
     if missing:
         raise ValueError(f"missing required fields: {', '.join(missing)}")
     for field in _REQUIRED_IMPORT_FIELDS:

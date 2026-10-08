@@ -352,10 +352,10 @@ def test_cli_import_dry_run_mode(tmp_path: Path) -> None:
     assert "DRY RUN: Would import 1 job(s)" in result.stdout
 
 
-def _run_import_json(jsonl: Path) -> subprocess.CompletedProcess:
+def _run_import_json(jsonl: Path, *extra: str) -> subprocess.CompletedProcess:
     """`pt jobs import --json`, bounded; JSON mode reports line errors with exit 0."""
     result = subprocess.run(
-        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl), "--json"],
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl), "--json", *extra],
         capture_output=True, text=True, cwd=Path(__file__).parent.parent, timeout=120,
     )
     assert result.returncode == 0, result.stderr
@@ -407,6 +407,9 @@ _BAD_LINES = [
     ("kind empty", {**_GOOD, "kind": ""}, "invalid kind"),
     ("source null", {**_GOOD, "source": None}, "missing required fields: source"),
     ("title null", {**_GOOD, "title": None}, "missing required fields: title"),
+    ("company blank", {**_GOOD, "company": "   "}, "missing required fields: company"),
+    ("title blank", {**_GOOD, "title": "\t "}, "missing required fields: title"),
+    ("url blank", {**_GOOD, "url": "  "}, "missing required fields: url"),
     ("kind object", {**_GOOD, "kind": {"a": 1}}, "invalid kind"),
     ("kind unknown", {**_GOOD, "kind": "gig"}, "invalid kind"),
     ("location list", {**_GOOD, "location": ["Remote"]}, "invalid location"),
@@ -416,8 +419,12 @@ _BAD_LINES = [
 ]
 
 
+@pytest.mark.parametrize("dry_run", [False, True], ids=["real", "dry-run"])
 @pytest.mark.parametrize("label,bad,reason", _BAD_LINES, ids=[row[0] for row in _BAD_LINES])
-def test_cli_import_rejects_only_the_bad_line(db, tmp_path: Path, label: str, bad, reason: str) -> None:
+def test_cli_import_rejects_only_the_bad_line(
+    db, tmp_path: Path, label: str, bad, reason: str, dry_run: bool,
+) -> None:
+    """A dry run reports the same line error a real run gives (rule E1)."""
     if isinstance(bad, dict) and "company" in bad:
         bad = {**bad, "url": bad.get("url", "https://example.test/bad")}
     good = {**_GOOD, "url": "https://example.test/good", "kind": "volunteer",
@@ -425,12 +432,14 @@ def test_cli_import_rejects_only_the_bad_line(db, tmp_path: Path, label: str, ba
     jsonl = tmp_path / "mixed.jsonl"
     jsonl.write_text(json.dumps(bad) + "\n" + json.dumps(good) + "\n")
 
-    response = json.loads(_run_import_json(jsonl).stdout)
+    response = json.loads(_run_import_json(jsonl, *(["--dry-run"] if dry_run else [])).stdout)
     assert response["ok"] is False
     assert response["result"]["imported"] == 1
+    assert response["result"]["dry_run"] is dry_run
     [error] = response["result"]["details"]["errors"]
     assert error["line"] == 1 and reason in error["reason"], error
-    assert [job["url"] for job in db.get_open_jobs("volunteer")] == ["https://example.test/good"]
+    expected = [] if dry_run else ["https://example.test/good"]
+    assert [job["url"] for job in db.get_open_jobs("volunteer")] == expected
     assert db.get_open_jobs() == []
 
 
