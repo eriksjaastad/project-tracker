@@ -316,12 +316,6 @@ projects:
         type: cloud
         env_var: "AGENT_CHAT_API_KEY, AGENT_CHAT_URL, AGENT_CHAT_DATABASE_URL"
         cost: "audit"
-      - name: OpenRouter
-        purpose: "Grok/Gemini model tools (card_factory_grok.py, doc_audit_v2.py)"
-        type: ai
-        env_var: "OPENROUTER_API_KEY"
-        cost: "Variable"
-        notes: "Cards 97734686982434816 (2026-09-30) and 100631286834688000 (2026-10-05)."
       - name: Resend
         purpose: "Morning alert digest email"
         type: email
