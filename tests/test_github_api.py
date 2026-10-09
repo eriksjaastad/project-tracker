@@ -1171,10 +1171,10 @@ class TestFetchStages:
         repos = {"later": {"isArchived": False, "pushedAt": ""}}
         seen = []
         self._fetch(["later"], self._call(repos, seen, view_missing=("later",)))
-        assert "later" in app._gh_missing
+        assert "me/later" in app._gh_missing
         clock[0] += app._GH_MISSING_TTL + 1
         result = self._fetch(["later"], self._call(repos, seen))
-        assert "later" not in app._gh_missing
+        assert "me/later" not in app._gh_missing
         assert [r["name"] for r in result["repos"]] == ["later"]
 
     def test_an_exception_in_a_worker_escapes_the_fetch(self):
@@ -1182,3 +1182,30 @@ class TestFetchStages:
         seen = []
         with pytest.raises(RuntimeError, match="worker blew up"):
             self._fetch(["a", "b"], self._call(repos, seen, boom="/repos/me/b/branches"))
+
+    def test_switching_the_gh_account_forgets_the_old_accounts_misses(self):
+        from dashboard.app import GH_NOT_FOUND, GH_OK, _fetch_github_data
+
+        login = ["first"]
+        seen = []
+
+        def call(args, timeout=30):
+            seen.append(args)
+            if args == ["api", "/user"]:
+                return ({"login": login[0]}, GH_OK)
+            if args[:2] == ["repo", "view"]:
+                if args[2] == "first/shared":
+                    return (None, GH_NOT_FOUND)
+                return ({"name": "shared", "isArchived": False, "pushedAt": ""}, GH_OK)
+            return ([], GH_OK) if args[0] != "api" or "runs" not in " ".join(args) else ({"workflow_runs": []}, GH_OK)
+
+        with patch("dashboard.app._gh_call", side_effect=call), \
+                patch("dashboard.app._get_tracked_repo_names", return_value=["shared"]):
+            before = _fetch_github_data()
+            login[0] = "second"
+            after = _fetch_github_data()
+
+        assert before["summary"]["repos_not_on_github"] == 1
+        assert [r["name"] for r in after["repos"]] == ["shared"]
+        assert after["summary"]["repos_not_on_github"] == 0
+        assert [a[2] for a in seen if a[:2] == ["repo", "view"]] == ["first/shared", "second/shared"]

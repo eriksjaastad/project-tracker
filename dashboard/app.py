@@ -4615,7 +4615,8 @@ def _get_tracked_repo_names() -> List[str]:
 # every refresh. It still counts toward repos_not_on_github. A repo that WAS
 # found and then goes missing is never remembered, so a token losing `repo`
 # scope shows as a jump and recovers on the first refresh after the fix. A repo
-# created on GitHub appears within the TTL, or at once after a restart.
+# created on GitHub appears within the TTL, or at once after a restart. Both are
+# keyed "owner/name", so switching the gh account starts from a clean slate.
 _GH_MISSING_TTL = 6 * 3600
 _gh_missing: Dict[str, float] = {}
 _gh_seen: set = set()
@@ -4657,10 +4658,10 @@ def _fetch_github_data() -> Dict:
     repos: List[Dict] = []
     now = _monotonic()
     with _gh_missing_lock:
-        for name in [n for n, until in _gh_missing.items() if until <= now]:
-            del _gh_missing[name]
-        known_missing = set(_gh_missing)
-    repos_missing = sum(1 for n in tracked_names if n in known_missing)
+        for key in [k for k, until in _gh_missing.items() if until <= now]:
+            del _gh_missing[key]
+        known_missing = {n for n in tracked_names if f"{owner}/{n}" in _gh_missing}
+    repos_missing = len(known_missing)
     to_view = [n for n in tracked_names if n not in known_missing]
     views = _gh_map(lambda name: _gh_call([
         "repo", "view", f"{owner}/{name}",
@@ -4670,7 +4671,7 @@ def _fetch_github_data() -> Dict:
         if repo_info:
             repos.append(repo_info)
             with _gh_missing_lock:
-                _gh_seen.add(name)
+                _gh_seen.add(f"{owner}/{name}")
         elif failure == GH_NOT_FOUND:
             # CAVEAT: GitHub answers "no such repo" and "you cannot see this
             # repo" identically, by design, so it never leaks a private repo's
@@ -4683,8 +4684,8 @@ def _fetch_github_data() -> Dict:
             # shows up as a jump in "Not on GitHub" rather than as nothing.
             repos_missing += 1
             with _gh_missing_lock:
-                if name not in _gh_seen:
-                    _gh_missing[name] = _monotonic() + _GH_MISSING_TTL
+                if f"{owner}/{name}" not in _gh_seen:
+                    _gh_missing[f"{owner}/{name}"] = _monotonic() + _GH_MISSING_TTL
             logger.info(f"Tracked project '{name}' is not on GitHub (or not visible to this token)")
         else:
             # A failed fetch drops this repo from `repos` entirely, taking its
