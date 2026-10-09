@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { Task, TaskStatus, TaskPriority, Project, TaskType, Attachment } from '../types';
+import type { Task, TaskStatus, TaskPriority, TaskType, Attachment } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
-import { updateTask, fetchTask, toggleChecklistItem, ChecklistConflictError, fetchProjects, fetchAttachments, uploadAttachment, deleteAttachment, isAbortError } from '../api';
+import { updateTask, fetchTask, toggleChecklistItem, ChecklistConflictError, fetchAttachments, uploadAttachment, deleteAttachment, isAbortError } from '../api';
+import { useProjects } from '../hooks/useProjects';
 import { parseNotesLines } from '../utils/checklist';
 import './TaskDetailModal.css';
 
@@ -31,7 +32,7 @@ export function TaskDetailModal({
   const [editedStatus, setEditedStatus] = useState<TaskStatus>('Backlog');
   const [editedPriority, setEditedPriority] = useState<TaskPriority | null>(null);
   const [editedTaskType, setEditedTaskType] = useState<TaskType>('manual');
-  const [projects, setProjects] = useState<Project[]>([]);
+  const { projects } = useProjects();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -102,24 +103,6 @@ export function TaskDetailModal({
     }
   }, [task]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const loadProjects = async () => {
-      try {
-        const fetchedProjects = await fetchProjects(controller.signal);
-        setProjects(fetchedProjects);
-      } catch (err) {
-        if (isAbortError(err)) {
-          return;
-        }
-        console.error('Failed to load projects:', err);
-      }
-    };
-
-    loadProjects();
-    return () => controller.abort();
-  }, []);
-
   if (!task) {
     return null;
   }
@@ -180,7 +163,7 @@ export function TaskDetailModal({
     setIsEditing(true);
   };
 
-  const project = projects.find((p) => p.id === task.project_id);
+  const project = projects?.find((p) => p.id === task.project_id);
   const displayId = task.display_id ?? task.id;
   const parentDisplayId = task.parent_display_id ?? task.parent_id;
 

@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { ProjectsProvider } from '../hooks/ProjectsProvider';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgenticDashboard } from './AgenticDashboard';
@@ -61,7 +62,7 @@ describe('AgenticDashboard — markers loading', () => {
       new Error('invalid JSON in /data/agentic_markers.json: Expecting value: line 1 column 1 (char 0)')
     );
 
-    render(<AgenticDashboard />);
+    render(<AgenticDashboard />, { wrapper: ProjectsProvider });
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'invalid JSON in /data/agentic_markers.json'
@@ -77,7 +78,7 @@ describe('AgenticDashboard — markers loading', () => {
       { id: 'm1', date: '2026-03-10', label: 'Workflow change', source: 'manual' },
     ]);
 
-    render(<AgenticDashboard />);
+    render(<AgenticDashboard />, { wrapper: ProjectsProvider });
 
     expect(await screen.findByText('Workflow change')).toBeInTheDocument();
     expect(screen.queryByText(/No markers yet/)).not.toBeInTheDocument();
@@ -91,7 +92,7 @@ describe('AgenticDashboard — markers loading', () => {
       markers_error: 'invalid JSON in /data/agentic_markers.json: Expecting value: line 1 column 1 (char 0)',
     });
 
-    render(<AgenticDashboard />);
+    render(<AgenticDashboard />, { wrapper: ProjectsProvider });
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'invalid JSON in /data/agentic_markers.json'

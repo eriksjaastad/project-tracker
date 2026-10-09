@@ -1,18 +1,17 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import {
   fetchCalendarEvents,
   fetchCalendarCrons,
   createCalendarEvent,
   markCalendarEventDone,
-  fetchProjects,
-  isAbortError,
 } from '../api';
 import type {
   CalendarEvent,
   CalendarCronJob,
   CreateCalendarEventPayload,
 } from '../api';
-import type { Project } from '../types';
+import { useProjects } from '../hooks/useProjects';
+import { useRequest } from '../hooks/useRequest';
 import { PageShell } from './PageShell';
 import './CalendarPage.css';
 
@@ -81,11 +80,31 @@ export function CalendarPage() {
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [crons, setCrons] = useState<CalendarCronJob[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const calendar = useRequest(
+    async (signal) => {
+      const [events, crons] = await Promise.all([
+        fetchCalendarEvents({ days: 120, include_all: true }, signal),
+        fetchCalendarCrons(undefined, signal),
+      ]);
+      return { events, crons };
+    },
+    [],
+  );
+  const { projects: loadedProjects, error: projectsError } = useProjects();
+  const events: CalendarEvent[] = calendar.data?.events ?? [];
+  const crons: CalendarCronJob[] = calendar.data?.crons ?? [];
+  const projects = useMemo(
+    () => (loadedProjects ?? []).slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [loadedProjects],
+  );
+  // The page needs the project list too: it waits for it, and a first-load
+  // failure of it blocks the page, as when it was fetched together with events.
+  const projectsPending = loadedProjects === null && projectsError === null;
+  const loading = calendar.loading || projectsPending;
+  const error = loading
+    ? null
+    : (calendar.error ?? (loadedProjects === null ? projectsError : null))?.message ?? null;
+  const load = calendar.reload;
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -106,34 +125,6 @@ export function CalendarPage() {
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [markDoneError, setMarkDoneError] = useState<string | null>(null);
-
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [evData, cronData, projData] = await Promise.all([
-        fetchCalendarEvents({ days: 120, include_all: true }, signal),
-        fetchCalendarCrons(undefined, signal),
-        fetchProjects(signal),
-      ]);
-      setEvents(evData);
-      setCrons(cronData);
-      setProjects(projData.slice().sort((a, b) => a.name.localeCompare(b.name)));
-    } catch (e) {
-      if (isAbortError(e)) {
-        return;
-      }
-      setError(e instanceof Error ? e.message : 'Failed to load calendar');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    load(controller.signal);
-    return () => controller.abort();
-  }, [load]);
 
   // Filtered events for the current month view
   const visibleEvents = events.filter(ev => {

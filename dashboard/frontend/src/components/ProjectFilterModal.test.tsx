@@ -2,6 +2,7 @@ import { render, screen, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ProjectsProvider } from '../hooks/ProjectsProvider';
 import { ProjectFilterModal } from './ProjectFilterModal';
 
 vi.mock('../api', async (importOriginal) => ({
@@ -13,12 +14,18 @@ vi.mock('../api', async (importOriginal) => ({
 
 import { fetchProjects } from '../api';
 
-function renderModal(isOpen: boolean) {
-  return render(
-    <MemoryRouter>
-      <ProjectFilterModal isOpen={isOpen} onClose={() => {}} currentProject={undefined} />
-    </MemoryRouter>,
+function modal(isOpen: boolean) {
+  return (
+    <ProjectsProvider>
+      <MemoryRouter>
+        <ProjectFilterModal isOpen={isOpen} onClose={() => {}} currentProject={undefined} />
+      </MemoryRouter>
+    </ProjectsProvider>
   );
+}
+
+function renderModal(isOpen: boolean) {
+  return render(modal(isOpen));
 }
 
 describe('ProjectFilterModal cancellation', () => {
@@ -41,26 +48,59 @@ describe('ProjectFilterModal cancellation', () => {
 
     expect(screen.getByText('Loading projects...')).toBeTruthy();
 
-    // Close, which aborts the in-flight request, then reopen, which starts a
-    // fresh one. `return` inside catch does not skip `finally`, so an
-    // unguarded `finally` clears loading for the request that was cancelled —
-    // while the new request is still pending and there is nothing to show.
+    // Close, then reopen: the reopen reloads, which aborts the in-flight
+    // request and starts a fresh one. The loading text must survive the
+    // aborted request settling while there is still nothing to show.
     await act(async () => {
-      rerender(
-        <MemoryRouter>
-          <ProjectFilterModal isOpen={false} onClose={() => {}} currentProject={undefined} />
-        </MemoryRouter>,
-      );
+      rerender(modal(false));
     });
     await act(async () => {
-      rerender(
-        <MemoryRouter>
-          <ProjectFilterModal isOpen onClose={() => {}} currentProject={undefined} />
-        </MemoryRouter>,
-      );
+      rerender(modal(true));
     });
 
     expect(fetchProjects).toHaveBeenCalledTimes(2);
     expect(screen.queryByText('Loading projects...')).toBeTruthy();
+  });
+});
+
+describe('ProjectFilterModal on the shared project list', () => {
+  const PROJECTS = [
+    { id: 'b', name: 'Beta', task_count: 2 },
+    { id: 'a', name: 'alpha', task_count: 1 },
+  ] as never;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('lists the loaded projects sorted by name, then refetches on each later open and keeps the list meanwhile', async () => {
+    vi.mocked(fetchProjects).mockResolvedValueOnce(PROJECTS);
+    const { rerender } = renderModal(false);
+    await act(async () => {});
+    await act(async () => { rerender(modal(true)); });
+    const names = screen.getAllByText(/^(alpha|Beta)$/).map((n) => n.textContent);
+    expect(names).toEqual(['alpha', 'Beta']);
+    expect(fetchProjects).toHaveBeenCalledTimes(1);
+
+    // Second open: a refetch that never settles. The list stays; no loading text.
+    vi.mocked(fetchProjects).mockImplementation(() => new Promise(() => {}));
+    await act(async () => { rerender(modal(false)); });
+    await act(async () => { rerender(modal(true)); });
+    expect(fetchProjects).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('Loading projects...')).toBeNull();
+    expect(screen.getByText('alpha')).toBeTruthy();
+  });
+
+  it('shows the error text, not the loading text, when the first load fails and a reopen refetches', async () => {
+    vi.mocked(fetchProjects).mockRejectedValue(new Error('projects down'));
+    const { rerender } = renderModal(true);
+    expect(await screen.findByText('projects down')).toBeTruthy();
+    expect(screen.queryByText('Loading projects...')).toBeNull();
+
+    await act(async () => { rerender(modal(false)); });
+    await act(async () => { rerender(modal(true)); });
+    expect(fetchProjects).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('projects down')).toBeTruthy();
+    expect(screen.queryByText('Loading projects...')).toBeNull();
   });
 });

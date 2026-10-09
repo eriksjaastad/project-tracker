@@ -9,10 +9,12 @@ import { JobsPage } from './components/JobsPage';
 import { JobsSubmittedPage } from './components/JobsSubmittedPage';
 import { CodebasePage } from './components/CodebasePage';
 import { MorningPage } from './components/MorningPage';
+import { ProjectsProvider } from './hooks/ProjectsProvider';
 import './App.css';
 
 function App() {
   return (
+    <ProjectsProvider>
     <BrowserRouter>
       <div className="app">
         <Navigation />
@@ -31,6 +33,7 @@ function App() {
         </Routes>
       </div>
     </BrowserRouter>
+    </ProjectsProvider>
   );
 }
 

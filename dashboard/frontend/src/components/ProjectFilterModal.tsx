@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Project } from '../types';
-import { fetchProjects, isAbortError } from '../api';
+import { useProjects } from '../hooks/useProjects';
 import './ProjectFilterModal.css';
 
 interface ProjectFilterModalProps {
@@ -20,10 +20,12 @@ export function ProjectFilterModal({
   currentProject,
 }: ProjectFilterModalProps) {
   const navigate = useNavigate();
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const { projects: loaded, error: loadError, reload } = useProjects();
   const [searchTerm, setSearchTerm] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // The first load shows "Loading projects..."; a later reload keeps the list.
+  const loading = loaded === null && loadError === null;
+  const error = loadError ? loadError.message || 'Failed to load projects' : null;
+  const opened = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -40,39 +42,17 @@ export function ProjectFilterModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Every open after the first refreshes the list (task counts go stale); the
+  // provider's own load covers the first.
   useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    async function loadProjects() {
-      try {
-        const data = await fetchProjects(controller.signal);
-        setProjects(data || []);
-        setError(null);
-      } catch (err) {
-        if (isAbortError(err)) {
-          return;
-        }
-        const message = err instanceof Error ? err.message : 'Failed to load projects';
-        setError(message);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    }
-
-    void loadProjects();
-
-    return () => {
-      controller.abort();
-    };
-  }, [isOpen]);
+    if (!isOpen) return;
+    if (opened.current) reload();
+    opened.current = true;
+  }, [isOpen, reload]);
 
   const filteredProjects = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-    const list = [...projects].sort((a, b) =>
+    const list = [...((loaded ?? []) as ProjectOption[])].sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
     );
 
@@ -86,7 +66,7 @@ export function ProjectFilterModal({
         project.id.toLowerCase().includes(query)
       );
     });
-  }, [projects, searchTerm]);
+  }, [loaded, searchTerm]);
 
   const groupedProjects = useMemo(() => groupByPortfolio(filteredProjects), [filteredProjects]);
 
