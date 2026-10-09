@@ -58,8 +58,6 @@ These tests ensure the web dashboard functions correctly.
 
 - [ ] **FastAPI Endpoints**:
     - [ ] Tests for the `/` (home) endpoint.
-    - [ ] Tests for the `/project/{id}` (project details) endpoint.
-    - [ ] Tests for the `/api/create-index/{id}` (create index) endpoint.
     - [ ] Tests for different HTTP methods (e.g., GET, POST, PUT, DELETE).
     - [ ] Tests for authentication and authorization.
 - [ ] **Template Rendering**:

@@ -44,7 +44,7 @@ def _read_telemetry_entries(days: int = 7) -> list[dict]:
     entries = []
 
     # A read failure raises: an empty list would read as "no requests";
-    # /api/telemetry and the alert detector already report the exception.
+    # the alert detector already reports the exception.
     with open(TELEMETRY_PATH, 'r') as f:
         for line in f:
             # Memory guard check

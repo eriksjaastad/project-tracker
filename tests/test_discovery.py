@@ -110,7 +110,7 @@ def test_discover_projects_raises_when_base_cannot_be_listed(tmp_path, monkeypat
 
 def test_telemetry_read_failure_raises_instead_of_zero_requests(tmp_path, monkeypatch):
     """#6900: an unreadable telemetry file must not report "0 requests";
-    /api/telemetry turns the exception into an error payload."""
+    the alert detector reports the exception."""
     from scripts.discovery import telemetry_reader
 
     unreadable = tmp_path / "telemetry.jsonl"

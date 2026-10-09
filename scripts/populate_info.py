@@ -128,7 +128,6 @@ EXTRA_KEYS = {
         "PT_CALLER_CWD": "Set by the pt launcher to the directory you ran pt from — read this, never Path.cwd(), which is always project-tracker",
         "PT_PROJECTS_DIR": "Override for the projects root (default: ~/projects)",
         "PT_RESOURCES_FILE": "Path to the resources reference file",
-        "PT_REINDEX_SCRIPT": "Path to the reindex script",
         "PT_MEMORY_DB_PATH": "Override for the ai-memory memory database",
         "PT_MIGRATION_DIR": "Override for migration state files (default: ~/.project-tracker/migrations)",
         "PT_NO_BANNER": "Set to 1 to suppress the pt startup banner",

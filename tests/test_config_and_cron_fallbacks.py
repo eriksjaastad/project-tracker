@@ -81,14 +81,11 @@ def test_config_runtime_defaults_are_project_tracker_local(monkeypatch):
     import scripts.config as config
 
     monkeypatch.delenv("PT_RESOURCES_FILE", raising=False)
-    monkeypatch.delenv("PT_REINDEX_SCRIPT", raising=False)
 
     reloaded = importlib.reload(config)
 
     assert reloaded.EXTERNAL_RESOURCES_FILE == reloaded.PROJECT_ROOT / "EXTERNAL_RESOURCES.yaml"
-    assert reloaded.REINDEX_SCRIPT_PATH == reloaded.PROJECT_ROOT / "scripts" / "reindex_projects.py"
     assert "project-scaffolding" not in str(reloaded.EXTERNAL_RESOURCES_FILE)
-    assert "project-scaffolding" not in str(reloaded.REINDEX_SCRIPT_PATH)
 
 
 def test_graph_builder_uses_bundled_scan_config_without_warning(caplog):

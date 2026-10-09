@@ -274,31 +274,6 @@ export async function deleteTask(taskId: string): Promise<void> {
   }
 }
 
-export async function deleteDoneTasks(projectId?: string): Promise<{ deleted: number }> {
-  const params = new URLSearchParams();
-  if (projectId) params.append('project_id', projectId);
-
-  const url = `${API_BASE}/tasks/done${params.toString() ? '?' + params.toString() : ''}`;
-
-  try {
-    const response = await fetchWithErrorHandling(url, {
-      method: 'DELETE',
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || errorData.detail || `Failed to delete done tasks: ${response.statusText}`);
-    }
-
-    return response.json();
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('Failed to delete done tasks');
-  }
-}
-
 export async function fetchProjects(signal?: AbortSignal): Promise<Project[]> {
   try {
     const response = await fetchWithErrorHandling(`${API_BASE}/projects`, { signal });
@@ -670,12 +645,6 @@ export async function fetchCalendarEvents(params: {
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Failed to fetch calendar events');
   const data = await response.json();
   return data.events || [];
-}
-
-export async function fetchCalendarEvent(id: string, signal?: AbortSignal): Promise<CalendarEvent> {
-  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events/${id}`, { signal });
-  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Not found');
-  return response.json();
 }
 
 export async function createCalendarEvent(payload: CreateCalendarEventPayload): Promise<{ id: string; title: string; event_date: string }> {

@@ -41,17 +41,11 @@ from db.outreach import ContactStateConflictError
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
 from discovery.code_review_parser import parse_code_review
-from discovery.providers import get_provider
-from discovery.telemetry_reader import get_telemetry_stats
-from discovery.backup_reader import get_backup_status
-from discovery.agent_registry import (
-    get_available_agents,
-    run_agent_command
-)
+from discovery.agent_registry import run_agent_command
 from pydantic import BaseModel
 
 # Import config
-from scripts.config import PROJECTS_BASE_DIR, REINDEX_SCRIPT_PATH, projects_root as config_projects_root
+from scripts.config import PROJECTS_BASE_DIR, projects_root as config_projects_root
 from scripts.utils.checklist import ChecklistLineError, toggle_checklist_line
 from scripts.utils.validation import get_blocked_card_reason, get_blocked_card_project_ids, is_card_creation_allowed
 
@@ -497,71 +491,10 @@ def categorize_services(services):
     return {k: v for k, v in categories.items() if v}
 
 
-def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
-    """Add related data to project."""
-    # Get AI agents
-    agents = db.get_ai_agents(project["id"])
-    project["ai_agents"] = [a["agent_name"] for a in agents]
-    
-    # Get cron jobs
-    jobs = db.get_cron_jobs(project["id"])
-    project["has_cron"] = len(jobs) > 0
-    project["cron_jobs"] = jobs
-    
-    # Get services
-    services = db.get_services(project["id"])
-    project["services"] = [s["service_name"] for s in services]
-    project["service_details"] = services
-    project["services_by_category"] = categorize_services(services)
-    
-    # Get task counts
-    all_tasks = db.get_tasks(project_id=project["id"])
-    open_tasks = [t for t in all_tasks if t.get("status") != "Done"]
-    project["task_count"] = len(open_tasks)
-    project["total_tasks"] = len(all_tasks)
-
-    # Per-status breakdowns (excluding Done)
-    project["backlog_count"] = len([t for t in all_tasks if t.get("status") == "Backlog"])
-    project["todo_count"] = len([t for t in all_tasks if t.get("status") == "To Do"])
-    project["in_progress_count"] = len([t for t in all_tasks if t.get("status") == "In Progress"])
-    project["review_count"] = len([t for t in all_tasks if t.get("status") == "Review"])
-    
-    # Check for code review
-    review_path = Path(project["path"]) / "CODE_REVIEW.md"
-    if review_path.exists():
-        review_data = parse_code_review(review_path)
-        if review_data and review_data.get("completion_pct", 100) < 100:
-            project["code_review"] = review_data
-    
-    # Format time
-    project["last_modified_human"] = format_time_ago(project.get("last_modified", ""))
-    
-    # Format index time
-    if project.get("index_updated_at"):
-        project["index_updated_human"] = format_time_ago(project["index_updated_at"])
-
-    project["version_status"] = "unmanaged"
-
-    return project
-
-
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Redirect the root route to the canonical dashboard URL."""
     return RedirectResponse(url="/dashboard", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-
-@app.get("/old", response_class=HTMLResponse)
-async def react_frontend():
-    """Redirect the legacy SPA entry to the canonical Kanban route."""
-    return RedirectResponse(url="/kanban", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-
-# ---------------------------------------------------------------------------
-# Dashboard cache — stale-while-revalidate
-# ---------------------------------------------------------------------------
-_dashboard_cache: Dict = {"data": None, "timestamp": 0}
-_DASHBOARD_CACHE_TTL = 300  # 5 minutes — matches the page auto-refresh
-_dashboard_refresh_lock = threading.Lock()
-_dashboard_refreshing = False
 
 
 def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, List[Dict]]:
@@ -571,53 +504,6 @@ def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, Li
         pid = row.get(key, "")
         grouped.setdefault(pid, []).append(row)
     return grouped
-
-
-_ALERT_TYPE_LABELS = {
-    "rules_drift": "Rules Drift",
-    "missing_index": "Missing Index",
-    "stalled": "Stalled Projects",
-    "blocked": "Project Blocked",
-    "code_review": "Code Review",
-    "cron_execution_error": "Cron Errors",
-    "cron_missed_run": "Cron Missed Runs",
-    "stale_heartbeat": "Stale Heartbeats",
-    "telemetry_error": "Telemetry Errors",
-    "unknown_status": "Unknown Status",
-}
-
-_SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2}
-
-
-def _group_alerts_by_type(alerts: List[Dict]) -> List[Dict]:
-    """Group flat alerts into collapsible type groups for the template.
-
-    Returns a list of groups sorted by worst severity then count, each with:
-        type, label, severity (worst in group), count, items, collapsed (bool).
-    """
-    groups_map: Dict[str, Dict] = {}
-    for alert in alerts:
-        atype = alert["type"]
-        if atype not in groups_map:
-            groups_map[atype] = {
-                "type": atype,
-                "label": _ALERT_TYPE_LABELS.get(atype, atype.replace("_", " ").title()),
-                "severity": alert["severity"],
-                "items": [],
-            }
-        group = groups_map[atype]
-        group["items"].append(alert)
-        # Escalate group severity to worst member
-        if _SEVERITY_ORDER.get(alert["severity"], 9) < _SEVERITY_ORDER.get(group["severity"], 9):
-            group["severity"] = alert["severity"]
-
-    groups = list(groups_map.values())
-    for g in groups:
-        g["count"] = len(g["items"])
-        g["collapsed"] = g["severity"] != "critical"
-
-    groups.sort(key=lambda g: (_SEVERITY_ORDER.get(g["severity"], 9), -g["count"]))
-    return groups
 
 
 def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
@@ -802,110 +688,6 @@ def _enrich_task_payloads_with_display_ids(tasks: list[dict], db: DatabaseManage
     return [_apply_task_display_ids(task, display_map) for task in tasks]
 
 
-def _build_dashboard_data() -> Dict:
-    """Compute all dashboard context data (the expensive part)."""
-    db = DatabaseManager()
-    projects = db.get_all_projects(order_by="last_modified DESC")
-
-    enriched_projects = _bulk_enrich(projects, db)
-    alerts = get_all_alerts(enriched_projects)
-
-    indexed_count = len([p for p in enriched_projects if p.get("has_index") and p.get("index_is_valid")])
-    compliance_pct = int((indexed_count / len(projects)) * 100) if projects else 0
-
-    agents = get_available_agents()
-    agents_data = [
-        {
-            "name": a.name,
-            "description": a.description,
-            "available": a.available,
-            "commands": [{"name": c.name, "description": c.description} for c in a.commands]
-        }
-        for a in agents
-    ]
-
-    backup_status = get_backup_status()
-
-    # Collect code reviews populated by _bulk_enrich (see line ~483 for identical
-    # exists() + parse + completion_pct guards — removes duplicate file reads)
-    code_reviews = []
-    for project in enriched_projects:
-        if project.get("code_review"):
-            code_reviews.append({
-                "project_id": project["id"],
-                "project_name": project["name"],
-                **project["code_review"],
-            })
-
-    # Group alerts by type for collapsible display
-    alert_groups = _group_alerts_by_type(alerts)
-
-    return {
-        "projects": enriched_projects,
-        "alerts": alerts,
-        "alert_groups": alert_groups,
-        "code_reviews": code_reviews,
-        "total_projects": len(projects),
-        "indexed_count": indexed_count,
-        "compliance_pct": compliance_pct,
-        "agents": agents_data,
-        "backup_status": backup_status,
-    }
-
-
-def _refresh_dashboard_cache() -> None:
-    """Refresh the dashboard cache in a background thread."""
-    global _dashboard_refreshing
-    if not _dashboard_refresh_lock.acquire(blocking=False):
-        return  # Another refresh is already running
-    try:
-        data = _build_dashboard_data()
-        _dashboard_cache["data"] = data
-        _dashboard_cache["timestamp"] = _time()
-    except Exception as exc:
-        logger.error(f"Background dashboard refresh failed: {exc}")
-    finally:
-        _dashboard_refreshing = False
-        _dashboard_refresh_lock.release()
-
-
-# NOTE: The /dashboard HTML route is now served by the React SPA via serve_react_app().
-# The Jinja2 template rendering was removed as part of the SPA migration (#5372).
-# Dashboard data APIs (e.g. /api/dashboard-cache-status) are preserved below.
-
-
-@app.get("/api/dashboard-cache-status")
-async def dashboard_cache_status():
-    """Lightweight endpoint for the frontend to poll refresh progress."""
-    ts = _dashboard_cache["timestamp"]
-    return {
-        "cached": _dashboard_cache["data"] is not None,
-        "age": int(_time() - ts) if ts else None,
-        "refreshing": _dashboard_refreshing,
-        "timestamp": int(ts) if ts else None,
-    }
-
-
-@app.get("/project/{project_id}", response_class=HTMLResponse)
-async def project_detail(request: Request, project_id: str):
-    """Project detail view."""
-    db = DatabaseManager()
-    project = db.get_project(project_id)
-    
-    if not project:
-        return HTMLResponse(content="<h1>Project not found</h1>", status_code=404)
-    
-    # Enrich with related data
-    project = enrich_project_data(project, db)
-    
-    return templates.TemplateResponse(
-        request,
-        "project_detail.html",
-        build_template_context(request, project=project),
-    )
-
-
-
 @app.get("/api/agent-chat/messages")
 async def api_agent_chat_messages(limit: int = 100):
     """Read-only Agent Chat board — ALL traffic, newest first (#7145).
@@ -969,93 +751,6 @@ async def api_navigation():
     return build_navigation_payload()
 
 
-@app.post("/api/create-index/{project_id}")
-async def create_index(project_id: str):
-    """Run reindex_projects.py for a specific project."""
-    try:
-        db = DatabaseManager()
-        project = db.get_project(project_id)
-        if not project:
-            return JSONResponse({"status": "error", "message": "Project not found"}, status_code=404)
-            
-        if not REINDEX_SCRIPT_PATH.exists():
-            return JSONResponse({"status": "error", "message": "Reindex script not found"}, status_code=500)
-            
-        # Run script
-        try:
-            result = subprocess.run(
-                [sys.executable, str(REINDEX_SCRIPT_PATH), project["path"]],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-        except subprocess.TimeoutExpired:
-            return JSONResponse({
-                "status": "error", 
-                "message": "Reindex script timed out after 30 seconds"
-            }, status_code=504)
-        
-        if result.returncode != 0:
-            return JSONResponse({
-                "status": "error", 
-                "message": f"Script failed: {result.stderr}"
-            }, status_code=500)
-            
-        # Rescan to update DB
-        try:
-            subprocess.run(
-                [sys.executable, str(Path(__file__).parent.parent / "scripts" / "pt.py"), "scan"],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-        except subprocess.TimeoutExpired:
-            logger.warning("Project rescan timed out after index creation, but index may have been created.")
-            # We don't return error here because the index was already created
-        
-        return JSONResponse({
-            "status": "success",
-            "message": f"Index created for {project['name']}"
-        })
-    except Exception as e:
-        logger.error(f"Error creating index: {e}")
-        return JSONResponse({
-            "status": "error",
-            "message": str(e)
-        }, status_code=500)
-
-
-@app.post("/api/fix-frontmatter/{project_id}")
-async def fix_frontmatter(project_id: str):
-    """Attempt to auto-fix frontmatter in a project's CLAUDE.md or README.md.
-
-    Always reports failure: this was backed by the archived audit-agent binary,
-    and LegacyProvider.fix_file() returns False.
-    """
-    db = DatabaseManager()
-    project = db.get_project(project_id)
-    if not project:
-        return JSONResponse({"success": False, "error": "Project not found"}, status_code=404)
-
-    # Find CLAUDE.md or README.md
-    project_path = Path(project["path"])
-    target_file = project_path / "CLAUDE.md"
-    if not target_file.exists():
-        target_file = project_path / "README.md"
-    if not target_file.exists():
-        return JSONResponse({"success": False, "error": "No CLAUDE.md or README.md found"}, status_code=404)
-
-    provider = get_provider()
-    try:
-        success = provider.fix_file(str(target_file))
-        return {"success": success, "error": None if success else "Fix failed"}
-    except NotImplementedError:
-        return JSONResponse({"success": False, "error": "Frontmatter auto-fix is not implemented"}, status_code=501)
-    except Exception as e:
-        logger.error(f"Error fixing frontmatter: {e}")
-        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
-
 @app.post("/api/refresh")
 async def refresh_data():
     """Trigger full data refresh."""
@@ -1115,28 +810,6 @@ async def refresh_data():
         }, status_code=500)
 
 
-@app.get("/api/telemetry")
-async def api_telemetry(days: int = 7):
-    """Get AI Router telemetry stats."""
-    try:
-        stats = get_telemetry_stats(days=days)
-        return stats
-    except Exception as e:
-        logger.error(f"Error getting telemetry: {e}")
-        return {"error": str(e), "total_requests": 0}
-
-
-@app.get("/api/backup")
-async def api_backup():
-    """Get backup audit status."""
-    try:
-        status = get_backup_status()
-        return status
-    except Exception as e:
-        logger.error(f"Error getting backup status: {e}")
-        return JSONResponse({"error": "Failed to get backup status", "status": "error"}, status_code=500)
-
-
 @app.get("/api/projects")
 async def api_projects():
     """JSON API for projects."""
@@ -1181,18 +854,16 @@ async def api_health():
     Not gated by _require_local_admin_request — health probes are
     conventionally unauthenticated, and a 403 to a remote monitor would be
     indistinguishable from a broken server. The payload is diagnostic only
-    (row count, uptime, cache age); it exposes no task or project content.
+    (row count, uptime); it exposes no task or project content.
 
     Returns 200 with the diagnostics when the DB answers, 503 with the error
     string when it does not — so both `curl` and the watchdog's %{http_code}
     check see the failure.
     """
-    cache_ts = _dashboard_cache["timestamp"]
     payload: Dict = {
         "status": "ok",
         "uptime_seconds": int(_monotonic() - _PROCESS_START_MONOTONIC),
         "started_at": _PROCESS_START_WALL.isoformat(timespec="seconds"),
-        "dashboard_cache_age_seconds": int(_time() - cache_ts) if cache_ts else None,
     }
 
     try:
@@ -1224,42 +895,6 @@ async def api_alerts():
     enriched_projects = _bulk_enrich(projects, db)
     alerts = get_all_alerts(enriched_projects)
     return {"alerts": alerts}
-
-
-@app.get("/api/stats")
-async def api_stats():
-    """Dashboard statistics."""
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    
-    # Count by status
-    status_counts = {}
-    for project in projects:
-        status = project["status"]
-        status_counts[status] = status_counts.get(status, 0) + 1
-    
-    # Bulk-fetch cron and agent counts (2 queries instead of 2N)
-    all_crons = _group_by_project(db.get_cron_jobs())
-    all_agents_map = _group_by_project(db.get_ai_agents())
-    projects_with_cron = sum(1 for p in projects if p["id"] in all_crons)
-    projects_with_ai = sum(1 for p in projects if p["id"] in all_agents_map)
-
-    # Get alert counts
-    enriched_projects = _bulk_enrich(projects, db)
-    alerts = get_all_alerts(enriched_projects)
-    alert_counts = {
-        "critical": len([a for a in alerts if a["severity"] == "critical"]),
-        "warning": len([a for a in alerts if a["severity"] == "warning"]),
-        "info": len([a for a in alerts if a["severity"] == "info"])
-    }
-    
-    return {
-        "total_projects": len(projects),
-        "status_counts": status_counts,
-        "projects_with_cron": projects_with_cron,
-        "projects_with_ai": projects_with_ai,
-        "alerts": alert_counts
-    }
 
 
 @app.get("/api/kanban/breakdown")
@@ -1312,44 +947,6 @@ async def api_kanban_breakdown():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to build the Kanban breakdown"
         )
-
-
-@app.get("/api/learning")
-async def api_learning_stats():
-    """Get learning activity statistics for all projects."""
-    from learning_stats import get_all_learning_stats
-    
-    try:
-        stats = get_all_learning_stats()
-        
-        # Calculate summary statistics
-        total_with_learnings = sum(1 for s in stats if s['has_learnings'])
-        total_entries = sum(s['total_entries'] for s in stats)
-        stale_projects = sum(1 for s in stats if s['has_learnings'] and s['days_since_last_entry'] and s['days_since_last_entry'] > 30)
-        
-        # Get projects with recent activity (last 7 days)
-        active_projects = [s for s in stats if s['has_learnings'] and s['days_since_last_entry'] is not None and s['days_since_last_entry'] <= 7]
-        
-        return {
-            "summary": {
-                "total_projects_with_learnings": total_with_learnings,
-                "total_learning_entries": total_entries,
-                "stale_projects": stale_projects,
-                "active_projects_this_week": len(active_projects)
-            },
-            "projects": stats
-        }
-    except Exception as e:
-        logger.error(f"Failed to get learning stats: {e}")
-        return {
-            "summary": {
-                "total_projects_with_learnings": 0,
-                "total_learning_entries": 0,
-                "stale_projects": 0,
-                "active_projects_this_week": 0
-            },
-            "projects": []
-        }
 
 
 # --- API Cost Proxy (#5447) ---
@@ -2224,13 +1821,6 @@ async def get_graph_data(
     }
 
 
-# Pydantic model for run request
-class AgentRunRequest(BaseModel):
-    agent_name: str
-    command_name: str
-    args: Optional[str] = ""
-
-
 # Pydantic models for task requests
 class TaskCreateRequest(BaseModel):
     text: str
@@ -2274,130 +1864,6 @@ class TaskUpdateRequest(BaseModel):
     task_type: Optional[str] = None
     parent_id: Optional[int] = None  # Task #4645
     blocked_by: Optional[List[int]] = None  # Task #4579
-
-
-# GET /api/loops - Get autonomous loop status
-@app.get("/api/loops")
-async def get_loop_status():
-    """Return status of all autonomous loops."""
-    db = DatabaseManager()
-    
-    loops = ["janitor", "patch-bot"]
-    status_data = []
-
-    executions = db.loop_last_executions(loop_names=loops)
-
-    for loop_name in loops:
-        last_run = executions.get(loop_name)
-
-        if last_run:
-            started = datetime.fromisoformat(last_run["started_at"])
-            completed = (
-                datetime.fromisoformat(last_run["completed_at"])
-                if last_run["completed_at"]
-                else None
-            )
-
-            # Calculate health status
-            now = datetime.now()
-            time_since_run = now - started
-
-            # Expected intervals (in hours)
-            expected_intervals = {
-                "janitor": 1,      # Hourly
-                "patch-bot": 0.5   # Every 30 minutes
-            }
-            
-            expected_hours = expected_intervals.get(loop_name, 24)
-            expected_delta = timedelta(hours=expected_hours)
-            
-            # Determine health
-            if last_run["status"] == "failed":
-                health = "failed"
-                health_icon = "🔴"
-            elif time_since_run > expected_delta * 2:
-                health = "overdue"
-                health_icon = "🔴"
-            elif time_since_run > expected_delta * 1.5:
-                health = "warning"
-                health_icon = "🟡"
-            else:
-                health = "healthy"
-                health_icon = "🟢"
-            
-            status_data.append({
-                "loop": loop_name,
-                "health": health,
-                "health_icon": health_icon,
-                "last_run": started.isoformat(),
-                "last_run_human": format_time_ago(started.isoformat()),
-                "status": last_run["status"],
-                "cards_created": last_run["cards_created"],
-                "duration_seconds": (completed - started).total_seconds() if completed else None,
-                "error": last_run["error_message"] or None
-            })
-        else:
-            status_data.append({
-                "loop": loop_name,
-                "health": "never_run",
-                "health_icon": "⚪",
-                "last_run": None,
-                "last_run_human": "Never",
-                "status": "N/A",
-                "cards_created": 0,
-                "duration_seconds": None,
-                "error": None
-            })
-
-    return {"loops": status_data}
-
-
-# GET /api/agents - List all agents
-@app.get("/api/agents")
-async def list_agents():
-    """Return list of available agents and their commands."""
-    agents = get_available_agents()
-    return {
-        "agents": [
-            {
-                "name": a.name,
-                "description": a.description,
-                "available": a.available,
-                "commands": [
-                    {
-                        "name": c.name,
-                        "description": c.description,
-                        "args_template": c.args_template,
-                        "dangerous": c.dangerous
-                    }
-                    for c in a.commands
-                ]
-            }
-            for a in agents
-        ]
-    }
-
-
-
-# POST /api/agents/run - Execute agent command
-@app.post("/api/agents/run")
-async def run_agent(request: Request, payload: AgentRunRequest):
-    """Execute an agent command and return result."""
-    _require_local_admin_request(request)
-    result = run_agent_command(
-        payload.agent_name,
-        payload.command_name,
-        payload.args or ""
-    )
-
-    return {
-        "success": result.success,
-        "output": result.output,
-        "error": result.error,
-        "return_code": result.return_code,
-        "duration_ms": result.duration_ms,
-        "command": result.command
-    }
 
 
 # --- Error Handling Middleware ---
@@ -2768,17 +2234,7 @@ async def list_tasks(
         )
 
 
-@app.delete("/api/tasks/done")
-async def delete_done_tasks(project_id: Optional[str] = None):
-    """Delete all tasks in Done status (disabled)."""
-    logger.warning("Blocked API delete_done_tasks attempt")
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Task deletions are disabled. Use manual DBA operations if needed."
-    )
-
-
-@app.get("/api/tasks/{task_id}")
+@app.get("/api/tasks/{task_id:int}")
 async def get_task(task_id: int):
     """Get a single task by ID with full enriched data.
     
@@ -2838,7 +2294,7 @@ async def get_task(task_id: int):
         )
 
 
-@app.patch("/api/tasks/{task_id}")
+@app.patch("/api/tasks/{task_id:int}")
 async def update_task(task_id: int, task_data: TaskUpdateRequest):
     """Update a task (text, status, priority).
     
@@ -2945,7 +2401,7 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
         )
 
 
-@app.post("/api/tasks/{task_id}/checklist")
+@app.post("/api/tasks/{task_id:int}/checklist")
 async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
     """Tick or untick one notes checklist line as a server-side atomic toggle (#7821).
 
@@ -3023,7 +2479,7 @@ async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
         )
 
 
-@app.delete("/api/tasks/{task_id}", status_code=status.HTTP_200_OK)
+@app.delete("/api/tasks/{task_id:int}", status_code=status.HTTP_200_OK)
 async def delete_task(task_id: int):
     """Delete a single task."""
     try:
@@ -3075,7 +2531,7 @@ def _stringify_attachment_ids(record: dict) -> dict:
     return record
 
 
-@app.post("/api/tasks/{task_id}/attachments", status_code=status.HTTP_201_CREATED)
+@app.post("/api/tasks/{task_id:int}/attachments", status_code=status.HTTP_201_CREATED)
 async def upload_attachment(task_id: int, file: UploadFile = File(...)):
     """Upload a file and attach it to a task."""
     import mimetypes
@@ -3112,7 +2568,7 @@ async def upload_attachment(task_id: int, file: UploadFile = File(...)):
     return _stringify_attachment_ids(record)
 
 
-@app.get("/api/tasks/{task_id}/attachments")
+@app.get("/api/tasks/{task_id:int}/attachments")
 async def list_attachments(task_id: int):
     """List all attachments for a task."""
     db = DatabaseManager()
@@ -3121,7 +2577,7 @@ async def list_attachments(task_id: int):
     return {"attachments": [_stringify_attachment_ids(a) for a in db.get_attachments(task_id)]}
 
 
-@app.delete("/api/tasks/{task_id}/attachments/{attachment_id}", status_code=status.HTTP_200_OK)
+@app.delete("/api/tasks/{task_id:int}/attachments/{attachment_id}", status_code=status.HTTP_200_OK)
 async def delete_attachment(task_id: int, attachment_id: int):
     """Delete an attachment record and its file from disk."""
     db = DatabaseManager()
@@ -3903,178 +3359,6 @@ async def get_bash_stats(days: int = 30):
         "error_kinds": error_kinds,
         "top_prefixes": top_prefixes,
         "by_caller_type": by_caller_type,
-    }
-
-
-@app.get("/api/api-cost-stats")
-async def get_api_cost_stats(
-    days: int = 30,
-    provider: Optional[str] = None,
-    model: Optional[str] = None,
-    project: Optional[str] = None,
-    caller: Optional[str] = None,
-):
-    """Per-call API cost time-series from ai-memory's brain.db api_cost_logs
-    table (card #5995). Returns parallel series suitable for the local-cost
-    chart panel.
-
-    Series:
-      by_date    — total cost + call count per day
-      by_model   — total cost + call count per day per model
-      by_project — total cost + call count per day per project
-      by_caller  — total cost + call count per day per caller
-
-    Query params:
-      days:     lookback window 1..365 (default 30)
-      provider: optional filter (e.g. "anthropic")
-      model:    optional filter (exact match against api_cost_logs.model)
-      project:  optional filter
-      caller:   optional filter
-
-    Returns empty series if brain.db is absent, the table doesn't exist
-    yet, or no rows match. Read-only — never modifies brain.db.
-    """
-    projects_root = config_projects_root()
-    brain_db = projects_root / "ai-memory" / "brain.db"
-
-    empty = {
-        "by_date": [],
-        "by_model": [],
-        "by_project": [],
-        "by_caller": [],
-        "models": [],
-        "projects": [],
-        "callers": [],
-        "summary": {
-            "total_calls": 0,
-            "total_cost_usd": 0.0,
-            "window_days": 0,
-        },
-    }
-    if not brain_db.is_file():
-        return empty
-
-    end_date = datetime.now().date()
-    days = min(max(days, 1), 365)
-    start_date = end_date - timedelta(days=days - 1)
-    start_iso = start_date.isoformat()
-
-    # Build WHERE — every user-supplied value parameter-bound.
-    where_parts = ["DATE(timestamp) >= ?"]
-    params: list = [start_iso]
-    if provider is not None:
-        where_parts.append("provider = ?")
-        params.append(provider)
-    if model is not None:
-        where_parts.append("model = ?")
-        params.append(model)
-    if project is not None:
-        where_parts.append("project = ?")
-        params.append(project)
-    if caller is not None:
-        where_parts.append("caller = ?")
-        params.append(caller)
-    where_sql = "WHERE " + " AND ".join(where_parts)
-
-    try:
-        uri = f"file:{brain_db}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True, timeout=2.0)
-        conn.row_factory = sqlite3.Row
-        try:
-            if conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='api_cost_logs'"
-            ).fetchone() is None:
-                return empty
-
-            by_date_rows = conn.execute(
-                f"""
-                SELECT DATE(timestamp) AS date,
-                       COUNT(*) AS calls,
-                       COALESCE(SUM(cost_usd), 0) AS cost_usd
-                FROM api_cost_logs {where_sql}
-                GROUP BY DATE(timestamp)
-                ORDER BY date ASC
-                """,
-                params,
-            ).fetchall()
-
-            by_model_rows = conn.execute(
-                f"""
-                SELECT DATE(timestamp) AS date,
-                       COALESCE(model, 'unknown') AS model,
-                       COUNT(*) AS calls,
-                       COALESCE(SUM(cost_usd), 0) AS cost_usd
-                FROM api_cost_logs {where_sql}
-                GROUP BY DATE(timestamp), COALESCE(model, 'unknown')
-                ORDER BY date ASC
-                """,
-                params,
-            ).fetchall()
-
-            by_project_rows = conn.execute(
-                f"""
-                SELECT DATE(timestamp) AS date,
-                       COALESCE(project, 'unknown') AS project,
-                       COUNT(*) AS calls,
-                       COALESCE(SUM(cost_usd), 0) AS cost_usd
-                FROM api_cost_logs {where_sql}
-                GROUP BY DATE(timestamp), COALESCE(project, 'unknown')
-                ORDER BY date ASC
-                """,
-                params,
-            ).fetchall()
-
-            by_caller_rows = conn.execute(
-                f"""
-                SELECT DATE(timestamp) AS date,
-                       COALESCE(caller, 'unknown') AS caller,
-                       COUNT(*) AS calls,
-                       COALESCE(SUM(cost_usd), 0) AS cost_usd
-                FROM api_cost_logs {where_sql}
-                GROUP BY DATE(timestamp), COALESCE(caller, 'unknown')
-                ORDER BY date ASC
-                """,
-                params,
-            ).fetchall()
-        finally:
-            conn.close()
-    except Exception as exc:
-        logger.warning("Failed to read api_cost_logs from brain.db: %s", exc)
-        return empty
-
-    # Zero-fill by_date so the chart x-axis is contiguous.
-    date_to_total = {r["date"]: (r["calls"], r["cost_usd"]) for r in by_date_rows}
-    by_date = []
-    current = start_date
-    total_calls = 0
-    total_cost = 0.0
-    while current <= end_date:
-        ds = current.isoformat()
-        calls, cost = date_to_total.get(ds, (0, 0.0))
-        by_date.append({"date": ds, "calls": calls, "cost_usd": cost})
-        total_calls += calls
-        total_cost += cost
-        current += timedelta(days=1)
-
-    def _rows(records, key: str):
-        return [
-            {"date": r["date"], key: r[key], "calls": r["calls"], "cost_usd": r["cost_usd"]}
-            for r in records
-        ]
-
-    return {
-        "by_date": by_date,
-        "by_model": _rows(by_model_rows, "model"),
-        "by_project": _rows(by_project_rows, "project"),
-        "by_caller": _rows(by_caller_rows, "caller"),
-        "models": sorted({r["model"] for r in by_model_rows}),
-        "projects": sorted({r["project"] for r in by_project_rows}),
-        "callers": sorted({r["caller"] for r in by_caller_rows}),
-        "summary": {
-            "total_calls": total_calls,
-            "total_cost_usd": round(total_cost, 6),
-            "window_days": days,
-        },
     }
 
 
