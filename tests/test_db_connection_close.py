@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -44,7 +45,7 @@ def test_connection_still_usable_and_closed_cleanly(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(
-    subprocess.run(["which", "lsof"], capture_output=True).returncode != 0,
+    shutil.which("lsof") is None,
     reason="lsof unavailable",
 )
 def test_repeated_connections_do_not_leak_descriptors(tmp_path: Path) -> None:
