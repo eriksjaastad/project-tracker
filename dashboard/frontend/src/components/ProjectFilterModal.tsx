@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Project } from '../types';
 import { useProjects } from '../hooks/useProjects';
@@ -25,7 +25,6 @@ export function ProjectFilterModal({
   // The first load shows "Loading projects..."; a later reload keeps the list.
   const loading = loaded === null && loadError === null;
   const error = loadError ? loadError.message || 'Failed to load projects' : null;
-  const opened = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -42,12 +41,11 @@ export function ProjectFilterModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Every open after the first refreshes the list (task counts go stale); the
-  // provider's own load covers the first.
+  // Every open refreshes the list, since task counts go stale. When the modal
+  // is open at mount this runs before the provider's first load and does
+  // nothing; that load covers it.
   useEffect(() => {
-    if (!isOpen) return;
-    if (opened.current) reload();
-    opened.current = true;
+    if (isOpen) reload();
   }, [isOpen, reload]);
 
   const filteredProjects = useMemo(() => {

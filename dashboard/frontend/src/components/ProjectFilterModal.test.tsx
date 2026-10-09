@@ -73,20 +73,29 @@ describe('ProjectFilterModal on the shared project list', () => {
     vi.resetAllMocks();
   });
 
-  it('lists the loaded projects sorted by name, then refetches on each later open and keeps the list meanwhile', async () => {
-    vi.mocked(fetchProjects).mockResolvedValueOnce(PROJECTS);
+  it('fetches once when it is already open at mount', async () => {
+    vi.mocked(fetchProjects).mockResolvedValue(PROJECTS);
+    renderModal(true);
+    expect(await screen.findByText('alpha')).toBeTruthy();
+    expect(fetchProjects).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists the loaded projects sorted by name, refetches on every open including the first, and keeps the list meanwhile', async () => {
+    vi.mocked(fetchProjects).mockResolvedValue(PROJECTS);
     const { rerender } = renderModal(false);
     await act(async () => {});
+    expect(fetchProjects).toHaveBeenCalledTimes(1);
+    // First open after the app loaded: counts may be stale, so it refetches.
     await act(async () => { rerender(modal(true)); });
     const names = screen.getAllByText(/^(alpha|Beta)$/).map((n) => n.textContent);
     expect(names).toEqual(['alpha', 'Beta']);
-    expect(fetchProjects).toHaveBeenCalledTimes(1);
+    expect(fetchProjects).toHaveBeenCalledTimes(2);
 
-    // Second open: a refetch that never settles. The list stays; no loading text.
+    // Next open: a refetch that never settles. The list stays; no loading text.
     vi.mocked(fetchProjects).mockImplementation(() => new Promise(() => {}));
     await act(async () => { rerender(modal(false)); });
     await act(async () => { rerender(modal(true)); });
-    expect(fetchProjects).toHaveBeenCalledTimes(2);
+    expect(fetchProjects).toHaveBeenCalledTimes(3);
     expect(screen.queryByText('Loading projects...')).toBeNull();
     expect(screen.getByText('alpha')).toBeTruthy();
   });
