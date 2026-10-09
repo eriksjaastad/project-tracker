@@ -280,7 +280,7 @@ def test_legacy_database_is_not_schema_ensured_and_migrate_fixes_it(tmp_path: Pa
 def test_migrate_drops_legacy_triggers_first_so_old_row_writing_migrations_run(tmp_path: Path) -> None:
     """A pre-009 backup that still has CRR triggers: 009 inserts rows into
     task_display_ids, which the (fake) trigger would reject without the
-    extension. The apply path drops the triggers first; 018 finishes the rest."""
+    extension. `pt db migrate` runs 018's cleanup first, so 009 can write."""
     db_path = tmp_path / "old.db"
     create_database(db_path)
     conn = sqlite3.connect(db_path, isolation_level=None)
