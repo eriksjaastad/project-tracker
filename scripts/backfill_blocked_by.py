@@ -35,7 +35,6 @@ Safety
 - `--dry-run` prints the full before/after per row and writes nothing.
 - `--apply` takes a WAL-safe backup via sqlite's backup API first. A plain
   `cp` of tracker.db misses the -wal file and can silently omit recent writes.
-- `connect()` refuses a DB that still has cr-sqlite triggers (pre-018).
 
 Usage
 -----
@@ -58,24 +57,7 @@ def default_db_path() -> Path:
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    """Open the DB, refusing one that still has cr-sqlite triggers.
-
-    A database that has not run migration 018 keeps `tasks__crsql_*` triggers
-    whose update trigger calls an extension no connection loads any more, so
-    every UPDATE would fail with "no such function". Run `pt db migrate`
-    first.
-    """
-    conn = sqlite3.connect(db_path)
-    if conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='trigger' "
-        "AND name LIKE 'tasks\\_\\_crsql\\_%' ESCAPE '\\'"
-    ).fetchone():
-        conn.close()
-        raise RuntimeError(
-            "tracker.db still has cr-sqlite triggers; run `pt db migrate`, "
-            "which backs up first"
-        )
-    return conn
+    return sqlite3.connect(db_path)
 
 
 def backup_database(db_path: Path) -> Path:

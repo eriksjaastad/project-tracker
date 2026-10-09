@@ -1160,13 +1160,9 @@ def ensure_schema(cursor: Any) -> None:
 
 
 LEGACY_CRSQL_MESSAGE = (
-    "tracker.db still has cr-sqlite triggers; run `pt db migrate`, "
-    "which backs up first"
+    "tracker.db still has cr-sqlite triggers, so writes fail until you run "
+    "`pt db migrate` (it backs up first)"
 )
-
-
-class LegacyCrsqlError(sqlite3.OperationalError):
-    """A write hit a pre-018 database whose triggers need the removed extension."""
 
 
 def has_legacy_crsql_triggers(db_path: Path) -> bool:
@@ -1188,12 +1184,6 @@ def has_legacy_crsql_triggers(db_path: Path) -> bool:
             "SELECT 1 FROM sqlite_master WHERE type='trigger' "
             "AND name LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' LIMIT 1"
         ).fetchone() is not None
-
-
-def raise_if_legacy_crsql(err: sqlite3.OperationalError) -> None:
-    """Re-raise a cryptic missing-crsql-function error as LegacyCrsqlError."""
-    if "crsql_" in str(err) and "no such function" in str(err).lower():
-        raise LegacyCrsqlError(LEGACY_CRSQL_MESSAGE) from err
 
 
 def create_database(db_path: Optional[Path] = None) -> None:

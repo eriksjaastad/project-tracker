@@ -19,7 +19,7 @@ from db.backend_manager import DatabaseManager as BackendManager  # noqa: E402
 from db.manager import DatabaseManager  # noqa: E402
 from db.migration_runner import apply_all, apply_migration, discover_migrations  # noqa: E402
 from db.pt_id import load_machine_id, reset_for_testing  # noqa: E402
-from db.schema import LEGACY_CRSQL_MESSAGE, LegacyCrsqlError, create_database  # noqa: E402
+from db.schema import LEGACY_CRSQL_MESSAGE, create_database  # noqa: E402
 
 MIGRATIONS_DIR = Path(__file__).parent.parent / "scripts" / "db" / "migrations"
 DYLIB = Path.home() / ".local/lib/crsqlite/crsqlite.dylib"
@@ -234,22 +234,21 @@ def _legacy_db(tmp_path: Path) -> Path:
     return db_path
 
 
-def test_legacy_database_gives_a_clear_write_error_and_reads_still_work(tmp_path: Path) -> None:
+def test_legacy_database_reads_work_and_writes_fail_until_migrated(tmp_path: Path) -> None:
+    """Until `pt db migrate` runs, writes fail with SQLite's own error; the
+    pending-migration notice and the startup log line name the fix."""
     db_path = _legacy_db(tmp_path)
     db = BackendManager(db_path)
 
-    with db._get_conn() as conn:  # reads and non-trigger writes are untouched
+    with db._get_conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
 
-    with pytest.raises(LegacyCrsqlError) as exc:
+    with pytest.raises(sqlite3.OperationalError, match="crsql"):
         with db._get_conn() as conn:
             conn.execute(
                 "INSERT INTO tasks (id, text, status, created_at, updated_at) "
                 "VALUES (1, 't', 'Backlog', 'n', 'n')"
             )
-    assert str(exc.value) == LEGACY_CRSQL_MESSAGE
-    assert "pt db migrate" in str(exc.value)
-    assert isinstance(exc.value, sqlite3.OperationalError)
 
 
 def test_legacy_database_is_not_schema_ensured_and_migrate_fixes_it(tmp_path: Path) -> None:
@@ -324,18 +323,6 @@ def test_migrate_drops_legacy_triggers_first_so_old_row_writing_migrations_run(t
     ).fetchone() == ("839",)
 
 
-def test_tracker_conn_translates_legacy_crsql_errors(tmp_path: Path) -> None:
-    db = DatabaseManager(_legacy_db(tmp_path))
-    conn = db._tracker_conn()
-    try:
-        with pytest.raises(LegacyCrsqlError, match="pt db migrate"):
-            conn.execute(
-                "INSERT INTO tasks (id, text, status, created_at, updated_at) "
-                "VALUES (1, 't', 'Backlog', 'n', 'n')"
-            )
-        assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
-    finally:
-        conn.close()
 
 
 def test_opening_a_legacy_database_logs_the_fix(tmp_path: Path, caplog) -> None:
@@ -380,50 +367,10 @@ def test_has_legacy_crsql_triggers_handles_missing_files_odd_paths_and_errors(tm
         has_legacy_crsql_triggers(garbage)
 
 
-def test_tracker_conn_translates_executemany_and_executescript(tmp_path: Path) -> None:
-    conn = DatabaseManager(_legacy_db(tmp_path))._tracker_conn()
-    row = (1, "t", "Backlog", "n", "n")
-    try:
-        with pytest.raises(LegacyCrsqlError):
-            conn.executemany(
-                "INSERT INTO tasks (id, text, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                [row],
-            )
-        with pytest.raises(LegacyCrsqlError):
-            conn.executescript(
-                "INSERT INTO tasks (id, text, status, created_at, updated_at) "
-                "VALUES (2, 't', 'Backlog', 'n', 'n');"
-            )
-    finally:
-        conn.close()
 
 
-def test_calendar_manager_gives_the_clear_error_on_a_legacy_db(tmp_path: Path) -> None:
-    from db.backend_calendar_manager import CalendarManager
-
-    db_path = _legacy_db(tmp_path)
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TRIGGER calendar_events__crsql_itrig AFTER INSERT ON calendar_events "
-        "BEGIN SELECT crsql_internal_sync_bit(); END"
-    )
-    conn.commit()
-    conn.close()
-    cm = CalendarManager(db_path)
-    with pytest.raises(LegacyCrsqlError, match="pt db migrate"):
-        cm.add_event(title="x", event_date="2030-01-01")
 
 
-@pytest.mark.parametrize("module", ["backfill_blocked_by", "restore_deleted_tasks"])
-def test_one_off_scripts_refuse_a_legacy_db(tmp_path: Path, module: str) -> None:
-    import importlib
-
-    mod = importlib.import_module(module)
-    with pytest.raises(RuntimeError, match="run `pt db migrate`, which backs up first"):
-        mod.connect(_legacy_db(tmp_path))
-    clean = tmp_path / "clean.db"
-    create_database(clean)
-    mod.connect(clean).close()
 
 
 def _crr_like_db(tmp_path: Path) -> Path:

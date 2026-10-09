@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
 from .pt_id import next_id as pt_next_id
-from .schema import raise_if_legacy_crsql
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +88,6 @@ class CalendarManager:
         conn.execute("PRAGMA foreign_keys = ON")
         try:
             yield conn
-        except sqlite3.OperationalError as err:
-            raise_if_legacy_crsql(err)
-            raise
         finally:
             conn.close()
 

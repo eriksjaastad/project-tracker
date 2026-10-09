@@ -22,7 +22,6 @@ from .schema import (
     get_db_path,
     LEGACY_CRSQL_MESSAGE,
     has_legacy_crsql_triggers,
-    raise_if_legacy_crsql,
 )
 from .pt_id import next_id as pt_next_id
 from scripts.utils.validation import (
@@ -83,12 +82,10 @@ class DatabaseManager:
                     # A pre-018 database still has cr-sqlite triggers that no
                     # connection can run. Leave it untouched (schema DDL on a
                     # CRR table would desync its triggers) and do not mark the
-                    # path ensured: reads and `pt db migrate` keep working, a
-                    # write raises LegacyCrsqlError, and the next manager
-                    # re-checks, so ensuring resumes once 018 has run.
+                    # path ensured: reads and `pt db migrate` keep working, and
+                    # the next manager re-checks, so ensuring resumes once 018
+                    # has run. Writes fail until then; the log names the fix.
                     if has_legacy_crsql_triggers(self.db_path):
-                        # Some callers turn a write error into a plain string, so
-                        # name the fix here too.
                         logger.warning(LEGACY_CRSQL_MESSAGE)
                     else:
                         create_database(self.db_path)
@@ -103,9 +100,6 @@ class DatabaseManager:
         conn.row_factory = sqlite3.Row  # Enable dict-like access
         try:
             yield conn
-        except sqlite3.OperationalError as err:
-            raise_if_legacy_crsql(err)
-            raise
         finally:
             conn.close()
     

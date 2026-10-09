@@ -8,26 +8,6 @@ from typing import Any
 from types import SimpleNamespace
 from functools import wraps
 
-class _TranslatingConnection(sqlite3.Connection):
-    """Connection whose statement methods turn a missing-crsql-function error into LegacyCrsqlError."""
-
-    def _translated(self, method, args, kwargs):
-        try:
-            return method(*args, **kwargs)
-        except sqlite3.OperationalError as err:
-            from .schema import raise_if_legacy_crsql
-            raise_if_legacy_crsql(err)
-            raise
-
-    def execute(self, *args, **kwargs):
-        return self._translated(super().execute, args, kwargs)
-
-    def executemany(self, *args, **kwargs):
-        return self._translated(super().executemany, args, kwargs)
-
-    def executescript(self, *args, **kwargs):
-        return self._translated(super().executescript, args, kwargs)
-
 
 # Migration 018 removes cr-sqlite; see _migrations_apply.
 _CR_SQLITE_CLEANUP_VERSION = 18
@@ -256,7 +236,7 @@ class ProjectTrackerOps:
     )
 
     def _tracker_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, factory=_TranslatingConnection)
+        conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
