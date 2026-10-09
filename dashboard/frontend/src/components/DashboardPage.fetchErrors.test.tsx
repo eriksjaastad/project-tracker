@@ -65,7 +65,7 @@ describe('DashboardPage — independent loading', () => {
     vi.stubGlobal('fetch', fetcher);
     await act(async () => { renderPage(); });
     expect(screen.getAllByText('Fetching GitHub…').length).toBeGreaterThan(1);
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
     expect(screen.getByText('Repos')).toBeInTheDocument();
     expect(screen.queryByText('Fetching GitHub…')).not.toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledTimes(2);
@@ -80,7 +80,7 @@ describe('DashboardPage — independent loading', () => {
     await act(async () => { renderPage(); });
     expect(screen.getByText('Repos')).toBeInTheDocument();
     expect(screen.getAllByText('Fetching GitHub…').length).toBeGreaterThan(0);
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
     expect(screen.getByText('Repos')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('Showing the last available results');
     expect(screen.getByText('Independent costs')).toBeInTheDocument();

@@ -144,6 +144,11 @@ function RecentActivity({ repos, commitsByRepo, commitCount, fetching }: {
   );
 }
 
+// A full GitHub collection takes about two minutes. Polling it every 2s made
+// ~50 calls per refresh, most of /api/github's traffic (#8093), so back off.
+const REFRESH_POLL_MS = [5000, 10000, 20000, 30000];
+const IDLE_POLL_MS = 60000;
+
 export function DashboardPage() {
   const [data, setData] = useState<GitHubData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -155,11 +160,13 @@ export function DashboardPage() {
     let disposed = false;
     let pollTimer: ReturnType<typeof setTimeout>;
     let controller: AbortController;
+    let refreshPolls = 0;
+    let parked = false;
 
     async function load() {
       controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
-      let delay = 60000;
+      let delay = IDLE_POLL_MS;
       try {
         const response = await fetch('/api/github', { signal: controller.signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -168,28 +175,53 @@ export function DashboardPage() {
         if (next.summary) setData(next);
         setError(next.refresh_error || next.error || null);
         setRefreshing(Boolean(next.refreshing));
-        if (next.refreshing) delay = 2000;
-        else if (next.retry_after_seconds) {
-          delay = Math.min(60000, Math.max(2000, next.retry_after_seconds * 1000));
+        if (next.refreshing) {
+          delay = REFRESH_POLL_MS[Math.min(refreshPolls, REFRESH_POLL_MS.length - 1)];
+          refreshPolls += 1;
+        } else {
+          refreshPolls = 0;
+          if (next.retry_after_seconds) {
+            delay = Math.min(IDLE_POLL_MS, Math.max(2000, next.retry_after_seconds * 1000));
+          }
         }
       } catch {
         if (disposed) return;
+        refreshPolls = 0;
         setError('GitHub is unavailable. Retrying shortly.');
         setRefreshing(false);
       } finally {
         clearTimeout(timeout);
         if (!disposed) {
           setLoading(false);
-          pollTimer = setTimeout(load, delay);
+          pollTimer = setTimeout(poll, delay);
         }
       }
     }
 
-    void load();
+    // A hidden tab does not poll, from the first load on: past the cache's five
+    // minutes every poll starts a GitHub collection nobody is looking at.
+    // Showing the tab loads at once.
+    function poll() {
+      if (document.hidden) {
+        parked = true;
+        return;
+      }
+      void load();
+    }
+
+    function onVisibilityChange() {
+      if (disposed || document.hidden || !parked) return;
+      parked = false;
+      void load();
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    poll();
     return () => {
       disposed = true;
       clearTimeout(pollTimer);
       controller?.abort();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, []);
 

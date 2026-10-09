@@ -11,7 +11,6 @@ import { AddTaskButton } from './AddTaskButton';
 import { TaskForm } from './TaskForm';
 import { TaskDetailModal } from './TaskDetailModal';
 import { ProjectFilterModal } from './ProjectFilterModal';
-import { WarningBanner } from './WarningBanner';
 import { Spinner } from './Spinner';
 import { SkeletonCard } from './SkeletonCard';
 import { IdeasSection } from './IdeasSection';
@@ -24,14 +23,6 @@ interface NotificationState {
   visible: boolean;
 }
 
-interface SystemWarning {
-  id: string;
-  message: string;
-  type: 'error' | 'warning' | 'info';
-  actionLabel?: string;
-  actionUrl?: string;
-}
-
 export function KanbanBoard() {
   const { project } = useParams<{ project?: string }>();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -41,7 +32,6 @@ export function KanbanBoard() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [searchTaskId, setSearchTaskId] = useState('');
   const [showProjectFilter, setShowProjectFilter] = useState(false);
-  const [systemWarnings, setSystemWarnings] = useState<SystemWarning[]>([]);
   const [notification, setNotification] = useState<NotificationState>({
     message: '',
     type: 'success',
@@ -93,31 +83,6 @@ export function KanbanBoard() {
     };
 
     loadProjects();
-    return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const loadWarnings = async () => {
-      try {
-        const response = await fetch('/api/system/warnings', { signal: controller.signal });
-        if (!response.ok) {
-          return;
-        }
-        const data = await response.json();
-        if (Array.isArray(data.warnings)) {
-          setSystemWarnings(data.warnings);
-        }
-      } catch (error) {
-        if (isAbortError(error)) {
-          return;
-        }
-        // Optional endpoint - ignore failures
-      }
-    };
-
-    loadWarnings();
     return () => controller.abort();
   }, []);
 
@@ -353,22 +318,6 @@ export function KanbanBoard() {
         </div>
       ) : (
         <div className="kanban-board">
-          {systemWarnings.map((warning) => (
-            <WarningBanner
-              key={warning.id}
-              message={warning.message}
-              type={warning.type}
-              onDismiss={() => setSystemWarnings(prev => prev.filter(w => w.id !== warning.id))}
-              actionLabel={warning.actionLabel}
-              onAction={
-                warning.actionUrl
-                  ? () => {
-                    window.location.href = warning.actionUrl!;
-                  }
-                  : undefined
-              }
-            />
-          ))}
           <DndContext
             sensors={sensors}
             collisionDetection={rectIntersection}

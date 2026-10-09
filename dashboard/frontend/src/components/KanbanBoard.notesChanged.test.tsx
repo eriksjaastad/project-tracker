@@ -35,7 +35,6 @@ vi.mock('./TaskDetailModal', () => ({
 vi.mock('./Notification', () => ({ Notification: () => null }));
 vi.mock('./TaskForm', () => ({ TaskForm: () => null }));
 vi.mock('./ProjectFilterModal', () => ({ ProjectFilterModal: () => null }));
-vi.mock('./WarningBanner', () => ({ WarningBanner: () => null }));
 vi.mock('./Spinner', () => ({ Spinner: () => <div>Loading</div> }));
 vi.mock('./SkeletonCard', () => ({ SkeletonCard: () => <div /> }));
 vi.mock('./IdeasSection', () => ({ IdeasSection: () => null }));

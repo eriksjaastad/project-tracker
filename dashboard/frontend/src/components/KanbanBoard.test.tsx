@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { KanbanBoard } from './KanbanBoard';
 
@@ -20,7 +20,6 @@ vi.mock('./Notification', () => ({ Notification: () => null }));
 vi.mock('./TaskForm', () => ({ TaskForm: () => null }));
 vi.mock('./TaskDetailModal', () => ({ TaskDetailModal: () => null }));
 vi.mock('./ProjectFilterModal', () => ({ ProjectFilterModal: () => null }));
-vi.mock('./WarningBanner', () => ({ WarningBanner: () => null }));
 vi.mock('./Spinner', () => ({ Spinner: () => <div>Loading</div> }));
 vi.mock('./SkeletonCard', () => ({ SkeletonCard: () => <div /> }));
 vi.mock('./IdeasSection', () => ({ IdeasSection: () => null }));
@@ -67,5 +66,29 @@ describe('KanbanBoard', () => {
     );
 
     expect(await screen.findByRole('button', { name: /add task/i })).toBeInTheDocument();
+  });
+
+  describe('network', () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('requests nothing beyond the mocked API module', async () => {
+      // The board once fetched /api/system/warnings, a route the server never
+      // had, and 404'd on every load (#8093). All its data comes from ../api.
+      const fetcher = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+      vi.stubGlobal('fetch', fetcher);
+      vi.mocked(fetchProjects).mockResolvedValue([]);
+
+      render(
+        <MemoryRouter initialEntries={['/kanban']}>
+          <Routes>
+            <Route path="/kanban" element={<KanbanBoard />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      await waitFor(() => expect(fetchTasks).toHaveBeenCalled());
+      await screen.findAllByTestId('column');
+      expect(fetcher).not.toHaveBeenCalled();
+    });
   });
 });
