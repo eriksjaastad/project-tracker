@@ -1805,15 +1805,12 @@ monitoring:
       docs/MONITORING_REGISTRY.md#the-laptop-sleeps when access fails.
     jobs:
       - {id: com.ai-memory.classifier-batcher,        project: ai-memory,            schedule: every 300s,   log: ~/projects/ai-memory/logs/launchd/classifier-batcher.log}
-      - {id: com.ai-memory.sync-pending,              project: ai-memory,            schedule: every 300s,   log: /tmp/brain-sync-pending.log}
       - {id: com.ai-memory.daily-backup,              project: ai-memory,            schedule: daily 12:30,  log: /tmp/brain-daily-backup.log}
       - {id: com.ai-memory.nightly-transcript-miner,  project: ai-memory,            schedule: daily 02:00,  log: /tmp/brain-nightly-transcript-miner.log}
       - {id: com.ai-memory.weekly-graph-build,        project: ai-memory,            schedule: daily 10:00,  log: ~/projects/ai-memory/logs/launchd/graph-build.log}
       - {id: com.ai-memory.weekly-dream,              project: ai-memory,            schedule: daily 12:00,  log: /tmp/brain-dream.log}
       - {id: com.ai-memory.weekly-benchmark,          project: ai-memory,            schedule: daily 14:00,  log: /tmp/brain-weekly-benchmark.log}
-      - {id: com.ai-memory.antigravity-sync,          project: ai-memory,            schedule: UNKNOWN,      log: ~/.gemini/tmp/ai-memory-antigravity-sync.log}
       - {id: com.eriksjaastad.brain-health,           project: ai-memory,            schedule: every 1800s,  log: ~/projects/ai-memory/logs/brain_health.log}
-      - {id: com.eriksjaastad.tracked-large-file-audit, project: ai-memory,          schedule: daily 09:00,  log: ~/projects/ai-memory/logs/tracked_large_file_audit.log}
       - {id: com.eriksjaastad.project-tracker,        project: project-tracker,      schedule: keepalive,    log: ~/projects/project-tracker/logs/dashboard.stdout.log}
       - id: com.eriksjaastad.dashboard-watchdog
         project: project-tracker
