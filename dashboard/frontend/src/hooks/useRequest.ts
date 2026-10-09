@@ -56,9 +56,10 @@ export function useLatest<T>(value: T) {
 /**
  * Runs one async fetcher on mount and whenever `deps` change. Every run gets
  * its own AbortController; a run is aborted by unmount, by a newer run (deps
- * change or `reload()`), and its late response is ignored. `reload()` after
- * unmount does nothing. The last good
- * `data` is kept when a later run fails, so callers can show it with `error`.
+ * change or `reload()`), and its late response is ignored. `reload()` does
+ * nothing before the hook's first run or after unmount; call it from event
+ * handlers, not from an effect that may run first. The last good `data` is
+ * kept when a later run fails, so callers can show it with `error`.
  */
 export function useRequest<T>(fetcher: Fetcher<T>, deps: DependencyList, options: RequestOptions = {}) {
   const { timeoutMs } = options;
