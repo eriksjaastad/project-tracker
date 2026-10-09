@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import './ApiActivityPanel.css';
 import { summarizeActivity } from '../utils/apiActivity';
 import type { Usage, Activity } from '../utils/apiActivity';
@@ -13,55 +14,28 @@ function localDate() {
 export function ApiActivityPanel() {
   const [day, setDay] = useState(localDate);
   const [followToday, setFollowToday] = useState(true);
-  const [snapshot, setData] = useState<{ day: string; rows: Activity[]; limited: boolean; fetchedAt: string } | null>(null);
-  const data = snapshot?.day === day ? snapshot : null;
-  const [fetching, setFetching] = useState(true);
-  const [error, setError] = useState(false);
+  type Snapshot = { day: string; rows: Activity[]; limited: boolean; fetchedAt: string };
 
-  useEffect(() => {
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout>;
-    let controller: AbortController;
-
-    async function load() {
-      if (!day) return;
-      if (followToday && day !== localDate()) {
-        setDay(localDate());
-        return;
-      }
-      controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      setFetching(true);
-      try {
-        const since = new Date(`${day}T00:00:00`).toISOString();
-        const response = await fetch(`/api/costs/usage?since=${encodeURIComponent(since)}&limit=${LIMIT}`, { signal: controller.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const rows: Usage[] = await response.json();
-        if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== 'object'
-          || typeof row.timestamp !== 'string'
-          || [row.provider, row.service, row.model, row.project].some(value => value != null && typeof value !== 'string'))) {
-          throw new Error('Invalid usage response');
-        }
-        if (disposed) return;
-        setData({ day, rows: summarizeActivity(rows, day), limited: rows.length >= LIMIT, fetchedAt: new Date().toISOString() });
-        setError(false);
-      } catch {
-        if (!disposed) setError(true);
-      } finally {
-        clearTimeout(timeout);
-        if (!disposed) {
-          setFetching(false);
-          timer = setTimeout(load, 60000);
-        }
-      }
+  const { data: snapshot, error: failure, loading: fetching } = usePolling<Snapshot>(async (signal) => {
+    if (!day) return undefined;
+    if (followToday && day !== localDate()) {
+      // The calendar day rolled over; the new `day` restarts the poll.
+      setDay(localDate());
+      return undefined;
     }
-    void load();
-    return () => {
-      disposed = true;
-      clearTimeout(timer);
-      controller?.abort();
-    };
-  }, [day, followToday]);
+    const since = new Date(`${day}T00:00:00`).toISOString();
+    const response = await fetch(`/api/costs/usage?since=${encodeURIComponent(since)}&limit=${LIMIT}`, { signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const rows: Usage[] = await response.json();
+    if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== 'object'
+      || typeof row.timestamp !== 'string'
+      || [row.provider, row.service, row.model, row.project].some(value => value != null && typeof value !== 'string'))) {
+      throw new Error('Invalid usage response');
+    }
+    return { day, rows: summarizeActivity(rows, day), limited: rows.length >= LIMIT, fetchedAt: new Date().toISOString() };
+  }, 60000, [day, followToday], { timeoutMs: 15000 });
+  const data = snapshot?.day === day ? snapshot : null;
+  const error = failure !== null;
 
   return (
     <section className="dashboard-section api-activity">

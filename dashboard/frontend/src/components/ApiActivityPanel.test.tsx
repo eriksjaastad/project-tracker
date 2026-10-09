@@ -59,7 +59,9 @@ describe('API activity', () => {
 
   it('refreshes without overlap and aborts on unmount', async () => {
     vi.useFakeTimers();
-    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => [] })
+      .mockReturnValue(new Promise(() => {}));
     vi.stubGlobal('fetch', fetcher);
     const view = await act(async () => render(<ApiActivityPanel />));
     expect(fetcher).toHaveBeenCalledTimes(1);
@@ -85,5 +87,19 @@ describe('API activity', () => {
     await waitFor(() => expect(screen.getByText(/No calls recorded/)).toBeInTheDocument());
     await act(async () => resolve({ ok: true, json: async () => [row] }));
     expect(screen.queryByText('alpha')).not.toBeInTheDocument();
+  });
+
+  it('keeps a standing error when the next tick only rolls the day over', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T23:59:30'));
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockReturnValue(new Promise(() => {}));
+    vi.stubGlobal('fetch', fetcher);
+    await act(async () => { render(<ApiActivityPanel />); });
+    expect(screen.getByRole('alert')).toHaveTextContent('unavailable');
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(screen.getByLabelText('API activity day')).toHaveValue('2026-09-07');
+    expect(screen.getByRole('alert')).toHaveTextContent('unavailable');
   });
 });

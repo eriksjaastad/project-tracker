@@ -378,4 +378,13 @@ describe('JobsSubmittedPage', () => {
     expect(screen.getByText('Seattle, WA')).toBeInTheDocument();
     expect(screen.getByText('Frontend/React')).toBeInTheDocument();
   });
+
+  it('aborts its in-flight request on unmount', () => {
+    vi.mocked(fetch).mockReturnValue(new Promise(() => {}));
+    const view = renderWithRouter(<JobsSubmittedPage />);
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    expect(init.signal?.aborted).toBe(false);
+    view.unmount();
+    expect(init.signal?.aborted).toBe(true);
+  });
 });

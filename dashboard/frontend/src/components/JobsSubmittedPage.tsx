@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { PageShell } from './PageShell';
 import { Spinner } from './Spinner';
 import { Notification } from './Notification';
+import { useRequest } from '../hooks/useRequest';
 import './JobsSubmittedPage.css';
 
 interface Job {
@@ -34,29 +35,21 @@ interface JobSubmissionGroup {
 }
 
 export function JobsSubmittedPage() {
-  const [loading, setLoading] = useState(true);
-  const [jobGroups, setJobGroups] = useState<JobSubmissionGroup[]>([]);
-  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [errorDismissed, setErrorDismissed] = useState(false);
+  const { data, error, loading } = useRequest<JobSubmissionGroup[]>(async (signal) => {
+    const response = await fetch('/api/jobs/submissions', { signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const body = await response.json();
+    return body.jobs || [];
+  }, []);
+  const jobGroups = data ?? [];
+  const notification = error && !errorDismissed ? { message: 'Failed to load submissions', type: 'error' as const } : null;
 
   useEffect(() => {
-    loadSubmissions();
-  }, []);
-
-  async function loadSubmissions() {
-    try {
-      const response = await fetch('/api/jobs/submissions');
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const data = await response.json();
-      setJobGroups(data.jobs || []);
-    } catch (error) {
-      console.error('Failed to load submissions:', error);
-      setNotification({ message: 'Failed to load submissions', type: 'error' });
-    } finally {
-      setLoading(false);
-    }
-  }
+    if (error) console.error('Failed to load submissions:', error);
+  }, [error]);
 
   function formatSubmittedDate(isoDate: string): string {
     try {
@@ -79,7 +72,7 @@ export function JobsSubmittedPage() {
         <Notification
           message={notification.message}
           type={notification.type}
-          onClose={() => setNotification(null)}
+          onClose={() => setErrorDismissed(true)}
         />
       )}
 

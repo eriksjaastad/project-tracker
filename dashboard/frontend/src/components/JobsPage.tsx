@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PageShell } from './PageShell';
 import { Spinner } from './Spinner';
 import { Notification } from './Notification';
 import { JobStatsChart } from './JobStatsChart';
 import { CategoryTable } from './CategoryTable';
+import { useRequest } from '../hooks/useRequest';
 import './JobsPage.css';
 
 interface Job {
@@ -32,61 +33,44 @@ interface JobStats {
 }
 
 export function JobsPage() {
-  const [loading, setLoading] = useState(true);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [stats, setStats] = useState<JobStats | null>(null);
-  const [statsError, setStatsError] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [queuingPrompts, setQueuingPrompts] = useState<Set<number>>(new Set());
   const [submittingJobs, setSubmittingJobs] = useState<Set<number>>(new Set());
-  // Guards loadStats() against out-of-order responses: only the response
-  // whose requestId still matches the latest-issued call is applied, so an
-  // older refresh that happens to resolve late can never clobber a newer one.
-  const statsRequestIdRef = useRef(0);
+  // Jobs dismissed or submitted on this page; hidden from the loaded list.
+  const [removedJobs, setRemovedJobs] = useState<Set<number>>(new Set());
+
+  const { data: loadedJobs, error: jobsError, loading } = useRequest<Job[]>(async (signal) => {
+    const response = await fetch('/api/jobs', { signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    return data.jobs || [];
+  }, []);
+  // reload() aborts an in-flight stats request, so an older refresh that
+  // resolves late can never clobber a newer one.
+  const { data: stats, error: statsFailure, reload: loadStats } = useRequest<JobStats>(async (signal) => {
+    const response = await fetch('/api/jobs/stats', { signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }, []);
+  const statsError = statsFailure !== null;
+  const jobs = useMemo(() => (loadedJobs ?? []).filter(job => !removedJobs.has(job.id)), [loadedJobs, removedJobs]);
+
+  // A message from a later action replaces the load failure, as it always did.
+  const [loadErrorDismissed, setLoadErrorDismissed] = useState(false);
+  const notice = notification
+    ?? (jobsError && !loadErrorDismissed ? { message: 'Failed to load jobs', type: 'error' as const } : null);
 
   useEffect(() => {
-    loadJobs();
-    loadStats();
-  }, []);
+    if (jobsError) console.error('Failed to load jobs:', jobsError);
+  }, [jobsError]);
 
-  async function loadJobs() {
-    try {
-      const response = await fetch('/api/jobs');
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const data = await response.json();
-      setJobs(data.jobs || []);
-    } catch (error) {
-      console.error('Failed to load jobs:', error);
-      setNotification({ message: 'Failed to load jobs', type: 'error' });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function loadStats() {
-    const requestId = ++statsRequestIdRef.current;
-    try {
-      const response = await fetch('/api/jobs/stats');
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const data = await response.json();
-      if (requestId !== statsRequestIdRef.current) {
-        // A newer refresh was issued after this one; that call owns the
-        // final state, so this stale response is dropped on the floor.
-        return;
-      }
-      setStats(data);
-      setStatsError(false);
-    } catch (error) {
-      console.error('Failed to load job stats:', error);
-      if (requestId === statsRequestIdRef.current) {
-        setStatsError(true);
-      }
-    }
-  }
+  useEffect(() => {
+    if (statsFailure) console.error('Failed to load job stats:', statsFailure);
+  }, [statsFailure]);
 
   async function handleDelete(jobId: number) {
     try {
@@ -99,7 +83,7 @@ export function JobsPage() {
       // Functional update: a concurrent submit/delete on another row may
       // still be in flight, so filtering against a captured `jobs` snapshot
       // would resurrect whatever that other request already removed.
-      setJobs(prev => prev.filter(job => job.id !== jobId));
+      setRemovedJobs(prev => new Set(prev).add(jobId));
       setNotification({ message: 'Job dismissed', type: 'success' });
       // Dismissing a job changes the open-category counts; refresh so the
       // chart/table don't keep showing the pre-dismissal snapshot.
@@ -126,7 +110,7 @@ export function JobsPage() {
       }
       // Same reasoning as handleDelete: use the latest state, not a snapshot
       // captured when this handler started.
-      setJobs(prev => prev.filter(job => job.id !== jobId));
+      setRemovedJobs(prev => new Set(prev).add(jobId));
       setNotification({ message: 'Job marked as submitted', type: 'success' });
       // A submission moves the job out of the open-category counts and into
       // submissions_per_day; refresh so the stats panel reflects that.
@@ -179,11 +163,14 @@ export function JobsPage() {
 
   return (
     <PageShell title="Jobs" subtitle="Open job listings">
-      {notification && (
+      {notice && (
         <Notification
-          message={notification.message}
-          type={notification.type}
-          onClose={() => setNotification(null)}
+          message={notice.message}
+          type={notice.type}
+          onClose={() => {
+            setNotification(null);
+            setLoadErrorDismissed(true);
+          }}
         />
       )}
 

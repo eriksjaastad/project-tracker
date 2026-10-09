@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -106,5 +106,21 @@ describe('KanbanBreakdown', () => {
     const { signal } = fetcher.mock.calls[0][1];
     view.unmount();
     expect(signal.aborted).toBe(true);
+  });
+
+  it('stays on the unavailable message, not Loading, while a retry is pending', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn()
+      .mockRejectedValueOnce(new Error('down'))
+      .mockReturnValue(new Promise(() => {}));
+    vi.stubGlobal('fetch', fetcher);
+
+    await act(async () => { renderBreakdown(); });
+    expect(screen.getByText('Board counts are unavailable.')).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(61000); });
+    expect(fetcher.mock.calls.length).toBeGreaterThan(1);
+    expect(screen.queryByText('Loading board counts…')).not.toBeInTheDocument();
+    expect(screen.getByText('Board counts are unavailable.')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Board counts are unavailable. Retrying shortly.');
   });
 });
