@@ -4478,9 +4478,7 @@ def db_group(ctx):
 
 @db_group.command(name="migrate")
 def db_migrate():
-    """Apply every pending migration in order.
-
-    """
+    """Apply every pending migration in order."""
     db = DatabaseManager()
 
     # Schema migration is a destructive operation: it runs ALTERs, and for CRR
