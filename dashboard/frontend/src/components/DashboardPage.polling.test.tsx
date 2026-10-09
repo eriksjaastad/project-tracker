@@ -88,6 +88,23 @@ describe('DashboardPage — /api/github polling', () => {
     expect(fetcher).toHaveBeenCalledTimes(5);   // back to the 5s first step
   });
 
+  it('starts the backoff over after a failed request', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => REFRESHING })
+      .mockResolvedValueOnce({ ok: true, json: async () => REFRESHING })
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValue({ ok: true, json: async () => REFRESHING });
+    vi.stubGlobal('fetch', fetcher);
+    await act(async () => { render(<MemoryRouter><DashboardPage /></MemoryRouter>); });
+    await advance(5000);
+    await advance(10000);
+    expect(fetcher).toHaveBeenCalledTimes(3);   // the 503
+    await advance(60000);
+    expect(fetcher).toHaveBeenCalledTimes(4);   // error retry, refreshing again
+    await advance(5000);
+    expect(fetcher).toHaveBeenCalledTimes(5);   // 5s, not the 20s step it had reached
+  });
+
   it('stops polling while the tab is hidden and loads at once when it is shown', async () => {
     const fetcher = respond(FRESH);
     await act(async () => { render(<MemoryRouter><DashboardPage /></MemoryRouter>); });
