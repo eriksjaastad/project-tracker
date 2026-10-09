@@ -1,21 +1,14 @@
-"""Client-side unique ID generator for CRR tables (pt #6044).
+"""Client-side unique ID generator (pt #6044).
 
 Background
 ----------
-cr-sqlite rejects ``AUTOINCREMENT`` on CRR-classified tables because two
-nodes would assign unrelated rows the same PK under concurrent inserts
-(validated empirically 2026-04-20: two sites each auto-generated ``id=3``
-for different new rows; sync merged them as the same row, one machine's
-content silently overwrote the other's). A plain ``INTEGER PRIMARY KEY``
-without ``AUTOINCREMENT`` passes cr-sqlite's validator, but SQLite will
-still auto-generate rowid values for NULL/omitted id columns — same
-collision hazard, just invisible to cr-sqlite's static check.
-
-This module produces 63-bit integer IDs at application insert time that
-are collision-free across machines PROVIDED each machine has a distinct
-10-bit ``machine_id``. The IDs fit SQLite's signed ``INTEGER`` type
-(2^63 - 1) and slot into existing ``INTEGER PRIMARY KEY`` columns with
-no schema changes beyond dropping ``AUTOINCREMENT``.
+Rows are keyed by 63-bit integer IDs minted at insert time instead of by
+SQLite's rowid/AUTOINCREMENT counter. The scheme was built so two machines
+syncing through cr-sqlite could never assign the same PK to different rows.
+Sync was retired (#8093) and there is one machine now, but the machine bits
+are kept so every ID already stored stays unique against every new one, and
+the IDs keep fitting SQLite's signed ``INTEGER`` (2^63 - 1) with no schema
+change.
 
 Bit layout (Snowflake-style, 63 bits total)
 -------------------------------------------
@@ -27,7 +20,7 @@ Bit layout (Snowflake-style, 63 bits total)
 - ``timestamp_ms`` (41 bits): milliseconds since ``PT_ID_EPOCH_MS``
   (2026-01-01T00:00:00Z). Rolls over in ~69 years (year 2095).
 - ``machine_id`` (10 bits): 0..1023. Identifies the originating
-  machine. Must be distinct across all machines in the sync group.
+  machine; kept so existing IDs never collide with new ones.
 - ``counter`` (12 bits): monotonic counter within each millisecond,
   resets at each new ms. Overflow (4096 IDs in one ms on one machine)
   causes a busy-wait to the next ms — a nominal signal of an anomalous
@@ -36,38 +29,19 @@ Bit layout (Snowflake-style, 63 bits total)
 Why 41/10/12 over TodoMVC's 32/16/16:
 - ms instead of s timestamp: eliminates "same-second" collisions across
   fast process restarts and sub-second bursts.
-- 10-bit ``machine_id``: 1024 machines is plenty for a personal
-  multi-device setup (laptop + Mini + phone + iPad + future) while
-  leaving bits for timestamp resolution.
 - 12-bit counter: 4096/ms = 4M/s per machine, far above any burst
   scenario (agent-driven card factory, task_history on migration).
 
 Machine ID assignment
 ---------------------
 
-Two strategies, priority order:
-
-1. **Explicit config (preferred)** — set the ``pt.machine_id`` key in
-   ``_metadata`` table to a value in ``0..1023``. Operator assigns
-   known IDs (laptop=0, mini=1, etc.) so cross-machine collisions
-   are impossible by construction. Recommended once the sync group
-   grows past 2 machines.
-2. **Hash of ``crsql_site_id()`` (fallback)** — if cr-sqlite is
-   loaded and no explicit config is set, hash the site_id's low
-   bytes to 10 bits. Auto-configuration path. Birthday-paradox
-   collision probability (exact formula: ``1 - prod(1 - k/1024)``
-   for k in 1..N-1, bucket count 1024):
-        P(collision | 2 machines)  ≈ 0.098%
-        P(collision | 5 machines)  ≈ 0.97%
-        P(collision | 10 machines) ≈ 4.3%
-   For 2 machines, effectively safe but NOT zero. Logs a WARNING
-   recommending explicit config once ≥3 machines are detected.
-
-If cr-sqlite is not loaded (fresh checkout, tests, CLI subcommands
-that don't hit sync), ``machine_id`` defaults to ``0`` with a WARNING
-logged once per process. This keeps fresh/test environments working
-but would cause collisions if two unconfigured machines later joined
-a sync group. The warning is the explicit signal to configure.
+The 10 machine bits come from ``_metadata['pt.machine_id']`` (0..1023). On
+the live database, migration 018 wrote the value the old cr-sqlite code had
+derived from ``crsql_site_id()``, so IDs minted after the removal carry the
+same machine bits as before. A database with no such row (fresh checkout,
+tests) uses ``DEFAULT_MACHINE_ID``. IDs stay unique within one database
+because the timestamp and counter bits differ; the machine bits only matter
+for never colliding with IDs that already exist.
 
 Monotonicity guarantees
 -----------------------
@@ -85,23 +59,15 @@ Monotonicity guarantees
   machine_id is the same. In practice: clock almost always advances
   between restarts. For strict cross-process monotonicity a persisted
   high-water mark would be required; we don't build that here because
-  (a) CRR correctness doesn't need it (machine_id already prevents
-  collisions) and (b) it adds IO per insert.
+  (a) uniqueness doesn't need it (machine_id plus the counter already
+  prevent collisions) and (b) it adds IO per insert.
 
 Collision analysis
 ------------------
 
-**Distinct machine_ids:** two machines with different ``machine_id``
-values generating IDs in the same ms CANNOT collide — their mid bits
-differ, so the full 63-bit IDs differ.
-
-**Same machine_id (misconfigured):** two machines sharing a
-``machine_id`` WILL collide if they issue IDs with the same counter
-value in the same ms. With per-machine monotonic counters starting at
-0, a fresh startup on both machines at the same ms produces ID
-collisions immediately. This is why ``check_machine_id_conflict()``
-should be called at daemon startup if enhanced safety is needed
-(future work; tracked separately if the need arises).
+Within one machine_id, two IDs collide only if they share a millisecond and
+a counter value, which the counter prevents inside a process. Across process
+restarts the clock almost always advances between starts.
 
 **Usage**::
 
@@ -120,7 +86,6 @@ performs ``machine_id`` resolution; subsequent calls reuse it.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import sqlite3
 import sys
@@ -236,123 +201,47 @@ class PtIdGenerator:
 # Machine-ID resolution
 # ---------------------------------------------------------------------
 
-_CRSQLITE_DYLIB_CANDIDATES: tuple[Path, ...] = (
-    Path.home() / ".local/lib/crsqlite/crsqlite.dylib",
-    Path.home() / ".local/lib/crsqlite/crsqlite.so",
-)
-_default_zero_warned = False
-
-
-def _find_crsqlite_dylib() -> Optional[Path]:
-    """Return the first existing cr-sqlite dylib candidate, or None."""
-    for candidate in _CRSQLITE_DYLIB_CANDIDATES:
-        if candidate.exists():
-            return candidate
-    return None
-
-
-def _warn_default_zero(reason: str) -> int:
-    """Log the default-zero warning at most once per process."""
-    global _default_zero_warned
-    if not _default_zero_warned:
-        log.warning(
-            "pt_id: %s; defaulting machine_id=0. Safe for fresh "
-            "checkouts and test environments; UNSAFE if two "
-            "unconfigured machines ever join a sync group. Set "
-            "_metadata['pt.machine_id'] explicitly before enabling sync.",
-            reason,
-        )
-        _default_zero_warned = True
-    return 0
+# Machine bits used when the database has no explicit _metadata value.
+DEFAULT_MACHINE_ID = 0
 
 
 def load_machine_id(db_path: Optional[Path]) -> int:
     """Resolve this process's ``machine_id``.
 
-    Priority:
-      1. ``_metadata['pt.machine_id']`` explicit config (operator-set).
-      2. Hash of ``crsql_site_id()`` low bytes (auto; warns for ≥3
-         machines due to birthday-paradox).
-      3. Default 0 with a one-time warning (fresh checkouts, tests,
-         paths where cr-sqlite isn't loaded).
+    Returns ``_metadata['pt.machine_id']`` when the database has it, else
+    ``DEFAULT_MACHINE_ID`` (no db_path, missing file, no ``_metadata`` table
+    or no row). A stored value that is not an int in ``0..1023`` raises
+    ``ValueError``.
 
-    Caller should hold the resulting int for the process lifetime —
-    the resolved value is stable across the process (site_id is
-    fixed; operator config doesn't change mid-run).
+    Caller should hold the resulting int for the process lifetime.
     """
-    if db_path is None:
-        return _warn_default_zero("no db_path provided")
-
-    if not db_path.exists():
-        return _warn_default_zero(f"db does not exist at {db_path}")
+    if db_path is None or not db_path.exists():
+        return DEFAULT_MACHINE_ID
 
     conn = sqlite3.connect(db_path)
     try:
-        # 1. Explicit config wins.
         try:
             row = conn.execute(
                 "SELECT value FROM _metadata WHERE key = 'pt.machine_id'"
             ).fetchone()
-        except sqlite3.OperationalError:
-            # _metadata table may not exist yet on a bare-new DB.
+        except sqlite3.OperationalError:  # governance: allow-silent SF002: a bare-new DB has no _metadata table yet; the documented default applies
             row = None
-
-        if row is not None:
-            try:
-                mid = int(row[0])
-            except (TypeError, ValueError):
-                raise ValueError(
-                    f"_metadata['pt.machine_id'] must be an int, "
-                    f"got {row[0]!r}"
-                )
-            if not (0 <= mid <= _MID_MAX):
-                raise ValueError(
-                    f"_metadata['pt.machine_id']={mid} out of range "
-                    f"0..{_MID_MAX}"
-                )
-            log.info(
-                "pt_id: machine_id=%d from _metadata explicit config",
-                mid,
-            )
-            return mid
-
-        # 2. Derive from crsql_site_id if cr-sqlite can load.
-        _dylib = _find_crsqlite_dylib()
-        if _dylib is not None:
-            try:
-                conn.enable_load_extension(True)
-                conn.load_extension(
-                    str(_dylib),
-                    entrypoint="sqlite3_crsqlite_init",
-                )
-                site_hex = conn.execute(
-                    "SELECT hex(crsql_site_id())"
-                ).fetchone()[0]
-                # Hash the full 16-byte site_id deterministically to
-                # low 10 bits. SHA-256 gives a better distribution than
-                # just taking low bytes — site_ids are UUID-v4 random
-                # so low bytes are random too, but this keeps the
-                # derivation obviously deterministic and testable.
-                digest = hashlib.sha256(bytes.fromhex(site_hex)).digest()
-                mid = ((digest[0] << 8) | digest[1]) & _MID_MAX
-                log.warning(
-                    "pt_id: machine_id=%d derived from hash(crsql_site_id). "
-                    "For ≥3 machines, set _metadata['pt.machine_id'] "
-                    "explicitly to avoid 1-in-1024 birthday collisions.",
-                    mid,
-                )
-                return mid
-            except sqlite3.OperationalError as err:
-                log.info(
-                    "pt_id: cr-sqlite load failed (%s); falling through to default",
-                    err,
-                )
-
-        return _warn_default_zero(
-            "cr-sqlite not loaded and no _metadata['pt.machine_id']"
-        )
     finally:
         conn.close()
+
+    if row is None:
+        return DEFAULT_MACHINE_ID
+    try:
+        mid = int(row[0])
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"_metadata['pt.machine_id'] must be an int, got {row[0]!r}"
+        )
+    if not (0 <= mid <= _MID_MAX):
+        raise ValueError(
+            f"_metadata['pt.machine_id']={mid} out of range 0..{_MID_MAX}"
+        )
+    return mid
 
 
 # ---------------------------------------------------------------------
@@ -392,7 +281,7 @@ def next_id(db_path: Optional[Path] = None) -> int:
 
 
 def reset_for_testing() -> None:
-    """Clear the process singleton and the one-time warning flag.
+    """Clear the process singleton.
 
     Tests only. Guarded by ``pytest in sys.modules`` to prevent
     accidental production use — resetting mid-run could produce IDs
@@ -407,7 +296,6 @@ def reset_for_testing() -> None:
             "different machine_ids, which is the exact identity drift "
             "this module prevents."
         )
-    global _singleton, _default_zero_warned
+    global _singleton
     with _singleton_lock:
         _singleton = None
-        _default_zero_warned = False

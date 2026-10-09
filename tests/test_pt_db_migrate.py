@@ -35,7 +35,6 @@ pytestmark = pytest.mark.unmigrated_db
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 # noqa: E402 — sys.path setup must precede these imports
-from db.crr_manifest import UnclassifiedTableError  # noqa: E402
 from db.manager import DatabaseManager  # noqa: E402
 from pt import cli, _warn_unapplied_migrations  # noqa: E402
 
@@ -53,21 +52,6 @@ MIGRATIONS_DIR = (
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def plain_sqlite_migration_fixture(monkeypatch):
-    """Test CLI/runner wiring on synthetic tables that are not CRRs.
-
-    CI has no native cr-sqlite extension. Production must still require the
-    registered extension; only this test daemon's loader is replaced.
-    """
-    from db.operations import ProjectTrackerOps
-
-    def load_fixture(self, conn):
-        assert not self._engine_active(conn)
-
-    monkeypatch.setattr(ProjectTrackerOps, "_load_crsqlite", load_fixture)
 
 
 @pytest.fixture
@@ -112,7 +96,8 @@ def test_pt_db_migrate_applies_pending_and_reports(
     assert "014_add_task_notes_history" in result.output
     assert "015_add_outreach_contacts" in result.output
     assert "017_add_codebase_size_snapshots" in result.output
-    assert "applied 15 migration" in result.output
+    assert "018_drop_cr_sqlite" in result.output
+    assert "applied 16 migration" in result.output
 
     # The tables the migrations create are proven present by counting rows in
     # them through the sanctioned interface, and by nothing being pending
@@ -252,72 +237,3 @@ def test_warn_unapplied_reports_but_does_not_raise_on_unexpected_error(
     err = capsys.readouterr().err
     assert "could not check for pending migrations" in err
     assert "disk I/O error" in err
-
-
-# ---------------------------------------------------------------------
-# Boot-time manifest assertion wired into create_database
-# ---------------------------------------------------------------------
-
-
-def test_create_database_rejects_unclassified_table(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An unclassified live table must cause ``create_database`` to
-    raise ``UnclassifiedTableError`` — proving the assertion is wired
-    into the DB init path, not just sitting in the manifest module."""
-    from db import schema
-
-    db_path = tmp_path / "tracker.db"
-    # Pre-create an unclassified table so that when ensure_schema
-    # finishes and assert_tables_classified runs, it finds 'rogue' in
-    # the live tables but not in any classification set.
-    conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE rogue (id INTEGER PRIMARY KEY)")
-    conn.commit()
-    conn.close()
-
-    monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
-
-    with pytest.raises(UnclassifiedTableError, match="rogue"):
-        schema.create_database(db_path)
-
-
-def test_create_database_passes_with_manifested_tables_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Sanity check: creating a DB with only schema.py's tables passes
-    the assertion. This is the happy path on every laptop/Mini that
-    has a normal pt install."""
-    from db import schema
-
-    db_path = tmp_path / "tracker.db"
-    monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
-
-    # Should not raise.
-    schema.create_database(db_path)
-
-    # And every table that ensure_schema creates must be in the manifest.
-    from db.crr_manifest import ALL_CLASSIFIED, live_table_names
-    conn = sqlite3.connect(db_path)
-    try:
-        live = live_table_names(conn)
-    finally:
-        conn.close()
-    assert live.issubset(ALL_CLASSIFIED), (
-        f"schema.py creates tables not in crr_manifest.py: "
-        f"{sorted(live - ALL_CLASSIFIED)}"
-    )
-
-
-def test_engine_active_reraises_errors_other_than_missing_function():
-    """#6900: a locked database must not report the sync engine as off."""
-    from db.operations import ProjectTrackerOps
-
-    assert ProjectTrackerOps._engine_active(sqlite3.connect(":memory:")) is False
-
-    class _Locked:
-        def execute(self, *_args, **_kwargs):
-            raise sqlite3.OperationalError("database is locked")
-
-    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
-        ProjectTrackerOps._engine_active(_Locked())

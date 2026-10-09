@@ -12,7 +12,13 @@ import pytest
 REPO = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 
-from db.crr_manifest import CRR_TABLES  # noqa: E402
+# The ten tables migrations 003-008 prepared for cr-sqlite (the sync layer is
+# gone, but those migrations still run on restored backups).
+CRR_TABLES = frozenset({
+    "tasks", "ideas", "task_history", "task_attachments", "projects",
+    "project_info", "ai_agents", "service_dependencies", "calendar_events",
+    "calendar_event_tasks",
+})
 
 _MIGRATION_PATH = REPO / "scripts" / "db" / "migrations" / "006_crr_drop_unique_constraints.py"
 _spec = importlib.util.spec_from_file_location("_m006", _MIGRATION_PATH)
@@ -182,28 +188,3 @@ def test_idempotent(tmp_path: Path):
     for tbl, expected in before.items():
         after = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
         assert after == expected, f"{tbl}: idempotent double-run changed row count {expected} → {after}"
-
-
-def test_all_crr_tables_pass_crsql_as_crr_after_migration(tmp_path: Path):
-    dylib = Path.home() / ".local/lib/crsqlite/crsqlite.dylib"
-    if not dylib.exists():
-        pytest.skip("cr-sqlite dylib not installed")
-
-    conn = _minimal_db(tmp_path)
-    _run_migration(conn)
-
-    if not hasattr(conn, "enable_load_extension"):
-        pytest.skip("sqlite build lacks enable_load_extension")
-
-    conn.enable_load_extension(True)
-    conn.load_extension(str(dylib))
-    try:
-        for table in CRR_TABLES:
-            result = conn.execute("SELECT crsql_as_crr(?)", (table,)).fetchone()
-            assert result == ("OK",), f"{table}: unexpected crsql_as_crr result {result!r}"
-    finally:
-        try:
-            conn.execute("SELECT crsql_finalize()")
-        except sqlite3.Error:  # governance: allow-silent SF001: test teardown; the assertions above already decided the test, and the connection is closed next
-            pass
-        conn.close()

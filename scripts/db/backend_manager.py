@@ -17,7 +17,12 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
-from .schema import get_db_path, create_database
+from .schema import (
+    create_database,
+    get_db_path,
+    has_legacy_crsql_triggers,
+    raise_if_legacy_crsql,
+)
 from .pt_id import next_id as pt_next_id
 from scripts.utils.validation import (
     BlockedTaskProjectError,
@@ -66,68 +71,37 @@ def _get_backup_dir(db_path: Path) -> Path:
 class DatabaseManager:
     """Manage all database operations."""
 
-    def __init__(
-        self,
-        db_path: Optional[Path] = None,
-        crsqlite_path: Optional[Path] = None,
-    ):
-        """Initialize the local manager, optionally selecting a cr-sqlite extension."""
+    def __init__(self, db_path: Optional[Path] = None):
+        """Initialize the local manager."""
         self.db_path = db_path or get_db_path()
-        self.crsqlite_path = Path(crsqlite_path) if crsqlite_path else None
         # Run safety checks + schema migrations once per DB path.
         db_key = str(self.db_path.resolve())
         if db_key not in _local_schema_ensured_paths:
             with _LOCAL_SCHEMA_LOCK:
                 if db_key not in _local_schema_ensured_paths:
-                    create_database(self.db_path)
-                    _local_schema_ensured_paths.add(db_key)
+                    # A pre-018 database still has cr-sqlite triggers that no
+                    # connection can run. Leave it untouched (schema DDL on a
+                    # CRR table would desync its triggers) and do not mark the
+                    # path ensured: reads and `pt db migrate` keep working, a
+                    # write raises LegacyCrsqlError, and the next manager
+                    # re-checks, so ensuring resumes once 018 has run.
+                    if not has_legacy_crsql_triggers(self.db_path):
+                        create_database(self.db_path)
+                        _local_schema_ensured_paths.add(db_key)
 
     @contextmanager
     def _get_conn(self) -> Generator[Any, None, None]:
         """Get a local SQLite connection context manager."""
         conn = sqlite3.connect(self.db_path)
-        # Load cr-sqlite so CRR triggers (crsql_internal_sync_bit etc.) resolve on writes.
-        # Soft-fail: if the dylib isn't present, reads still work; writes to CRR tables fail
-        # with a clear "no such function" error rather than a silent bad state.
-        crsql_loaded = False
-        try:
-            _dylib = self.crsqlite_path
-            if _dylib is None:
-                from db.pt_id import _find_crsqlite_dylib
-                _dylib = _find_crsqlite_dylib()
-            if _dylib and Path(_dylib).exists():
-                conn.enable_load_extension(True)
-                conn.load_extension(str(_dylib), entrypoint="sqlite3_crsqlite_init")
-                conn.enable_load_extension(False)
-                crsql_loaded = True
-            elif self.crsqlite_path is not None:
-                logger.warning("crsqlite missing at registered path: %s", self.crsqlite_path)
-        except Exception as _crsql_err:
-            logger.warning("crsqlite load skipped: %s", _crsql_err)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")  # Enable WAL mode for concurrent access
         conn.row_factory = sqlite3.Row  # Enable dict-like access
         try:
             yield conn
+        except sqlite3.OperationalError as err:
+            raise_if_legacy_crsql(err)
+            raise
         finally:
-            # cr-sqlite keeps per-connection prepared statements alive, and
-            # sqlite3_close_v2 cannot fully tear the connection down while they
-            # exist — so `conn.close()` alone leaves the .db and -wal file
-            # descriptors open. Measured: 30 open/close cycles leak 62 handles
-            # without this call and 1 with it.
-            #
-            # That is what kills the dashboard every 1-3 days (#6482). It hits
-            # the 256 soft limit, and from then on every query fails with
-            # "unable to open database file" — SQLite's rendering of EMFILE —
-            # while the process stays up and answers requests. Caught live at
-            # 256 handles on tracker.db against a 256 limit.
-            if crsql_loaded:
-                try:
-                    conn.execute("SELECT crsql_finalize()")
-                except Exception as _fin_err:
-                    # Never let cleanup prevent the close below; a connection we
-                    # failed to finalize still has to be released.
-                    logger.warning("crsql_finalize failed: %s", _fin_err)
             conn.close()
     
     def _backup_before_delete(
@@ -356,15 +330,15 @@ class DatabaseManager:
     ) -> None:
         """Preserve project-name uniqueness in application code.
 
-        CRR tables cannot keep a DB-enforced UNIQUE(name) constraint, but the
-        CLI still resolves projects by human name. Reject duplicate local
-        writes early so name-based flows stay unambiguous.
+        The projects table has no DB-enforced UNIQUE(name) constraint (it was
+        dropped by migration 006 for cr-sqlite), but the CLI still resolves
+        projects by human name. Reject duplicate writes early so name-based
+        flows stay unambiguous.
 
         TOCTOU note: this check is not serializable under concurrent writers in
         WAL mode. Two simultaneous add_project() calls with the same name can
         both pass the SELECT and both succeed. Acceptable for a single-user CLI
-        where concurrent writes are rare; during CRR sync the deduplication
-        strategy is last-write-wins via the normal CRDT merge, not name guards.
+        where concurrent writes are rare.
         """
         rows = cursor.execute(
             "SELECT id FROM projects WHERE lower(name) = lower(?)",

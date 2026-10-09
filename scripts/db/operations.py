@@ -17,16 +17,14 @@ class ProjectTrackerOps:
         from .backend_manager import DatabaseManager
         from .backend_calendar_manager import CalendarManager
         from .schema import get_db_path
-        from .pt_id import _find_crsqlite_dylib
         from scripts.backup_config import external_backup_dir
         self.db_path = Path(db_path) if db_path is not None else get_db_path()
         self.entry = SimpleNamespace(
             backup_dir=self.db_path.parent / "backups",
             external_backup_dir=external_backup_dir(),
-            crsqlite_path=_find_crsqlite_dylib(),
         )
         self._db = DatabaseManager(self.db_path)
-        self._cal = CalendarManager(self.db_path, crsqlite_path=self.entry.crsqlite_path)
+        self._cal = CalendarManager(self.db_path)
         self._cal.ensure_tables()
         self._db.migrate_attachments_table()
 
@@ -146,17 +144,6 @@ class ProjectTrackerOps:
                 return {"ok": False, "project_id": project["id"], "error": str(exc)}
         return {"ok": True, "project_id": project["id"], "error": None}
 
-    @staticmethod
-    def _engine_active(conn: sqlite3.Connection) -> bool:
-        """True if cr-sqlite is loaded; only "no such function" means it is not."""
-        try:
-            conn.execute("SELECT crsql_db_version()").fetchone()
-            return True
-        except sqlite3.OperationalError as err:  # governance: allow-silent SF002: only "no such function" returns False, the true answer without cr-sqlite; locked or corrupt databases re-raise
-            if "no such function" in str(err).lower():
-                return False
-            raise
-
     # -- schema migrations --------------------------------------------------
 
     def _migrations_dir(self) -> Path:
@@ -190,7 +177,6 @@ class ProjectTrackerOps:
 
         conn = sqlite3.connect(self.db_path, isolation_level=None)
         try:
-            self._load_crsqlite(conn)
             try:
                 applied = apply_all(conn, directory)
             except MigrationError as err:
@@ -202,17 +188,6 @@ class ProjectTrackerOps:
             "error": None,
             "applied": [{"version": m.version, "name": m.name} for m in applied],
         }
-
-    def _load_crsqlite(self, conn: sqlite3.Connection) -> None:
-        """Load the locally installed cr-sqlite extension for migrations."""
-        dylib = self.entry.crsqlite_path
-        if dylib is None or not Path(dylib).is_file():
-            raise FileNotFoundError("cr-sqlite is required for migrations; install the local extension")
-        conn.enable_load_extension(True)
-        try:
-            conn.load_extension(str(dylib), entrypoint="sqlite3_crsqlite_init")
-        finally:
-            conn.enable_load_extension(False)
 
     # -- handoff records ---------------------------------------------------
 

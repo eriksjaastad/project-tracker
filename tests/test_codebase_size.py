@@ -15,7 +15,6 @@ from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from db.crr_manifest import LOCAL_ONLY_TABLES  # noqa: E402
 from db.migration_runner import discover_migrations  # noqa: E402
 from pt import cli  # noqa: E402
 from scripts import codebase_size as cs  # noqa: E402
@@ -365,11 +364,6 @@ def test_schema_py_and_migration_017_create_the_same_objects(tmp_path: Path, con
     }
     # `conn` is the per-test DB that schema.py built.
     assert _codebase_objects(conn) == expected
-
-
-def test_table_is_local_only_and_migration_declares_no_crr() -> None:
-    assert "codebase_size_snapshots" in LOCAL_ONLY_TABLES
-    assert _m(17).crr_tables == frozenset()
 
 
 # ---------------------------------------------------------------------------

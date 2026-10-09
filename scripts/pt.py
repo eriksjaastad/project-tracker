@@ -4468,9 +4468,7 @@ def db_group(ctx):
 
     The migration runner applies any pending migrations from
     `scripts/db/migrations/` to the local tracker.db. Each migration
-    runs inside a transaction; CRR-table alters are bracketed with
-    `crsql_begin_alter` / `crsql_commit_alter` when cr-sqlite is loaded
-    (skipped otherwise).
+    runs inside a transaction, after a verified backup.
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -4481,9 +4479,9 @@ def db_migrate():
     """Apply every pending migration in order."""
     db = DatabaseManager()
 
-    # Schema migration is a destructive operation: it runs ALTERs, and for CRR
-    # tables the runner brackets them with crsql_begin_alter/crsql_commit_alter.
-    # `authorize` takes and verifies a full timestamped backup first.
+    # Schema migration is a destructive operation (ALTERs, and migration 018
+    # drops the cr-sqlite tables and triggers). `authorize` takes and verifies
+    # a full timestamped backup first.
     result = db.authorize(
         "migrations_apply", reason="pt db migrate: apply pending schema migrations"
     )

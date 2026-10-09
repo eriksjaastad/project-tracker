@@ -1,4 +1,4 @@
-"""Runtime safety regressions for CRR-compatible schema and write paths."""
+"""Runtime safety regressions for explicit-ID schema and write paths."""
 
 from __future__ import annotations
 

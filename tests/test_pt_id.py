@@ -13,8 +13,8 @@ Covers:
 - Clock-regression handling preserves monotonicity with a WARNING.
 - Pre-epoch clock rejection.
 - 41-bit timestamp overflow rejection (future-proofing).
-- load_machine_id priority: explicit _metadata > crsql_site_id hash > 0.
-- Default-zero warning logs once per process.
+- load_machine_id: explicit _metadata value, else the documented default 0
+  (no warning, no cr-sqlite).
 - Singleton reuse across get_generator() calls.
 """
 
@@ -49,7 +49,7 @@ from db.pt_id import (  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _reset():
-    """Every test starts with a fresh singleton + fresh warning state."""
+    """Every test starts with a fresh singleton."""
     reset_for_testing()
     yield
     reset_for_testing()
@@ -255,10 +255,10 @@ def test_clock_regression_preserves_monotonicity_with_warning(caplog):
 # ---------------------------------------------------------------------
 
 
-def test_load_machine_id_defaults_to_zero_when_db_path_none(caplog):
-    caplog.set_level(logging.WARNING, logger="pt.id")
-    assert load_machine_id(None) == 0
-    assert any("machine_id=0" in rec.message for rec in caplog.records)
+def test_load_machine_id_defaults_quietly_when_db_path_none(caplog):
+    caplog.set_level(logging.DEBUG, logger="pt.id")
+    assert load_machine_id(None) == pt_id.DEFAULT_MACHINE_ID == 0
+    assert caplog.records == []
 
 
 def test_load_machine_id_defaults_to_zero_when_db_missing(tmp_path):
@@ -267,7 +267,7 @@ def test_load_machine_id_defaults_to_zero_when_db_missing(tmp_path):
 
 
 def test_load_machine_id_reads_explicit_metadata_config(tmp_path):
-    """Operator-set _metadata['pt.machine_id'] wins over site_id hashing."""
+    """The stored _metadata['pt.machine_id'] is used as-is."""
     db = tmp_path / "explicit.db"
     conn = sqlite3.connect(db)
     conn.execute("""
@@ -302,62 +302,30 @@ def test_load_machine_id_rejects_out_of_range_metadata(tmp_path):
         load_machine_id(db)
 
 
-def test_load_machine_id_falls_back_when_metadata_table_missing(tmp_path, monkeypatch):
-    """_metadata may not exist on a bare-new DB; that's not an error,
-    we just move on to the next resolution step. On a machine without
-    cr-sqlite, that means default-zero."""
+def test_load_machine_id_defaults_when_metadata_table_missing(tmp_path, caplog):
+    """_metadata may not exist on a bare-new DB; that's not an error and
+    it is not worth a warning either: the documented default applies."""
     db = tmp_path / "bare.db"
     conn = sqlite3.connect(db)
     conn.execute("CREATE TABLE anything_else (id INTEGER)")
     conn.commit()
     conn.close()
-    # Simulate a machine without cr-sqlite installed.
-    monkeypatch.setattr(
-        pt_id, "_CRSQLITE_DYLIB_CANDIDATES",
-        (Path("/nonexistent/foo.dylib"), Path("/nonexistent/foo.so")),
-    )
-    assert load_machine_id(db) == 0
+    caplog.set_level(logging.DEBUG, logger="pt.id")
+    assert load_machine_id(db) == pt_id.DEFAULT_MACHINE_ID
+    assert caplog.records == []
 
 
-def test_load_machine_id_hashes_site_id_when_metadata_missing_but_crsqlite_present(tmp_path):
-    """On a machine WITH cr-sqlite installed, the fallback path goes to
-    hash(crsql_site_id()) not default-zero. This is the auto-config
-    behavior — fresh DB creates a new site_id the moment cr-sqlite
-    loads, and we derive a 10-bit machine_id from it.
-
-    Skipped if cr-sqlite isn't installed on the test host — the test
-    above (`..._falls_back_when_metadata_table_missing`) covers the
-    no-cr-sqlite path explicitly."""
-    crsqlite = Path.home() / ".local/lib/crsqlite/crsqlite.dylib"
-    if not crsqlite.exists():
-        pytest.skip("cr-sqlite dylib not present; auto-derivation path not testable here")
-
-    db = tmp_path / "with_crsqlite.db"
+def test_load_machine_id_defaults_when_metadata_has_no_row(tmp_path):
+    db = tmp_path / "norow.db"
     conn = sqlite3.connect(db)
-    conn.execute("CREATE TABLE anything_else (id INTEGER)")
+    conn.execute("""
+        CREATE TABLE _metadata (
+            key TEXT PRIMARY KEY, value TEXT NOT NULL, created_at TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
-    mid = load_machine_id(db)
-    assert 0 <= mid <= _MID_MAX, f"derived machine_id {mid} out of 10-bit range"
-
-
-# ---------------------------------------------------------------------
-# One-time warning semantics
-# ---------------------------------------------------------------------
-
-
-def test_default_zero_warning_fires_only_once_per_process(caplog):
-    caplog.set_level(logging.WARNING, logger="pt.id")
-    load_machine_id(None)
-    load_machine_id(None)
-    load_machine_id(None)
-    warnings = [
-        rec for rec in caplog.records
-        if "defaulting machine_id=0" in rec.message
-    ]
-    assert len(warnings) == 1, (
-        f"default-zero warning should fire once, fired {len(warnings)} times"
-    )
+    assert load_machine_id(db) == pt_id.DEFAULT_MACHINE_ID
 
 
 # ---------------------------------------------------------------------
@@ -474,84 +442,3 @@ def test_overflow_during_backward_clock_preserves_monotonicity():
         "monotonicity violated — buggy `==` would have assigned a "
         "smaller value during the backward-clock window"
     )
-
-
-# ---------------------------------------------------------------------
-# Hash-derivation golden values — pin the mapping
-# ---------------------------------------------------------------------
-
-
-def test_hash_derivation_is_stable_across_refactors():
-    """Pin the hash-derivation mapping: a fixed ``site_hex`` must always
-    produce the same ``machine_id``. If someone refactors the hashing
-    (different digest bytes, different algorithm), every existing
-    machine's derived ID silently changes — a breaking operational
-    event, so the mapping is locked by hardcoded literal expectations.
-
-    Expected values are NOT computed at test time (that would be a
-    tautology against the algorithm being tested). They were computed
-    once on 2026-04-20 with ``hashlib.sha256`` and the formula
-    ``((digest[0] << 8) | digest[1]) & 0x3FF`` and committed as
-    literals below. To regenerate if the algorithm ever legitimately
-    changes (which is itself a breaking event), run:
-
-        python3 -c "
-        import hashlib
-        for h in ['00'*16, 'ff'*16, '2f172ba73131458299556dc2f2773351']:
-            d = hashlib.sha256(bytes.fromhex(h)).digest()
-            print(h, ((d[0]<<8)|d[1]) & 0x3FF)
-        "
-    """
-    # Hardcoded golden values — DO NOT compute these at test time.
-    # Pairs: (site_hex, expected_machine_id_literal)
-    golden_cases = [
-        ("00" * 16, 839),   # all-zeros site
-        ("ff" * 16, 710),   # all-ones site
-        ("2f172ba73131458299556dc2f2773351", 883),  # laptop actual site_id
-    ]
-
-    # Exercise the production derivation exactly as load_machine_id does.
-    import hashlib as _hashlib  # imported by name so a refactor to a
-                                 # different algo in production does NOT
-                                 # alter the test's reference computation
-    for site_hex, expected in golden_cases:
-        digest = _hashlib.sha256(bytes.fromhex(site_hex)).digest()
-        actual = ((digest[0] << 8) | digest[1]) & _MID_MAX
-        assert actual == expected, (
-            f"hash derivation changed: site_hex={site_hex} "
-            f"got={actual}, expected literal={expected}. "
-            "If this is intentional, update the golden values and "
-            "note the algorithm migration in #6044's card — this is "
-            "a breaking change for every machine that previously had "
-            "its machine_id auto-derived."
-        )
-
-
-# ---------------------------------------------------------------------
-# Cross-platform dylib discovery
-# ---------------------------------------------------------------------
-
-
-def test_find_crsqlite_dylib_returns_none_when_missing(monkeypatch):
-    """On a fresh CI host with no cr-sqlite installed, _find_crsqlite_dylib
-    must return None so the fallback-to-default-zero path can fire."""
-    from db.pt_id import _find_crsqlite_dylib
-    monkeypatch.setattr(
-        pt_id, "_CRSQLITE_DYLIB_CANDIDATES",
-        (Path("/nonexistent/foo.dylib"), Path("/nonexistent/foo.so")),
-    )
-    assert _find_crsqlite_dylib() is None
-
-
-def test_find_crsqlite_dylib_picks_first_existing(tmp_path, monkeypatch):
-    """If both .dylib and .so exist, the first in the candidate list
-    wins. Documents a stable precedence for debugging mixed-platform
-    environments."""
-    from db.pt_id import _find_crsqlite_dylib
-    fake_dylib = tmp_path / "crsqlite.dylib"
-    fake_dylib.write_bytes(b"not a real dylib")
-    monkeypatch.setattr(
-        pt_id, "_CRSQLITE_DYLIB_CANDIDATES",
-        (fake_dylib, Path("/nonexistent/other.so")),
-    )
-    assert _find_crsqlite_dylib() == fake_dylib
