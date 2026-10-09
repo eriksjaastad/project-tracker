@@ -160,3 +160,29 @@ def test_a_failing_id_lookup_names_the_token_and_exits_one(db, monkeypatch) -> N
     result = CliRunner().invoke(pt.tasks_group, ["review", "4242"])
     assert result.exit_code == 1
     assert "Failed to review task #4242: lookup broke" in result.output
+
+
+@pytest.mark.parametrize("dirname", ["proj-id", "Proj Name"])
+def test_tasks_list_detects_project_from_cwd(db, tmp_path, monkeypatch, dirname: str) -> None:
+    db.add_task(text="mine", project_id="proj-id", status="To Do")
+    db.add_task(text="theirs", project_id="other", status="To Do")
+    monkeypatch.setenv("PT_CALLER_CWD", str(tmp_path / dirname))
+    result = CliRunner().invoke(pt.tasks_group, ["list"])
+    assert result.exit_code == 0, result.output
+    assert "mine" in result.output
+    assert "theirs" not in result.output
+
+
+def test_cwd_detection_names_the_directory_when_the_name_is_shared(db, tmp_path, monkeypatch) -> None:
+    from db import backend_manager
+
+    rows = [
+        {"id": "dup-1", "name": "Dup", "path": "/tmp/d1", "status": "active"},
+        {"id": "dup-2", "name": "Dup", "path": "/tmp/d2", "status": "active"},
+    ]
+    monkeypatch.setattr(backend_manager.DatabaseManager, "get_all_projects", lambda self, *a, **k: rows)
+    monkeypatch.setenv("PT_CALLER_CWD", str(tmp_path / "dup"))
+    result = CliRunner().invoke(pt.tasks_group, ["list"])
+    assert result.exit_code == 2
+    assert "Can't tell the project from directory 'dup'" in result.output
+    assert "Pass -p <id>" in result.output

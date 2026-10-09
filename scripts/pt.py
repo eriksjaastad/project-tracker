@@ -583,7 +583,13 @@ def _detect_project_from_cwd(db):
     import os
     cwd = os.environ.get("PT_CALLER_CWD", os.getcwd())
     dir_name = os.path.basename(cwd)
-    return _resolve_project_id(db, dir_name)
+    try:
+        return _resolve_project_id(db, dir_name)
+    except click.UsageError as e:
+        # The caller typed no project; say where the name came from and how to pick.
+        raise click.UsageError(
+            f"Can't tell the project from directory '{dir_name}': {e.message}. Pass -p <id>."
+        ) from e
 
 
 # =============================================================================
