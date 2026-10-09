@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import httpx
 
 from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File, Query
@@ -4550,10 +4551,13 @@ def _gh_call(args: List[str], timeout: int = 30) -> tuple:
         )
         if result.returncode != 0:
             stderr = result.stderr.strip()
-            logger.warning(f"gh command failed: gh {' '.join(args)} — {stderr}")
             blob = (stderr + " " + result.stdout).lower()
             if any(marker in blob for marker in _GH_NOT_FOUND_MARKERS):
+                # Expected for tracked projects that aren't on GitHub; callers
+                # count it, so it is not a warning.
+                logger.debug(f"gh target not found: gh {' '.join(args)} — {stderr}")
                 return None, GH_NOT_FOUND
+            logger.warning(f"gh command failed: gh {' '.join(args)} — {stderr}")
             return None, GH_ERROR
         if not result.stdout.strip():
             return None, GH_OK
@@ -4608,8 +4612,33 @@ def _get_tracked_repo_names() -> List[str]:
     return sorted(set(names))
 
 
+# Most tracked projects that aren't on GitHub never will be (third-party
+# checkouts in github-repos/, local-only projects), so a "not found" is
+# remembered instead of asked again every refresh. They still count toward
+# repos_not_on_github, so a token losing `repo` scope still shows as a jump.
+# A repo created on GitHub appears within the TTL, or at once after a restart.
+_GH_MISSING_TTL = 6 * 3600
+_gh_missing: Dict[str, float] = {}
+_gh_missing_lock = threading.Lock()
+
+# gh calls run a few at a time; GitHub's secondary rate limit allows far more.
+_GH_WORKERS = 6
+
+
+def _gh_map(fn, items: List) -> List:
+    """Run fn over items on a few threads; results come back in input order."""
+    if not items:
+        return []
+    with ThreadPoolExecutor(max_workers=_GH_WORKERS, thread_name_prefix="gh") as pool:
+        return list(pool.map(fn, items))
+
+
 def _fetch_github_data() -> Dict:
-    """Fetch GitHub data for tracked projects only (from kanban board)."""
+    """Fetch GitHub data for tracked projects only (from kanban board).
+
+    Each stage's calls run in parallel, and the snapshot is assembled in the
+    same order a one-at-a-time fetch would produce.
+    """
 
     # 1. Account info
     user = _gh_json(["api", "/user"])
@@ -4626,12 +4655,16 @@ def _fetch_github_data() -> Dict:
     fetch_errors: List[str] = []
 
     repos: List[Dict] = []
-    repos_missing = 0
-    for name in tracked_names:
-        repo_info, failure = _gh_call([
-            "repo", "view", f"{owner}/{name}",
-            "--json", ",".join(REPO_VIEW_FIELDS),
-        ], timeout=10)
+    now = _monotonic()
+    with _gh_missing_lock:
+        known_missing = {n for n, until in _gh_missing.items() if until > now}
+    repos_missing = sum(1 for n in tracked_names if n in known_missing)
+    to_view = [n for n in tracked_names if n not in known_missing]
+    views = _gh_map(lambda name: _gh_call([
+        "repo", "view", f"{owner}/{name}",
+        "--json", ",".join(REPO_VIEW_FIELDS),
+    ], timeout=10), to_view)
+    for name, (repo_info, failure) in zip(to_view, views):
         if repo_info:
             repos.append(repo_info)
         elif failure == GH_NOT_FOUND:
@@ -4645,6 +4678,8 @@ def _fetch_github_data() -> Dict:
             # this count is surfaced in the dashboard summary, so losing access
             # shows up as a jump in "Not on GitHub" rather than as nothing.
             repos_missing += 1
+            with _gh_missing_lock:
+                _gh_missing[name] = _monotonic() + _GH_MISSING_TTL
             logger.info(f"Tracked project '{name}' is not on GitHub (or not visible to this token)")
         else:
             # A failed fetch drops this repo from `repos` entirely, taking its
@@ -4654,17 +4689,16 @@ def _fetch_github_data() -> Dict:
 
     # 3. Open PRs across tracked repos
     all_prs: List[Dict] = []
-    for repo in repos:
+    active = [r for r in repos if not r.get("isArchived")]
+    pr_lists = _gh_map(lambda repo: _gh_call([
+        "pr", "list",
+        "--repo", f"{owner}/{repo.get('name', '')}",
+        "--json", ",".join(PR_LIST_FIELDS),
+        "--state", "open",
+        "--limit", "50",
+    ], timeout=15), active)
+    for repo, (prs, failure) in zip(active, pr_lists):
         repo_name = repo.get("name", "")
-        if repo.get("isArchived"):
-            continue
-        prs, failure = _gh_call([
-            "pr", "list",
-            "--repo", f"{owner}/{repo_name}",
-            "--json", ",".join(PR_LIST_FIELDS),
-            "--state", "open",
-            "--limit", "50",
-        ], timeout=15)
         if failure is not GH_OK:
             # Distinguish a failed fetch from a repo with no open PRs. Without
             # this the UI renders an empty PR panel either way, which is how a
@@ -4673,9 +4707,9 @@ def _fetch_github_data() -> Dict:
             continue
         # `gh pr list` is already scoped to one repo, so it has no `repository`
         # field to return. Attach it here — consumers key PRs by repo name.
-        for pr in prs:
+        for pr in prs or []:
             pr["repository"] = {"name": repo_name}
-        all_prs.extend(prs)
+        all_prs.extend(prs or [])
 
     # 4. Recent commits (last 7 days) — only from tracked repos
     # Use timezone-aware UTC and a Zulu timestamp GitHub accepts. Avoid
@@ -4683,44 +4717,40 @@ def _fetch_github_data() -> Dict:
     # comparisons against GitHub's pushedAt brittle.
     seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     recent_commits: List[Dict] = []
-    for repo in repos:
-        pushed = repo.get("pushedAt", "")
-        if pushed and pushed >= seven_days_ago and not repo.get("isArchived"):
-            repo_name = repo.get("name", "")
-            default_branch = (repo.get("defaultBranchRef") or {}).get("name", "main")
-            commits, failure = _gh_call([
-                "api", f"/repos/{owner}/{repo_name}/commits",
-                "-q", ".",
-                "--method", "GET",
-                "-f", f"since={seven_days_ago}",
-                "-f", f"sha={default_branch}",
-                "-f", "per_page=20",
-            ], timeout=15)
-            if failure is not GH_OK:
-                fetch_errors.append(f"recent commits for {owner}/{repo_name}")
-            if commits and isinstance(commits, list):
-                for c in commits[:20]:
-                    recent_commits.append({
-                        "repo": repo_name,
-                        "sha": c.get("sha", "")[:7],
-                        "message": (c.get("commit", {}).get("message") or "").split("\n")[0],
-                        "author": (c.get("commit", {}).get("author") or {}).get("name", ""),
-                        "date": (c.get("commit", {}).get("author") or {}).get("date", ""),
-                        "url": c.get("html_url", ""),
-                    })
+    recent = [r for r in active if r.get("pushedAt") and r["pushedAt"] >= seven_days_ago]
+    commit_lists = _gh_map(lambda repo: _gh_call([
+        "api", f"/repos/{owner}/{repo.get('name', '')}/commits",
+        "-q", ".",
+        "--method", "GET",
+        "-f", f"since={seven_days_ago}",
+        "-f", f"sha={(repo.get('defaultBranchRef') or {}).get('name', 'main')}",
+        "-f", "per_page=20",
+    ], timeout=15), recent)
+    for repo, (commits, failure) in zip(recent, commit_lists):
+        repo_name = repo.get("name", "")
+        if failure is not GH_OK:
+            fetch_errors.append(f"recent commits for {owner}/{repo_name}")
+        if commits and isinstance(commits, list):
+            for c in commits[:20]:
+                recent_commits.append({
+                    "repo": repo_name,
+                    "sha": c.get("sha", "")[:7],
+                    "message": (c.get("commit", {}).get("message") or "").split("\n")[0],
+                    "author": (c.get("commit", {}).get("author") or {}).get("name", ""),
+                    "date": (c.get("commit", {}).get("author") or {}).get("date", ""),
+                    "url": c.get("html_url", ""),
+                })
 
     # 5. Workflow runs (CI status) — recent runs across tracked repos
     workflow_runs: List[Dict] = []
-    for repo in repos:
-        if repo.get("isArchived"):
-            continue
+    run_lists = _gh_map(lambda repo: _gh_call([
+        "api", f"/repos/{owner}/{repo.get('name', '')}/actions/runs",
+        "-q", ".",
+        "--method", "GET",
+        "-f", "per_page=5",
+    ], timeout=10), active)
+    for repo, (runs, failure) in zip(active, run_lists):
         repo_name = repo.get("name", "")
-        runs, failure = _gh_call([
-            "api", f"/repos/{owner}/{repo_name}/actions/runs",
-            "-q", ".",
-            "--method", "GET",
-            "-f", "per_page=5",
-        ], timeout=10)
         if failure is not GH_OK:
             # Without this a rate-limited runs endpoint empties workflow_runs,
             # silently blanking the Failing CI panel and undercounting failing_ci.
@@ -4739,16 +4769,14 @@ def _fetch_github_data() -> Dict:
 
     # 6. Branch info — only tracked repos
     branch_info: List[Dict] = []
-    for repo in repos:
-        if repo.get("isArchived"):
-            continue
+    branch_lists = _gh_map(lambda repo: _gh_call([
+        "api", f"/repos/{owner}/{repo.get('name', '')}/branches",
+        "-q", ".",
+        "--method", "GET",
+        "-f", "per_page=100",
+    ], timeout=10), active)
+    for repo, (branches, failure) in zip(active, branch_lists):
         repo_name = repo.get("name", "")
-        branches, failure = _gh_call([
-            "api", f"/repos/{owner}/{repo_name}/branches",
-            "-q", ".",
-            "--method", "GET",
-            "-f", "per_page=100",
-        ], timeout=10)
         if failure is not GH_OK:
             fetch_errors.append(f"branches for {owner}/{repo_name}")
         if branches and isinstance(branches, list):

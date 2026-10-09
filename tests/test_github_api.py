@@ -15,9 +15,21 @@ import warnings
 from datetime import datetime
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+
+@pytest.fixture(autouse=True)
+def _forget_missing_repos():
+    """The not-on-GitHub memory is process-wide; keep each test independent."""
+    from dashboard import app
+
+    app._gh_missing.clear()
+    yield
+    app._gh_missing.clear()
 
 
 def as_gh_call(fn):
@@ -947,3 +959,126 @@ class TestRepoViewFields:
             f"The installed gh no longer accepts: {sorted(missing)}. "
             "Every repo fetch would fail. Update REPO_VIEW_FIELDS in dashboard/app.py."
         )
+
+
+class TestParallelFetch:
+    """#8093: the stages run in parallel, the output keeps sequential order, and a
+    repo that isn't on GitHub is remembered instead of asked every refresh."""
+
+    @staticmethod
+    def _fake(missing=(), errors=(), delay=None, seen=None):
+        import random
+        import threading
+        import time
+        from dashboard.app import GH_NOT_FOUND, GH_OK, GH_ERROR
+
+        lock = threading.Lock()
+        state = {"now": 0, "max": 0}
+
+        def call(args, timeout=30):
+            with lock:
+                state["now"] += 1
+                state["max"] = max(state["max"], state["now"])
+                if seen is not None:
+                    seen.append(args)
+            try:
+                if delay:
+                    time.sleep(random.uniform(0, delay))
+                if args == ["api", "/user"]:
+                    return ({"login": "me"}, GH_OK)
+                text = " ".join(args)
+                for name in errors:
+                    if f"me/{name}" in text and "branches" in text:
+                        return (None, GH_ERROR)
+                if args[:2] == ["repo", "view"]:
+                    name = args[2].split("/", 1)[1]
+                    if name in missing:
+                        return (None, GH_NOT_FOUND)
+                    return ({"name": name, "isArchived": False,
+                             "pushedAt": "2999-01-01T00:00:00Z",
+                             "defaultBranchRef": {"name": "main"}}, GH_OK)
+                if args[0] == "pr":
+                    repo = args[args.index("--repo") + 1].split("/", 1)[1]
+                    return ([{"title": f"pr-{repo}", "headRefName": "x"}], GH_OK)
+                if "actions/runs" in text:
+                    return ({"workflow_runs": []}, GH_OK)
+                return ([], GH_OK)
+            finally:
+                with lock:
+                    state["now"] -= 1
+
+        return call, state
+
+    def test_output_order_matches_the_tracked_order(self):
+        from dashboard.app import _fetch_github_data
+
+        names = [f"r{i:02d}" for i in range(12)]
+        call, state = self._fake(errors=("r03", "r07"), delay=0.02)
+        with patch("dashboard.app._gh_call", side_effect=call), \
+                patch("dashboard.app._get_tracked_repo_names", return_value=names):
+            result = _fetch_github_data()
+
+        assert [r["name"] for r in result["repos"]] == names
+        assert [p["repository"]["name"] for p in result["open_pull_requests"]] == names
+        assert result["fetch_errors"] == ["branches for me/r03", "branches for me/r07"]
+        assert state["max"] > 1, "stages should run gh calls concurrently"
+
+    def test_a_missing_repo_is_remembered_and_still_counted(self, monkeypatch):
+        from dashboard import app
+
+        clock = [1000.0]
+        monkeypatch.setattr(app, "_monotonic", lambda: clock[0])
+        seen = []
+        call, _ = self._fake(missing=("gone",), seen=seen)
+        with patch("dashboard.app._gh_call", side_effect=call), \
+                patch("dashboard.app._get_tracked_repo_names", return_value=["gone", "here"]):
+            first = app._fetch_github_data()
+            views_first = [a for a in seen if a[:2] == ["repo", "view"]]
+            seen.clear()
+            second = app._fetch_github_data()
+            views_second = [a for a in seen if a[:2] == ["repo", "view"]]
+            seen.clear()
+            clock[0] += app._GH_MISSING_TTL + 1
+            app._fetch_github_data()
+            views_third = [a for a in seen if a[:2] == ["repo", "view"]]
+
+        assert first["summary"]["repos_not_on_github"] == 1
+        assert second["summary"]["repos_not_on_github"] == 1
+        assert [a[2] for a in views_first] == ["me/gone", "me/here"]
+        assert [a[2] for a in views_second] == ["me/here"]
+        assert [a[2] for a in views_third] == ["me/gone", "me/here"]
+
+    def test_an_empty_pr_list_response_is_no_prs(self):
+        from dashboard.app import GH_OK, _fetch_github_data
+
+        def call(args, timeout=30):
+            if args == ["api", "/user"]:
+                return ({"login": "me"}, GH_OK)
+            if args[:2] == ["repo", "view"]:
+                return ({"name": "r", "isArchived": False, "pushedAt": ""}, GH_OK)
+            if args[0] == "pr":
+                return (None, GH_OK)  # gh printed nothing
+            return ([], GH_OK)
+
+        with patch("dashboard.app._gh_call", side_effect=call), \
+                patch("dashboard.app._get_tracked_repo_names", return_value=["r"]):
+            result = _fetch_github_data()
+
+        assert result["open_pull_requests"] == []
+        assert result["fetch_errors"] == []
+
+
+def test_not_found_is_logged_below_warning(caplog):
+    import logging
+    from dashboard.app import GH_NOT_FOUND, GH_ERROR, _gh_call
+
+    missing = MagicMock(returncode=1, stdout="", stderr="GraphQL: Could not resolve to a Repository")
+    broken = MagicMock(returncode=1, stdout="", stderr="HTTP 502")
+    with caplog.at_level(logging.DEBUG):
+        with patch("dashboard.app.subprocess.run", return_value=missing):
+            assert _gh_call(["repo", "view", "me/x"])[1] == GH_NOT_FOUND
+        with patch("dashboard.app.subprocess.run", return_value=broken):
+            assert _gh_call(["repo", "view", "me/y"])[1] == GH_ERROR
+    warnings_ = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert not any("me/x" in m for m in warnings_)
+    assert any("me/y" in m for m in warnings_)
