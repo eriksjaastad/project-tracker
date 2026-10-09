@@ -20,6 +20,7 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 from .schema import (
     create_database,
     get_db_path,
+    LEGACY_CRSQL_MESSAGE,
     has_legacy_crsql_triggers,
     raise_if_legacy_crsql,
 )
@@ -85,7 +86,11 @@ class DatabaseManager:
                     # path ensured: reads and `pt db migrate` keep working, a
                     # write raises LegacyCrsqlError, and the next manager
                     # re-checks, so ensuring resumes once 018 has run.
-                    if not has_legacy_crsql_triggers(self.db_path):
+                    if has_legacy_crsql_triggers(self.db_path):
+                        # Some callers turn a write error into a plain string, so
+                        # name the fix here too.
+                        logger.warning(LEGACY_CRSQL_MESSAGE)
+                    else:
                         create_database(self.db_path)
                         _local_schema_ensured_paths.add(db_key)
 

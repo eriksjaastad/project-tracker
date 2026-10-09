@@ -336,3 +336,13 @@ def test_tracker_conn_translates_legacy_crsql_errors(tmp_path: Path) -> None:
         assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
     finally:
         conn.close()
+
+
+def test_opening_a_legacy_database_logs_the_fix(tmp_path: Path, caplog) -> None:
+    """Some callers stringify write errors, so the remedy is logged up front too."""
+    import logging
+
+    db_path = _legacy_db(tmp_path)
+    with caplog.at_level(logging.WARNING):
+        BackendManager(db_path)
+    assert LEGACY_CRSQL_MESSAGE in [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
