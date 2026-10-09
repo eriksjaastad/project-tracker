@@ -603,13 +603,8 @@ def ensure_schema(cursor: Any) -> None:
         "ALTER TABLE tasks ADD COLUMN created_by TEXT",
         # #6870 — Done-column retention. Set on Done cards past the per-project
         # display cap so the board stays short WITHOUT deleting history.
-        # NOTE: this list only runs on databases below CURRENT_SCHEMA_VERSION,
-        # i.e. pre-CRR ones. Databases that have already been through
-        # crsql_as_crr('tasks') get the column from migration 012, which
-        # brackets the ALTER with crsql_begin_alter/crsql_commit_alter. A bare
-        # ALTER on a live CRR table leaves the crsql triggers enumerating a
-        # stale column list, so never bump CURRENT_SCHEMA_VERSION just to push
-        # a tasks column through here.
+        # NOTE: this list only runs on databases below CURRENT_SCHEMA_VERSION;
+        # newer databases get the column from migration 012.
         "ALTER TABLE tasks ADD COLUMN archived_at TEXT",
     ]:
         _migrate_add_column(cursor, sql)
@@ -1164,6 +1159,27 @@ def ensure_schema(cursor: Any) -> None:
     cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (?, ?)", (CURRENT_SCHEMA_VERSION, datetime.now().isoformat()))
 
 
+def has_legacy_crsql_triggers(db_path: Path) -> bool:
+    """True if the database still carries `__crsql_` triggers (pre-migration 018).
+
+    Such triggers call cr-sqlite functions, which no connection loads any more,
+    so every write to the affected tables fails with "no such function:
+    crsql_internal_sync_bit". Reads are unaffected. A missing file reports
+    False; any other error (unreadable or corrupt file) propagates.
+    """
+    from contextlib import closing
+
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return False
+    uri = db_path.resolve().as_uri() + "?mode=ro"
+    with closing(sqlite3.connect(uri, uri=True)) as conn:
+        return conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='trigger' "
+            "AND name LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' LIMIT 1"
+        ).fetchone() is not None
+
+
 def create_database(db_path: Optional[Path] = None) -> None:
     """Create/migrate a LOCAL SQLite database.
 
@@ -1188,17 +1204,6 @@ def create_database(db_path: Optional[Path] = None) -> None:
 
     # Run all DDL migrations
     ensure_schema(cursor)
-
-    # Phase 2 boot-time manifest assertion — every live table must be in
-    # one of CRR_TABLES / LOCAL_ONLY_TABLES / CONTROL_PLANE_TABLES. An
-    # unclassified table means the sync layer (when cr-sqlite lands)
-    # would either silently exclude it or silently include it via a
-    # default. Both are unacceptable. Fail fast. See crr_manifest.py.
-    # Local import: avoids a circular-import risk during schema module
-    # load and keeps the manifest dependency out of the hot path at
-    # module import time.
-    from .crr_manifest import assert_tables_classified
-    assert_tables_classified(conn)
 
     # Local-only: store/validate fingerprint
     fingerprint = _get_or_create_fingerprint(db_path)

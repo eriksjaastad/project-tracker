@@ -8,11 +8,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from db.crr_manifest import (  # noqa: E402
-    CRR_TABLES,
-    LOCAL_ONLY_TABLES,
-    assert_tables_classified,
-)
 from db.migration_runner import discover_migrations  # noqa: E402
 from db.schema import ensure_schema  # noqa: E402
 
@@ -24,7 +19,6 @@ def _migration_up(conn: sqlite3.Connection) -> None:
     migration = next(
         m for m in discover_migrations(MIGRATIONS_DIR) if m.version == 14
     )
-    assert migration.crr_tables == frozenset()
     migration.up(conn)
 
 
@@ -78,9 +72,6 @@ def test_fresh_schema_matches_migration_and_manifest() -> None:
     conn = sqlite3.connect(":memory:")
     ensure_schema(conn.cursor())
     _migration_up(conn)
-    assert "task_notes_history" in LOCAL_ONLY_TABLES
-    assert not ({"task_notes_history"} & CRR_TABLES)
-    assert_tables_classified(conn)
 
     migrated = sqlite3.connect(":memory:")
     _migration_up(migrated)

@@ -26,9 +26,8 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra test --python 3.13
 
-      # The visual tests self-skip without a dashboard on localhost:8000, and
-      # the cr-sqlite tests self-skip without crsqlite.dylib, so a clean Linux
-      # runner reports them as skips rather than failures.
+      # The visual tests self-skip without a dashboard on localhost:8000, so a
+      # clean Linux runner reports them as skips rather than failures.
       - name: Run tests
         run: uv run --python 3.13 python -m pytest tests/ -q
 

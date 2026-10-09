@@ -131,3 +131,12 @@ the cutover runbook (`docs/DBMED_RETIREMENT.md`, removed in #8093 after the
 **Context:** The cr-sqlite sync daemon (`sync_daemon`, `sync_http`, `sync_state`, `sync_checks`), `pt sync` and the `com.pt.sync-daemon` / `com.pt.tailscale-up` LaunchAgent templates were never installed; the daemon's exchange was a stub and the last sync was April 2026. The tailscale-up login job failed on every login.
 
 **Decision:** Delete the stack, `pt sync`, its tests, `scripts/log_rotation.py` (the daemon's only caller), `scripts/launchd/install.sh` and two uninstalled job templates (`complexity-scan.plist`, `com.user.ecosystem_maintenance.plist`). Migration `002_add_sync_ledgers` and the CRR manifest stay: cr-sqlite goes in its own PR.
+
+---
+
+## 2026-10-09 — cr-sqlite removed (#8093, D2)
+**Accepted 2026-10-09 (Erik, D2).**
+
+**Context:** With the sync stack gone, cr-sqlite only added cost: 30 triggers, 20 clock and pk tables (136,974 clock rows on 2026-10-09), a dylib loaded on every connection, and a `crsql_finalize()` workaround for leaked descriptors (#6482).
+
+**Decision:** Migration `018_drop_cr_sqlite` drops the triggers, `__crsql_clock` / `__crsql_pks` tables and the three `crsql_*` metadata tables, after writing the machine id the old code derived from `crsql_site_id()` into `_metadata['pt.machine_id']` so ID machine bits stay continuous. No connection loads the extension any more; `crr_manifest.py` and the runner's alter bracketing are deleted. A database still carrying `__crsql_` triggers (a restored pre-018 backup) can be read, but its writes fail with SQLite's own "no such function: crsql_internal_sync_bit" until `pt db migrate` runs; pt's pending-migrations notice names the fix. `pt db migrate` runs 018's cleanup first, as one transaction, whenever cr-sqlite objects remain, so any older backup upgrades cleanly. Run the migration right after merge, since code without the extension cannot write to a database with the triggers.

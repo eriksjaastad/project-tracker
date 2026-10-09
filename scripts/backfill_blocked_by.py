@@ -35,10 +35,6 @@ Safety
 - `--dry-run` prints the full before/after per row and writes nothing.
 - `--apply` takes a WAL-safe backup via sqlite's backup API first. A plain
   `cp` of tracker.db misses the -wal file and can silently omit recent writes.
-- `tasks` is a CRR table, so its update trigger calls
-  `crsql_internal_sync_bit()`. Without crsqlite.dylib loaded every write fails
-  with "no such function"; `connect()` loads it and refuses to run on a
-  CRR-ified DB when the dylib is missing.
 
 Usage
 -----
@@ -61,36 +57,7 @@ def default_db_path() -> Path:
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    """Open the DB with cr-sqlite loaded.
-
-    `tasks` is a CRR table, so its update trigger calls
-    `crsql_internal_sync_bit()`. A plain `sqlite3.connect` cannot execute that
-    and every UPDATE fails with "no such function" — the same trap #6870 hit
-    when `pt db migrate` tried to ALTER without the extension.
-    """
-    conn = sqlite3.connect(db_path)
-    crr_ified = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks__crsql_clock'"
-    ).fetchone()
-
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from db.pt_id import _find_crsqlite_dylib
-
-    dylib = _find_crsqlite_dylib()
-    if not dylib:
-        if crr_ified:
-            # Refuse rather than fail mid-update. A fresh database that was
-            # never through crsql_as_crr has no such trigger and is fine.
-            raise RuntimeError(
-                "tasks is CRR-ified but crsqlite.dylib was not found. Its "
-                "update trigger needs the extension; refusing to run."
-            )
-        return conn
-
-    conn.enable_load_extension(True)
-    conn.load_extension(str(dylib), entrypoint="sqlite3_crsqlite_init")
-    conn.enable_load_extension(False)
-    return conn
+    return sqlite3.connect(db_path)
 
 
 def backup_database(db_path: Path) -> Path:
