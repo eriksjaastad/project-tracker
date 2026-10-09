@@ -148,70 +148,6 @@ def _print_banner() -> None:
     console.print(_PT_BANNER)
 
 
-def _notify_inbox(card_id: int, project_id: str, card_status: str, description: str) -> None:
-    """Write an inbox message after a task mutation (opt-in per project).
-
-    Only fires if ~/.claude/inbox/<project>/ exists.
-    Called from: tasks_create, tasks_update, tasks_move, tasks_done,
-    tasks_start, tasks_review, tasks_cancel, tasks_delete, tasks_clear_done.
-    """
-    import os, logging
-    _log = logging.getLogger(__name__)
-    # Sanitize project_id to prevent path traversal
-    safe_id = project_id.replace("/", "").replace("\\", "").replace("..", "")
-    if not safe_id or safe_id != project_id:
-        _log.warning(f"Skipping inbox notification: unsafe project_id '{project_id}'")
-        return
-    inbox_dir = Path(os.path.expanduser("~")) / ".claude" / "inbox" / safe_id
-    if not inbox_dir.is_dir():
-        return
-
-    from datetime import timezone
-    now = datetime.now(timezone.utc)
-    timestamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    filename_ts = now.strftime("%Y%m%dT%H%M%SZ")
-    filepath = inbox_dir / f"{filename_ts}-kanban.md"
-
-    # Determine action hint based on status
-    action_hints = {
-        "Backlog": "This task is in the backlog. No action needed yet.",
-        "To Do": f"Start this task when ready. Use `pt tasks start {card_id}` to begin.",
-        "In Progress": "This task is now in progress.",
-        "Review": "This task is ready for review.",
-        "Done": "This task has been completed.",
-        "Cancelled": "This task has been cancelled.",
-        "Deleted": "This task has been permanently deleted.",
-    }
-    action = action_hints.get(card_status, f"Status changed to {card_status}.")
-
-    content = f"""---
-from: kanban
-to: {project_id}
-timestamp: {timestamp}
-priority: normal
-type: card-notification
-card_id: {card_id}
-card_status: {card_status}
----
-
-Card #{card_id} — {card_status}
-
-**Description:** {description}
-
-**Status:** {card_status}
-**Action:** {action}
-"""
-    try:
-        import tempfile
-        # Atomic write: temp file then rename
-        fd, tmp_path = tempfile.mkstemp(dir=str(inbox_dir), suffix=".tmp")
-        with os.fdopen(fd, 'w') as f:
-            f.write(content)
-        os.rename(tmp_path, str(filepath))
-    except Exception as e:
-        _log.warning(f"Inbox notification failed for #{card_id}: {e}")
-
-
 @click.group(invoke_without_command=True)
 @click.version_option(PT_VERSION, "--version", prog_name="pt")
 @click.pass_context
@@ -684,12 +620,8 @@ def list_projects():
 def status(name):
     """Show detailed status for a project."""
     db = DatabaseManager()
-    projects = db.get_all_projects()
-    project = None
-    for p in projects:
-        if p["name"].lower() == name.lower():
-            project = p
-            break
+    project_id = _resolve_project_id(db, name)
+    project = db.get_project(project_id) if project_id else None
     if not project:
         console.print(f"[red]Project '{name}' not found[/red]")
         return
@@ -718,46 +650,6 @@ def status(name):
             cost = f" (${service['cost_monthly']}/mo)" if service.get('cost_monthly') else ""
             console.print(f"  • {service['service_name']}{cost}")
     console.print()
-
-
-@cli.command()
-@click.option("-p", "--project", default=None, help="Filter by project name")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def orphans(project, json_output):
-    """List all orphan files (files with no connections)."""
-    import json
-    graph_path = Path(__file__).parent.parent / "data" / "graph.json"
-    if not graph_path.exists():
-        console.print("[red]Graph data not found. Run 'pt scan' first.[/red]")
-        return
-    with open(graph_path) as f:
-        graph_data = json.load(f)
-    orphan_nodes = [node for node in graph_data["nodes"] if node.get("is_orphan", False)]
-    if project:
-        orphan_nodes = [node for node in orphan_nodes if node["project"] == project]
-    if not orphan_nodes:
-        if project:
-            console.print(f"[green]✓ No orphan files found in project '{project}'[/green]")
-        else:
-            console.print("[green]✓ No orphan files found in the ecosystem[/green]")
-        return
-    if json_output:
-        output = {"total_orphans": len(orphan_nodes), "orphans": [{"path": n["id"], "name": n["name"], "project": n["project"], "type": n["type"]} for n in orphan_nodes]}
-        print(json.dumps(output, indent=2))
-        return
-    orphans_by_project = {}
-    for node in orphan_nodes:
-        proj = node["project"]
-        if proj not in orphans_by_project: orphans_by_project[proj] = []
-        orphans_by_project[proj].append(node)
-    console.print(f"\n[bold yellow]Found {len(orphan_nodes)} orphan files[/bold yellow]\n")
-    for proj, nodes in sorted(orphans_by_project.items()):
-        console.print(f"[cyan]{proj}[/cyan] ({len(nodes)} orphans):")
-        for node in sorted(nodes, key=lambda n: n["id"]):
-            console.print(f"  • {node['id']}")
-        console.print()
-    console.print(f"[dim]Total: {len(orphan_nodes)} orphans across {len(orphans_by_project)} projects[/dim]")
-    console.print(f"[dim]Tip: Use '--project <name>' to filter by project[/dim]")
 
 
 @cli.command()
@@ -1237,23 +1129,6 @@ def launch(port, no_scan, reload):
         console.print("\n\n[yellow]Dashboard stopped[/yellow]")
 
 
-@cli.command(name="add-agent")
-@click.argument("project")
-@click.argument("agent_name")
-@click.argument("role", default="")
-def add_agent(project, agent_name, role):
-    """Add an AI agent to a project."""
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    project_id = None
-    for p in projects:
-        if p["name"].lower() == project.lower(): project_id = p["id"]; break
-    if not project_id:
-        console.print(f"[red]Project '{project}' not found[/red]"); return
-    db.add_ai_agent(project_id, agent_name, role)
-    console.print(f"[green]✅ Added AI agent '{agent_name}' to {project}[/green]")
-
-
 @cli.command(name="add-cron")
 @click.argument("project")
 @click.argument("schedule")
@@ -1270,94 +1145,6 @@ def add_cron(project, schedule, command, description):
         console.print(f"[red]Project '{project}' not found[/red]"); return
     db.add_cron_job(project_id, schedule, command, description)
     console.print(f"[green]✅ Added cron job to {project}[/green]")
-
-
-@cli.command(name="add-service")
-@click.argument("project")
-@click.argument("service_name")
-@click.option("--cost", default=0.0, type=float, help="Monthly cost")
-@click.option("--purpose", default="", help="Purpose of the service")
-def add_service(project, service_name, cost, purpose):
-    """Add a service dependency to a project."""
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    project_id = None
-    for p in projects:
-        if p["name"].lower() == project.lower(): project_id = p["id"]; break
-    if not project_id:
-        console.print(f"[red]Project '{project}' not found[/red]"); return
-    db.add_service(project_id, service_name, purpose, cost)
-    console.print(f"[green]✅ Added service '{service_name}' to {project}[/green]")
-
-
-@cli.command(name="export-projects")
-@click.option("-o", "--output", default="data/projects_export.json", help="Output file path")
-def export_projects(output):
-    """Export all projects to JSON file for backup."""
-    import json as json_lib
-    from datetime import datetime, timezone
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    output_path = Path(output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        projects_dict = [dict(p) for p in projects]
-        export_data = {"exported_at": datetime.now(timezone.utc).isoformat(), "total_count": len(projects), "projects": projects_dict}
-        with open(output_path, 'w') as f:
-            json_lib.dump(export_data, f, indent=2)
-        console.print(f"[green]✅ Exported {len(projects)} projects to {output}[/green]")
-    except Exception as e:
-        console.print(f"[red]Failed to export projects: {e}[/red]")
-
-
-@cli.command(name="remove-project")
-@click.argument("project")
-def remove_project(project):
-    """Remove a single project from the database (not from disk).
-
-    ⚠️  REQUIRES DIRECT CONSENT FROM ERIK.
-    Do not run this command without explicit approval from Erik Sjaastad.
-    This removes the project entry and all associated data (tasks, cron jobs,
-    agents, services) from the tracker database. It does NOT delete any files
-    from disk.
-    """
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    target = None
-    for p in projects:
-        if p["name"].lower() == project.lower():
-            target = p
-            break
-    if not target:
-        console.print(f"[red]Project '{project}' not found in database.[/red]")
-        return
-
-    # Show what will be deleted — archived cards are deleted too, so count them
-    project_id = target["id"]
-    tasks = db.get_tasks(project_id=project_id, include_archived=True)
-    cron_jobs = db.get_cron_jobs(project_id)
-    agents = db.get_ai_agents(project_id)
-
-    console.print(f"\n[bold red]⚠️  DESTRUCTIVE OPERATION[/bold red]")
-    console.print(f"[bold]Project:[/bold] {target['name']}")
-    console.print(f"[bold]Path:[/bold] {target.get('path', 'unknown')}")
-    console.print(f"[bold]Tasks:[/bold] {len(tasks)}")
-    console.print(f"[bold]Cron jobs:[/bold] {len(cron_jobs)}")
-    console.print(f"[bold]AI agents:[/bold] {len(agents)}")
-    console.print(f"\nThis will remove the project and ALL associated data from the database.")
-    console.print(f"[dim]No files on disk will be affected. A backup is created automatically.[/dim]\n")
-
-    confirm = click.prompt(
-        "Type the project name to confirm deletion",
-        default="",
-        show_default=False,
-    )
-    if confirm.lower() != target["name"].lower():
-        console.print("[yellow]Cancelled. Project name did not match.[/yellow]")
-        return
-
-    db.delete_project(project_id)
-    console.print(f"[green]✅ Removed '{target['name']}' from the database.[/green]")
 
 
 @cli.group(name="project")
@@ -1495,12 +1282,8 @@ def retire_project(project, execute, keep_files, yes):
     from send2trash import send2trash
 
     db = DatabaseManager()
-    projects = db.get_all_projects()
-    target = None
-    for p in projects:
-        if p["id"].lower() == project.lower() or p["name"].lower() == project.lower():
-            target = p
-            break
+    project_id = _resolve_project_id(db, project)
+    target = db.get_project(project_id) if project_id else None
     if not target:
         console.print(f"[red]Project '{project}' not found in database.[/red]")
         sys.exit(1)
@@ -1974,7 +1757,6 @@ def tasks_create(text, project, status, priority, prompt, category, description,
         if parent: msg += f" [dim](subtask of #{parent})[/dim]"
         if blocked_by: msg += f" [dim](blocked by {blocked_by})[/dim]"
         console.print(msg)
-        _notify_inbox(task["id"], project_id, status, text)
     except BlockedTaskProjectError:
         console.print(
             f"[yellow]Failed to create task: task creation is blocked for '{project_id}'.[/yellow]"
@@ -2063,10 +1845,6 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes,
         if key == "notes" and append_notes is not None:
             value = entry
         console.print(f"  {key}: {escape(str(value))}")
-    if "status" in updates:
-        task = db.get_task(task_id)
-        if task:
-            _notify_inbox(task_id, task["project_id"], updates["status"], task["text"])
 
 
 @tasks_group.command(name="notes-history")
@@ -2098,15 +1876,57 @@ def tasks_notes_history(task_id, json_output):
             console.print(f"  new: {escape(new)}")
 
 
-def _exit_if_any_failed(failed: int) -> None:
-    """Exit 1 when any requested card was not changed (not found, refused, error).
+def _transition_cards(db, task_ids, *, verb, label, noun, step, suffix="", after=None) -> None:
+    """Run one per-card step over `task_ids` for the move/done/start/... commands.
 
-    These commands print a line per card and keep going, so one bad id never
-    blocks the rest; the exit status is what tells scripts and agents that
-    not every card moved.
+    Prints a line per card and keeps going, so one bad id never blocks the
+    rest; exits 1 if any requested card was not changed (not found, refused,
+    error). A skip is not a failure. `step(db, task_id, task)` does the
+    command's own work and returns True (changed), False (failed; it has
+    already printed why) or None (skipped). With more than one id it prints
+    "<label> N/M <noun><suffix>"; `after(changed)` then runs once, before exit.
     """
+    changed = 0
+    failed = 0
+    for task_id in task_ids:
+        try:
+            task_id = _resolve_task_id(db, task_id)
+            task = db.get_task(task_id)
+            if not task:
+                print(f"Task #{task_id} not found"); failed += 1; continue
+            result = step(db, task_id, task)
+            if result:
+                changed += 1
+            elif result is not None:
+                failed += 1
+        except Exception as e:
+            print(f"Failed to {verb} task #{task_id}: {e}")
+            failed += 1
+    if len(task_ids) > 1: print(f"\n{label} {changed}/{len(task_ids)} {noun}{suffix}")
+    if after: after(changed)
     if failed:
         sys.exit(1)
+
+
+def _status_step(status, label):
+    """Step that sets a card's status and prints "<label>: #id - text"."""
+    def step(db, task_id, task):
+        db.update_task(task_id, status=status)
+        print(f"{label}: #{task_id} - {task['text'][:50]}")
+        return True
+    return step
+
+
+def _proposal_step(label, **updates):
+    """Step for approve/reject: refuses anything that is not a proposal."""
+    def step(db, task_id, task):
+        if task.get("task_type") != "proposal":
+            print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})")
+            return False
+        db.update_task(task_id, **updates)
+        print(f"{label}: #{task_id} - {task['text'][:50]}")
+        return True
+    return step
 
 
 @tasks_group.command(name="move")
@@ -2120,24 +1940,17 @@ def tasks_move(project, task_ids):
         console.print(f"[red]Project '{project}' not found[/red]"); sys.exit(1)
     target_project = db.get_project(target_project_id)
     target_name = target_project["name"] if target_project else target_project_id
-    success_count = 0
-    failed = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); failed += 1; continue
-            old_project = task["project_id"]
-            if old_project == target_project_id: print(f"Task #{task_id} already in project '{target_name}'"); continue
-            db.update_task(task_id, project_id=target_project_id)
-            print(f"Moved: #{task_id} from '{old_project}' to '{target_name}'")
-            _notify_inbox(task_id, target_project_id, task.get("status", "Backlog"), task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to move task #{task_id}: {e}")
-            failed += 1
-    if len(task_ids) > 1: print(f"\nMoved {success_count}/{len(task_ids)} tasks to '{target_name}'")
-    _exit_if_any_failed(failed)
+
+    def step(db, task_id, task):
+        old_project = task["project_id"]
+        if old_project == target_project_id:
+            print(f"Task #{task_id} already in project '{target_name}'"); return None
+        db.update_task(task_id, project_id=target_project_id)
+        print(f"Moved: #{task_id} from '{old_project}' to '{target_name}'")
+        return True
+
+    _transition_cards(db, task_ids, verb="move", label="Moved", noun="tasks",
+                      suffix=f" to '{target_name}'", step=step)
 
 
 @tasks_group.command(name="done")
@@ -2145,30 +1958,19 @@ def tasks_move(project, task_ids):
 def tasks_done(task_ids):
     """Mark one or more tasks as Done."""
     db = DatabaseManager()
-    success_count = 0
-    failed = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); failed += 1; continue
-            db.update_task(task_id, status="Done")
-            print(f"Done: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], "Done", task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to complete task #{task_id}: {e}")
-            failed += 1
-    if len(task_ids) > 1: print(f"\nCompleted {success_count}/{len(task_ids)} tasks")
-    if success_count > 0:
-        # Keep the Done column short by HIDING older cards, never deleting them.
-        # Per-project so a burst of completions in one project can't evict
-        # another project's history (#6870).
-        archived = db.archive_done_tasks(keep_per_project=25)
-        if archived > 0:
-            print(f"Archived {archived} older Done card(s) (keeping 25 most recent per project)")
-        print("💡 Tip: Run /compound in Claude Code to journal what you learned")
-    _exit_if_any_failed(failed)
+
+    def after(changed):
+        if changed > 0:
+            # Keep the Done column short by HIDING older cards, never deleting them.
+            # Per-project so a burst of completions in one project can't evict
+            # another project's history (#6870).
+            archived = db.archive_done_tasks(keep_per_project=25)
+            if archived > 0:
+                print(f"Archived {archived} older Done card(s) (keeping 25 most recent per project)")
+            print("💡 Tip: Run /compound in Claude Code to journal what you learned")
+
+    _transition_cards(db, task_ids, verb="complete", label="Completed", noun="tasks",
+                      step=_status_step("Done", "Done"), after=after)
 
 
 @tasks_group.command(name="start")
@@ -2176,138 +1978,57 @@ def tasks_done(task_ids):
 def tasks_start(task_ids):
     """Move one or more tasks to In Progress."""
     db = DatabaseManager()
-    success_count = 0
-    failed = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); failed += 1; continue
-            if task.get("task_type") == "agent" and not task.get("prompt"):
-                console.print(f"[yellow]Starting agent task #{task_id} without a prompt[/yellow]")
-            is_blocked, blocking_ids, reason = _blocked_state(db, task_id)
-            if is_blocked:
-                if reason:
-                    console.print(
-                        f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked: {escape(reason)}[/red]"
-                    )
-                    failed += 1
-                    continue
-                blocking_str = _format_task_refs(blocking_ids, db=db)
+
+    def step(db, task_id, task):
+        if task.get("task_type") == "agent" and not task.get("prompt"):
+            console.print(f"[yellow]Starting agent task #{task_id} without a prompt[/yellow]")
+        is_blocked, blocking_ids, reason = _blocked_state(db, task_id)
+        if is_blocked:
+            if reason:
                 console.print(
-                    f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked by: {blocking_str}[/red]"
+                    f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked: {escape(reason)}[/red]"
                 )
-                failed += 1
-                continue
-            db.update_task(task_id, status="In Progress")
-            print(f"Started: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], "In Progress", task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to start task #{task_id}: {e}")
-            failed += 1
-    if len(task_ids) > 1: print(f"\nStarted {success_count}/{len(task_ids)} tasks")
-    _exit_if_any_failed(failed)
+                return False
+            blocking_str = _format_task_refs(blocking_ids, db=db)
+            console.print(
+                f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked by: {blocking_str}[/red]"
+            )
+            return False
+        return _status_step("In Progress", "Started")(db, task_id, task)
+
+    _transition_cards(db, task_ids, verb="start", label="Started", noun="tasks", step=step)
 
 
 @tasks_group.command(name="review")
 @click.argument("task_ids", type=int, nargs=-1, required=True)
 def tasks_review(task_ids):
     """Move one or more tasks to Review."""
-    db = DatabaseManager()
-    success_count = 0
-    failed = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); failed += 1; continue
-            db.update_task(task_id, status="Review")
-            print(f"Review: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], "Review", task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to review task #{task_id}: {e}")
-            failed += 1
-    if len(task_ids) > 1: print(f"\nReviewed {success_count}/{len(task_ids)} tasks")
-    _exit_if_any_failed(failed)
+    _transition_cards(DatabaseManager(), task_ids, verb="review", label="Reviewed", noun="tasks",
+                      step=_status_step("Review", "Review"))
 
 
 @tasks_group.command(name="cancel")
 @click.argument("task_ids", type=int, nargs=-1, required=True)
 def tasks_cancel(task_ids):
     """Cancel one or more tasks (soft delete - keeps history)."""
-    db = DatabaseManager()
-    success_count = 0
-    failed = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); failed += 1; continue
-            db.update_task(task_id, status="Cancelled")
-            print(f"Cancelled: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], "Cancelled", task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to cancel task #{task_id}: {e}")
-            failed += 1
-    if len(task_ids) > 1: print(f"\nCancelled {success_count}/{len(task_ids)} tasks")
-    _exit_if_any_failed(failed)
+    _transition_cards(DatabaseManager(), task_ids, verb="cancel", label="Cancelled", noun="tasks",
+                      step=_status_step("Cancelled", "Cancelled"))
 
 
 @tasks_group.command(name="approve")
 @click.argument("task_ids", type=int, nargs=-1, required=True)
 def tasks_approve(task_ids):
     """Approve one or more proposals, converting them to regular backlog tasks."""
-    db = DatabaseManager()
-    success_count = 0
-    failed = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task:
-                print(f"Task #{task_id} not found"); failed += 1; continue
-            if task.get("task_type") != "proposal":
-                print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})"); failed += 1; continue
-            db.update_task(task_id, task_type="manual")
-            print(f"Approved: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], task["status"], task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to approve task #{task_id}: {e}")
-            failed += 1
-    if len(task_ids) > 1:
-        print(f"\nApproved {success_count}/{len(task_ids)} proposals")
-    _exit_if_any_failed(failed)
+    _transition_cards(DatabaseManager(), task_ids, verb="approve", label="Approved", noun="proposals",
+                      step=_proposal_step("Approved", task_type="manual"))
 
 
 @tasks_group.command(name="reject")
 @click.argument("task_ids", type=int, nargs=-1, required=True)
 def tasks_reject(task_ids):
     """Reject one or more proposals (cancels them)."""
-    db = DatabaseManager()
-    success_count = 0
-    failed = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task:
-                print(f"Task #{task_id} not found"); failed += 1; continue
-            if task.get("task_type") != "proposal":
-                print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})"); failed += 1; continue
-            db.update_task(task_id, status="Cancelled")
-            print(f"Rejected: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], "Cancelled", task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to reject task #{task_id}: {e}")
-            failed += 1
-    if len(task_ids) > 1:
-        print(f"\nRejected {success_count}/{len(task_ids)} proposals")
-    _exit_if_any_failed(failed)
+    _transition_cards(DatabaseManager(), task_ids, verb="reject", label="Rejected", noun="proposals",
+                      step=_proposal_step("Rejected", status="Cancelled"))
 
 
 @tasks_group.command(name="delete")
@@ -2326,7 +2047,6 @@ def tasks_delete(task_id, yes):
     try:
         db.delete_task(task_id)
         print(f"Deleted: #{task_id}")
-        _notify_inbox(task_id, task.get("project_id", "unknown"), "Deleted", task["text"])
     except Exception as e:
         print(f"Failed to delete task #{task_id}: {e}")
         sys.exit(1)
@@ -2380,27 +2100,6 @@ def tasks_show(task_ids, json_output):
         import json as json_lib
         if len(tasks) == 1: print(json_lib.dumps(tasks[0], indent=2))
         else: print(json_lib.dumps(tasks, indent=2))
-
-
-@tasks_group.command(name="prompt-validate")
-@click.argument("task_id", type=int)
-def tasks_prompt_validate(task_id):
-    """Check task prompt for required sections."""
-    db = DatabaseManager()
-    task = db.get_task(task_id)
-    if not task: print(f"Task #{task_id} not found"); sys.exit(1)
-    prompt = (task.get("prompt") or "").strip()
-    prompt_lower = prompt.lower()
-    has_overview = "## overview" in prompt_lower
-    has_execution = "## execution" in prompt_lower
-    has_done = "## done criteria" in prompt_lower or "## acceptance criteria" in prompt_lower
-    print(f"Task #{task_id} prompt validation:")
-    print(f"{'✓' if has_overview else '✗'} Overview section {'found' if has_overview else 'MISSING'}")
-    print(f"{'✓' if has_execution else '✗'} Execution section {'found' if has_execution else 'MISSING'}")
-    print(f"{'✓' if has_done else '✗'} Done Criteria section {'found' if has_done else 'MISSING'}")
-    missing = sum([not has_overview, not has_execution, not has_done])
-    if missing: print(f"\nStatus: INCOMPLETE ({missing} section{'s' if missing != 1 else ''} missing)"); sys.exit(1)
-    print("\nStatus: COMPLETE"); sys.exit(0)
 
 
 @tasks_group.command(name="next")
@@ -2477,134 +2176,6 @@ def tasks_export(output):
         console.print(f"[green]✅ Exported {len(all_tasks)} tasks to {output}[/green]")
     except Exception as e:
         console.print(f"[red]Failed to export tasks: {e}[/red]")
-
-
-@tasks_group.command(name="import")
-@click.argument("file", type=click.Path(exists=True))
-def tasks_import(file):
-    """Import tasks from JSON backup."""
-    import json as json_lib
-    db = DatabaseManager()
-    try:
-        with open(file, 'r') as f:
-            data = json_lib.load(f)
-        tasks = data.get("tasks", [])
-        if not tasks: console.print("[yellow]No tasks found in import file[/yellow]"); return
-        console.print(f"Importing {len(tasks)} tasks...")
-        success_count = db.raw_import_tasks(tasks)
-        console.print(f"[green]✅ Successfully imported {success_count}/{len(tasks)} tasks[/green]")
-    except Exception as e:
-        console.print(f"[red]Failed to import tasks: {e}[/red]")
-
-
-@tasks_group.command(name="clear-done")
-@click.option("-p", "--project", default=None, help="Filter by project")
-@click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
-def tasks_clear_done(project, yes):
-    """Delete all tasks in Done status."""
-    db = DatabaseManager()
-    project_id = _resolve_project_id(db, project) if project else None
-    if project and not project_id:
-        console.print(f"[red]Project '{project}' not found[/red]"); return
-    # delete_done_tasks() deletes every Done row, archived included — so the
-    # count shown in the confirmation prompt has to include them too.
-    done_tasks = db.get_tasks(project_id=project_id, status="Done", include_archived=True)
-    count = len(done_tasks)
-    if count == 0: console.print("[dim]No Done tasks to delete[/dim]"); return
-    if not yes:
-        scope_label = f"project {project}" if project else "all projects"
-        console.print(f"[dim]Scope: {scope_label}[/dim]")
-        confirm = click.confirm(f"Delete {count} Done task(s)?", default=False)
-        if not confirm: console.print("[dim]Cancelled[/dim]"); return
-    try:
-        # Capture task info before deletion for notifications
-        for t in done_tasks:
-            _notify_inbox(t["id"], t.get("project_id", "unknown"), "Deleted", t["text"])
-        # A hard delete of every Done row. The local operation takes and verifies a
-        # full timestamped recovery snapshot first.
-        deleted_count = db.authorize(
-            "delete_done_tasks",
-            reason=f"pt tasks delete-done for {project_id or 'all projects'}",
-            project_id=project_id,
-        )
-        console.print(f"[green]Deleted {deleted_count} Done task(s)[/green]")
-    except Exception as e:
-        console.print(f"[red]Failed to delete tasks: {e}[/red]")
-
-
-# =============================================================================
-# Inbox group
-# =============================================================================
-
-INBOX_FILE = Path(__file__).parent.parent / "data" / "inbox.json"
-
-def _load_inbox():
-    if not INBOX_FILE.exists(): return {"notes": [], "next_id": 1}
-    import json
-    with open(INBOX_FILE, "r") as f: return json.load(f)
-
-def _save_inbox(data):
-    import json
-    INBOX_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(INBOX_FILE, "w") as f: json.dump(data, f, indent=2)
-
-
-@click.group(name="inbox", invoke_without_command=True)
-@click.pass_context
-def inbox_group(ctx):
-    """Quick capture notes not attached to any project."""
-    if ctx.invoked_subcommand is not None: return
-    ctx.invoke(inbox_list, as_json=False)
-
-
-@inbox_group.command(name="list")
-@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def inbox_list(as_json):
-    """List all inbox notes."""
-    import json as json_mod
-    data = _load_inbox()
-    notes = data.get("notes", [])
-    if as_json:
-        print(json_mod.dumps(notes, indent=2, default=str)); return
-    if not notes: print("Inbox is empty"); return
-    print(f"Inbox ({len(notes)} notes)\n")
-    for note in notes:
-        print(f"  #{note['id']} {note['text']}")
-
-
-@inbox_group.command(name="add")
-@click.argument("text")
-def inbox_add(text):
-    """Add a note to the inbox."""
-    from datetime import datetime, timezone
-    data = _load_inbox()
-    note_id = data.get("next_id", 1)
-    note = {"id": note_id, "text": text, "created_at": datetime.now(timezone.utc).isoformat()}
-    data["notes"].append(note)
-    data["next_id"] = note_id + 1
-    _save_inbox(data)
-    console.print(f"[green]Added note #{note_id}:[/green] {text}")
-
-
-@inbox_group.command(name="remove")
-@click.argument("note_id", type=int)
-def inbox_remove(note_id):
-    """Remove a note by ID."""
-    data = _load_inbox()
-    original_count = len(data["notes"])
-    data["notes"] = [n for n in data["notes"] if n["id"] != note_id]
-    if len(data["notes"]) == original_count:
-        console.print(f"[red]Note #{note_id} not found[/red]"); return
-    _save_inbox(data)
-    console.print(f"[green]Removed note #{note_id}[/green]")
-
-
-@inbox_group.command(name="clear")
-@click.confirmation_option(prompt="Clear all inbox notes?")
-def inbox_clear():
-    """Clear all inbox notes."""
-    _save_inbox({"notes": [], "next_id": 1})
-    console.print("[green]Inbox cleared[/green]")
 
 
 # =============================================================================
@@ -6558,7 +6129,6 @@ from scripts.pr_settle import pr_group
 cli.add_command(pr_group)
 cli.add_command(backup_group)
 cli.add_command(tasks_group)
-cli.add_command(inbox_group)
 cli.add_command(calendar_group)
 cli.add_command(memory_group)
 cli.add_command(graph_group)
