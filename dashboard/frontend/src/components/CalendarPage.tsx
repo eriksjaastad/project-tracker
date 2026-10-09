@@ -90,7 +90,12 @@ export function CalendarPage() {
     },
     [],
   );
-  const { projects: loadedProjects, error: projectsError, reload: reloadProjects } = useProjects();
+  const {
+    projects: loadedProjects,
+    error: projectsError,
+    loading: projectsLoading,
+    reload: reloadProjects,
+  } = useProjects();
   const events: CalendarEvent[] = calendar.data?.events ?? [];
   const crons: CalendarCronJob[] = calendar.data?.crons ?? [];
   const projects = useMemo(
@@ -99,7 +104,8 @@ export function CalendarPage() {
   );
   // The page needs the project list too: it waits for it, and a first-load
   // failure of it blocks the page, as when it was fetched together with events.
-  const projectsPending = loadedProjects === null && projectsError === null;
+  // Until a list arrives, a project load in flight (first or retry) is loading.
+  const projectsPending = loadedProjects === null && projectsLoading;
   const loading = calendar.loading || projectsPending;
   const error = loading
     ? null

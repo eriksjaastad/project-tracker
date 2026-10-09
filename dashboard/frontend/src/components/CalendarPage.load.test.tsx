@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { render, screen, act } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -54,6 +55,30 @@ describe('CalendarPage load', () => {
     expect(screen.getByText('Loading calendar…')).toBeTruthy();
     unmount();
     expect(signal?.aborted).toBe(true);
+  });
+
+  it('shows the loading text, not the old error, while a remount retries a failed project load', async () => {
+    vi.mocked(fetchCalendarEvents).mockResolvedValue([]);
+    vi.mocked(fetchProjects).mockRejectedValueOnce(new Error('projects down'));
+    const { rerender } = render(<ProjectsProvider><CalendarPage /></ProjectsProvider>);
+    expect(await screen.findByText('Error: projects down')).toBeTruthy();
+
+    rerender(<ProjectsProvider>{null}</ProjectsProvider>);
+    vi.mocked(fetchProjects).mockImplementationOnce(() => new Promise(() => {}));
+    await act(async () => { rerender(<ProjectsProvider><CalendarPage /></ProjectsProvider>); });
+    expect(fetchProjects).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Loading calendar…')).toBeTruthy();
+    expect(screen.queryByText('Error: projects down')).toBeNull();
+  });
+
+  it('loads once under StrictMode, with the projects in the filter', async () => {
+    vi.mocked(fetchCalendarEvents).mockResolvedValue([]);
+    render(<StrictMode><ProjectsProvider><CalendarPage /></ProjectsProvider></StrictMode>);
+    expect(await screen.findByRole('option', { name: 'Proj' })).toBeTruthy();
+    expect(screen.queryByText('Loading calendar…')).toBeNull();
+    // StrictMode's dev-only remount aborts the first request and makes one more; never a loop.
+    expect(vi.mocked(fetchProjects).mock.calls.length).toBeLessThanOrEqual(2);
+    expect(vi.mocked(fetchProjects).mock.calls.filter(([s]) => !(s as AbortSignal | undefined)?.aborted)).toHaveLength(1);
   });
 
   it('shows the events error text', async () => {
