@@ -122,3 +122,32 @@ def test_run_brain_passes_brain_py_exit_code_on(monkeypatch, tmp_path: Path, ret
         with pytest.raises(SystemExit) as exc:
             pt._run_brain("stats")
         assert exc.value.code == returncode
+
+
+def test_an_exception_while_changing_a_card_exits_one(db, monkeypatch) -> None:
+    task = db.add_task(text="t", project_id="proj", status="Review")
+
+    def boom(*_a, **_k):
+        raise RuntimeError("disk full")
+
+    import db.backend_manager as backend
+
+    monkeypatch.setattr(backend.DatabaseManager, "update_task", boom)
+    for args in (["done", str(task["id"])], ["move", "proj", "999999"], ["cancel", str(task["id"])]):
+        result = _run(*args)
+        assert result.exit_code == 1, (args, result.output)
+    assert "Failed to complete task" in _run("done", str(task["id"])).output
+
+
+def test_an_exception_while_deleting_exits_one(db, monkeypatch) -> None:
+    task = db.add_task(text="t", project_id="proj", status="Backlog")
+
+    def boom(*_a, **_k):
+        raise RuntimeError("locked")
+
+    import db.backend_manager as backend
+
+    monkeypatch.setattr(backend.DatabaseManager, "delete_task", boom)
+    result = _run("delete", str(task["id"]), "--yes")
+    assert result.exit_code == 1
+    assert "Failed to delete task" in result.output
