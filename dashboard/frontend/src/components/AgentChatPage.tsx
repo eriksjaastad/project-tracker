@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useRequest } from '../hooks/useRequest';
 import { PageShell } from './PageShell';
 import './AgentChatPage.css';
 
@@ -14,36 +14,16 @@ type ChatMessage = {
 };
 
 export function AgentChatPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/agent-chat/messages?limit=150')
-      .then(async (res) => {
-        if (!res.ok) {
-          const detail = await res.json().catch(() => ({}));
-          throw new Error(detail.detail || `HTTP ${res.status}`);
-        }
-        return res.json();
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setMessages(data.messages || []);
-          setError(null);
-        }
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setError(err.message || 'Failed to load Agent Chat');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+  const { data, error, loading } = useRequest<ChatMessage[]>(async (signal) => {
+    const res = await fetch('/api/agent-chat/messages?limit=150', { signal });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${res.status}`);
+    }
+    const body = await res.json();
+    return body.messages || [];
   }, []);
+  const messages = data ?? [];
 
   return (
     <PageShell
@@ -53,7 +33,7 @@ export function AgentChatPage() {
     >
       <div className="agent-chat-board">
         {loading && <p className="agent-chat-status">Loading messages…</p>}
-        {error && <p className="agent-chat-error" role="alert">{error}</p>}
+        {error && <p className="agent-chat-error" role="alert">{error.message || 'Failed to load Agent Chat'}</p>}
         {!loading && !error && messages.length === 0 && (
           <p className="agent-chat-status">No messages on the board.</p>
         )}

@@ -59,7 +59,9 @@ describe('API activity', () => {
 
   it('refreshes without overlap and aborts on unmount', async () => {
     vi.useFakeTimers();
-    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => [] })
+      .mockReturnValue(new Promise(() => {}));
     vi.stubGlobal('fetch', fetcher);
     const view = await act(async () => render(<ApiActivityPanel />));
     expect(fetcher).toHaveBeenCalledTimes(1);

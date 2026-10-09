@@ -798,7 +798,7 @@ describe('JobsPage', () => {
     await user.click(screen.getByLabelText('Mark Countable Job as submitted'));
 
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith('/api/jobs/stats');
+      expect(fetch).toHaveBeenCalledWith('/api/jobs/stats', { signal: expect.any(AbortSignal) });
     });
 
     await waitFor(() => {
@@ -976,5 +976,14 @@ describe('JobsPage', () => {
       expect(agentButton).not.toBeDisabled();
       expect(agentButton).toHaveTextContent('🤖');
     });
+  });
+
+  it('aborts its jobs and stats requests on unmount', () => {
+    vi.mocked(fetch).mockReturnValue(new Promise(() => {}));
+    const view = render(<JobsPage />);
+    const signals = vi.mocked(fetch).mock.calls.map(([, init]) => (init as RequestInit).signal as AbortSignal);
+    expect(signals).toHaveLength(2);
+    view.unmount();
+    expect(signals.every(signal => signal.aborted)).toBe(true);
   });
 });
