@@ -39,13 +39,6 @@ def test_root_redirects_to_dashboard():
     assert response.headers["location"] == "/dashboard"
 
 
-def test_old_redirects_to_canonical_spa_entry():
-    response = client.get("/old", follow_redirects=False)
-
-    assert response.status_code == 307
-    assert response.headers["location"] == "/kanban"
-
-
 def test_navigation_api_returns_shared_contract():
     response = client.get("/api/navigation")
 
@@ -188,6 +181,23 @@ def test_cut_pages_are_no_longer_served():
         assert client.get(path).status_code == 404, path
     ids = {leaf["id"] for leaf in iter_navigation_leaves(client.get("/api/navigation").json()["items"])}
     assert not ids & {"holoscape", "code-reviews"}
+
+
+def test_dead_dashboard_endpoints_are_no_longer_served():
+    """#8093: legacy action endpoints, the unused cache, /project and /old are gone."""
+    gets = (
+        "/old", "/project/project-tracker", "/api/telemetry", "/api/backup",
+        "/api/learning", "/api/loops", "/api/agents", "/api/stats",
+        "/api/dashboard-cache-status", "/api/api-cost-stats",
+    )
+    posts = ("/api/create-index/x", "/api/fix-frontmatter/x", "/api/agents/run")
+    for path in gets:
+        assert client.get(path).status_code == 404, path
+    for path in posts:
+        assert client.post(path, json={}).status_code in (404, 405), path
+    # /api/refresh is the one legacy action that stays; the Memory and Graph pages too.
+    assert client.get("/memory").status_code == 200
+    assert client.get("/graph").status_code == 200
 
 
 def test_codebase_spa_route_and_navigation():
