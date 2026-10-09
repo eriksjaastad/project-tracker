@@ -2098,6 +2098,17 @@ def tasks_notes_history(task_id, json_output):
             console.print(f"  new: {escape(new)}")
 
 
+def _exit_if_any_failed(failed: int) -> None:
+    """Exit 1 when any requested card was not changed (not found, refused, error).
+
+    These commands print a line per card and keep going, so one bad id never
+    blocks the rest; the exit status is what tells scripts and agents that
+    not every card moved.
+    """
+    if failed:
+        sys.exit(1)
+
+
 @tasks_group.command(name="move")
 @click.argument("project", type=str)
 @click.argument("task_ids", type=int, nargs=-1, required=True)
@@ -2106,15 +2117,16 @@ def tasks_move(project, task_ids):
     db = DatabaseManager()
     target_project_id = _resolve_project_id(db, project)
     if not target_project_id:
-        console.print(f"[red]Project '{project}' not found[/red]"); return
+        console.print(f"[red]Project '{project}' not found[/red]"); sys.exit(1)
     target_project = db.get_project(target_project_id)
     target_name = target_project["name"] if target_project else target_project_id
     success_count = 0
+    failed = 0
     for task_id in task_ids:
         try:
             task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); continue
+            if not task: print(f"Task #{task_id} not found"); failed += 1; continue
             old_project = task["project_id"]
             if old_project == target_project_id: print(f"Task #{task_id} already in project '{target_name}'"); continue
             db.update_task(task_id, project_id=target_project_id)
@@ -2123,7 +2135,9 @@ def tasks_move(project, task_ids):
             success_count += 1
         except Exception as e:
             print(f"Failed to move task #{task_id}: {e}")
+            failed += 1
     if len(task_ids) > 1: print(f"\nMoved {success_count}/{len(task_ids)} tasks to '{target_name}'")
+    _exit_if_any_failed(failed)
 
 
 @tasks_group.command(name="done")
@@ -2132,17 +2146,19 @@ def tasks_done(task_ids):
     """Mark one or more tasks as Done."""
     db = DatabaseManager()
     success_count = 0
+    failed = 0
     for task_id in task_ids:
         try:
             task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); continue
+            if not task: print(f"Task #{task_id} not found"); failed += 1; continue
             db.update_task(task_id, status="Done")
             print(f"Done: #{task_id} - {task['text'][:50]}")
             _notify_inbox(task_id, task["project_id"], "Done", task["text"])
             success_count += 1
         except Exception as e:
             print(f"Failed to complete task #{task_id}: {e}")
+            failed += 1
     if len(task_ids) > 1: print(f"\nCompleted {success_count}/{len(task_ids)} tasks")
     if success_count > 0:
         # Keep the Done column short by HIDING older cards, never deleting them.
@@ -2152,6 +2168,7 @@ def tasks_done(task_ids):
         if archived > 0:
             print(f"Archived {archived} older Done card(s) (keeping 25 most recent per project)")
         print("💡 Tip: Run /compound in Claude Code to journal what you learned")
+    _exit_if_any_failed(failed)
 
 
 @tasks_group.command(name="start")
@@ -2160,11 +2177,12 @@ def tasks_start(task_ids):
     """Move one or more tasks to In Progress."""
     db = DatabaseManager()
     success_count = 0
+    failed = 0
     for task_id in task_ids:
         try:
             task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); continue
+            if not task: print(f"Task #{task_id} not found"); failed += 1; continue
             if task.get("task_type") == "agent" and not task.get("prompt"):
                 console.print(f"[yellow]Starting agent task #{task_id} without a prompt[/yellow]")
             is_blocked, blocking_ids, reason = _blocked_state(db, task_id)
@@ -2173,11 +2191,13 @@ def tasks_start(task_ids):
                     console.print(
                         f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked: {escape(reason)}[/red]"
                     )
+                    failed += 1
                     continue
                 blocking_str = _format_task_refs(blocking_ids, db=db)
                 console.print(
                     f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked by: {blocking_str}[/red]"
                 )
+                failed += 1
                 continue
             db.update_task(task_id, status="In Progress")
             print(f"Started: #{task_id} - {task['text'][:50]}")
@@ -2185,7 +2205,9 @@ def tasks_start(task_ids):
             success_count += 1
         except Exception as e:
             print(f"Failed to start task #{task_id}: {e}")
+            failed += 1
     if len(task_ids) > 1: print(f"\nStarted {success_count}/{len(task_ids)} tasks")
+    _exit_if_any_failed(failed)
 
 
 @tasks_group.command(name="review")
@@ -2194,18 +2216,21 @@ def tasks_review(task_ids):
     """Move one or more tasks to Review."""
     db = DatabaseManager()
     success_count = 0
+    failed = 0
     for task_id in task_ids:
         try:
             task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); continue
+            if not task: print(f"Task #{task_id} not found"); failed += 1; continue
             db.update_task(task_id, status="Review")
             print(f"Review: #{task_id} - {task['text'][:50]}")
             _notify_inbox(task_id, task["project_id"], "Review", task["text"])
             success_count += 1
         except Exception as e:
             print(f"Failed to review task #{task_id}: {e}")
+            failed += 1
     if len(task_ids) > 1: print(f"\nReviewed {success_count}/{len(task_ids)} tasks")
+    _exit_if_any_failed(failed)
 
 
 @tasks_group.command(name="cancel")
@@ -2214,18 +2239,21 @@ def tasks_cancel(task_ids):
     """Cancel one or more tasks (soft delete - keeps history)."""
     db = DatabaseManager()
     success_count = 0
+    failed = 0
     for task_id in task_ids:
         try:
             task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); continue
+            if not task: print(f"Task #{task_id} not found"); failed += 1; continue
             db.update_task(task_id, status="Cancelled")
             print(f"Cancelled: #{task_id} - {task['text'][:50]}")
             _notify_inbox(task_id, task["project_id"], "Cancelled", task["text"])
             success_count += 1
         except Exception as e:
             print(f"Failed to cancel task #{task_id}: {e}")
+            failed += 1
     if len(task_ids) > 1: print(f"\nCancelled {success_count}/{len(task_ids)} tasks")
+    _exit_if_any_failed(failed)
 
 
 @tasks_group.command(name="approve")
@@ -2234,22 +2262,25 @@ def tasks_approve(task_ids):
     """Approve one or more proposals, converting them to regular backlog tasks."""
     db = DatabaseManager()
     success_count = 0
+    failed = 0
     for task_id in task_ids:
         try:
             task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
             if not task:
-                print(f"Task #{task_id} not found"); continue
+                print(f"Task #{task_id} not found"); failed += 1; continue
             if task.get("task_type") != "proposal":
-                print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})"); continue
+                print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})"); failed += 1; continue
             db.update_task(task_id, task_type="manual")
             print(f"Approved: #{task_id} - {task['text'][:50]}")
             _notify_inbox(task_id, task["project_id"], task["status"], task["text"])
             success_count += 1
         except Exception as e:
             print(f"Failed to approve task #{task_id}: {e}")
+            failed += 1
     if len(task_ids) > 1:
         print(f"\nApproved {success_count}/{len(task_ids)} proposals")
+    _exit_if_any_failed(failed)
 
 
 @tasks_group.command(name="reject")
@@ -2258,22 +2289,25 @@ def tasks_reject(task_ids):
     """Reject one or more proposals (cancels them)."""
     db = DatabaseManager()
     success_count = 0
+    failed = 0
     for task_id in task_ids:
         try:
             task_id = _resolve_task_id(db, task_id)
             task = db.get_task(task_id)
             if not task:
-                print(f"Task #{task_id} not found"); continue
+                print(f"Task #{task_id} not found"); failed += 1; continue
             if task.get("task_type") != "proposal":
-                print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})"); continue
+                print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})"); failed += 1; continue
             db.update_task(task_id, status="Cancelled")
             print(f"Rejected: #{task_id} - {task['text'][:50]}")
             _notify_inbox(task_id, task["project_id"], "Cancelled", task["text"])
             success_count += 1
         except Exception as e:
             print(f"Failed to reject task #{task_id}: {e}")
+            failed += 1
     if len(task_ids) > 1:
         print(f"\nRejected {success_count}/{len(task_ids)} proposals")
+    _exit_if_any_failed(failed)
 
 
 @tasks_group.command(name="delete")
@@ -2284,7 +2318,7 @@ def tasks_delete(task_id, yes):
     db = DatabaseManager()
     task_id = _resolve_task_id(db, task_id)
     task = db.get_task(task_id)
-    if not task: print(f"Task #{task_id} not found"); return
+    if not task: print(f"Task #{task_id} not found"); sys.exit(1)
     print(f"  #{task['id']} | {task['status']} | {task['text'][:60]}")
     if not yes:
         confirm = click.confirm(f"\nPermanently delete task #{task_id}?", default=False)
@@ -2295,6 +2329,7 @@ def tasks_delete(task_id, yes):
         _notify_inbox(task_id, task.get("project_id", "unknown"), "Deleted", task["text"])
     except Exception as e:
         print(f"Failed to delete task #{task_id}: {e}")
+        sys.exit(1)
 
 
 @tasks_group.command(name="show")
@@ -3279,7 +3314,11 @@ def _run_brain(*args: str) -> None:
         "--",
         *uv_cmd,
     ]
-    subprocess.run(cmd, check=False, cwd=str(BRAIN_PY_PATH.parent))
+    # No timeout on purpose: `graph build` legitimately runs for most of an hour.
+    result = subprocess.run(cmd, check=False, cwd=str(BRAIN_PY_PATH.parent))
+    if result.returncode != 0:
+        # brain.py already printed its own error; pass its failure on.
+        sys.exit(result.returncode)
 
 
 @click.group(name="memory", invoke_without_command=True)
