@@ -257,6 +257,20 @@ def fetch_calendar_events() -> list | None:
 FINISHED_STATUSES = ("done", "cancelled")
 
 
+def _shown(value) -> str:
+    """repr of an uninterpretable value, capped so one bad row stays one line."""
+    text = repr(value)
+    return text if len(text) <= 80 else text[:77] + "..."
+
+
+def _event_day(raw) -> date:
+    """A stored event date: YYYY-MM-DD, or a full ISO datetime. ValueError otherwise."""
+    text = str(raw or "")
+    if len(text) == 10:
+        return date.fromisoformat(text)
+    return datetime.fromisoformat(text).date()
+
+
 def upcoming_deadlines(events: list, today: date) -> list[dict]:
     """Deadline rows: active events due within the window or missed within the lookback.
 
@@ -276,14 +290,14 @@ def upcoming_deadlines(events: list, today: date) -> list[dict]:
             continue
         if status != "active":
             log(f"WARN calendar event {event.get('id')} has an unreadable status {status!r}")
-            found.append({**event, "days": None, "problem": f"status unreadable: {status!r}"})
+            found.append({**event, "days": None, "problem": f"status unreadable: {_shown(status)}"})
             continue
         raw = event.get("event_date")
         try:
-            due = date.fromisoformat(str(raw or "")[:10])
+            due = _event_day(raw)
         except ValueError:
-            log(f"WARN calendar event {event.get('id')} has an unreadable date {raw!r}")
-            found.append({**event, "days": None, "problem": f"date unreadable: {raw!r}"})
+            log(f"WARN calendar event {event.get('id')} has an unreadable date {_shown(raw)}")
+            found.append({**event, "days": None, "problem": f"date unreadable: {_shown(raw)}"})
             continue
         days = (due - today).days
         if -OVERDUE_LOOKBACK_DAYS <= days <= DEADLINE_WINDOW_DAYS:

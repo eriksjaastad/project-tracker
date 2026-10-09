@@ -1165,3 +1165,15 @@ class TestDeadlines:
         )
         assert [e["id"] for e in rows] == [2, 3, 1]
         assert "900" in ad.render_deadlines_section(rows)
+
+
+    def test_trailing_junk_is_unreadable_but_a_full_datetime_is_fine(self):
+        rows = ad.upcoming_deadlines(
+            [_event(1, "2026-10-15garbage", "junk"), _event(2, "2026-10-15T09:30:00", "datetime"),
+             _event(3, "x" * 500, "huge")],
+            self.TODAY,
+        )
+        by_id = {e["id"]: e for e in rows}
+        assert by_id[1]["problem"] == "date unreadable: '2026-10-15garbage'"
+        assert by_id[2]["days"] == 7 and "problem" not in by_id[2]
+        assert len(by_id[3]["problem"]) <= len("date unreadable: ") + 80
