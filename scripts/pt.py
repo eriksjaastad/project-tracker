@@ -5142,8 +5142,9 @@ def handoff_resolve(handoff_id: int, note: Optional[str], json_output: bool) -> 
 # `pt migration start <name>` captures a baseline (git HEAD + porcelain
 # status) into a state file at PT_MIGRATION_DIR/<name>.json (default
 # ~/.project-tracker/migrations/). `pt migration finish` diffs the current
-# working tree against the baseline and writes a manifest section into
-# MIGRATIONS.md at the repo root (appended, never overwritten).
+# working tree against the baseline and PRINTS a manifest (new/modified paths
+# plus the header fields). It writes nothing into the repo: an appended
+# MIGRATIONS.md made multi-repo sweeps conflict after review had passed.
 #
 # Optional flags:
 #   --commit  marks the session as committed (files left in place)
@@ -5556,8 +5557,7 @@ def migration_start(name: str, force: bool, json_output: bool) -> None:
         click.echo(f"  baseline: {len(baseline)} dirty/untracked path(s)")
 
 
-def _append_manifest(
-    repo_dir: Path,
+def _build_manifest(
     name: str,
     state: dict,
     finished_at: str,
@@ -5565,51 +5565,44 @@ def _append_manifest(
     modified: list[dict],
     action: str,
     head_drift_warning: Optional[str],
-) -> Path:
-    """Append a timestamped migration section to MIGRATIONS.md at repo root.
+) -> dict:
+    """The manifest of a finished migration session, as structured data."""
+    return {
+        "name": name,
+        "started_at": state.get("started_at"),
+        "finished_at": finished_at,
+        "baseline_head": state.get("baseline_head"),
+        "action": action,
+        "head_drift_warning": head_drift_warning,
+        "added": added,
+        "modified": modified,
+    }
 
-    Returns the manifest path. Never overwrites existing content.
-    """
-    manifest_path = repo_dir / "MIGRATIONS.md"
-    lines: list[str] = []
-    if not manifest_path.exists():
-        lines.append("# Migration Manifests\n")
-        lines.append("")
-        lines.append(
-            "Append-only log of `pt migration` sessions. Each section "
-            "records the paths touched between `start` and `finish` for "
-            "a named bulk operation.\n"
-        )
-        lines.append("")
-    lines.append(f"## {name} — {finished_at}")
-    lines.append("")
-    lines.append(f"- started_at:  `{state.get('started_at')}`")
-    lines.append(f"- finished_at: `{finished_at}`")
-    lines.append(f"- baseline_head: `{state.get('baseline_head') or '(none)'}`")
-    lines.append(f"- action: `{action}`")
-    if head_drift_warning:
-        lines.append(f"- WARNING: {head_drift_warning}")
-    lines.append("")
-    lines.append("### New paths (introduced during session)")
-    if added:
-        for entry in added:
-            lines.append(f"- `[{entry['classification']}]` `{entry['path']}`")
-    else:
-        lines.append("- _(none)_")
-    lines.append("")
-    lines.append("### Modified paths (status changed during session)")
-    if modified:
-        for entry in modified:
-            lines.append(f"- `[{entry['classification']}]` `{entry['path']}`")
-    else:
-        lines.append("- _(none)_")
-    lines.append("")
-    lines.append("---")
-    lines.append("")
 
-    with manifest_path.open("a", encoding="utf-8") as fh:
-        fh.write("\n".join(lines) + "\n")
-    return manifest_path
+def _render_manifest(manifest: dict) -> str:
+    """Render a `_build_manifest` dict as a markdown section."""
+    lines: list[str] = [
+        f"## {manifest['name']} — {manifest['finished_at']}",
+        "",
+        f"- started_at:  `{manifest['started_at']}`",
+        f"- finished_at: `{manifest['finished_at']}`",
+        f"- baseline_head: `{manifest['baseline_head'] or '(none)'}`",
+        f"- action: `{manifest['action']}`",
+    ]
+    if manifest["head_drift_warning"]:
+        lines.append(f"- WARNING: {manifest['head_drift_warning']}")
+    for title, entries in (
+        ("New paths (introduced during session)", manifest["added"]),
+        ("Modified paths (status changed during session)", manifest["modified"]),
+    ):
+        lines.append("")
+        lines.append(f"### {title}")
+        if entries:
+            for entry in entries:
+                lines.append(f"- `[{entry['classification']}]` `{entry['path']}`")
+        else:
+            lines.append("- _(none)_")
+    return "\n".join(lines)
 
 
 class PathEscapesRepoError(ValueError):
@@ -5803,10 +5796,11 @@ def _revert_paths(
 def migration_finish(
     name: str, commit_flag: bool, revert_flag: bool, json_output: bool
 ) -> None:
-    """Close migration NAME and write a manifest section to MIGRATIONS.md.
+    """Close migration NAME and print its manifest of touched paths.
 
-    Without --commit or --revert, only writes the manifest (files left
-    in place). --commit and --revert are mutually exclusive.
+    The manifest is printed (or, with --json, returned under "manifest");
+    nothing is written into the repo. Without --commit or --revert, files
+    are left in place. --commit and --revert are mutually exclusive.
     """
     try:
         _validate_migration_name(name)
@@ -5908,8 +5902,8 @@ def migration_finish(
             "errors": [{"path": p, "reason": r} for p, r in errors],
         }
 
-    manifest_path = _append_manifest(
-        repo_dir, name, state, finished_at, added, modified, action, head_drift_warning
+    manifest = _build_manifest(
+        name, state, finished_at, added, modified, action, head_drift_warning
     )
 
     # Update DB row if present.
@@ -5923,7 +5917,6 @@ def migration_finish(
             name=name,
             finished_at=finished_at,
             status=status_value,
-            manifest_path=str(manifest_path),
         )
         if not outcome["ok"]:
             # Best-effort, but not silent — see migration start.
@@ -5938,7 +5931,7 @@ def migration_finish(
     try:
         state_path.unlink()
     except OSError as exc:
-        # The session is finished and in the manifest, but a leftover state
+        # The session is finished and its manifest printed, but a leftover state
         # file would let a second `finish` replay the stale baseline. Say so.
         click.echo(f"⚠ could not remove migration state file {state_path}: {exc}", err=True)
 
@@ -5951,7 +5944,7 @@ def migration_finish(
                 "name": name,
                 "finished_at": finished_at,
                 "action": action,
-                "manifest_path": str(manifest_path),
+                "manifest": manifest,
                 "added": added,
                 "modified": modified,
                 "head_drift_warning": head_drift_warning,
@@ -5962,7 +5955,6 @@ def migration_finish(
 
     click.echo(f"✓ Migration {name!r} finished at {finished_at}")
     click.echo(f"  action:   {action}")
-    click.echo(f"  manifest: {manifest_path}")
     click.echo(f"  added:    {len(added)}  modified: {len(modified)}")
     if head_drift_warning:
         click.echo(f"  WARNING: {head_drift_warning}")
@@ -5973,6 +5965,8 @@ def migration_finish(
             click.echo(f"  errors:   {len(revert_summary['errors'])}")
             for e in revert_summary["errors"]:
                 click.echo(f"    - {e['path']}: {e['reason']}")
+    click.echo("")
+    click.echo(_render_manifest(manifest))
 
 
 @migration_group.command(name="list")

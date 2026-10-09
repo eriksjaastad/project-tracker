@@ -173,8 +173,8 @@ def test_migration_start_invalid_name(repo_env, bad_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_migration_finish_writes_manifest_with_diff(repo_env) -> None:
-    """finish writes MIGRATIONS.md with paths touched between start and finish."""
+def test_migration_finish_manifest_carries_diff_and_writes_no_file(repo_env) -> None:
+    """finish returns the manifest with the touched paths; the repo gets no MIGRATIONS.md."""
     repo_dir: Path = repo_env["repo_dir"]
     _invoke(repo_env["env"], ["migration", "start", "doc-sweep", "--json"])
 
@@ -188,35 +188,51 @@ def test_migration_finish_writes_manifest_with_diff(repo_env) -> None:
     assert payload["ok"] is True
     assert payload["command"] == "migration.finish"
     assert payload["result"]["action"] == "manifest-only"
+    assert "manifest_path" not in payload["result"]
 
     added_paths = [e["path"] for e in payload["result"]["added"]]
     assert "NEW.md" in added_paths
     assert "README.md" in added_paths
 
-    manifest_path = Path(payload["result"]["manifest_path"])
-    assert manifest_path.exists()
-    text = manifest_path.read_text()
-    assert "doc-sweep" in text
-    assert "NEW.md" in text
-    assert "README.md" in text
+    manifest = payload["result"]["manifest"]
+    assert manifest["name"] == "doc-sweep"
+    assert manifest["action"] == "manifest-only"
+    assert manifest["baseline_head"]
+    manifest_paths = [e["path"] for e in manifest["added"] + manifest["modified"]]
+    assert "NEW.md" in manifest_paths
+    assert "README.md" in manifest_paths
+
+    assert not (repo_dir / "MIGRATIONS.md").exists()
 
 
-def test_migration_finish_appends_not_overwrites(repo_env) -> None:
-    """A second finish appends a new section without erasing the first."""
+def test_migration_finish_prints_manifest_section(repo_env) -> None:
+    """Human output prints the section in place of a `manifest: <path>` line."""
     repo_dir: Path = repo_env["repo_dir"]
+    _invoke(repo_env["env"], ["migration", "start", "printed"])
+    (repo_dir / "PRINTED.md").write_text("x\n", encoding="utf-8")
 
+    result = _invoke(repo_env["env"], ["migration", "finish", "printed"])
+    assert result.exit_code == 0, result.output
+    assert "## printed — " in result.output
+    assert "### New paths (introduced during session)" in result.output
+    assert "`PRINTED.md`" in result.output
+    assert "manifest:" not in result.output
+    assert not (repo_dir / "MIGRATIONS.md").exists()
+
+
+def test_migration_finish_leaves_existing_migrations_md_untouched(repo_env) -> None:
+    """History in an existing MIGRATIONS.md is not appended to."""
+    repo_dir: Path = repo_env["repo_dir"]
+    (repo_dir / "MIGRATIONS.md").write_text("# history\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo_dir), "add", "MIGRATIONS.md"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "commit", "-q", "-m", "chore: history"], check=True
+    )
     _invoke(repo_env["env"], ["migration", "start", "first", "--json"])
     (repo_dir / "A.md").write_text("a\n", encoding="utf-8")
-    _invoke(repo_env["env"], ["migration", "finish", "first", "--json"])
-
-    _invoke(repo_env["env"], ["migration", "start", "second", "--json"])
-    (repo_dir / "B.md").write_text("b\n", encoding="utf-8")
-    _invoke(repo_env["env"], ["migration", "finish", "second", "--json"])
-
-    text = (repo_dir / "MIGRATIONS.md").read_text()
-    assert "first" in text
-    assert "second" in text
-    assert text.count("## ") >= 2
+    result = _invoke(repo_env["env"], ["migration", "finish", "first", "--json"])
+    assert result.exit_code == 0, result.output
+    assert (repo_dir / "MIGRATIONS.md").read_text() == "# history\n"
 
 
 def test_migration_finish_missing_state_errors(repo_env) -> None:
@@ -327,8 +343,7 @@ def test_migration_finish_baseline_drift_warning(repo_env) -> None:
     assert payload["result"]["head_drift_warning"] is not None
     assert "drifted" in payload["result"]["head_drift_warning"]
 
-    text = (repo_dir / "MIGRATIONS.md").read_text()
-    assert "WARNING" in text
+    assert not (repo_dir / "MIGRATIONS.md").exists()
 
 
 # ---------------------------------------------------------------------------
