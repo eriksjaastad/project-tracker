@@ -333,21 +333,6 @@ class CalendarManager:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_events_for_task(self, task_id: int) -> List[Dict[str, Any]]:
-        """Get all calendar events linked to a specific task."""
-        with self._conn() as conn:
-            rows = conn.execute(
-                """
-                SELECT ce.*, cet.link_type
-                FROM calendar_events ce
-                JOIN calendar_event_tasks cet ON cet.event_id = ce.id
-                WHERE cet.task_id = ?
-                ORDER BY ce.event_date ASC
-                """,
-                (task_id,),
-            ).fetchall()
-        return [_row_to_dict(r) for r in rows]
-
     # ------------------------------------------------------------------
     # Cron jobs — surface existing jobs alongside calendar events
     # ------------------------------------------------------------------
