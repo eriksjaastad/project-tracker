@@ -2234,7 +2234,7 @@ async def list_tasks(
         )
 
 
-@app.get("/api/tasks/{task_id}")
+@app.get("/api/tasks/{task_id:int}")
 async def get_task(task_id: int):
     """Get a single task by ID with full enriched data.
     
@@ -2294,7 +2294,7 @@ async def get_task(task_id: int):
         )
 
 
-@app.patch("/api/tasks/{task_id}")
+@app.patch("/api/tasks/{task_id:int}")
 async def update_task(task_id: int, task_data: TaskUpdateRequest):
     """Update a task (text, status, priority).
     
@@ -2401,7 +2401,7 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
         )
 
 
-@app.post("/api/tasks/{task_id}/checklist")
+@app.post("/api/tasks/{task_id:int}/checklist")
 async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
     """Tick or untick one notes checklist line as a server-side atomic toggle (#7821).
 
@@ -2479,7 +2479,7 @@ async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
         )
 
 
-@app.delete("/api/tasks/{task_id}", status_code=status.HTTP_200_OK)
+@app.delete("/api/tasks/{task_id:int}", status_code=status.HTTP_200_OK)
 async def delete_task(task_id: int):
     """Delete a single task."""
     try:
@@ -2531,7 +2531,7 @@ def _stringify_attachment_ids(record: dict) -> dict:
     return record
 
 
-@app.post("/api/tasks/{task_id}/attachments", status_code=status.HTTP_201_CREATED)
+@app.post("/api/tasks/{task_id:int}/attachments", status_code=status.HTTP_201_CREATED)
 async def upload_attachment(task_id: int, file: UploadFile = File(...)):
     """Upload a file and attach it to a task."""
     import mimetypes
@@ -2568,7 +2568,7 @@ async def upload_attachment(task_id: int, file: UploadFile = File(...)):
     return _stringify_attachment_ids(record)
 
 
-@app.get("/api/tasks/{task_id}/attachments")
+@app.get("/api/tasks/{task_id:int}/attachments")
 async def list_attachments(task_id: int):
     """List all attachments for a task."""
     db = DatabaseManager()
@@ -2577,7 +2577,7 @@ async def list_attachments(task_id: int):
     return {"attachments": [_stringify_attachment_ids(a) for a in db.get_attachments(task_id)]}
 
 
-@app.delete("/api/tasks/{task_id}/attachments/{attachment_id}", status_code=status.HTTP_200_OK)
+@app.delete("/api/tasks/{task_id:int}/attachments/{attachment_id}", status_code=status.HTTP_200_OK)
 async def delete_attachment(task_id: int, attachment_id: int):
     """Delete an attachment record and its file from disk."""
     db = DatabaseManager()

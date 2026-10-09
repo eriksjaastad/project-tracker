@@ -195,6 +195,15 @@ def test_dead_dashboard_endpoints_are_no_longer_served():
         assert client.get(path).status_code == 404, path
     for path in posts:
         assert client.post(path, json={}).status_code in (404, 405), path
+    # The removed DELETE /api/tasks/done must not fall through to the task-id
+    # routes (which would answer 422): task ids only match integers.
+    for method in ("get", "patch", "delete"):
+        response = client.request(method.upper(), "/api/tasks/done")
+        assert response.status_code == 404, method
+        assert response.json()["detail"] == "Not Found", method
+    # Integer ids still reach the task handler rather than the router's 404.
+    integer = client.get("/api/tasks/999999999")
+    assert not (integer.status_code == 404 and integer.json().get("detail") == "Not Found")
     # /api/refresh is the one legacy action that stays; the Memory and Graph pages too.
     assert client.get("/memory").status_code == 200
     assert client.get("/graph").status_code == 200
