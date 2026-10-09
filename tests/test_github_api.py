@@ -22,18 +22,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 
-@pytest.fixture(autouse=True)
-def _forget_missing_repos():
-    """The not-on-GitHub memory is process-wide; keep each test independent."""
-    from dashboard import app
-
-    app._gh_missing.clear()
-    app._gh_seen.clear()
-    yield
-    app._gh_missing.clear()
-    app._gh_seen.clear()
-
-
 def as_gh_call(fn):
     """Adapt a data-returning mock to _gh_call's (data, failure_kind) contract.
 
@@ -44,7 +32,7 @@ def as_gh_call(fn):
     """
     from dashboard.app import GH_OK, GH_ERROR
 
-    def wrapper(args, timeout=30):
+    def wrapper(args, timeout=30, **_):
         result = fn(args, timeout)
         if isinstance(result, tuple):
             return result
@@ -785,7 +773,7 @@ class TestNonPrFetchErrors:
         """Run a fetch where `failing` names the call type that errors."""
         from dashboard.app import _fetch_github_data, GH_OK, GH_ERROR
 
-        def mock_gh_call(args, timeout=30):
+        def mock_gh_call(args, timeout=30, **_):
             if args == ["api", "/user"]:
                 return ({"login": "testuser"}, GH_OK)
             if args[0] == "repo" and args[1] == "view":
@@ -977,7 +965,7 @@ class TestParallelFetch:
         lock = threading.Lock()
         state = {"now": 0, "max": 0}
 
-        def call(args, timeout=30):
+        def call(args, timeout=30, **_):
             with lock:
                 state["now"] += 1
                 state["max"] = max(state["max"], state["now"])
@@ -1025,35 +1013,10 @@ class TestParallelFetch:
         assert result["fetch_errors"] == ["branches for me/r03", "branches for me/r07"]
         assert state["max"] > 1, "stages should run gh calls concurrently"
 
-    def test_a_missing_repo_is_remembered_and_still_counted(self, monkeypatch):
-        from dashboard import app
-
-        clock = [1000.0]
-        monkeypatch.setattr(app, "_monotonic", lambda: clock[0])
-        seen = []
-        call, _ = self._fake(missing=("gone",), seen=seen)
-        with patch("dashboard.app._gh_call", side_effect=call), \
-                patch("dashboard.app._get_tracked_repo_names", return_value=["gone", "here"]):
-            first = app._fetch_github_data()
-            views_first = [a for a in seen if a[:2] == ["repo", "view"]]
-            seen.clear()
-            second = app._fetch_github_data()
-            views_second = [a for a in seen if a[:2] == ["repo", "view"]]
-            seen.clear()
-            clock[0] += app._GH_MISSING_TTL + 1
-            app._fetch_github_data()
-            views_third = [a for a in seen if a[:2] == ["repo", "view"]]
-
-        assert first["summary"]["repos_not_on_github"] == 1
-        assert second["summary"]["repos_not_on_github"] == 1
-        assert [a[2] for a in views_first] == ["me/gone", "me/here"]
-        assert [a[2] for a in views_second] == ["me/here"]
-        assert [a[2] for a in views_third] == ["me/gone", "me/here"]
-
     def test_an_empty_pr_list_response_is_no_prs(self):
         from dashboard.app import GH_OK, _fetch_github_data
 
-        def call(args, timeout=30):
+        def call(args, timeout=30, **_):
             if args == ["api", "/user"]:
                 return ({"login": "me"}, GH_OK)
             if args[:2] == ["repo", "view"]:
@@ -1078,7 +1041,7 @@ class TestFetchStages:
     def _call(repos, seen, view_error=(), view_missing=(), boom=None):
         from dashboard.app import GH_ERROR, GH_NOT_FOUND, GH_OK
 
-        def call(args, timeout=30):
+        def call(args, timeout=30, **_):
             seen.append(args)
             text = " ".join(args)
             if boom and boom in text:
@@ -1141,7 +1104,7 @@ class TestFetchStages:
         assert result["summary"]["archived_repos"] == 1
         assert result["summary"]["failing_ci"] == 3
 
-    def test_a_failed_repo_view_is_retried_not_remembered(self):
+    def test_a_failed_repo_view_is_a_fetch_error_and_asked_again(self):
         repos = {"flaky": {"isArchived": False, "pushedAt": ""}}
         seen = []
         call = self._call(repos, seen, view_error=("flaky",))
@@ -1152,8 +1115,8 @@ class TestFetchStages:
         assert first["fetch_errors"] == second["fetch_errors"] == ["repo metadata for me/flaky"]
         assert first["summary"]["repos_not_on_github"] == 0
 
-    def test_a_repo_seen_before_is_never_remembered_missing(self):
-        """Token scope loss: private repos turn 'not found'; recover on the next refresh."""
+    def test_a_repo_that_turns_missing_recovers_on_the_next_refresh(self):
+        """Token scope loss: private repos turn 'not found'; nothing about it is remembered."""
         repos = {"private": {"isArchived": False, "pushedAt": ""}}
         seen = []
         self._fetch(["private"], self._call(repos, seen))
@@ -1163,49 +1126,45 @@ class TestFetchStages:
         assert [r["name"] for r in back["repos"]] == ["private"]
         assert len([a for a in seen if a[:2] == ["repo", "view"]]) == 3
 
-    def test_expired_misses_are_pruned_and_a_found_repo_is_not_remembered(self, monkeypatch):
-        from dashboard import app
-
-        clock = [0.0]
-        monkeypatch.setattr(app, "_monotonic", lambda: clock[0])
-        repos = {"later": {"isArchived": False, "pushedAt": ""}}
-        seen = []
-        self._fetch(["later"], self._call(repos, seen, view_missing=("later",)))
-        assert "me/later" in app._gh_missing
-        clock[0] += app._GH_MISSING_TTL + 1
-        result = self._fetch(["later"], self._call(repos, seen))
-        assert "me/later" not in app._gh_missing
-        assert [r["name"] for r in result["repos"]] == ["later"]
-
     def test_an_exception_in_a_worker_escapes_the_fetch(self):
         repos = {"a": {"isArchived": False, "pushedAt": ""}, "b": {"isArchived": False, "pushedAt": ""}}
         seen = []
         with pytest.raises(RuntimeError, match="worker blew up"):
             self._fetch(["a", "b"], self._call(repos, seen, boom="/repos/me/b/branches"))
 
-    def test_switching_the_gh_account_forgets_the_old_accounts_misses(self):
-        from dashboard.app import GH_NOT_FOUND, GH_OK, _fetch_github_data
 
-        login = ["first"]
-        seen = []
+def test_only_an_expected_not_found_skips_the_warning(caplog):
+    """repo view passes missing_ok (half the tracked projects aren't on GitHub);
+    a 404 anywhere else is a real failure and still warns."""
+    import logging
+    from dashboard.app import GH_NOT_FOUND, _gh_call
 
-        def call(args, timeout=30):
-            seen.append(args)
-            if args == ["api", "/user"]:
-                return ({"login": login[0]}, GH_OK)
-            if args[:2] == ["repo", "view"]:
-                if args[2] == "first/shared":
-                    return (None, GH_NOT_FOUND)
-                return ({"name": "shared", "isArchived": False, "pushedAt": ""}, GH_OK)
-            return ([], GH_OK) if args[0] != "api" or "runs" not in " ".join(args) else ({"workflow_runs": []}, GH_OK)
+    missing = MagicMock(returncode=1, stdout="", stderr="GraphQL: Could not resolve to a Repository")
+    with caplog.at_level(logging.DEBUG):
+        with patch("dashboard.app.subprocess.run", return_value=missing):
+            assert _gh_call(["repo", "view", "me/local-only"], missing_ok=True)[1] == GH_NOT_FOUND
+            assert _gh_call(["api", "/repos/me/x/actions/runs"])[1] == GH_NOT_FOUND
+    warned = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert not any("me/local-only" in m for m in warned)
+    assert any("/repos/me/x/actions/runs" in m for m in warned)
+    assert any("me/local-only" in r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG)
 
-        with patch("dashboard.app._gh_call", side_effect=call), \
-                patch("dashboard.app._get_tracked_repo_names", return_value=["shared"]):
-            before = _fetch_github_data()
-            login[0] = "second"
-            after = _fetch_github_data()
 
-        assert before["summary"]["repos_not_on_github"] == 1
-        assert [r["name"] for r in after["repos"]] == ["shared"]
-        assert after["summary"]["repos_not_on_github"] == 0
-        assert [a[2] for a in seen if a[:2] == ["repo", "view"]] == ["first/shared", "second/shared"]
+def test_the_repo_view_stage_marks_not_found_as_expected():
+    from dashboard.app import GH_OK, _fetch_github_data
+
+    kwargs_by_kind = {}
+
+    def call(args, timeout=30, **kw):
+        kwargs_by_kind.setdefault(" ".join(args[:2]), kw)
+        if args == ["api", "/user"]:
+            return ({"login": "me"}, GH_OK)
+        if args[:2] == ["repo", "view"]:
+            return ({"name": "r", "isArchived": False, "pushedAt": ""}, GH_OK)
+        return ([], GH_OK)
+
+    with patch("dashboard.app._gh_call", side_effect=call), \
+            patch("dashboard.app._get_tracked_repo_names", return_value=["r"]):
+        _fetch_github_data()
+    assert kwargs_by_kind["repo view"] == {"missing_ok": True}
+    assert all(kw == {} for kind, kw in kwargs_by_kind.items() if kind != "repo view")

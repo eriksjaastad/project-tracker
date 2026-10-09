@@ -4531,13 +4531,17 @@ GH_REPO_VIEW_VALID_FIELDS = frozenset({
 })
 
 
-def _gh_call(args: List[str], timeout: int = 30) -> tuple:
+def _gh_call(args: List[str], timeout: int = 30, missing_ok: bool = False) -> tuple:
     """Run a gh CLI command, returning (parsed_json, failure_kind).
 
     failure_kind is GH_OK on success, GH_NOT_FOUND when the target genuinely
     does not exist, or GH_ERROR for any other failure. Callers need the
     distinction: a missing repo is a fact about the world, while an auth or
     rate-limit failure means our data is incomplete and we must say so.
+
+    missing_ok is for a caller that expects some targets not to exist and
+    counts them itself (the repo view of every tracked project): its
+    not-found is logged at debug, not as a warning. Every other failure warns.
 
     stderr is logged but never returned — it can contain tokens and auth URLs,
     and callers surface these values to the browser.
@@ -4551,11 +4555,11 @@ def _gh_call(args: List[str], timeout: int = 30) -> tuple:
         )
         if result.returncode != 0:
             stderr = result.stderr.strip()
-            logger.warning(f"gh command failed: gh {' '.join(args)} — {stderr}")
             blob = (stderr + " " + result.stdout).lower()
-            if any(marker in blob for marker in _GH_NOT_FOUND_MARKERS):
-                return None, GH_NOT_FOUND
-            return None, GH_ERROR
+            not_found = any(marker in blob for marker in _GH_NOT_FOUND_MARKERS)
+            log = logger.debug if (not_found and missing_ok) else logger.warning
+            log(f"gh command failed: gh {' '.join(args)} — {stderr}")
+            return None, (GH_NOT_FOUND if not_found else GH_ERROR)
         if not result.stdout.strip():
             return None, GH_OK
         return json.loads(result.stdout), GH_OK
@@ -4609,19 +4613,6 @@ def _get_tracked_repo_names() -> List[str]:
     return sorted(set(names))
 
 
-# Most tracked projects that aren't on GitHub never will be (third-party
-# checkouts in github-repos/, local-only projects), so a "not found" for a repo
-# never seen in this process is remembered instead of asked again (and logged)
-# every refresh. It still counts toward repos_not_on_github. A repo that WAS
-# found and then goes missing is never remembered, so a token losing `repo`
-# scope shows as a jump and recovers on the first refresh after the fix. A repo
-# created on GitHub appears within the TTL, or at once after a restart. Both are
-# keyed "owner/name", so switching the gh account starts from a clean slate.
-_GH_MISSING_TTL = 6 * 3600
-_gh_missing: Dict[str, float] = {}
-_gh_seen: set = set()
-_gh_missing_lock = threading.Lock()
-
 # gh calls run a few at a time; GitHub's secondary rate limit allows far more.
 _GH_WORKERS = 6
 
@@ -4656,22 +4647,17 @@ def _fetch_github_data() -> Dict:
     fetch_errors: List[str] = []
 
     repos: List[Dict] = []
-    now = _monotonic()
-    with _gh_missing_lock:
-        for key in [k for k, until in _gh_missing.items() if until <= now]:
-            del _gh_missing[key]
-        known_missing = {n for n in tracked_names if f"{owner}/{n}" in _gh_missing}
-    repos_missing = len(known_missing)
-    to_view = [n for n in tracked_names if n not in known_missing]
+    repos_missing = 0
+    # About half the tracked projects aren't on GitHub (third-party checkouts in
+    # github-repos/, local-only projects), so their not-found is expected and
+    # counted below rather than logged as a warning every refresh.
     views = _gh_map(lambda name: _gh_call([
         "repo", "view", f"{owner}/{name}",
         "--json", ",".join(REPO_VIEW_FIELDS),
-    ], timeout=10), to_view)
-    for name, (repo_info, failure) in zip(to_view, views):
+    ], timeout=10, missing_ok=True), tracked_names)
+    for name, (repo_info, failure) in zip(tracked_names, views):
         if repo_info:
             repos.append(repo_info)
-            with _gh_missing_lock:
-                _gh_seen.add(f"{owner}/{name}")
         elif failure == GH_NOT_FOUND:
             # CAVEAT: GitHub answers "no such repo" and "you cannot see this
             # repo" identically, by design, so it never leaks a private repo's
@@ -4683,10 +4669,7 @@ def _fetch_github_data() -> Dict:
             # this count is surfaced in the dashboard summary, so losing access
             # shows up as a jump in "Not on GitHub" rather than as nothing.
             repos_missing += 1
-            with _gh_missing_lock:
-                if f"{owner}/{name}" not in _gh_seen:
-                    _gh_missing[f"{owner}/{name}"] = _monotonic() + _GH_MISSING_TTL
-            logger.info(f"Tracked project '{name}' is not on GitHub (or not visible to this token)")
+            logger.debug(f"Tracked project '{name}' is not on GitHub (or not visible to this token)")
         else:
             # A failed fetch drops this repo from `repos` entirely, taking its
             # PRs, CI and branches with it. Counting that as "not on GitHub"
