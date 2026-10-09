@@ -426,40 +426,102 @@ def test_one_off_scripts_refuse_a_legacy_db(tmp_path: Path, module: str) -> None
     mod.connect(clean).close()
 
 
-@pytest.mark.parametrize("failure", ["migration", "unexpected"])
-def test_a_failed_migrate_puts_the_legacy_triggers_back(tmp_path: Path, monkeypatch, failure: str) -> None:
-    """Codex #8093 round 1: the pre-migrate trigger drop is autocommit, so a
-    failed run must not leave a pre-018 DB writable without 018 having run."""
+def _crr_like_db(tmp_path: Path) -> Path:
+    """A schema-current DB carrying the cr-sqlite objects a restored backup has."""
+    db_path = _legacy_db(tmp_path)  # adds tasks__crsql_itrig
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TRIGGER tasks__crsql_dtrig AFTER DELETE ON tasks "
+        "BEGIN SELECT crsql_internal_sync_bit(); END"
+    )
+    conn.execute("CREATE TABLE tasks__crsql_clock (id INTEGER)")
+    conn.execute("CREATE TABLE crsql_site_id (site_id BLOB NOT NULL, ordinal INTEGER PRIMARY KEY)")
+    conn.execute("INSERT INTO crsql_site_id VALUES (?, 0)", (bytes.fromhex("00" * 16),))
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def test_a_later_migration_failure_leaves_a_clean_writable_db(tmp_path: Path, monkeypatch) -> None:
+    """Codex #8093 round 1: the cleanup runs first and atomically, so a failure
+    afterwards cannot leave a half-migrated DB: it is cr-sqlite-free, keeps its
+    machine id, takes writes, and the rerun applies the rest, 018 last."""
     from db import migration_runner
 
-    db_path = _legacy_db(tmp_path)
+    db_path = _crr_like_db(tmp_path)
+    real_apply_all = migration_runner.apply_all
+
+    def boom(conn, directory):
+        raise migration_runner.MigrationError("a later migration failed")
+
+    monkeypatch.setattr(migration_runner, "apply_all", boom)
+    result = DatabaseManager(db_path).migrations_apply()
+    assert result == {"ok": False, "error": "a later migration failed", "applied": []}
+
     conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE tasks__crsql_clock (id INTEGER)")  # what a real CRR DB has
+    assert _crsql_objects(conn) == []
+    assert conn.execute("SELECT value FROM _metadata WHERE key='pt.machine_id'").fetchone() == ("839",)
+    conn.close()
+    with BackendManager(db_path)._get_conn() as c:
+        c.execute(
+            "INSERT INTO projects (id, name, path, status, created_at) VALUES ('p', 'P', '/p', 'active', 'n')"
+        )
+        c.execute(
+            "INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) "
+            "VALUES (1, 't', 'Backlog', 'p', 'n', 'n')"
+        )
+        c.commit()
+
+    monkeypatch.setattr(migration_runner, "apply_all", real_apply_all)
+    rerun = DatabaseManager(db_path).migrations_apply()
+    assert rerun["ok"] and rerun["applied"][-1]["version"] == 18
+    conn = sqlite3.connect(db_path)
+    assert _crsql_objects(conn) == []
+    assert conn.execute("SELECT text FROM tasks WHERE id = 1").fetchone() == ("t",)
+
+
+def test_a_failure_inside_the_cleanup_leaves_the_db_untouched(tmp_path: Path, monkeypatch) -> None:
+    """All or nothing: a cleanup that dies halfway rolls back every drop."""
+    from db import migration_runner
+
+    db_path = _crr_like_db(tmp_path)
+    real_discover = migration_runner.discover_migrations
+
+    def half_then_fail(conn):
+        conn.execute('DROP TRIGGER "tasks__crsql_itrig"')
+        raise sqlite3.OperationalError("database is locked")
+
+    def discover(directory, verbose=True):
+        found = real_discover(directory, verbose=verbose)
+        return [
+            migration_runner.Migration(m.version, m.name, m.path, half_then_fail) if m.version == 18 else m
+            for m in found
+        ]
+
+    monkeypatch.setattr(migration_runner, "discover_migrations", discover)
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        DatabaseManager(db_path).migrations_apply()
+
+    conn = sqlite3.connect(db_path)
+    assert sorted(_crsql_objects(conn)) == sorted(
+        ["crsql_site_id", "tasks__crsql_clock", "tasks__crsql_dtrig", "tasks__crsql_itrig"]
+    )
+    conn.close()
+
+
+def test_migrate_clears_cr_sqlite_objects_old_code_recreated(tmp_path: Path) -> None:
+    """018 already recorded, but old code reloaded the extension and recreated
+    its metadata tables: the next pt db migrate removes them, nothing pending."""
+    db_path = tmp_path / "current.db"
+    create_database(db_path)
+    assert DatabaseManager(db_path).migrations_apply()["ok"]
+    conn = sqlite3.connect(db_path)
+    conn.execute('CREATE TABLE crsql_master ("key" TEXT PRIMARY KEY, "value" ANY)')
+    conn.execute("CREATE TABLE crsql_site_id (site_id BLOB NOT NULL, ordinal INTEGER PRIMARY KEY)")
     conn.commit()
     conn.close()
 
-    def boom(conn, directory):
-        if failure == "migration":
-            raise migration_runner.MigrationError("009 failed")
-        raise RuntimeError("disk full")
-
-    monkeypatch.setattr(migration_runner, "apply_all", boom)
-    db = DatabaseManager(db_path)
-    if failure == "migration":
-        result = db.migrations_apply()
-        assert result == {"ok": False, "error": "009 failed", "applied": []}
-    else:
-        with pytest.raises(RuntimeError, match="disk full"):
-            db.migrations_apply()
-
+    result = DatabaseManager(db_path).migrations_apply()
+    assert result == {"ok": True, "error": None, "applied": []}
     conn = sqlite3.connect(db_path)
-    assert conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='trigger' AND name='tasks__crsql_itrig'"
-    ).fetchone() == ("tasks__crsql_itrig",)
-    conn.close()
-    with pytest.raises(LegacyCrsqlError):
-        with BackendManager(db_path)._get_conn() as c:
-            c.execute(
-                "INSERT INTO tasks (id, text, status, created_at, updated_at) "
-                "VALUES (1, 't', 'Backlog', 'n', 'n')"
-            )
+    assert _crsql_objects(conn) == []

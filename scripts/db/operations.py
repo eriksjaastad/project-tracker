@@ -29,10 +29,14 @@ class _TranslatingConnection(sqlite3.Connection):
         return self._translated(super().executescript, args, kwargs)
 
 
-def _crsql_tables_remain(conn: sqlite3.Connection) -> bool:
-    """True until migration 018 has dropped the cr-sqlite bookkeeping tables."""
+# Migration 018 removes cr-sqlite; see _migrations_apply.
+_CR_SQLITE_CLEANUP_VERSION = 18
+
+
+def _crsql_objects_remain(conn: sqlite3.Connection) -> bool:
+    """True while any cr-sqlite trigger or table is left in the database."""
     return conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'trigger') "
         "AND (name LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' OR name LIKE 'crsql\\_%' ESCAPE '\\')"
     ).fetchone() is not None
 
@@ -198,7 +202,7 @@ class ProjectTrackerOps:
         return self._migrations_apply()
 
     def _migrations_apply(self) -> dict:
-        from .migration_runner import MigrationError, apply_all
+        from .migration_runner import MigrationError, apply_all, discover_migrations
 
         directory = self._migrations_dir()
         if not directory.is_dir():
@@ -206,28 +210,33 @@ class ProjectTrackerOps:
 
         conn = sqlite3.connect(self.db_path, isolation_level=None)
         try:
-            # Legacy cr-sqlite triggers break every row write an older pending
-            # migration makes; drop them first (tables and ids are 018's job).
-            # If the run fails before 018 completes, put them back, so the DB
-            # stays "writes blocked until migrated" rather than half-migrated.
-            from .schema import has_legacy_crsql_triggers
-            saved_triggers = []
-            if has_legacy_crsql_triggers(self.db_path):
-                saved_triggers = conn.execute(
-                    "SELECT name, sql FROM sqlite_master WHERE type='trigger' "
-                    "AND name LIKE '%\\_\\_crsql\\_%' ESCAPE '\\'"
-                ).fetchall()
-                for name, _sql in saved_triggers:
-                    conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
+            # A restored pre-018 backup still carries cr-sqlite triggers, which
+            # break every row write an older pending migration makes. Run 018's
+            # cleanup first, as one transaction: the DB ends up either untouched
+            # or fully cr-sqlite-free with its machine id kept, never between.
+            # 018 is idempotent, so its turn in the normal order is a no-op that
+            # records it. This also clears anything old code recreated later.
+            if _crsql_objects_remain(conn):
+                cleanup = next(
+                    (m for m in discover_migrations(directory, verbose=False)
+                     if m.version == _CR_SQLITE_CLEANUP_VERSION),
+                    None,
+                )
+                if cleanup is None:
+                    raise FileNotFoundError(
+                        f"migration {_CR_SQLITE_CLEANUP_VERSION:03d} is missing from {directory}"
+                    )
+                conn.execute("BEGIN")
+                try:
+                    cleanup.up(conn)
+                    conn.execute("COMMIT")
+                except BaseException:
+                    conn.execute("ROLLBACK")
+                    raise
             try:
                 applied = apply_all(conn, directory)
-            except BaseException as err:
-                if saved_triggers and _crsql_tables_remain(conn):
-                    for _name, sql in saved_triggers:
-                        conn.execute(sql)
-                if isinstance(err, MigrationError):
-                    return {"ok": False, "error": str(err), "applied": []}
-                raise
+            except MigrationError as err:
+                return {"ok": False, "error": str(err), "applied": []}
         finally:
             conn.close()
         return {
