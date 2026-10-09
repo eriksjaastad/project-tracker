@@ -424,3 +424,42 @@ def test_one_off_scripts_refuse_a_legacy_db(tmp_path: Path, module: str) -> None
     clean = tmp_path / "clean.db"
     create_database(clean)
     mod.connect(clean).close()
+
+
+@pytest.mark.parametrize("failure", ["migration", "unexpected"])
+def test_a_failed_migrate_puts_the_legacy_triggers_back(tmp_path: Path, monkeypatch, failure: str) -> None:
+    """Codex #8093 round 1: the pre-migrate trigger drop is autocommit, so a
+    failed run must not leave a pre-018 DB writable without 018 having run."""
+    from db import migration_runner
+
+    db_path = _legacy_db(tmp_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE tasks__crsql_clock (id INTEGER)")  # what a real CRR DB has
+    conn.commit()
+    conn.close()
+
+    def boom(conn, directory):
+        if failure == "migration":
+            raise migration_runner.MigrationError("009 failed")
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(migration_runner, "apply_all", boom)
+    db = DatabaseManager(db_path)
+    if failure == "migration":
+        result = db.migrations_apply()
+        assert result == {"ok": False, "error": "009 failed", "applied": []}
+    else:
+        with pytest.raises(RuntimeError, match="disk full"):
+            db.migrations_apply()
+
+    conn = sqlite3.connect(db_path)
+    assert conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='trigger' AND name='tasks__crsql_itrig'"
+    ).fetchone() == ("tasks__crsql_itrig",)
+    conn.close()
+    with pytest.raises(LegacyCrsqlError):
+        with BackendManager(db_path)._get_conn() as c:
+            c.execute(
+                "INSERT INTO tasks (id, text, status, created_at, updated_at) "
+                "VALUES (1, 't', 'Backlog', 'n', 'n')"
+            )

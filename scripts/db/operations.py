@@ -29,6 +29,14 @@ class _TranslatingConnection(sqlite3.Connection):
         return self._translated(super().executescript, args, kwargs)
 
 
+def _crsql_tables_remain(conn: sqlite3.Connection) -> bool:
+    """True until migration 018 has dropped the cr-sqlite bookkeeping tables."""
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "AND (name LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' OR name LIKE 'crsql\\_%' ESCAPE '\\')"
+    ).fetchone() is not None
+
+
 class ProjectTrackerOps:
     _DESTRUCTIVE_BACKEND_OPS = frozenset({
         "delete_project", "delete_done_tasks", "trim_done_tasks", "raw_import_tasks",
@@ -200,17 +208,26 @@ class ProjectTrackerOps:
         try:
             # Legacy cr-sqlite triggers break every row write an older pending
             # migration makes; drop them first (tables and ids are 018's job).
+            # If the run fails before 018 completes, put them back, so the DB
+            # stays "writes blocked until migrated" rather than half-migrated.
             from .schema import has_legacy_crsql_triggers
+            saved_triggers = []
             if has_legacy_crsql_triggers(self.db_path):
-                for (name,) in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='trigger' "
+                saved_triggers = conn.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE type='trigger' "
                     "AND name LIKE '%\\_\\_crsql\\_%' ESCAPE '\\'"
-                ).fetchall():
+                ).fetchall()
+                for name, _sql in saved_triggers:
                     conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
             try:
                 applied = apply_all(conn, directory)
-            except MigrationError as err:
-                return {"ok": False, "error": str(err), "applied": []}
+            except BaseException as err:
+                if saved_triggers and _crsql_tables_remain(conn):
+                    for _name, sql in saved_triggers:
+                        conn.execute(sql)
+                if isinstance(err, MigrationError):
+                    return {"ok": False, "error": str(err), "applied": []}
+                raise
         finally:
             conn.close()
         return {
