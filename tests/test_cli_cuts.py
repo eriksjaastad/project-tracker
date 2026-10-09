@@ -1,4 +1,4 @@
-"""#8093 PR 1: unused commands are gone, `status` takes an id, and the shared
+"""#8093 PRs 1 and 4: unused commands are gone, `status` takes an id, and the shared
 card-transition loop keeps its contract (a skip is neither success nor failure).
 """
 
@@ -38,6 +38,13 @@ def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManager:
         ["tasks", "prompt-validate", "1"],
         ["tasks", "import", "f.json"],
         ["tasks", "clear-done"],
+        # #8093 PR 4: the sync stack and its `pt sync` group.
+        ["sync"],
+        ["sync", "status"],
+        ["sync", "check"],
+        ["sync", "pause"],
+        ["sync", "resume"],
+        ["sync", "set-machine-id", "1"],
     ],
 )
 def test_cut_commands_are_gone(args) -> None:

@@ -122,3 +122,12 @@ the cutover runbook (`docs/DBMED_RETIREMENT.md`, removed in #8093 after the
 **Context:** Turso has been off since 2026-04-05 (local SQLite; Turso added about 2.5s per query for no benefit), and `ProjectTrackerOps` already refused to run with it on, so the libsql path could not execute.
 
 **Decision:** Delete the libsql wrappers, connection pool, `_USE_TURSO` branches, `turso_to_local.py`, `TURSO_SETUP.md`, the `libsql` dependency and the `.turso-config.json` gate in the skills reader. The `pt` launcher no longer wraps in Doppler: its only skip condition was that config file, and nothing in `pt` needs a secret. This supersedes "Optional Cloud Database with Automatic Fallback".
+
+---
+
+## 2026-10-09 — sync stack removed (#8093)
+**Accepted 2026-10-09**
+
+**Context:** The cr-sqlite sync daemon (`sync_daemon`, `sync_http`, `sync_state`, `sync_checks`), `pt sync` and the `com.pt.sync-daemon` / `com.pt.tailscale-up` LaunchAgent templates were never installed; the daemon's exchange was a stub and the last sync was April 2026. The tailscale-up login job failed on every login.
+
+**Decision:** Delete the stack, `pt sync`, its tests, `scripts/log_rotation.py` (the daemon's only caller), `scripts/launchd/install.sh` and two uninstalled job templates (`complexity-scan.plist`, `com.user.ecosystem_maintenance.plist`). Migration `002_add_sync_ledgers` and the CRR manifest stay: cr-sqlite goes in its own PR.
