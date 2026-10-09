@@ -7,7 +7,6 @@ import type {
   BashStatsResponse,
   CodebaseSizeReport,
   Idea,
-  HoloscapeSeriesResponse,
   NavigationResponse,
   Project,
   Task,
@@ -19,12 +18,6 @@ import type {
 } from './types';
 
 const API_BASE = '/api';
-
-export async function fetchHoloscapeSeries(signal?: AbortSignal): Promise<HoloscapeSeriesResponse> {
-  const response = await fetch(`${API_BASE}/holoscape/series`, { signal });
-  if (!response.ok) throw new Error(`Holoscape feed returned HTTP ${response.status}`);
-  return response.json();
-}
 
 async function codebaseSizeRequest(path: string, init?: RequestInit): Promise<CodebaseSizeReport> {
   const response = await fetch(`${API_BASE}${path}`, init);

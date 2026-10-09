@@ -5,10 +5,8 @@ import { KanbanBoard } from './components/KanbanBoard';
 import { AgenticDashboard } from './components/AgenticDashboard';
 import { CalendarPage } from './components/CalendarPage';
 import { AgentChatPage } from './components/AgentChatPage';
-import { HoloscapeProgressPage } from './components/HoloscapeProgressPage';
 import { JobsPage } from './components/JobsPage';
 import { JobsSubmittedPage } from './components/JobsSubmittedPage';
-import { CodeReviewMetricsPage } from './components/CodeReviewMetricsPage';
 import { CodebasePage } from './components/CodebasePage';
 import { MorningPage } from './components/MorningPage';
 import './App.css';
@@ -25,10 +23,8 @@ function App() {
           <Route path="/agentic" element={<AgenticDashboard />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/agent-chat" element={<AgentChatPage />} />
-          <Route path="/holoscape" element={<HoloscapeProgressPage />} />
           <Route path="/jobs" element={<JobsPage />} />
           <Route path="/jobs/submitted" element={<JobsSubmittedPage />} />
-          <Route path="/code-reviews" element={<CodeReviewMetricsPage />} />
           <Route path="/codebase" element={<CodebasePage />} />
           <Route path="/morning" element={<MorningPage />} />
           <Route path="*" element={<Navigate to="/kanban" replace />} />
