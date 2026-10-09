@@ -1,4 +1,4 @@
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ProjectsProvider } from './ProjectsProvider';
@@ -25,18 +25,17 @@ describe('ProjectsProvider', () => {
 
   it('keeps the list when a later reload fails, and aborts its request on unmount', async () => {
     vi.mocked(fetchProjects).mockResolvedValue([{ id: 'a' }] as never);
-    let reload: () => void = () => {};
-    function Grab() { reload = useProjects().reload; return null; }
+    function Grab() { return <button onClick={useProjects().reload}>reload</button>; }
     const { unmount } = render(<ProjectsProvider><Probe label="p" /><Grab /></ProjectsProvider>);
     expect(await screen.findByText('p:a:')).toBeTruthy();
 
     let signal: AbortSignal | undefined;
     vi.mocked(fetchProjects).mockImplementation((s?: AbortSignal) => { signal = s; return Promise.reject(new Error('boom')); });
-    await act(async () => { reload(); });
+    await act(async () => { fireEvent.click(screen.getByText('reload')); });
     expect(screen.getByText('p:a:boom')).toBeTruthy();
 
     vi.mocked(fetchProjects).mockImplementation((s?: AbortSignal) => { signal = s; return new Promise(() => {}); });
-    await act(async () => { reload(); });
+    await act(async () => { fireEvent.click(screen.getByText('reload')); });
     unmount();
     expect(signal?.aborted).toBe(true);
   });
