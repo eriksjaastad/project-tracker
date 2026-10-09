@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Project } from '../types';
 import { useProjects } from '../hooks/useProjects';
@@ -41,11 +41,13 @@ export function ProjectFilterModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Every open refreshes the list, since task counts go stale. When the modal
-  // is open at mount this runs before the provider's first load and does
-  // nothing; that load covers it.
+  // Every open refreshes the list, since task counts go stale. Mounting open
+  // is covered by useProjects()' own mount refetch (KanbanBoard mounts the
+  // modal only when it opens), so only a later closed-to-open change reloads.
+  const wasOpen = useRef(isOpen);
   useEffect(() => {
-    if (isOpen) reload();
+    if (isOpen && !wasOpen.current) reload();
+    wasOpen.current = isOpen;
   }, [isOpen, reload]);
 
   const filteredProjects = useMemo(() => {

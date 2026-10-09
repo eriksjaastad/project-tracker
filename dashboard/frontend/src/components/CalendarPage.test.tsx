@@ -1,5 +1,4 @@
 // Snowflake-scale calendar event ids must reach the API call as the exact string (#7826).
-import { ProjectsProvider } from '../hooks/ProjectsProvider';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -35,7 +34,7 @@ describe('CalendarPage id precision', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<CalendarPage />, { wrapper: ProjectsProvider });
+    render(<CalendarPage />);
     const pills = await screen.findAllByRole('button', { name: /Big event/ });
     await user.click(pills[0]);
     expect(await screen.findByText(new RegExp(`Task #${TASK_ID}`))).toBeTruthy();

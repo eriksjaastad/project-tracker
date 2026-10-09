@@ -1,16 +1,16 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import {
   fetchCalendarEvents,
   fetchCalendarCrons,
   createCalendarEvent,
   markCalendarEventDone,
+  fetchProjects,
 } from '../api';
 import type {
   CalendarEvent,
   CalendarCronJob,
   CreateCalendarEventPayload,
 } from '../api';
-import { useProjects } from '../hooks/useProjects';
 import { useRequest } from '../hooks/useRequest';
 import { PageShell } from './PageShell';
 import './CalendarPage.css';
@@ -80,41 +80,26 @@ export function CalendarPage() {
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
+  // Events, crons and projects load together, as one all-or-nothing request:
+  // any failure shows its error at once, and the error is hidden while a
+  // reload (after Mark Done or Add Event) is in flight.
   const calendar = useRequest(
     async (signal) => {
-      const [events, crons] = await Promise.all([
+      const [events, crons, projects] = await Promise.all([
         fetchCalendarEvents({ days: 120, include_all: true }, signal),
         fetchCalendarCrons(undefined, signal),
+        fetchProjects(signal),
       ]);
-      return { events, crons };
+      return { events, crons, projects: projects.slice().sort((a, b) => a.name.localeCompare(b.name)) };
     },
     [],
   );
-  const {
-    projects: loadedProjects,
-    error: projectsError,
-    loading: projectsLoading,
-    reload: reloadProjects,
-  } = useProjects();
   const events: CalendarEvent[] = calendar.data?.events ?? [];
   const crons: CalendarCronJob[] = calendar.data?.crons ?? [];
-  const projects = useMemo(
-    () => (loadedProjects ?? []).slice().sort((a, b) => a.name.localeCompare(b.name)),
-    [loadedProjects],
-  );
-  // The page needs the project list too: it waits for it, and a first-load
-  // failure of it blocks the page, as when it was fetched together with events.
-  // Until a list arrives, a project load in flight (first or retry) is loading.
-  const projectsPending = loadedProjects === null && projectsLoading;
-  const loading = calendar.loading || projectsPending;
-  const error = loading
-    ? null
-    : (calendar.error ?? (loadedProjects === null ? projectsError : null))?.message ?? null;
-  // After Mark Done or Add Event, everything is fetched again, as before.
-  const load = () => {
-    calendar.reload();
-    reloadProjects();
-  };
+  const projects = calendar.data?.projects ?? [];
+  const { loading } = calendar;
+  const error = loading ? null : calendar.error?.message ?? null;
+  const load = calendar.reload;
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);

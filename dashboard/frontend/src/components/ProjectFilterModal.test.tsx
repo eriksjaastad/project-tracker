@@ -80,6 +80,17 @@ describe('ProjectFilterModal on the shared project list', () => {
     expect(fetchProjects).toHaveBeenCalledTimes(1);
   });
 
+  it('sends one request when mounted open after the app loaded, as KanbanBoard mounts it', async () => {
+    vi.mocked(fetchProjects).mockResolvedValue(PROJECTS);
+    const { rerender } = render(<ProjectsProvider><MemoryRouter>{null}</MemoryRouter></ProjectsProvider>);
+    await act(async () => {});
+    expect(fetchProjects).toHaveBeenCalledTimes(1);
+    await act(async () => { rerender(modal(true)); });
+    expect(fetchProjects).toHaveBeenCalledTimes(2);
+    // The one new request is live (the first call's signal is aborted harmlessly after it settled).
+    expect(vi.mocked(fetchProjects).mock.calls[1][0]?.aborted).toBe(false);
+  });
+
   it('lists the loaded projects sorted by name, refetches on every open including the first, and keeps the list meanwhile', async () => {
     vi.mocked(fetchProjects).mockResolvedValue(PROJECTS);
     const { rerender } = renderModal(false);
