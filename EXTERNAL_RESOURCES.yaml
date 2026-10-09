@@ -307,10 +307,11 @@ projects:
         type: local
         cost: 0
       - name: Turso
-        purpose: "Kanban DB sync"
+        purpose: "Kanban DB sync (retired)"
         type: database
         env_var: "TURSO_KANBAN_TOKEN, TURSO_KANBAN_URL"
-        cost: "audit"
+        cost: 0
+        notes: "Retired: off since 2026-04-05 (local SQLite); Turso code removed from project-tracker 2026-10-09 (#8093). Doppler keys remain until deleted separately."
       - name: Google Cloud (Cloud Run + Cloud SQL, project synth-insight-labs)
         purpose: "Agent Chat API behind pt message (Makefile deploy-chat; see agent-chat entry)"
         type: cloud
@@ -424,10 +425,11 @@ projects:
         cost: "Variable"
         notes: "Card 97734681395621888, Done 2026-09-30."
       - name: Turso
-        purpose: "Optional cloud mode for brain.db (libsql)"
+        purpose: "Optional cloud mode for brain.db (libsql; retired)"
         type: database
         env_var: "TURSO_BRAIN_TOKEN, TURSO_BRAIN_URL"
-        cost: "audit"
+        cost: 0
+        notes: "Retired: ai-memory removed its Turso code; nothing in ~/projects reads these keys now. Doppler keys remain until deleted separately."
       - name: Resend
         purpose: "Health/alert email"
         type: email
@@ -538,10 +540,11 @@ projects:
         env_var: "FIRECRAWL_API_KEY"
         cost: 0  # spudlogic account, free tier (audited 2026-09-05)
       - name: Turso
-        purpose: "Kanban DB (shared with project-tracker)"
+        purpose: "Kanban DB (shared with project-tracker; retired)"
         type: database
         env_var: "TURSO_KANBAN_TOKEN, TURSO_KANBAN_URL"
-        cost: "audit"
+        cost: 0
+        notes: "Retired: project-tracker's Kanban DB has been local SQLite since 2026-04-05 and its Turso code was removed 2026-10-09 (#8093)."
       - name: Resend
         purpose: "Transactional email"
         type: email
@@ -1009,7 +1012,7 @@ services_by_function:
   databases:
     - PostgreSQL (Railway)
     - PostgreSQL (Google Cloud SQL — synth-insight-labs-pg)
-    - Turso / libsql (project-tracker Kanban, ai-memory cloud mode)
+    - Turso / libsql (retired: project-tracker Kanban off since 2026-04-05, code removed 2026-10-09 #8093; ai-memory cloud mode removed)
     - SQLite (local)
 
   email:

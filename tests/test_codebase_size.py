@@ -376,7 +376,7 @@ def test_table_is_local_only_and_migration_declares_no_crr() -> None:
 # pt size CLI
 # ---------------------------------------------------------------------------
 
-_ENV = {"PT_SKIP_DOPPLER": "1", "PT_NO_BANNER": "1", "PT_SUPPRESS_MIGRATION_WARNING": "1"}
+_ENV = {"PT_NO_BANNER": "1", "PT_SUPPRESS_MIGRATION_WARNING": "1"}
 
 
 def _pt(monkeypatch, root: Path, args: list[str]):

@@ -6,17 +6,10 @@ The producer side (ai-memory's :mod:`log-skill-invocation` hook, card
 consumer: a single read-only sqlite connection, a few filter helpers,
 zero writes. No writes anywhere — the reader opens the file with
 ``mode=ro`` so accidental ``INSERT``/``DELETE`` would raise.
-
-Turso gate: ``~/projects/.turso-config.json`` is the single source of
-truth for whether the projects run against local sqlite or a Turso
-cloud DB. When Turso is hot, the local ``brain.db`` is stale and reading
-it would produce lies. The reader refuses and raises
-:class:`TursoEnabledError` with a clear message pointing at the config.
 """
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -27,15 +20,6 @@ from typing import Iterable, Iterator
 from origin import project_from_cwd
 
 DEFAULT_BRAIN_DB = Path.home() / "projects" / "ai-memory" / "brain.db"
-DEFAULT_TURSO_CONFIG = Path.home() / "projects" / ".turso-config.json"
-
-
-class TursoEnabledError(RuntimeError):
-    """Raised when ``.turso-config.json`` has ``turso_enabled: true``.
-
-    Local ``brain.db`` is not authoritative in that mode; the caller
-    should switch to the cloud DB or wait for the toggle to flip back.
-    """
 
 
 class SkillInvocationsTableMissing(RuntimeError):
@@ -52,29 +36,6 @@ class Invocation:
     caller_type: str
     invoked_at: datetime
     project: str
-
-
-def _assert_turso_disabled(config_path: Path) -> None:
-    """Raise :class:`TursoEnabledError` if the config says Turso is on.
-
-    A missing config file is treated as "local mode" (the default) — the
-    gate only fires when Turso is explicitly enabled.
-    """
-    if not config_path.is_file():
-        return
-    try:
-        cfg = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise TursoEnabledError(
-            f"Could not read {config_path} to check Turso state: {exc}"
-        ) from exc
-    if cfg.get("turso_enabled") is True:
-        raise TursoEnabledError(
-            f"Turso is enabled in {config_path}. The local brain.db is stale "
-            f"while Turso is hot; `pt skills stats` only supports local-sqlite "
-            f"reads for now. Flip `turso_enabled` back to false, or wait for "
-            f"the Turso-backed reader to land."
-        )
 
 
 def _parse_invoked_at(value: str) -> datetime:
@@ -126,7 +87,6 @@ def iter_invocations(
     agent: str | None = None,
     project: str | None = None,
     db_path: Path | None = None,
-    turso_config: Path | None = None,
 ) -> Iterable[Invocation]:
     """Yield :class:`Invocation` rows matching the given filters.
 
@@ -136,15 +96,12 @@ def iter_invocations(
     ``since`` is pushed down to the WHERE clause. ``agent=""`` matches the
     legitimately-unattributable rows (empty caller_type).
 
-    ``db_path`` and ``turso_config`` default to the module-level constants
+    ``db_path`` defaults to the module-level constant
     resolved *at call time* — tests can monkeypatch those module globals
     before invoking the CLI and have the override take effect.
     """
     if db_path is None:
         db_path = DEFAULT_BRAIN_DB
-    if turso_config is None:
-        turso_config = DEFAULT_TURSO_CONFIG
-    _assert_turso_disabled(turso_config)
     if not db_path.is_file():
         raise FileNotFoundError(
             f"brain.db not found at {db_path}. Has ai-memory been initialised?"

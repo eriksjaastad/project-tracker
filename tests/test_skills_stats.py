@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from skills_registry import installed_skills
 from skill_invocations_reader import (
     SkillInvocationsTableMissing,
-    TursoEnabledError,
     iter_invocations,
 )
 
@@ -147,8 +146,7 @@ def test_reader_parses_naive_sqlite_default_timestamp(tmp_path, monkeypatch):
         ("commit", str(home / "projects" / "project-tracker"),
          "s1", "t1", "", "2026-04-10 12:34:56"),
     ])
-    cfg = tmp_path / "noop.json"
-    rows = list(iter_invocations(db_path=db, turso_config=cfg))
+    rows = list(iter_invocations(db_path=db))
     assert len(rows) == 1
     assert rows[0].invoked_at.tzinfo is not None
     assert rows[0].invoked_at.isoformat() == "2026-04-10T12:34:56+00:00"
@@ -162,8 +160,7 @@ def test_reader_parses_z_suffix_timestamp(tmp_path, monkeypatch):
         ("pr", str(home / "projects" / "ai-memory"),
          "s1", "t1", "", "2026-03-16T08:40:50.204Z"),
     ])
-    cfg = tmp_path / "noop.json"
-    rows = list(iter_invocations(db_path=db, turso_config=cfg))
+    rows = list(iter_invocations(db_path=db))
     assert len(rows) == 1
     assert rows[0].invoked_at.tzinfo is not None
 
@@ -176,17 +173,7 @@ def test_reader_raises_when_table_missing(tmp_path, monkeypatch):
     db = tmp_path / "brain.db"
     sqlite3.connect(db).close()
     with pytest.raises(SkillInvocationsTableMissing):
-        list(iter_invocations(db_path=db, turso_config=tmp_path / "nope.json"))
-
-
-def test_reader_raises_when_turso_enabled(tmp_path, monkeypatch):
-    _fake_home(tmp_path, monkeypatch)
-    db = tmp_path / "brain.db"
-    _seed(db, [])
-    cfg = tmp_path / ".turso-config.json"
-    cfg.write_text(json.dumps({"turso_enabled": True}), encoding="utf-8")
-    with pytest.raises(TursoEnabledError):
-        list(iter_invocations(db_path=db, turso_config=cfg))
+        list(iter_invocations(db_path=db))
 
 
 def test_reader_filters_by_skill_and_since(tmp_path, monkeypatch):
@@ -199,19 +186,17 @@ def test_reader_filters_by_skill_and_since(tmp_path, monkeypatch):
         ("commit", str(home / "projects" / "project-tracker"), "s1", "t2", "", old),
         ("pr",     str(home / "projects" / "ai-memory"),       "s2", "t3", "", recent),
     ])
-    cfg = tmp_path / ".turso-config.json"
-    cfg.write_text(json.dumps({"turso_enabled": False}), encoding="utf-8")
 
-    rows = list(iter_invocations(db_path=db, turso_config=cfg))
+    rows = list(iter_invocations(db_path=db))
     assert len(rows) == 3
 
     recent_only = list(iter_invocations(
         since=datetime.now(timezone.utc) - timedelta(days=7),
-        db_path=db, turso_config=cfg,
+        db_path=db,
     ))
     assert len(recent_only) == 2
 
-    commit_only = list(iter_invocations(skill="commit", db_path=db, turso_config=cfg))
+    commit_only = list(iter_invocations(skill="commit", db_path=db))
     assert [r.skill_name for r in commit_only] == ["commit", "commit"]
 
 
@@ -225,16 +210,15 @@ def test_reader_filters_by_agent(tmp_path, monkeypatch):
         ("pr",     str(home / "projects" / "ai-memory"),       "s2", "t3", "subagent", now),
         ("journal", str(home / "projects" / "other"),          "s3", "t4", "", now),
     ])
-    cfg = tmp_path / "noop.json"
 
-    main_rows = list(iter_invocations(agent="main", db_path=db, turso_config=cfg))
+    main_rows = list(iter_invocations(agent="main", db_path=db))
     assert sorted(r.skill_name for r in main_rows) == ["commit", "pr"]
     assert all(r.caller_type == "main" for r in main_rows)
 
-    sub_rows = list(iter_invocations(agent="subagent", db_path=db, turso_config=cfg))
+    sub_rows = list(iter_invocations(agent="subagent", db_path=db))
     assert len(sub_rows) == 1 and sub_rows[0].caller_type == "subagent"
 
-    empty_rows = list(iter_invocations(agent="", db_path=db, turso_config=cfg))
+    empty_rows = list(iter_invocations(agent="", db_path=db))
     assert len(empty_rows) == 1 and empty_rows[0].skill_name == "journal"
 
 
@@ -248,14 +232,13 @@ def test_reader_resolves_project_from_cwd(tmp_path, monkeypatch):
         ("pr",     str(home / "projects"), "s3", "t3", "", now),
         ("pr",     "/tmp/elsewhere", "s4", "t4", "", now),
     ])
-    cfg = tmp_path / "noop.json"
 
-    rows = list(iter_invocations(db_path=db, turso_config=cfg))
+    rows = list(iter_invocations(db_path=db))
     projects = sorted(r.project for r in rows)
     assert projects == ["ai-memory", "architect", "project-tracker", "unknown"]
 
     tracker_rows = list(iter_invocations(
-        project="project-tracker", db_path=db, turso_config=cfg,
+        project="project-tracker", db_path=db,
     ))
     assert len(tracker_rows) == 1
     assert tracker_rows[0].project == "project-tracker"
@@ -266,7 +249,7 @@ def test_reader_resolves_project_from_cwd(tmp_path, monkeypatch):
 
 @pytest.fixture
 def cli_env(tmp_path, monkeypatch):
-    """Seed a temp home + brain.db + turso-config, return (home, db, cfg)."""
+    """Seed a temp home + brain.db, return (home, db)."""
     home = _fake_home(tmp_path, monkeypatch)
     db = tmp_path / "brain.db"
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -277,18 +260,15 @@ def cli_env(tmp_path, monkeypatch):
         ("pr",     str(home / "projects" / "ai-memory"),       "s2", "t3", "subagent", now),
         ("journal", str(home / "projects" / "other"),          "s3", "t4", "", old),
     ])
-    cfg = tmp_path / ".turso-config.json"
-    cfg.write_text(json.dumps({"turso_enabled": False}), encoding="utf-8")
 
     # Point the reader at our fake paths via monkeypatching the module defaults.
     import skill_invocations_reader as reader_mod
     monkeypatch.setattr(reader_mod, "DEFAULT_BRAIN_DB", db)
-    monkeypatch.setattr(reader_mod, "DEFAULT_TURSO_CONFIG", cfg)
 
     # Seed installed skills via the frontmatter walker.
     _skills_fixture(home, ["commit", "pr", "journal", "never-called"])
 
-    return home, db, cfg
+    return home, db
 
 
 def _runner_invoke(args: list[str]):
@@ -390,20 +370,3 @@ def test_cli_by_project(cli_env):
     assert projects["project-tracker"] == {"commit": 2}
     assert projects["ai-memory"] == {"pr": 1}
     assert projects["other"] == {"journal": 1}
-
-
-def test_cli_surfaces_turso_error(tmp_path, monkeypatch):
-    home = _fake_home(tmp_path, monkeypatch)
-    db = tmp_path / "brain.db"
-    _seed(db, [])
-    cfg = tmp_path / ".turso-config.json"
-    cfg.write_text(json.dumps({"turso_enabled": True}), encoding="utf-8")
-
-    import skill_invocations_reader as reader_mod
-    monkeypatch.setattr(reader_mod, "DEFAULT_BRAIN_DB", db)
-    monkeypatch.setattr(reader_mod, "DEFAULT_TURSO_CONFIG", cfg)
-
-    assert home.exists()
-    result = _runner_invoke(["stats"])
-    assert result.exit_code != 0
-    assert "Turso is enabled" in result.output

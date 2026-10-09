@@ -59,7 +59,6 @@ def _make_tracker_db(path: Path) -> None:
 _COMMON_ENV = {
     "PT_SUPPRESS_MIGRATION_WARNING": "1",
     "PT_NO_BANNER": "1",
-    "PT_SKIP_DOPPLER": "1",
 }
 
 

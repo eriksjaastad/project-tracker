@@ -14,12 +14,7 @@ class ProjectTrackerOps:
     })
 
     def __init__(self, db_path=None):
-        from .backend_manager import DatabaseManager, _USE_TURSO
-        if _USE_TURSO:
-            raise RuntimeError(
-                "Project Tracker local operations require Turso to be disabled in "
-                "~/projects/.turso-config.json; refusing mixed local/remote writes"
-            )
+        from .backend_manager import DatabaseManager
         from .backend_calendar_manager import CalendarManager
         from .schema import get_db_path
         from .pt_id import _find_crsqlite_dylib

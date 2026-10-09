@@ -112,3 +112,12 @@ storage gate is planned. Root-owned installation retirement follows
 | CONTROL_PLANE | Not a sync coordination primitive; nothing depends on its replication |
 
 **Consequences:** Cross-machine resumption of unfinished work is not supported through `pt handoff`. To carry work across machines an agent must commit (even a WIP commit) and push the branch — at which point the work is no longer "unfinished local" and a Phase C PR-style record is appropriate instead.
+
+---
+
+## 2026-10-09 — Turso code removed (#8093)
+**Accepted 2026-10-09**
+
+**Context:** Turso has been off since 2026-04-05 (local SQLite; Turso added about 2.5s per query for no benefit), and `ProjectTrackerOps` already refused to run with it on, so the libsql path could not execute.
+
+**Decision:** Delete the libsql wrappers, connection pool, `_USE_TURSO` branches, `turso_to_local.py`, `TURSO_SETUP.md`, the `libsql` dependency and the `.turso-config.json` gate in the skills reader. The `pt` launcher no longer wraps in Doppler: its only skip condition was that config file, and nothing in `pt` needs a secret. This supersedes "Optional Cloud Database with Automatic Fallback".

@@ -43,7 +43,7 @@ from scripts.config import PROJECTS_BASE_DIR
 from db.schema import (
     init_db, get_db_path, SafetyError, FreshDatabaseError, FingerprintMismatchError,
 )
-from db.manager import DatabaseManager, _USE_TURSO
+from db.manager import DatabaseManager
 from discovery.project_scanner import (
     PORTFOLIO_ROOTS,
     discover_projects,
@@ -60,7 +60,6 @@ from origin import resolve_created_by as _resolve_created_by
 from skill_invocations_reader import (
     iter_invocations as _iter_skill_invocations,
     SkillInvocationsTableMissing as _SkillInvocationsTableMissing,
-    TursoEnabledError as _SkillsTursoEnabledError,
 )
 from skills_registry import installed_skills as _installed_skills
 
@@ -181,12 +180,8 @@ def cli(ctx):
 def _warn_unapplied_migrations() -> None:
     """Print a stderr warning if the tracker DB has pending migrations.
 
-    Never raises — a warning failure must not take `pt` down. Turso
-    mode is skipped entirely: the migration runner operates on local
-    SQLite and isn't meaningful against a Turso-backed DB.
+    Never raises — a warning failure must not take `pt` down.
     """
-    if _USE_TURSO:
-        return
     try:
         pending = DatabaseManager().migrations_pending()
         if not pending:
@@ -403,14 +398,14 @@ def _blocked_label(blocking_ids, reason, display_map) -> str:
 def _display_tasks(task_list, project=None, json_output=False, db=None):
     import json as json_lib
     if json_output:
-        backend = "turso" if _USE_TURSO else "local"
+        backend = "local"
         print(json_lib.dumps({"tasks": task_list, "total": len(task_list), "backend": backend}, indent=2))
         return
     if not task_list:
         filter_msg = f" for project '{project}'" if project else ""
         print(f"No tasks found{filter_msg}.")
         return
-    backend_tag = "turso" if _USE_TURSO else "local"
+    backend_tag = "local"
     title = f"Tasks - {project}" if project else "Tasks - all projects"
     print(f"{title} [{backend_tag}]\n")
     # Include blocker ids in the display map so [B:…] stays four-digit friendly.
@@ -2755,7 +2750,7 @@ def _open_memory_db_readonly() -> sqlite3.Connection:
             f"memory database not found at {db_path}",
             EXIT_BACKEND_UNAVAILABLE,
         )
-    # ai-memory owns this read-only source; the dbmed rollout was cancelled.
+    # ai-memory owns this read-only source.
     try:
         uri = f"file:{db_path}?mode=ro"
         conn = sqlite3.connect(uri, uri=True)
@@ -2885,10 +2880,10 @@ def _memory_payload(command: str, rows: list[dict], total: int, db_path: str,
 
 
 def _run_brain(*args: str) -> None:
-    """Call brain.py via doppler + uv run, ensuring Turso credentials are available.
+    """Call brain.py via doppler + uv run.
 
-    Uses ``doppler run --project ai-memory --config dev`` so that
-    TURSO_BRAIN_URL / TURSO_BRAIN_TOKEN are always injected.
+    Uses ``doppler run --project ai-memory --config dev`` so brain.py gets
+    its own secrets; ``pt`` itself runs without Doppler.
     """
     if not BRAIN_PY_PATH.exists():
         raise click.ClickException(
@@ -2922,7 +2917,7 @@ def memory_group(ctx: click.Context) -> None:
 
     \b
     Quick start:
-      pt memory search "what did we decide about Turso?"
+      pt memory search "what did we decide about backups?"
       pt memory write "Decision: use Haiku for routine tasks" --type decision
       pt memory stats
     """
@@ -2953,7 +2948,7 @@ def memory_search(query_arg: str | None, query_opt: str | None, top: int, agent_
 
     \b
     Examples:
-      pt memory search "what was the Turso decision?"
+      pt memory search "what was the backup decision?"
       pt memory search "MCP firewall" --top 10
       pt memory search "calendar" --agent-family claude
     """
@@ -3182,7 +3177,7 @@ def graph_group(ctx: click.Context) -> None:
     Quick start:
       pt graph stats                          # Node/edge/confidence counts
       pt graph query project-tracker          # What's connected to a project
-      pt graph find "Turso migration"         # Semantic search over nodes
+      pt graph find "backup strategy"         # Semantic search over nodes
       pt graph path ai-memory project-tracker # Shortest path between nodes
       pt graph communities                    # Leiden community detection
       pt graph wiki ai-memory                 # On-demand wiki article
@@ -3261,7 +3256,7 @@ def graph_find(query: str, top: int, hops: int, as_json: bool) -> None:
     \b
     Examples:
       pt graph find "authentication"              # What's related to auth?
-      pt graph find "Turso migration" --top 5     # Focused search
+      pt graph find "backup strategy" --top 5     # Focused search
       pt graph find "LoRA training" --hops 0      # Exact matches only
       pt graph find "deployment" --json            # JSON for agents
     """
@@ -3288,7 +3283,7 @@ def graph_path(source: str, target: str, max_depth: int, as_json: bool) -> None:
     Examples:
       pt graph path flo-fi project-tracker        # How are they connected?
       pt graph path ai-memory antigravity-ide     # Cross-project links
-      pt graph path Erik Turso --json             # JSON for agents
+      pt graph path Erik Doppler --json             # JSON for agents
     """
     args = ["graph", "path", source, target, "--max-depth", str(max_depth)]
     if as_json:
@@ -3628,7 +3623,7 @@ def info_group(ctx, project, json_output):
     Global keys (pt info):
       semantic_search      grep/rg setup (grepai config, ollama model)
       projects_root        Path to ~/projects
-      db_backend           Database backend (local SQLite or Turso)
+      db_backend           Database backend (local SQLite)
       default_doppler_config  Default doppler config (dev)
       mac_mini_ssh         SSH connection string for Mac Mini
       git_identity         gha vs git vs gh conventions (personal identity)
@@ -3678,7 +3673,7 @@ def info_set(key, value, project):
     \b
     Examples:
       pt info set domain synthinsightlabs.com
-      pt info set tech_stack "Python, Flask, Turso" -p project-tracker
+      pt info set tech_stack "Python, Flask, SQLite" -p project-tracker
     """
     db = DatabaseManager()
     db.set_info(key, value, project_id=project)
@@ -3793,12 +3788,11 @@ def _effective_config_payload() -> dict:
         "projects_root": str(PROJECTS_BASE_DIR),
         "tracker_db_path": str(get_db_path()),
         "memory_db_path": str(_memory_db_path()),
-        "backend": "turso" if _USE_TURSO else "local",
+        "backend": "local",
         "env": {
             "PT_DB_PATH": os.environ.get("PT_DB_PATH"),
             "PT_MEMORY_DB_PATH": os.environ.get("PT_MEMORY_DB_PATH"),
             "PROJECTS_ROOT": os.environ.get("PROJECTS_ROOT"),
-            "PT_SKIP_DOPPLER": os.environ.get("PT_SKIP_DOPPLER"),
             "PT_NO_BANNER": os.environ.get("PT_NO_BANNER"),
         },
     }
@@ -3879,7 +3873,7 @@ def doctor(json_output: bool) -> None:
         "checks": checks,
         "cron_setup": {
             "recommended_path": f"{project_root / 'pt'}",
-            "example": f"cd {project_root} && PT_SKIP_DOPPLER=1 pt memory recent --since 7d --json",
+            "example": f"cd {project_root} && pt memory recent --since 7d --json",
         },
     }
     if json_output:
@@ -4295,8 +4289,6 @@ def _collect_invocations(**filters):
 
     try:
         rows = list(_iter_skill_invocations(since=since, **filters))
-    except _SkillsTursoEnabledError as exc:
-        raise click.ClickException(str(exc)) from exc
     except _SkillInvocationsTableMissing as exc:
         raise click.ClickException(str(exc)) from exc
     except FileNotFoundError as exc:
@@ -4489,21 +4481,9 @@ def db_group(ctx):
 def db_migrate():
     """Apply every pending migration in order.
 
-    Refuses to run against Turso — the runner targets local SQLite
-    only. Future work (PR #3b) will refuse if data-plane sync is
+    Future work (PR #3b) will refuse if data-plane sync is
     currently running. Today sync isn't on, so that check is a no-op.
     """
-    if _USE_TURSO:
-        console.print(
-            "[red]pt db migrate: Turso backend is active — this runner "
-            "targets local SQLite only.[/red]"
-        )
-        console.print(
-            "[dim]Disable Turso in ~/projects/.turso-config.json to use "
-            "the local runner.[/dim]"
-        )
-        sys.exit(2)
-
     db = DatabaseManager()
 
     # Schema migration is a destructive operation: it runs ALTERs, and for CRR
@@ -4573,9 +4553,6 @@ def _handle_sync_db_error(cmd: str, err: Exception) -> None:
 @sync_group.command(name="status")
 def sync_status():
     """Show pause state, last successful sync, and engine availability."""
-    if _USE_TURSO:
-        console.print("[yellow]sync engine: Turso (replication handled upstream)[/yellow]")
-        return
     try:
         state = _sync_conn().sync_status()
     except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
@@ -4605,9 +4582,6 @@ def sync_status():
 @sync_group.command(name="check")
 def sync_check():
     """Verify local sync-readiness prerequisites against the live DB."""
-    if _USE_TURSO:
-        console.print("[yellow]pt sync check: Turso mode — local SQLite readiness does not apply.[/yellow]")
-        return
     try:
         checks = _sync_conn().sync_check()
     except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
@@ -4629,10 +4603,6 @@ def sync_check():
 @click.argument("machine_id", type=int)
 def sync_set_machine_id(machine_id: int):
     """Persist _metadata['pt.machine_id'] for this machine."""
-    if _USE_TURSO:
-        console.print("[red]pt sync set-machine-id: Turso mode — local SQLite metadata is not active.[/red]")
-        sys.exit(2)
-
     try:
         _sync_conn().sync_set_machine_id(machine_id=machine_id)
     except ValueError as err:
@@ -4653,9 +4623,6 @@ def sync_set_machine_id(machine_id: int):
 )
 def sync_pause(all_scope: bool):
     """Halt data-plane replication. Control plane keeps running unless --all."""
-    if _USE_TURSO:
-        console.print("[red]pt sync pause: Turso mode — nothing to pause locally.[/red]")
-        sys.exit(2)
     scope = "all" if all_scope else "data_plane"
     try:
         _sync_conn().sync_pause(scope=scope)
@@ -4690,9 +4657,6 @@ def sync_resume(force: bool):
     daemon-less install could never resume, since no peer rows can
     replicate in.
     """
-    if _USE_TURSO:
-        console.print("[red]pt sync resume: Turso mode — nothing to resume locally.[/red]")
-        sys.exit(2)
     db = _sync_conn()
     try:
         if not force:

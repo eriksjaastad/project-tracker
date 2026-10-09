@@ -232,15 +232,3 @@ def test_trim_done_tasks_cleans_children(tmp_path: Path):
         assert conn.execute("SELECT COUNT(*) FROM task_attachments WHERE task_id = ?", (old_task["id"],)).fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM calendar_event_tasks WHERE task_id = ?", (old_task["id"],)).fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM calendar_event_tasks WHERE task_id = ?", (keep_task["id"],)).fetchone()[0] == 1
-
-
-@pytest.mark.parametrize("url,token", [("", "token"), ("libsql://example", ""), ("", "")])
-def test_turso_conn_refuses_missing_credentials(monkeypatch, url, token):
-    """#6900: libsql.connect("") opens a throwaway database, so an enabled
-    Turso backend without credentials must raise, never read as an empty board."""
-    import db.backend_manager as backend_manager
-
-    monkeypatch.setattr(backend_manager, "_TURSO_URL", url)
-    monkeypatch.setattr(backend_manager, "_TURSO_TOKEN", token)
-    with pytest.raises(RuntimeError, match="TURSO_KANBAN_URL"):
-        BackendDatabaseManager._create_turso_conn()

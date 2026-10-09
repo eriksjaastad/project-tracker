@@ -18,8 +18,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       # Pinned explicitly rather than resolved from pyproject.toml, whose
-      # `requires-python = ">=3.11"` would happily pick 3.14 — and 3.14 breaks
-      # libsql, which is a core dependency here, not an optional extra.
+      # `requires-python = ">=3.11"` would happily pick 3.14.
       # .python-version says 3.13; this keeps CI honest about that.
       - name: Install Python 3.13
         run: uv python install 3.13

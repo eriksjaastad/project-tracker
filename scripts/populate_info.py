@@ -26,7 +26,7 @@ _resources_path = str(EXTERNAL_RESOURCES_FILE.resolve())
 _remote_pt_command = (
     f"cd {shlex.quote(str(PROJECTS_BASE_DIR))} && "
     + shlex.join([
-        "env", "PT_SKIP_DOPPLER=1", f"PROJECTS_ROOT={PROJECTS_BASE_DIR}",
+        "env", f"PROJECTS_ROOT={PROJECTS_BASE_DIR}",
         f"PT_RESOURCES_FILE={_resources_path}", str(PROJECT_ROOT / "pt"), "tasks",
     ])
 )
@@ -40,7 +40,7 @@ GLOBAL_KEYS = {
     "projects_root": str(PROJECTS_BASE_DIR),
     "external_resources_doc": _resources_path,
     "remote_pt_invocation": shlex.join(["ssh", "macbook-pro", _remote_pt_command]),
-    "db_backend": "local SQLite at data/tracker.db (controlled by ~/projects/.turso-config.json)",
+    "db_backend": "local SQLite at data/tracker.db",
     "default_doppler_config": "dev",
     "mac_mini_ssh": "eriksjaastad@Eriks-Mac-mini.local",
     "git_identity": (
@@ -133,9 +133,6 @@ EXTRA_KEYS = {
         "PT_MIGRATION_DIR": "Override for migration state files (default: ~/.project-tracker/migrations)",
         "PT_NO_BANNER": "Set to 1 to suppress the pt startup banner",
         "PT_SUPPRESS_MIGRATION_WARNING": "Set to 1 to silence the unapplied-migration warning (tests set this)",
-        "PT_SKIP_DOPPLER": "Set to 1 to skip the launcher's doppler wrap — read-only cron/SSH paths",
-        "PT_DOPPLER_PROJECT": "Override the Doppler project the launcher passes (default: project-tracker)",
-        "PT_DOPPLER_CONFIG": "Override the Doppler config the launcher passes (default: dev)",
         "PT_ALERTS_URL": "Alerts endpoint the digest reads (default: localhost:8000/api/alerts)",
         "PT_TASKS_URL": "Tasks endpoint the digest reads",
         "PT_MINI_HOST": "SSH host for the Mac Mini scan (default: eriks-mac-mini)",
@@ -150,7 +147,7 @@ EXTRA_KEYS = {
         "PT_ALLOW_DIRTY_EXIT": "Reserved for future session-end gate (not currently implemented as a Stop hook)",
     },
     "ai-memory": {
-        "infrastructure": "libsql/SQLite (brain.db), MCP server (mcp_server.py), graph analytics (graspologic)",
+        "infrastructure": "SQLite (brain.db), MCP server (mcp_server.py), graph analytics (graspologic)",
     },
     "trading-copilot": {
         "infrastructure": "Railway cron dispatcher (*/5 min), PostgreSQL, yfinance",
@@ -243,8 +240,8 @@ def detect_tech_stack(project_path: Path) -> str:
             parts.append("Typer CLI")
         if "jinja2" in content.lower():
             parts.append("Jinja2")
-        if "libsql" in content.lower() or "turso" in content.lower():
-            parts.append("libsql/Turso")
+        if "libsql" in content.lower():
+            parts.append("libsql")
         if "anthropic" in content.lower():
             parts.append("Anthropic SDK")
         if "playwright" in content.lower():

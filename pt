@@ -2,6 +2,9 @@
 # Project Tracker launcher script
 # Usage: ./pt [command]
 # Example: ./pt launch
+#
+# pt runs without Doppler: nothing in it needs a secret. Commands that do
+# (`pt memory`, `pt launch`) wrap themselves.
 
 export PT_CALLER_CWD="$PWD"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/pt-uv-cache}"
@@ -17,44 +20,5 @@ while [ -h "$launcher_source" ]; do
 done
 launcher_dir="$(cd -P "$(dirname "$launcher_source")" >/dev/null 2>&1 && pwd)"
 cd "$launcher_dir"
-
-# Database backend controlled by ~/projects/.turso-config.json (single switch
-# for both project-tracker and ai-memory). No env var overrides needed.
-
-should_skip_doppler=0
-if [ "${PT_SKIP_DOPPLER:-0}" = "1" ]; then
-  should_skip_doppler=1
-else
-  for arg in "$@"; do
-    case "$arg" in
-      --help|-h)
-        should_skip_doppler=1
-        break
-        ;;
-    esac
-  done
-  if [ "$1" = "help" ]; then
-    should_skip_doppler=1
-  fi
-
-  turso_config="$HOME/projects/.turso-config.json"
-  if [ "$should_skip_doppler" -ne 1 ] && [ -f "$turso_config" ]; then
-    turso_enabled=$(/usr/bin/python3 -c 'import json, sys; print("1" if json.load(open(sys.argv[1])).get("turso_enabled") else "0")' "$turso_config" 2>/dev/null || printf "unknown")
-    if [ "$turso_enabled" = "0" ]; then
-      should_skip_doppler=1
-    fi
-  fi
-fi
-
-if [ "$should_skip_doppler" -ne 1 ] && command -v doppler >/dev/null 2>&1; then
-  doppler_project="${PT_DOPPLER_PROJECT:-project-tracker}"
-  doppler_config="${PT_DOPPLER_CONFIG:-dev}"
-  if [ -z "$doppler_project" ] || [ -z "$doppler_config" ]; then
-    echo "pt launcher requires non-empty Doppler project and config" >&2
-    exit 1
-  fi
-  exec doppler run --project "$doppler_project" --config "$doppler_config" -- \
-    "$HOME/.local/bin/uv" run scripts/pt.py "$@"
-fi
 
 exec "$HOME/.local/bin/uv" run scripts/pt.py "$@"

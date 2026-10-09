@@ -73,7 +73,7 @@ Verify the tailnet before diagnosing anything else: `tailscale status`.
 This is the single biggest limitation on "nothing slips through the cracks,"
 and it must be designed around rather than discovered during an incident.
 
-The registry, the Kanban board, dbmed, and every local SQLite database live on
+The registry, the Kanban board, and every local SQLite database live on
 the **laptop**. The laptop is a MacBook that sleeps when the lid closes. Sleep
 is currently held off only by `caffeinate`, which is not permanent.
 
@@ -259,8 +259,7 @@ Four of the five blockers Saga reported are already resolved or were misread:
    Cloud SQL Postgres behind Cloud Run. The deployment Makefile attaches
    `synth-insight-labs:us-central1:synth-insight-labs-pg`; the registry records
    that instance without inferring its backup policy.
-   Everything else is local SQLite (project-tracker's behind dbmed; the rest
-   plain files).
+   Everything else is local SQLite (project-tracker's is a plain file like the rest).
 5. **"Need the live project list"** — the only genuine blocker, and the
    `monitoring:` block now answers it.
 
@@ -331,7 +330,7 @@ card would not exist. That failure is silent and would hollow out the entire
 
 ```bash
 # Correct — writes the live board:
-ssh macbook-pro 'cd ~/projects && PT_SKIP_DOPPLER=1 ~/projects/project-tracker/pt tasks create "..." -p <project>'
+ssh macbook-pro 'cd ~/projects && ~/projects/project-tracker/pt tasks create "..." -p <project>'
 
 # WRONG — writes the Mini's dead 2026-08-03 copy (and bare `pt` over ssh
 # fails anyway: on the laptop it is an alias, see section 3):
@@ -363,7 +362,7 @@ Two independent faults, both now understood:
 The working invocation, verified end to end from the Mini:
 
 ```bash
-ssh macbook-pro 'cd ~/projects && PT_SKIP_DOPPLER=1 ~/projects/project-tracker/pt tasks -p <project>'
+ssh macbook-pro 'cd ~/projects && ~/projects/project-tracker/pt tasks -p <project>'
 ```
 
 Also recorded as `pt info get remote_pt_invocation`.
