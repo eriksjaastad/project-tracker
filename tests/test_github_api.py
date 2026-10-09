@@ -963,12 +963,22 @@ class TestParallelFetch:
         from dashboard.app import GH_NOT_FOUND, GH_OK, GH_ERROR
 
         lock = threading.Lock()
-        state = {"now": 0, "max": 0}
+        state = {"now": 0, "max": 0, "kind_now": {}, "kind_max": {}}
+
+        def kind_of(args):
+            text = " ".join(args)
+            for kind in ("repo view", "pr list", "/commits", "actions/runs", "/branches"):
+                if kind in text:
+                    return kind
+            return "other"
 
         def call(args, timeout=30, **_):
+            kind = kind_of(args)
             with lock:
                 state["now"] += 1
                 state["max"] = max(state["max"], state["now"])
+                state["kind_now"][kind] = state["kind_now"].get(kind, 0) + 1
+                state["kind_max"][kind] = max(state["kind_max"].get(kind, 0), state["kind_now"][kind])
                 if seen is not None:
                     seen.append(args)
             try:
@@ -996,6 +1006,7 @@ class TestParallelFetch:
             finally:
                 with lock:
                     state["now"] -= 1
+                    state["kind_now"][kind] -= 1
 
         return call, state
 
@@ -1011,7 +1022,8 @@ class TestParallelFetch:
         assert [r["name"] for r in result["repos"]] == names
         assert [p["repository"]["name"] for p in result["open_pull_requests"]] == names
         assert result["fetch_errors"] == ["branches for me/r03", "branches for me/r07"]
-        assert state["max"] > 1, "stages should run gh calls concurrently"
+        for kind in ("repo view", "pr list", "/commits", "actions/runs", "/branches"):
+            assert state["kind_max"][kind] > 1, f"{kind} calls should run concurrently"
 
     def test_an_empty_pr_list_response_is_no_prs(self):
         from dashboard.app import GH_OK, _fetch_github_data
@@ -1168,3 +1180,37 @@ def test_the_repo_view_stage_marks_not_found_as_expected():
         _fetch_github_data()
     assert kwargs_by_kind["repo view"] == {"missing_ok": True}
     assert all(kw == {} for kind, kw in kwargs_by_kind.items() if kind != "repo view")
+
+
+def test_missing_ok_still_warns_on_a_real_failure(caplog):
+    import logging
+    from dashboard.app import GH_ERROR, _gh_call
+
+    broken = MagicMock(returncode=1, stdout="", stderr="HTTP 502: Bad Gateway")
+    with caplog.at_level(logging.DEBUG):
+        with patch("dashboard.app.subprocess.run", return_value=broken):
+            assert _gh_call(["repo", "view", "me/flaky"], missing_ok=True)[1] == GH_ERROR
+    assert any("me/flaky" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+
+
+def test_each_refresh_logs_one_missing_count_line(caplog):
+    import logging
+    from dashboard.app import GH_NOT_FOUND, GH_OK, _fetch_github_data
+
+    def call(args, timeout=30, **_):
+        if args == ["api", "/user"]:
+            return ({"login": "me"}, GH_OK)
+        if args[:2] == ["repo", "view"]:
+            if args[2] in ("me/local-a", "me/local-b"):
+                return (None, GH_NOT_FOUND)
+            return ({"name": "here", "isArchived": False, "pushedAt": ""}, GH_OK)
+        return ([], GH_OK)
+
+    with caplog.at_level(logging.DEBUG):
+        with patch("dashboard.app._gh_call", side_effect=call), \
+                patch("dashboard.app._get_tracked_repo_names", return_value=["local-a", "here", "local-b"]):
+            _fetch_github_data()
+    info = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert info.count("GitHub: 2 of 3 tracked projects not on GitHub") == 1
+    per_repo = [r for r in caplog.records if "is not on GitHub" in r.getMessage()]
+    assert per_repo and all(r.levelno == logging.DEBUG for r in per_repo)

@@ -4676,6 +4676,10 @@ def _fetch_github_data() -> Dict:
             # would assert a healthy fetch that never happened.
             fetch_errors.append(f"repo metadata for {owner}/{name}")
 
+    # One line per refresh keeps a jump visible in the log (a token losing
+    # `repo` scope makes private repos look absent; see the CAVEAT above).
+    logger.info(f"GitHub: {repos_missing} of {len(tracked_names)} tracked projects not on GitHub")
+
     # 3. Open PRs across tracked repos
     all_prs: List[Dict] = []
     active = [r for r in repos if not r.get("isArchived")]
