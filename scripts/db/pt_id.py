@@ -218,14 +218,16 @@ def load_machine_id(db_path: Optional[Path]) -> int:
     if db_path is None or not db_path.exists():
         return DEFAULT_MACHINE_ID
 
+    # Only a missing table means "use the default". Any read error (locked,
+    # I/O) propagates: caching the default would change this process's id bits.
     conn = sqlite3.connect(db_path)
     try:
-        try:
-            row = conn.execute(
-                "SELECT value FROM _metadata WHERE key = 'pt.machine_id'"
-            ).fetchone()
-        except sqlite3.OperationalError:  # governance: allow-silent SF002: a bare-new DB has no _metadata table yet; the documented default applies
-            row = None
+        has_metadata = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='_metadata'"
+        ).fetchone() is not None
+        row = conn.execute(
+            "SELECT value FROM _metadata WHERE key = 'pt.machine_id'"
+        ).fetchone() if has_metadata else None
     finally:
         conn.close()
 

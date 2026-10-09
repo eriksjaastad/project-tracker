@@ -442,3 +442,27 @@ def test_overflow_during_backward_clock_preserves_monotonicity():
         "monotonicity violated — buggy `==` would have assigned a "
         "smaller value during the backward-clock window"
     )
+
+
+def test_load_machine_id_defaults_when_metadata_table_is_absent(tmp_path):
+    db = tmp_path / "bare.db"
+    sqlite3.connect(db).close()
+    assert load_machine_id(db) == pt_id.DEFAULT_MACHINE_ID
+
+
+def test_load_machine_id_raises_on_a_locked_database(tmp_path, monkeypatch):
+    """Codex #8093 round 2: a failed read must not be taken for "no config" and
+    cache the default machine id for the whole process."""
+    db = tmp_path / "locked.db"
+    holder = sqlite3.connect(db, isolation_level=None)
+    holder.execute("CREATE TABLE _metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL, created_at TEXT NOT NULL)")
+    holder.execute("INSERT INTO _metadata VALUES ('pt.machine_id', '295', 'n')")
+    holder.execute("BEGIN EXCLUSIVE")
+    real_connect = sqlite3.connect
+    monkeypatch.setattr(pt_id.sqlite3, "connect", lambda path, **kw: real_connect(path, timeout=0))
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            load_machine_id(db)
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()

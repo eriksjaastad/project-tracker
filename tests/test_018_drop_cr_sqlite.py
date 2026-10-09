@@ -525,3 +525,21 @@ def test_migrate_clears_cr_sqlite_objects_old_code_recreated(tmp_path: Path) -> 
     assert result == {"ok": True, "error": None, "applied": []}
     conn = sqlite3.connect(db_path)
     assert _crsql_objects(conn) == []
+
+
+@needs_dylib
+def test_ids_minted_after_018_keep_the_machine_bits_of_ids_minted_before(tmp_path: Path) -> None:
+    """Before 018, pt_id derived the machine id from hash(crsql_site_id());
+    _build_crr_db returns exactly that value. After 018 removes crsql_site_id,
+    a new id must carry the same machine bits, not the default 0."""
+    from db import pt_id
+
+    db_path = tmp_path / "crr.db"
+    derived_before = _build_crr_db(db_path)
+    assert derived_before != pt_id.DEFAULT_MACHINE_ID  # else the test proves nothing
+
+    assert DatabaseManager(db_path).migrations_apply()["ok"]
+    reset_for_testing()
+    minted_after = pt_id.next_id(db_path)
+    _, machine_bits, _ = pt_id.get_generator(db_path).decompose(minted_after)
+    assert machine_bits == derived_before
