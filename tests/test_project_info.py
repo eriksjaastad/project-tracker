@@ -70,7 +70,7 @@ def test_monitoring_aliases_honor_configured_paths(db, monkeypatch, tmp_path, re
     launcher = checkout / "pt"
     launcher.write_text(
         "#!/bin/sh\n"
-        'printf "%s\\n" "$PWD" "$PROJECTS_ROOT" "$PT_RESOURCES_FILE" "$PT_SKIP_DOPPLER" "$@"\n'
+        'printf "%s\\n" "$PWD" "$PROJECTS_ROOT" "$PT_RESOURCES_FILE" "$@"\n'
     )
     launcher.chmod(0o755)
     monkeypatch.setenv("PROJECTS_ROOT", str(projects))
@@ -106,7 +106,7 @@ def test_monitoring_aliases_honor_configured_paths(db, monkeypatch, tmp_path, re
     # Simulate the remote shell with no inherited configuration, never real SSH.
     remote = subprocess.run(["/bin/sh", "-c", ssh_argv[2]], env={"PATH": "/usr/bin:/bin"},
                             check=True, capture_output=True, text=True, timeout=10)
-    assert remote.stdout.splitlines() == [str(projects), str(projects), str(registry), "1", "tasks"]
+    assert remote.stdout.splitlines() == [str(projects), str(projects), str(registry), "tasks"]
     assert db.get_info(key="external_resources_doc")[0]["value"] == str(registry)
 
 

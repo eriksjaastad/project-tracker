@@ -1080,7 +1080,7 @@ async def refresh_data():
 
         # Clean up stale projects whose directories no longer exist on disk.
         # Only remove projects whose path is under the local PROJECTS_BASE_DIR
-        # so we don't accidentally delete remote/Turso entries from other machines.
+        # so we don't accidentally delete remote entries from other machines.
         disk_paths = {p["path"] for p in projects}
         local_prefix = str(PROJECTS_BASE_DIR)
         all_db_projects = db.get_all_projects()

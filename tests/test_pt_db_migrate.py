@@ -4,7 +4,7 @@ These tests exercise the three things PR #3a adds on top of the
 Phase 2 PR #2 runner:
 
 1. ``pt db migrate`` CLI — applies pending migrations, reports what
-   was applied, idempotent, refuses under Turso.
+   was applied, idempotent.
 2. ``_warn_unapplied_migrations`` — stderr warning on ``pt`` startup
    when migrations are pending, silent after they're applied, never
    raises.
@@ -134,18 +134,6 @@ def test_pt_db_migrate_is_idempotent(
     assert "no pending migrations" in second.output
 
 
-def test_pt_db_migrate_refuses_under_turso(
-    runner: CliRunner, fresh_db: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The local runner must not operate against a Turso-backed DB.
-    Flipping the module-level flag simulates the deployment switch in
-    ``~/projects/.turso-config.json``."""
-    monkeypatch.setattr("pt._USE_TURSO", True)
-    result = runner.invoke(cli, ["db", "migrate"])
-    assert result.exit_code == 2
-    assert "Turso" in result.output
-
-
 def test_pt_db_migrate_reports_migration_error_without_traceback(
     runner: CliRunner, fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -209,18 +197,6 @@ def test_warn_unapplied_silent_after_apply(
     runner.invoke(cli, ["db", "migrate"])
     capsys.readouterr()  # drain any output from the invoke
     monkeypatch.delenv("PT_SUPPRESS_MIGRATION_WARNING", raising=False)
-    _warn_unapplied_migrations()
-    assert capsys.readouterr().err == ""
-
-
-def test_warn_unapplied_skipped_under_turso(
-    capsys: pytest.CaptureFixture[str], fresh_db: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Turso-mode users get nothing from this warning (the runner
-    doesn't target Turso). Silently skip."""
-    monkeypatch.delenv("PT_SUPPRESS_MIGRATION_WARNING", raising=False)
-    monkeypatch.setattr("pt._USE_TURSO", True)
     _warn_unapplied_migrations()
     assert capsys.readouterr().err == ""
 

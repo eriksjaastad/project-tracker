@@ -10,7 +10,7 @@ pt tasks         # View Kanban board
 pt info          # Reference data (credentials, infrastructure)
 pt backup status # Full backup + off-machine backup health
 pt memory search "query"  # Cross-agent shared memory
-PT_SKIP_DOPPLER=1 pt memory recent --since 7d --json  # Read-only cron/SSH memory query
+pt memory recent --since 7d --json  # Read-only cron/SSH memory query
 pt sync status   # Replication status / pause / resume controls
 pt sync check    # Mini-local sync rollout readiness check
 pt sync set-machine-id 883  # Persist explicit machine identity for sync
@@ -44,7 +44,7 @@ project-tracker/
 │   ├── templates/          # Jinja2 (graph view)
 │   └── static/             # CSS, JS
 ├── data/
-│   ├── tracker.db          # Local SQLite (Turso in production)
+│   ├── tracker.db          # Local SQLite
 │   └── graph.json          # Project graph data
 └── tests/
 ```

@@ -248,23 +248,6 @@ def test_resume_on_not_paused_is_noop(
     assert "not paused" in result.output
 
 
-def test_pause_refuses_under_turso(
-    runner: CliRunner, cli_env: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Turso's replication is handled upstream; local pause/resume
-    is meaningless. Refuse rather than silently no-op."""
-    monkeypatch.setattr("pt._USE_TURSO", True)
-    pause = runner.invoke(cli, ["sync", "pause"])
-    resume = runner.invoke(cli, ["sync", "resume"])
-    status = runner.invoke(cli, ["sync", "status"])
-
-    assert pause.exit_code == 2
-    assert resume.exit_code == 2
-    # Status reports the Turso state instead of refusing — it's a read.
-    assert status.exit_code == 0
-    assert "Turso" in status.output
-
-
 def test_resume_unblocked_when_crsqlite_not_loaded(
     runner: CliRunner, cli_env: Path
 ) -> None:

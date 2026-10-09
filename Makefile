@@ -7,13 +7,11 @@
 #
 # Two project-tracker-specific wrinkles the reference pattern does not have:
 #
-#   1. `./pt` wraps ITSELF in `doppler run` (see the launcher, lines 24-58).
-#      Targets that shell out to `./pt` therefore carry NO `doppler run --`
-#      prefix — double-wrapping is the bug, not the fix.
+#   1. `./pt` runs WITHOUT Doppler; nothing in it needs a secret. Targets that
+#      shell out to `./pt` carry no `doppler run --` prefix.
 #   2. Not every secret lives in `project-tracker/dev`. The alert digest reads
-#      from `synth-insight-labs/prd`; the Turso dump reads from `openclaw/dev`.
-#      Those targets pass explicit `--project/--config` rather than relying on
-#      `doppler.yaml`.
+#      from `synth-insight-labs/prd`, so that target passes explicit
+#      `--project/--config` rather than relying on `doppler.yaml`.
 #
 # Targets are tab-indented (Makefile-required) and intentionally trivial —
 # they exist as muscle-memory shortcuts, not abstractions over the
@@ -71,7 +69,7 @@ FRONTEND ?= dashboard/frontend
 
 .PHONY: help test test-fast dashboard dashboard-restart dashboard-stop \
         dashboard-health digest digest-dry backup backup-status \
-        turso-sync turso-sync-dry doppler-check \
+        doppler-check \
         deploy-chat deploy-chat-status \
         frontend-deps test-frontend lint-frontend build-frontend
 
@@ -143,16 +141,8 @@ digest:  ## Send the portfolio alert digest email (synth-insight-labs/prd secret
 backup:  ## Atomic point-in-time snapshot of tracker.db (no secrets needed).
 	./scripts/backup-db.sh
 
-backup-status:  ## Backup + off-machine backup health (./pt self-wraps doppler).
+backup-status:  ## Backup + off-machine backup health.
 	./pt backup status
-
-turso-sync-dry:  ## Show what a Turso → local tracker.db dump would write.
-	doppler run -p openclaw -c dev -- \
-	  $(HOME)/.local/bin/uv run scripts/turso_to_local.py --dry-run
-
-turso-sync:  ## Dump Turso → local tracker.db (backs up the existing local DB first).
-	doppler run -p openclaw -c dev -- \
-	  $(HOME)/.local/bin/uv run scripts/turso_to_local.py
 
 doppler-check:  ## Verify Doppler auth by listing secret NAMES (never values).
 	doppler secrets --project project-tracker --config dev --only-names

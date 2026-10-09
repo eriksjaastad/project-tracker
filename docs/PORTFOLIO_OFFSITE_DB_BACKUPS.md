@@ -43,9 +43,3 @@ Keep `gbackup:ai-memory-encrypted`, its crypt settings, and the Doppler recovery
 bundle. Do not migrate it to a plain `db-backups/ai-memory` folder. Its thoughts
 JSON export is useful but is not automatically a full-database recovery path;
 record and test those two forms of coverage separately.
-
-## Retiring the laptop installation
-
-Project Tracker must deploy its local database implementation before removing
-the installed service. Follow [the cutover runbook](DBMED_RETIREMENT.md). The
-previous install is retained as an archive, along with the original database.

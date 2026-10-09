@@ -429,7 +429,6 @@ def _rebuild_tasks_columns(cursor: Any, overrides: dict) -> tuple:
 def ensure_schema(cursor: Any) -> None:
     """Run all DDL migrations against the given cursor.
 
-    This is backend-agnostic — works with both sqlite3 and libsql (Turso).
     All statements are idempotent (CREATE IF NOT EXISTS, ALTER ADD COLUMN
     wrapped in try/except). Safe to run on every startup.
     """
@@ -445,7 +444,7 @@ def ensure_schema(cursor: Any) -> None:
         row = cursor.fetchone()
         if row and row[0] and row[0] >= CURRENT_SCHEMA_VERSION:
             return  # Schema is current, skip all migrations
-    except Exception:  # governance: allow-silent SF001: an unreadable version runs the idempotent migrations below, which raise on a genuinely broken database; the cursor may be sqlite3 or libsql
+    except Exception:  # governance: allow-silent SF001: an unreadable version runs the idempotent migrations below, which raise on a genuinely broken database
         pass  # Table might be empty or broken — run migrations
 
     # 1. Core projects table

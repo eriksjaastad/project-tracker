@@ -31,7 +31,6 @@ You can configure the behavior of Project Tracker using these environment variab
 | `PT_BACKUP_LOG_PATH` | Backup job log consumed by `pt backup status` and the dashboard. | `~/.project-tracker/backup.log` |
 | `PT_BACKUP_RCLONE_DEST` | Optional rclone destination for one off-machine full backup per day. | unset |
 | `PT_MEMORY_DB_PATH` | Optional override for read-only `pt memory` JSON commands. | `$PROJECTS_ROOT/ai-memory/brain.db` |
-| `PT_SKIP_DOPPLER` | Set to `1` for read-only SSH/cron commands that should not invoke Doppler. | `0` |
 | `PT_MIGRATION_DIR` | Override for `pt migration` state files (testing/isolation). | `~/.project-tracker/migrations/` |
 
 **Locked-hygiene safety valves:** edits in any `.scratch/` directory are exempt from the branch-on-first-edit hook. Use `pt migration start <name>` / `pt migration finish <name> [--commit | --revert]` to record bulk-operation sessions; `finish` prints a manifest of the paths touched (nothing is written to the repo) — see project `CLAUDE.md` for details.
@@ -144,15 +143,15 @@ Use these commands from SSH `BatchMode` sessions, cron jobs, or service users th
 
 ```bash
 cd $PROJECTS_ROOT/project-tracker
-PT_SKIP_DOPPLER=1 pt memory search --query "LoopLens" --since 7d --limit 50 --json
-PT_SKIP_DOPPLER=1 pt memory recent --since 7d --project project-tracker --limit 50 --json
-PT_SKIP_DOPPLER=1 pt memory stats --json
-PT_SKIP_DOPPLER=1 pt memory export --format ndjson --since 7d --limit 500
-PT_SKIP_DOPPLER=1 pt config show --effective --json
-PT_SKIP_DOPPLER=1 pt doctor --json
-PT_SKIP_DOPPLER=1 pt hygiene --json                         # portfolio-wide git hygiene scan
-PT_SKIP_DOPPLER=1 pt hygiene --json --project my-project   # single repo
-PT_SKIP_DOPPLER=1 pt hygiene --quiet                        # human output, findings only
+pt memory search --query "LoopLens" --since 7d --limit 50 --json
+pt memory recent --since 7d --project project-tracker --limit 50 --json
+pt memory stats --json
+pt memory export --format ndjson --since 7d --limit 500
+pt config show --effective --json
+pt doctor --json
+pt hygiene --json                         # portfolio-wide git hygiene scan
+pt hygiene --json --project my-project   # single repo
+pt hygiene --quiet                        # human output, findings only
 ```
 
 JSON responses include a `schema_version`, `ok`, `read_only`, backend metadata, filters, pagination, and result rows. JSON mode does not mix prose into the payload. Validation errors exit `2`; backend/readiness failures exit `3`; query failures exit `4`.

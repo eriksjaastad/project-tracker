@@ -17,7 +17,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
-from .schema import get_db_path, create_database, ensure_schema
+from .schema import get_db_path, create_database
 from .pt_id import next_id as pt_next_id
 from scripts.utils.validation import (
     BlockedTaskProjectError,
@@ -41,154 +41,11 @@ class NotesConflictError(Exception):
 
 _UNSET: Any = object()
 
-# ---------------------------------------------------------------------------
-# Turso / libsql configuration
-# ---------------------------------------------------------------------------
-
-# governance: allow-silent SF003: Turso is optional; empty means local SQLite, and _create_turso_conn refuses an empty URL or token when Turso is enabled
-_TURSO_URL = os.environ.get("TURSO_KANBAN_URL", "")
-# governance: allow-silent SF003: Turso is optional; empty means local SQLite, and _create_turso_conn refuses an empty URL or token when Turso is enabled
-_TURSO_TOKEN = os.environ.get("TURSO_KANBAN_TOKEN", "")
-
-def _check_turso_enabled() -> bool:
-    """Check if Turso is enabled via the shared config at ~/projects/.turso-config.json.
-    Falls back to env var detection if config file doesn't exist."""
-    config_path = Path.home() / "projects" / ".turso-config.json"
-    if config_path.exists():
-        try:
-            import json
-            config = json.loads(config_path.read_text())
-            return bool(config.get("turso_enabled", False))
-        except Exception as e:
-            logger.warning(f"Failed to parse Turso config at {config_path}: {e}")
-    # Fallback: env var detection (original behavior)
-    return bool(_TURSO_URL and _TURSO_TOKEN)
-
-_USE_TURSO: bool = _check_turso_enabled()
-
-# ---------------------------------------------------------------------------
-# Connection pool — reuse a single Turso connection across requests
-# ---------------------------------------------------------------------------
 import threading
 
-_CONN_MAX_AGE_SECONDS = 300  # Recycle connection every 5 minutes
-_CONN_LOCK = threading.Lock()
-_turso_conn: Any = None
-_turso_conn_created: float = 0.0
-_schema_ensured: bool = False
 _LOCAL_SCHEMA_LOCK = threading.Lock()
 _local_schema_ensured_paths: set[str] = set()
 
-
-# ---------------------------------------------------------------------------
-# Turso row/cursor/connection wrappers — defined at module level to avoid
-# creating new class objects on every query (each class object is ~1KB+,
-# and _Row was being created per-row, leaking memory under load).
-# ---------------------------------------------------------------------------
-
-class _TursoRow:
-    """Dict-like row wrapper for libsql results."""
-    __slots__ = ("_cols", "_values")
-
-    def __init__(self, cols: list, values: list) -> None:
-        self._cols = cols
-        self._values = values
-
-    def __getitem__(self, key: Any) -> Any:
-        if isinstance(key, str):
-            return self._values[self._cols.index(key)]
-        return self._values[key]
-
-    def keys(self) -> list:
-        return self._cols
-
-    def __iter__(self) -> Any:
-        return iter(self._values)
-
-    def __len__(self) -> int:
-        return len(self._values)
-
-    def get(self, key: str, default: Any = None) -> Any:
-        try:
-            return self._values[self._cols.index(key)]
-        except ValueError:
-            return default
-
-
-class _TursoDictCursor:
-    """Wrap a libsql cursor so rows are accessible by column name."""
-    __slots__ = ("_cur",)
-
-    def __init__(self, cursor: Any) -> None:
-        self._cur = cursor
-
-    def _make_row(self, row: Any) -> Any:
-        if row is None or self._cur.description is None:
-            return row
-        cols = [d[0] for d in self._cur.description]
-        return _TursoRow(cols, list(row))
-
-    def execute(self, sql: str, params: Any = ()) -> "_TursoDictCursor":
-        self._cur.execute(sql, params)
-        return self
-
-    def executemany(self, sql: str, params: Any) -> "_TursoDictCursor":
-        self._cur.executemany(sql, params)
-        return self
-
-    def fetchone(self) -> Any:
-        return self._make_row(self._cur.fetchone())
-
-    def fetchall(self) -> list:
-        return [self._make_row(r) for r in self._cur.fetchall()]
-
-    def __iter__(self) -> Any:
-        for row in self._cur:
-            yield self._make_row(row)
-
-    @property
-    def lastrowid(self) -> Any:
-        return self._cur.lastrowid
-
-    @property
-    def description(self) -> Any:
-        return self._cur.description
-
-
-class _TursoDictConn:
-    """Wrap a libsql connection so cursor() returns _TursoDictCursor."""
-    __slots__ = ("_conn",)
-
-    def __init__(self, conn: Any) -> None:
-        self._conn = conn
-
-    def cursor(self) -> _TursoDictCursor:
-        return _TursoDictCursor(self._conn.cursor())
-
-    def execute(self, sql: str, params: Any = ()) -> _TursoDictCursor:
-        cur = _TursoDictCursor(self._conn.cursor())
-        cur.execute(sql, params)
-        return cur
-
-    def executemany(self, sql: str, params: Any) -> _TursoDictCursor:
-        cur = _TursoDictCursor(self._conn.cursor())
-        cur.executemany(sql, params)
-        return cur
-
-    def commit(self) -> None:
-        self._conn.commit()
-
-    def rollback(self) -> None:
-        self._conn.rollback()
-
-    def close(self) -> None:
-        self._conn.close()
-
-    def __enter__(self) -> "_TursoDictConn":
-        return self
-
-    def __exit__(self, *args: Any) -> None:
-        pass  # pool manages lifecycle
 
 VALID_STATUS_TRANSITIONS = {
     "Backlog": ["To Do", "Cancelled"],
@@ -215,100 +72,19 @@ class DatabaseManager:
         crsqlite_path: Optional[Path] = None,
     ):
         """Initialize the local manager, optionally selecting a cr-sqlite extension."""
-        global _schema_ensured
         self.db_path = db_path or get_db_path()
         self.crsqlite_path = Path(crsqlite_path) if crsqlite_path else None
-        if _USE_TURSO:
-            # Only run schema migrations once per process, not per instantiation
-            if not _schema_ensured:
-                with self._get_conn() as conn:
-                    cursor = conn.cursor()
-                    ensure_schema(cursor)
-                    conn.commit()
-                _schema_ensured = True
-        else:
-            # Local SQLite: run safety checks + schema migrations once per DB path.
-            db_key = str(self.db_path.resolve())
-            if db_key not in _local_schema_ensured_paths:
-                with _LOCAL_SCHEMA_LOCK:
-                    if db_key not in _local_schema_ensured_paths:
-                        create_database(self.db_path)
-                        _local_schema_ensured_paths.add(db_key)
-        
-    @staticmethod
-    def _create_turso_conn() -> Any:
-        """Create a new Turso connection wrapped with dict-row access.
-
-        Raises when Turso is enabled (e.g. by ~/projects/.turso-config.json)
-        without TURSO_KANBAN_URL/TURSO_KANBAN_TOKEN: libsql.connect("") opens a
-        throwaway local database, so every read would come back empty and
-        every write would vanish.
-        """
-        if not _TURSO_URL or not _TURSO_TOKEN:
-            raise RuntimeError(
-                "Turso is enabled but TURSO_KANBAN_URL/TURSO_KANBAN_TOKEN are not set; "
-                "run under Doppler or disable turso_enabled"
-            )
-        import libsql
-        raw = libsql.connect(_TURSO_URL, auth_token=_TURSO_TOKEN)
-        return _TursoDictConn(raw)
+        # Run safety checks + schema migrations once per DB path.
+        db_key = str(self.db_path.resolve())
+        if db_key not in _local_schema_ensured_paths:
+            with _LOCAL_SCHEMA_LOCK:
+                if db_key not in _local_schema_ensured_paths:
+                    create_database(self.db_path)
+                    _local_schema_ensured_paths.add(db_key)
 
     @contextmanager
     def _get_conn(self) -> Generator[Any, None, None]:
-        """Get database connection context manager.
-
-        Uses Turso (libsql) when TURSO_KANBAN_URL + TURSO_KANBAN_TOKEN are set;
-        falls back to local SQLite otherwise (offline/dev/test mode).
-
-        Turso connections are pooled: a single connection is reused across
-        requests and recycled every _CONN_MAX_AGE_SECONDS to prevent stale
-        connections from hanging the server.
-        """
-        global _turso_conn, _turso_conn_created
-
-        if _USE_TURSO:
-            try:
-                # Hold the lock for the entire connection usage to prevent
-                # concurrent requests from using the same libsql connection
-                # simultaneously (libsql connections are not thread-safe).
-                with _CONN_LOCK:
-                    now = time.monotonic()
-                    # Recycle stale connections
-                    if _turso_conn is not None and (now - _turso_conn_created) > _CONN_MAX_AGE_SECONDS:
-                        try:
-                            _turso_conn.close()
-                        except Exception:  # governance: allow-silent SF001: closing a stale pooled connection that is discarded on the next line; a fresh one is created below
-                            pass
-                        _turso_conn = None
-                        logger.info("Recycled stale Turso connection (age > %ds)", _CONN_MAX_AGE_SECONDS)
-
-                    # Create new connection if needed
-                    if _turso_conn is None:
-                        _turso_conn = self._create_turso_conn()
-                        _turso_conn_created = now
-                        logger.info("Created new Turso connection")
-
-                    conn = _turso_conn
-
-                    try:
-                        yield conn
-                    except Exception:
-                        # On error, discard the connection so next request gets a fresh one
-                        try:
-                            _turso_conn.close()
-                        except Exception:  # governance: allow-silent SF001: closing a connection being discarded after an error; the original error is re-raised below
-                            pass
-                        _turso_conn = None
-                        logger.warning("Discarded Turso connection after error")
-                        raise
-                return
-            except ImportError as exc:
-                raise RuntimeError(
-                    "TURSO_KANBAN_URL/TURSO_KANBAN_TOKEN are set but the 'libsql' package "
-                    "is not installed. Run: uv add libsql"
-                ) from exc
-
-        # --- Local fallback (sqlite3) ---
+        """Get a local SQLite connection context manager."""
         conn = sqlite3.connect(self.db_path)
         # Load cr-sqlite so CRR triggers (crsql_internal_sync_bit etc.) resolve on writes.
         # Soft-fail: if the dylib isn't present, reads still work; writes to CRR tables fail

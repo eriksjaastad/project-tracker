@@ -83,8 +83,7 @@ def test_health_reports_unopenable_configured_database(tmp_path, monkeypatch):
     assert response.json()["database"]["error"]
 
 
-def test_health_does_not_require_retired_service(tmp_path, monkeypatch):
-    monkeypatch.setenv("DBMED_SOCKET", str(tmp_path / "absent.sock"))
+def test_health_does_not_require_retired_service():
     response = TestClient(dashboard_app.app).get("/api/health")
     assert response.status_code == 200, response.text
     assert response.json()["database"]["ok"] is True
