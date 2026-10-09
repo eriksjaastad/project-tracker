@@ -952,61 +952,59 @@ class TestRepoViewFields:
 
 
 class TestParallelFetch:
-    """#8093: the stages run in parallel, the output keeps sequential order, and a
-    repo that isn't on GitHub is remembered instead of asked every refresh."""
+    """#8093: every stage runs its gh calls in parallel, and the output keeps the
+    order a one-at-a-time fetch produces."""
 
-    @staticmethod
-    def _fake(missing=(), errors=(), delay=None, seen=None):
-        import random
+    STAGES = ("repo view", "pr list", "/commits", "actions/runs", "/branches")
+
+    @classmethod
+    def _fake(cls, missing=(), errors=(), meet=False, seen=None):
+        """A gh stand-in. With meet=True the first two calls of each stage wait
+        for each other at a barrier, which only succeeds if they run at once;
+        a one-at-a-time fetch times out there instead of hanging."""
         import threading
-        import time
         from dashboard.app import GH_NOT_FOUND, GH_OK, GH_ERROR
 
         lock = threading.Lock()
-        state = {"now": 0, "max": 0, "kind_now": {}, "kind_max": {}}
-
-        def kind_of(args):
-            text = " ".join(args)
-            for kind in ("repo view", "pr list", "/commits", "actions/runs", "/branches"):
-                if kind in text:
-                    return kind
-            return "other"
+        barriers = {kind: threading.Barrier(2, timeout=2) for kind in cls.STAGES}
+        arrivals = {kind: 0 for kind in cls.STAGES}
+        state = {"met": set(), "alone": set()}
 
         def call(args, timeout=30, **_):
-            kind = kind_of(args)
+            text = " ".join(args)
+            kind = next((k for k in cls.STAGES if k in text), None)
             with lock:
-                state["now"] += 1
-                state["max"] = max(state["max"], state["now"])
-                state["kind_now"][kind] = state["kind_now"].get(kind, 0) + 1
-                state["kind_max"][kind] = max(state["kind_max"].get(kind, 0), state["kind_now"][kind])
                 if seen is not None:
                     seen.append(args)
-            try:
-                if delay:
-                    time.sleep(random.uniform(0, delay))
-                if args == ["api", "/user"]:
-                    return ({"login": "me"}, GH_OK)
-                text = " ".join(args)
-                for name in errors:
-                    if f"me/{name}" in text and "branches" in text:
-                        return (None, GH_ERROR)
-                if args[:2] == ["repo", "view"]:
-                    name = args[2].split("/", 1)[1]
-                    if name in missing:
-                        return (None, GH_NOT_FOUND)
-                    return ({"name": name, "isArchived": False,
-                             "pushedAt": "2999-01-01T00:00:00Z",
-                             "defaultBranchRef": {"name": "main"}}, GH_OK)
-                if args[0] == "pr":
-                    repo = args[args.index("--repo") + 1].split("/", 1)[1]
-                    return ([{"title": f"pr-{repo}", "headRefName": "x"}], GH_OK)
-                if "actions/runs" in text:
-                    return ({"workflow_runs": []}, GH_OK)
-                return ([], GH_OK)
-            finally:
-                with lock:
-                    state["now"] -= 1
-                    state["kind_now"][kind] -= 1
+                first_two = kind is not None and arrivals[kind] < 2
+                if kind is not None:
+                    arrivals[kind] += 1
+            if meet and first_two:
+                try:
+                    barriers[kind].wait()
+                    with lock:
+                        state["met"].add(kind)
+                except threading.BrokenBarrierError:
+                    with lock:
+                        state["alone"].add(kind)
+            if args == ["api", "/user"]:
+                return ({"login": "me"}, GH_OK)
+            for name in errors:
+                if f"me/{name}" in text and "branches" in text:
+                    return (None, GH_ERROR)
+            if args[:2] == ["repo", "view"]:
+                name = args[2].split("/", 1)[1]
+                if name in missing:
+                    return (None, GH_NOT_FOUND)
+                return ({"name": name, "isArchived": False,
+                         "pushedAt": "2999-01-01T00:00:00Z",
+                         "defaultBranchRef": {"name": "main"}}, GH_OK)
+            if args[0] == "pr":
+                repo = args[args.index("--repo") + 1].split("/", 1)[1]
+                return ([{"title": f"pr-{repo}", "headRefName": "x"}], GH_OK)
+            if "actions/runs" in text:
+                return ({"workflow_runs": []}, GH_OK)
+            return ([], GH_OK)
 
         return call, state
 
@@ -1014,7 +1012,7 @@ class TestParallelFetch:
         from dashboard.app import _fetch_github_data
 
         names = [f"r{i:02d}" for i in range(12)]
-        call, state = self._fake(errors=("r03", "r07"), delay=0.02)
+        call, state = self._fake(errors=("r03", "r07"), meet=True)
         with patch("dashboard.app._gh_call", side_effect=call), \
                 patch("dashboard.app._get_tracked_repo_names", return_value=names):
             result = _fetch_github_data()
@@ -1022,8 +1020,8 @@ class TestParallelFetch:
         assert [r["name"] for r in result["repos"]] == names
         assert [p["repository"]["name"] for p in result["open_pull_requests"]] == names
         assert result["fetch_errors"] == ["branches for me/r03", "branches for me/r07"]
-        for kind in ("repo view", "pr list", "/commits", "actions/runs", "/branches"):
-            assert state["kind_max"][kind] > 1, f"{kind} calls should run concurrently"
+        assert state["alone"] == set(), f"these stages ran one call at a time: {state['alone']}"
+        assert state["met"] == set(self.STAGES)
 
     def test_an_empty_pr_list_response_is_no_prs(self):
         from dashboard.app import GH_OK, _fetch_github_data
