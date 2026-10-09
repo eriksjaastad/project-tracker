@@ -112,20 +112,3 @@ def test_calendar_event_ids_are_quoted_strings_and_done_hits_exact_row(env):
     cm = CalendarManager()
     assert cm.get_event(BIG_ID + 1)["status"] == "done"
     assert cm.get_event(BIG_ID)["status"] == "active"
-
-
-def test_calendar_event_detail_stringifies_event_and_linked_task_ids(env):
-    db, client = env
-    task = db.add_task("Linked", "project-tracker")
-    assert task["id"] > 2**53 - 1
-    event_id = _add_event("E", "2030-01-01")
-    CalendarManager().link_task(event_id, task["id"])
-
-    detail = client.get(f"/api/calendar/events/{event_id}")
-    assert detail.status_code == 200, detail.text
-    compact = _compact(detail.text)
-    assert f'"id":"{event_id}"' in compact
-    assert f'"id":"{task["id"]}"' in compact, "linked task id must be quoted"
-    assert f'"task_id":"{task["id"]}"' in compact
-    assert f'"id":{task["id"]}' not in compact
-    assert f'"id":{event_id}' not in compact

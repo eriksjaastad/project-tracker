@@ -44,6 +44,7 @@ from db.schema import (
     init_db, get_db_path, SafetyError, FreshDatabaseError, FingerprintMismatchError,
 )
 from db.manager import DatabaseManager
+from db.backend_calendar_manager import validate_event_date, validate_event_time
 from discovery.project_scanner import (
     PORTFOLIO_ROOTS,
     discover_projects,
@@ -1143,24 +1144,6 @@ def launch(port, no_scan, reload):
         console.print("\n\n[yellow]Dashboard stopped[/yellow]")
 
 
-@cli.command(name="add-cron")
-@click.argument("project")
-@click.argument("schedule")
-@click.argument("command")
-@click.argument("description", default="")
-def add_cron(project, schedule, command, description):
-    """Add a cron job to a project."""
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    project_id = None
-    for p in projects:
-        if p["name"].lower() == project.lower(): project_id = p["id"]; break
-    if not project_id:
-        console.print(f"[red]Project '{project}' not found[/red]"); return
-    db.add_cron_job(project_id, schedule, command, description)
-    console.print(f"[green]✅ Added cron job to {project}[/green]")
-
-
 @cli.group(name="project")
 def project_group():
     """Manage manually tracked project records."""
@@ -2229,6 +2212,22 @@ def _display_events(events, json_output=False, cron_jobs=None):
         print(f"\nCron jobs: {len(cron_jobs)}")
 
 
+def _calendar_option_callback(validator):
+    """Click callback that runs a calendar validator, turning its ValueError into BadParameter."""
+    def callback(ctx, param, value):
+        if value is None:
+            return None
+        try:
+            return validator(value)
+        except ValueError as exc:
+            raise click.BadParameter(str(exc))
+    return callback
+
+
+_date_option = _calendar_option_callback(validate_event_date)
+_time_option = _calendar_option_callback(validate_event_time)
+
+
 @click.group(name="calendar", invoke_without_command=True)
 @click.pass_context
 @click.option("--days", default=7, type=int, help="Days ahead to show (default: 7)")
@@ -2239,6 +2238,11 @@ def _display_events(events, json_output=False, cron_jobs=None):
 def calendar_group(ctx, days, project, event_type, show_all, json_output):
     """Manage the AI-first calendar.
 
+    Bare `pt calendar` lists upcoming events and cron jobs (--days, -p, -t,
+    --all, --json). Subcommands: add, show, update, done, cancel (events);
+    crons, add-cron (cron jobs). Dates are YYYY-MM-DD, times are 24-hour HH:MM.
+    Deadlines also reach the 7am digest email (scripts/alert_digest.py).
+
     \b
     Examples:
         pt calendar                        # Upcoming 7 days
@@ -2246,7 +2250,7 @@ def calendar_group(ctx, days, project, event_type, show_all, json_output):
         pt calendar -p ai-memory-replay    # Filter by project
         pt calendar add "Sprint review" --date 2026-03-28
         pt calendar show 1
-        pt calendar remind --json          # For cron agent polling
+        pt calendar done 1
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -2258,25 +2262,6 @@ def calendar_group(ctx, days, project, event_type, show_all, json_output):
         project_id=project_id,
         event_type=event_type,
         include_all=show_all,
-    )
-    cron_jobs = cm.get_cron_jobs(project_id=project_id)
-    _display_events(events, json_output=json_output, cron_jobs=cron_jobs)
-
-
-@calendar_group.command(name="list")
-@click.option("--days", default=7, type=int, help="Days ahead to show (default: 7)")
-@click.option("-p", "--project", default=None, help="Filter by project")
-@click.option("-t", "--type", "event_type", default=None, help="Filter by event type")
-@click.option("--all", "show_all", is_flag=True, help="Show all events ignoring date window")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def calendar_list(days, project, event_type, show_all, json_output):
-    """List upcoming calendar events and active cron jobs."""
-    db = DatabaseManager()
-    project_id = _resolve_project_id(db, project) if project else None
-    cm = _get_calendar_manager()
-    events = cm.get_events(
-        days=days, project_id=project_id,
-        event_type=event_type, include_all=show_all,
     )
     cron_jobs = cm.get_cron_jobs(project_id=project_id)
     _display_events(events, json_output=json_output, cron_jobs=cron_jobs)
@@ -2326,8 +2311,8 @@ def calendar_add_cron(project, schedule, command, description):
 
     \b
     Examples:
-        pt calendar add-cron project-tracker "*/15 * * * *" "pt calendar remind --json" \\
-            --description "Agent reminder poller"
+        pt calendar add-cron project-tracker "0 7 * * *" "scripts/alert-digest.sh" \\
+            --description "Daily digest"
         pt calendar add-cron ai-memory-replay "0 9 * * 1" "bash scripts/render_replay.sh" \\
             --description "Weekly brain replay render"
     """
@@ -2346,8 +2331,8 @@ def calendar_add_cron(project, schedule, command, description):
 
 @calendar_group.command(name="add")
 @click.argument("title")
-@click.option("--date", "event_date", required=True, help="Date: YYYY-MM-DD")
-@click.option("--time", "event_time", default=None, help="Time: HH:MM (optional)")
+@click.option("--date", "event_date", required=True, callback=_date_option, help="Date: YYYY-MM-DD")
+@click.option("--time", "event_time", default=None, callback=_time_option, help="Time: HH:MM, 24-hour (optional)")
 @click.option("-t", "--type", "event_type", default="reminder",
               type=click.Choice(["reminder", "deadline", "milestone", "meeting", "recurring"]),
               help="Event type (default: reminder)")
@@ -2428,31 +2413,6 @@ def calendar_show(event_id, json_output):
     console.print()
 
 
-@calendar_group.command(name="link")
-@click.argument("event_id", type=int)
-@click.argument("task_id", type=int)
-@click.option("--type", "link_type", default="related",
-              type=click.Choice(["related", "deadline-for", "blocks"]),
-              help="Link type (default: related)")
-def calendar_link(event_id, task_id, link_type):
-    """Link a task to a calendar event."""
-    cm = _get_calendar_manager()
-    if not cm.get_event(event_id):
-        console.print(f"[red]Event #{event_id} not found[/red]"); return
-    cm.link_task(event_id, task_id, link_type)
-    console.print(f"[green]Linked task #{task_id} to event #{event_id} ({link_type})[/green]")
-
-
-@calendar_group.command(name="unlink")
-@click.argument("event_id", type=int)
-@click.argument("task_id", type=int)
-def calendar_unlink(event_id, task_id):
-    """Remove a task-event link."""
-    cm = _get_calendar_manager()
-    cm.unlink_task(event_id, task_id)
-    console.print(f"[green]Unlinked task #{task_id} from event #{event_id}[/green]")
-
-
 @calendar_group.command(name="done")
 @click.argument("event_id", type=int)
 def calendar_done(event_id):
@@ -2478,8 +2438,8 @@ def calendar_cancel(event_id):
 @calendar_group.command(name="update")
 @click.argument("event_id", type=int)
 @click.option("--title", default=None)
-@click.option("--date", "event_date", default=None)
-@click.option("--time", "event_time", default=None)
+@click.option("--date", "event_date", default=None, callback=_date_option, help="New date: YYYY-MM-DD")
+@click.option("--time", "event_time", default=None, callback=_time_option, help="New time: HH:MM, 24-hour")
 @click.option("-t", "--type", "event_type", default=None)
 @click.option("-p", "--project", default=None)
 @click.option("--prompt", default=None)
@@ -2514,152 +2474,6 @@ def calendar_update(event_id, title, event_date, event_time, event_type, project
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
 
-
-@calendar_group.command(name="remind")
-@click.option("--within", "within_minutes", default=60, type=int,
-              help="Alert window in minutes (default: 60)")
-@click.option("--dry-run", is_flag=True, help="Print what would fire without marking as notified")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON (for cron/agent polling)")
-def calendar_remind(within_minutes, dry_run, json_output):
-    """Show events firing soon — designed for cron/agent polling.
-
-    \b
-    Run every 15 min:
-        */15 * * * * cd ~/projects/project-tracker && \\
-          pt calendar remind --json
-    """
-    import json as json_lib
-    cm = _get_calendar_manager()
-    events = cm.get_upcoming_reminders(within_minutes=within_minutes)
-    if json_output:
-        print(json_lib.dumps({"events": events, "total": len(events), "within_minutes": within_minutes}, indent=2))
-    else:
-        if not events:
-            print(f"No events firing in next {within_minutes} minutes.")
-        else:
-            print(f"🔔 {len(events)} event(s) firing soon:\n")
-            _display_events(events)
-    if not dry_run:
-        for ev in events:
-            cm.mark_notified(ev["id"])
-
-
-@calendar_group.command(name="export")
-@click.option("-o", "--output", default=None, help="Output file path (default: stdout)")
-@click.option("-p", "--project", default=None, help="Filter by project")
-@click.option("--json", "as_json", is_flag=True, help="Export as JSON")
-def calendar_export(output, project, as_json):
-    """Export calendar events as iCal (.ics) format.
-
-    \b
-    Examples:
-        pt calendar export -o ~/Desktop/pt-calendar.ics
-        pt calendar export --json
-    """
-    db = DatabaseManager()
-    project_id = _resolve_project_id(db, project) if project else None
-    cm = _get_calendar_manager()
-
-    if as_json:
-        import json as json_mod
-        events = cm.get_events(project_id=project_id, include_all=True)
-        content = json_mod.dumps(events, indent=2, default=str)
-    else:
-        content = cm.export_ical(project_id=project_id, include_all=True)
-
-    if output:
-        Path(output).write_text(content)
-        console.print(f"[green]Exported to {output}[/green]")
-    else:
-        print(content)
-
-
-
-
-@calendar_group.command(name="poll")
-@click.option("--within", "within_minutes", default=60, type=int,
-              help="Notify events firing within this many minutes (default: 60)")
-@click.option("--dry-run", is_flag=True, help="Show what would fire without marking as notified or writing to brain")
-@click.option("--quiet", is_flag=True, help="Suppress human-readable output")
-@click.option("--json", "as_json", is_flag=True, help="Output results as JSON")
-def calendar_poll(within_minutes, dry_run, quiet, as_json):
-    """Run one calendar poll cycle — fire events, write to brain, run agent prompts.
-
-    \b
-    Designed to be run every 5-15 minutes via cron. Use install-poll-cron to
-    set that up automatically.
-
-    \b
-    Examples:
-        pt calendar poll                          # 60 min window
-        pt calendar poll --within 15 --dry-run    # preview without side effects
-        pt calendar poll --json                   # structured output for agents
-    """
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).parent.parent))
-    from scripts.hooks.calendar_poller import poll as _poll
-    results = _poll(
-        within_minutes=within_minutes,
-        dry_run=dry_run,
-        quiet=quiet,
-        as_json=as_json,
-    )
-    if results.get("errors"):
-        raise SystemExit(1)
-
-
-@calendar_group.command(name="install-poll-cron")
-@click.option("--interval", default=10, type=int, help="Run every N minutes (default: 10)")
-@click.option("--within", "within_minutes", default=60, type=int,
-              help="Notify events firing within N minutes (default: 60)")
-@click.option("--remove", is_flag=True, help="Remove the poller cron job instead of installing")
-@click.option("--dry-run", is_flag=True, help="Print the crontab line without installing it")
-def calendar_install_poll_cron(interval, within_minutes, remove, dry_run):
-    """Install (or remove) the calendar_poller cron job in the current user's crontab.
-
-    \b
-    Installs a sentinel-tagged crontab line that runs the calendar poller every
-    N minutes using uv run. Output appended to data/logs/poller.log.
-
-    \b
-    Examples:
-        pt calendar install-poll-cron                          # every 10 min
-        pt calendar install-poll-cron --interval 5 --within 15
-        pt calendar install-poll-cron --remove                 # uninstall
-        pt calendar install-poll-cron --dry-run                # preview
-    """
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).parent.parent))
-    from scripts.hooks.cron_installer import install as _install
-
-    result = _install(
-        interval=interval,
-        within=within_minutes,
-        dry_run=dry_run,
-        remove=remove,
-    )
-
-    if remove:
-        removed = result["previous_lines_removed"]
-        if dry_run:
-            console.print(f"[yellow]Dry run - would remove {removed} line(s)[/yellow]")
-        else:
-            console.print(f"[green]Removed {removed} poller line(s) from crontab[/green]")
-        return
-
-    if dry_run:
-        console.print("[yellow]Dry run - crontab line would be:[/yellow]")
-        console.print(f"  [blue]{result['line']}[/blue]")
-        return
-
-    console.print(f"[green]Calendar poller installed[/green]")
-    console.print(f"   Interval : every {result['interval_minutes']} min")
-    console.print(f"   Window   : {result['within_minutes']} min lookahead")
-    console.print(f"   Log      : {result['log_path']}")
-    if result["previous_lines_removed"]:
-        console.print(f"   Replaced : {result['previous_lines_removed']} old poller line(s)")
-    console.print(f"\n   Crontab entry:")
-    console.print(f"   [dim]{result['line']}[/dim]")
 
 # =============================================================================
 # Memory group — wraps ai-memory/brain.py for cross-agent semantic memory

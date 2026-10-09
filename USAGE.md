@@ -113,12 +113,12 @@ pt sync-project "project-name"
 ### Managing Cron Jobs
 
 ```bash
-# Add a cron job to a project
-pt add-cron "project-name" "0 14 * * *" "python scripts/daily.py" "Daily processing"
+# Add a cron job to a project (see `pt calendar add-cron --help`)
+pt calendar add-cron "project-name" "0 14 * * *" "python scripts/daily.py" --description "Daily processing"
 
 # Examples:
-pt add-cron "image-workflow" "10 2 * * *" "python scripts/backup/daily_backup.py" "Daily backup"
-pt add-cron "trading-copilot" "0 6,12,18 * * *" "python scripts/fetch_signals.py" "Fetch trading signals"
+pt calendar add-cron "image-workflow" "10 2 * * *" "python scripts/backup/daily_backup.py" --description "Daily backup"
+pt calendar add-cron "trading-copilot" "0 6,12,18 * * *" "python scripts/fetch_signals.py" --description "Fetch trading signals"
 ```
 
 ### Read-Only Memory Automation

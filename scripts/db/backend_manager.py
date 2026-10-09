@@ -576,22 +576,6 @@ class DatabaseManager:
 
     # ==================== CRON JOB OPERATIONS ====================
     
-    def add_cron_job(
-        self,
-        project_id: str,
-        schedule: str,
-        command: str,
-        description: Optional[str] = None
-    ) -> None:
-        """Add a cron job for a project."""
-        with self._get_conn() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO cron_jobs (project_id, schedule, command, description)
-                VALUES (?, ?, ?, ?)
-            """, (project_id, schedule, command, description))
-            conn.commit()
-    
     def get_cron_jobs(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get cron jobs, optionally filtered by project."""
         with self._get_conn() as conn:

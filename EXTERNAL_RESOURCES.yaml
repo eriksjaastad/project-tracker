@@ -1833,7 +1833,6 @@ monitoring:
          expect: "Retired 2026-10-08 (#8045): not loaded since 2026-08-10 and not expected to run; do not alert on it. The plist file remains in ~/Library/LaunchAgents but its script, scripts/card-factory-morning.sh, was deleted with the rest of the Card Factory scripts."}
       - {id: com.pt.tailscale-up,                     project: project-tracker,      schedule: none (retired), log: ~/projects/project-tracker/logs/tailscale-up.log,
          expect: "Retired 2026-10-09 (#8093): the login job failed every login and its template (with the never-installed com.pt.sync-daemon) was deleted from the repo. The plist file may remain in ~/Library/LaunchAgents; do not alert on it."}
-      - {id: pt-calendar-poller,                      project: project-tracker,      schedule: "*/10 * * * * (crontab)", log: ~/projects/project-tracker/data/logs/poller.log}
       - {id: com.eriksjaastad.landtracker.daily,      project: land-tracker,         schedule: daily 07:00,  log: ~/projects/land-tracker/daily_run.log}
       - {id: com.eriksjaastad.landtracker.stale-watch, project: land-tracker,        schedule: daily 13:00,  log: ~/projects/land-tracker/stale_watch.log}
       - {id: com.eriksjaastad.job-search-hn,          project: job-search,           schedule: daily 06:15,  log: ~/projects/job-search/market-monitor/snapshots/hn-jobs-cron.log}

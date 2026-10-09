@@ -1030,29 +1030,8 @@ class CalendarEventCreate(BaseModel):
     recurrence: Optional[str] = None
     created_by: str = "human"
 
-    @staticmethod
-    def _validate_date(v: str) -> str:
-        from datetime import datetime
-        try:
-            datetime.strptime(v, "%Y-%m-%d")
-        except ValueError:
-            raise ValueError(f"event_date must be YYYY-MM-DD, got '{v}'")
-        return v
-
-    # Pydantic v2 field validator
-    try:
-        from pydantic import field_validator
-        @field_validator("event_date")
-        @classmethod
-        def validate_event_date(cls, v: str) -> str:
-            return cls._validate_date(v)
-    except ImportError:
-        # Pydantic v1 fallback
-        from pydantic import validator
-        @validator("event_date")
-        @classmethod  # type: ignore[misc]
-        def validate_event_date(cls, v: str) -> str:
-            return cls._validate_date(v)
+    # event_date / event_time are validated by CalendarManager.add_event (shared
+    # validator in db.backend_calendar_manager); its ValueError becomes a 422 below.
 
 
 def _stringify_pt_ids(record: dict, keys: tuple = ("id",)) -> dict:
@@ -1066,21 +1045,6 @@ def _stringify_pt_ids(record: dict, keys: tuple = ("id",)) -> dict:
         if isinstance(record.get(key), int):
             record[key] = str(record[key])
     return record
-
-
-def _stringify_event(event: dict) -> dict:
-    """Stringify a calendar event's id and its linked tasks' ids (#7826).
-
-    ``linked_tasks`` rows carry the task id as ``id``; ``task_id`` is added as
-    the same string because that is the key the frontend reads.
-    """
-    linked = event.get("linked_tasks")
-    if isinstance(linked, list):
-        for task in linked:
-            if isinstance(task, dict) and isinstance(task.get("id"), int):
-                task["task_id"] = str(task["id"])
-                task["id"] = str(task["id"])
-    return _stringify_pt_ids(event)
 
 
 def _get_cal_manager():
@@ -1109,25 +1073,9 @@ async def api_calendar_events(
             event_type=event_type,
             include_all=include_all,
         )
-        return {"events": [_stringify_event(e) for e in events], "total": len(events)}
+        return {"events": [_stringify_pt_ids(e) for e in events], "total": len(events)}
     except Exception as e:
         logger.error(f"Calendar events error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/calendar/events/{event_id}")
-async def api_calendar_event_detail(event_id: int):
-    """Return a single calendar event with linked tasks."""
-    try:
-        cm = _get_cal_manager()
-        event = cm.get_event(event_id)
-        if not event:
-            raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
-        return _stringify_event(event)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Calendar event detail error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1184,25 +1132,6 @@ async def api_calendar_crons(
         return {"cron_jobs": crons, "total": len(crons)}
     except Exception as e:
         logger.error(f"Calendar crons error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/calendar/remind")
-async def api_calendar_remind(
-    within_minutes: int = 60,
-    machine: Optional[str] = None,
-):
-    """Events firing soon — for agent polling and notification widgets."""
-    try:
-        cm = _get_cal_manager()
-        events = cm.get_upcoming_reminders(within_minutes=within_minutes, machine=machine)
-        return {
-            "events": [_stringify_event(e) for e in events],
-            "total": len(events),
-            "within_minutes": within_minutes,
-        }
-    except Exception as e:
-        logger.error(f"Calendar remind error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
