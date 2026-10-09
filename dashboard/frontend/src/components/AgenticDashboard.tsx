@@ -16,12 +16,12 @@ import {
   createMarker,
   updateMarker,
   deleteMarker,
-  fetchProjects,
   fetchToolStats,
   fetchBashStats,
   isAbortError,
 } from '../api';
-import type { AgenticMarker, AgenticSeriesEntry, AgenticSummaryResponse, BashStatsResponse, Project, ToolStatsResponse } from '../types';
+import type { AgenticMarker, AgenticSeriesEntry, AgenticSummaryResponse, BashStatsResponse, ToolStatsResponse } from '../types';
+import { useProjects } from '../hooks/useProjects';
 import { PageShell } from './PageShell';
 import './AgenticDashboard.css';
 
@@ -36,7 +36,11 @@ const PROJECT_COLORS = [
 export function AgenticDashboard() {
   const [timeRange, setTimeRange] = useState<TimeRange>('month');
   const [selectedProject, setSelectedProject] = useState<string | undefined>(undefined);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const { projects: loadedProjects } = useProjects();
+  const projects = useMemo(
+    () => (loadedProjects ?? []).slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [loadedProjects],
+  );
   const [summary, setSummary] = useState<AgenticSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,15 +70,6 @@ export function AgenticDashboard() {
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
-      // Projects and markers load independently: one failing must not drop the other.
-      try {
-        const projectData = await fetchProjects(controller.signal);
-        setProjects(projectData.slice().sort((a, b) => a.name.localeCompare(b.name)));
-      } catch (err) {
-        if (!isAbortError(err)) {
-          console.error('Failed to load projects:', err);
-        }
-      }
       try {
         const markerData = await fetchMarkers(controller.signal);
         setMarkers(markerData);

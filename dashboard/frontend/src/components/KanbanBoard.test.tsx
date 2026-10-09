@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import { ProjectsProvider } from '../hooks/ProjectsProvider';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -43,7 +44,7 @@ describe('KanbanBoard', () => {
           <Route path="/kanban/:project" element={<KanbanBoard />} />
         </Routes>
       </MemoryRouter>
-    );
+    , { wrapper: ProjectsProvider });
 
     await waitFor(() => {
       expect(fetchProjects).toHaveBeenCalled();
@@ -63,7 +64,7 @@ describe('KanbanBoard', () => {
           <Route path="/kanban/:project" element={<KanbanBoard />} />
         </Routes>
       </MemoryRouter>
-    );
+    , { wrapper: ProjectsProvider });
 
     expect(await screen.findByRole('button', { name: /add task/i })).toBeInTheDocument();
   });
@@ -84,7 +85,7 @@ describe('KanbanBoard', () => {
             <Route path="/kanban" element={<KanbanBoard />} />
           </Routes>
         </MemoryRouter>
-      );
+      , { wrapper: ProjectsProvider });
 
       await waitFor(() => expect(fetchTasks).toHaveBeenCalled());
       await screen.findAllByTestId('column');

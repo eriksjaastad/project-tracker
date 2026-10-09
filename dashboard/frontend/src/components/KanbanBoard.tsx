@@ -2,9 +2,10 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { DndContext, rectIntersection, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
-import type { Project, Task, TaskStatus, TaskPriority, TaskType } from '../types';
+import type { Task, TaskStatus, TaskPriority, TaskType } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS } from '../types';
-import { fetchProjects, fetchTasks, updateTask, createTask, deleteTask, isAbortError } from '../api';
+import { fetchTasks, updateTask, createTask, deleteTask, isAbortError } from '../api';
+import { useProjects } from '../hooks/useProjects';
 import { Column } from './Column';
 import { Notification } from './Notification';
 import { AddTaskButton } from './AddTaskButton';
@@ -26,7 +27,7 @@ interface NotificationState {
 export function KanbanBoard() {
   const { project } = useParams<{ project?: string }>();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const { projects } = useProjects();
   const [loading, setLoading] = useState(true);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -66,25 +67,6 @@ export function KanbanBoard() {
     loadTasks(controller.signal);
     return () => controller.abort();
   }, [loadTasks]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const loadProjects = async () => {
-      try {
-        const fetchedProjects = await fetchProjects(controller.signal);
-        setProjects(fetchedProjects);
-      } catch (error) {
-        if (isAbortError(error)) {
-          return;
-        }
-        // Optional for button state only.
-      }
-    };
-
-    loadProjects();
-    return () => controller.abort();
-  }, []);
 
   const handleSearchTask = () => {
     // The search box takes the small display id (#6100) people actually
@@ -260,7 +242,7 @@ export function KanbanBoard() {
       },
     })
   );
-  const currentProject = project ? projects.find((entry) => entry.id === project) : undefined;
+  const currentProject = project ? projects?.find((entry) => entry.id === project) : undefined;
   const canCreateCards = !project || currentProject?.can_create_cards !== false;
 
   const headerActions = (

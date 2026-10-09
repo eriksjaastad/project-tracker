@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import { ProjectsProvider } from '../hooks/ProjectsProvider';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -62,7 +63,7 @@ describe('KanbanBoard checklist notes propagation (#7821)', () => {
           <Route path="/kanban/:project" element={<KanbanBoard />} />
         </Routes>
       </MemoryRouter>
-    );
+    , { wrapper: ProjectsProvider });
 
     await user.click(await screen.findByText('row:98969975881101312:old:1'));
     await user.click(screen.getByText('fire-toggle'));

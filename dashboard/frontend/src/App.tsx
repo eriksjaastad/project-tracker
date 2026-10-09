@@ -9,28 +9,31 @@ import { JobsPage } from './components/JobsPage';
 import { JobsSubmittedPage } from './components/JobsSubmittedPage';
 import { CodebasePage } from './components/CodebasePage';
 import { MorningPage } from './components/MorningPage';
+import { ProjectsProvider } from './hooks/ProjectsProvider';
 import './App.css';
 
 function App() {
   return (
-    <BrowserRouter>
-      <div className="app">
-        <Navigation />
-        <Routes>
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/kanban" element={<KanbanBoard />} />
-          <Route path="/kanban/:project" element={<KanbanBoard />} />
-          <Route path="/agentic" element={<AgenticDashboard />} />
-          <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/agent-chat" element={<AgentChatPage />} />
-          <Route path="/jobs" element={<JobsPage />} />
-          <Route path="/jobs/submitted" element={<JobsSubmittedPage />} />
-          <Route path="/codebase" element={<CodebasePage />} />
-          <Route path="/morning" element={<MorningPage />} />
-          <Route path="*" element={<Navigate to="/kanban" replace />} />
-        </Routes>
-      </div>
-    </BrowserRouter>
+    <ProjectsProvider>
+      <BrowserRouter>
+        <div className="app">
+          <Navigation />
+          <Routes>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/kanban" element={<KanbanBoard />} />
+            <Route path="/kanban/:project" element={<KanbanBoard />} />
+            <Route path="/agentic" element={<AgenticDashboard />} />
+            <Route path="/calendar" element={<CalendarPage />} />
+            <Route path="/agent-chat" element={<AgentChatPage />} />
+            <Route path="/jobs" element={<JobsPage />} />
+            <Route path="/jobs/submitted" element={<JobsSubmittedPage />} />
+            <Route path="/codebase" element={<CodebasePage />} />
+            <Route path="/morning" element={<MorningPage />} />
+            <Route path="*" element={<Navigate to="/kanban" replace />} />
+          </Routes>
+        </div>
+      </BrowserRouter>
+    </ProjectsProvider>
   );
 }
 
