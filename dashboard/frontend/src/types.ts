@@ -9,14 +9,6 @@ export type TaskStatus =
 
 export type TaskType = 'manual' | 'agent';
 
-export const TASK_STATUSES: TaskStatus[] = [
-  'Backlog',
-  'To Do',
-  'In Progress',
-  'Review',
-  'Done',
-];
-
 // UI display statuses (original five-column Kanban)
 export const KANBAN_STATUSES: TaskStatus[] = [
   'Backlog',
@@ -33,8 +25,6 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   Review: 'Review',
   Done: 'Done',
 };
-
-export const TASK_TYPES: TaskType[] = ['manual', 'agent'];
 
 export const TASK_TYPE_LABELS: Record<TaskType, string> = {
   manual: 'Manual',
