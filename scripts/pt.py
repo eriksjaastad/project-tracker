@@ -451,11 +451,25 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
 
 
 def _resolve_project_id(db, project):
+    """Resolve a project id or name (case-insensitive) to its id, or None.
+
+    An id match wins over a name match, so a project named after another
+    project's id can't capture it. add_project keeps names unique, but a
+    concurrent add can still leave two; a shared name is refused rather than
+    picked by row order.
+    """
     if not project: return None
+    wanted = project.lower()
     projects = db.get_all_projects()
-    for p in projects:
-        if p["name"].lower() == project.lower() or p["id"].lower() == project.lower():
-            return p["id"]
+    for field in ("id", "name"):
+        matches = [p["id"] for p in projects if p[field].lower() == wanted]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            raise click.UsageError(
+                f"Project {field} '{project}' matches {len(matches)} projects "
+                f"({', '.join(matches)}); use the exact id"
+            )
     return None
 
 
