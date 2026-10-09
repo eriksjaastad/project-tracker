@@ -32,7 +32,7 @@ pt sync set-machine-id 883  # Persist explicit machine identity for sync
 project-tracker/
 ├── pt                      # CLI entry point
 ├── scripts/
-│   ├── pt.py               # Click CLI (tasks, info, memory, calendar, inbox, worktrees)
+│   ├── pt.py               # Click CLI (tasks, info, memory, calendar, worktrees)
 │   ├── db/
 │   │   ├── schema.py       # Database schema (v7)
 │   │   └── manager.py      # DatabaseManager operations

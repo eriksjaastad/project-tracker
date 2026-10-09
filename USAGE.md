@@ -34,7 +34,7 @@ You can configure the behavior of Project Tracker using these environment variab
 | `PT_SKIP_DOPPLER` | Set to `1` for read-only SSH/cron commands that should not invoke Doppler. | `0` |
 | `PT_MIGRATION_DIR` | Override for `pt migration` state files (testing/isolation). | `~/.project-tracker/migrations/` |
 
-**Locked-hygiene safety valves:** edits in any `.scratch/` directory are exempt from the branch-on-first-edit hook. Use `pt migration start <name>` / `pt migration finish <name> [--commit | --revert]` to record bulk-operation sessions with an appended manifest at `MIGRATIONS.md` — see project `CLAUDE.md` for details.
+**Locked-hygiene safety valves:** edits in any `.scratch/` directory are exempt from the branch-on-first-edit hook. Use `pt migration start <name>` / `pt migration finish <name> [--commit | --revert]` to record bulk-operation sessions; `finish` prints a manifest of the paths touched (nothing is written to the repo) — see project `CLAUDE.md` for details.
 
 ---
 
@@ -111,17 +111,6 @@ pt refresh
 pt sync-project "project-name"
 ```
 
-### Managing AI Agents
-
-```bash
-# Add an AI agent to a project
-pt add-agent "project-name" "Claude Sonnet 4.5" "Implementation"
-
-# Examples:
-pt add-agent "image-workflow" "Claude Opus 4" "Architecture review"
-pt add-agent "trading-copilot" "Cursor" "Code refactoring"
-```
-
 ### Managing Cron Jobs
 
 ```bash
@@ -131,17 +120,6 @@ pt add-cron "project-name" "0 14 * * *" "python scripts/daily.py" "Daily process
 # Examples:
 pt add-cron "image-workflow" "10 2 * * *" "python scripts/backup/daily_backup.py" "Daily backup"
 pt add-cron "trading-copilot" "0 6,12,18 * * *" "python scripts/fetch_signals.py" "Fetch trading signals"
-```
-
-### Managing Services
-
-```bash
-# Add a service dependency to a project
-pt add-service "project-name" "Service Name" --cost 5.00 --purpose "Purpose description"
-
-# Examples:
-pt add-service "trading-copilot" "Railway" --cost 5.00 --purpose "Hosting + Postgres"
-pt add-service "image-workflow" "OpenAI" --cost 15.00 --purpose "AI processing"
 ```
 
 ### Sync Controls

@@ -495,7 +495,8 @@ class ProjectTrackerOps:
             conn.close()
 
     def migration_session_finish(
-        self, name: str, finished_at: str, status: str, manifest_path: str
+        self, name: str, finished_at: str, status: str,
+        manifest_path: str | None = None,
     ) -> dict:
         """Close a recording session. Best-effort, but never silent — see above."""
         if status not in ("finished", "committed", "reverted"):
