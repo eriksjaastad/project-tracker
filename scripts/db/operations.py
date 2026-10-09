@@ -231,7 +231,8 @@ class ProjectTrackerOps:
                     cleanup.up(conn)
                     conn.execute("COMMIT")
                 except BaseException:
-                    conn.execute("ROLLBACK")
+                    if conn.in_transaction:  # SQLite may have rolled back already
+                        conn.execute("ROLLBACK")
                     raise
             try:
                 applied = apply_all(conn, directory)

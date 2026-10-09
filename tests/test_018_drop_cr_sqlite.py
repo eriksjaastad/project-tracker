@@ -543,3 +543,38 @@ def test_ids_minted_after_018_keep_the_machine_bits_of_ids_minted_before(tmp_pat
     minted_after = pt_id.next_id(db_path)
     _, machine_bits, _ = pt_id.get_generator(db_path).decompose(minted_after)
     assert machine_bits == derived_before
+
+
+def _ends_transaction_then_fails(conn):
+    # What SQLite does itself on disk full or an I/O error: the transaction is
+    # already rolled back when the error reaches the caller.
+    conn.execute("ROLLBACK")
+    raise sqlite3.OperationalError("database or disk is full")
+
+
+def test_apply_migration_reports_the_real_error_when_sqlite_already_rolled_back(tmp_path: Path) -> None:
+    from db import migration_runner
+
+    conn = sqlite3.connect(tmp_path / "x.db", isolation_level=None)
+    conn.execute("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)")
+    m = migration_runner.Migration(99, "full", tmp_path / "099_full.py", _ends_transaction_then_fails)
+    with pytest.raises(sqlite3.OperationalError, match="disk is full"):
+        apply_migration(conn, m)
+
+
+def test_the_cleanup_reports_the_real_error_when_sqlite_already_rolled_back(tmp_path: Path, monkeypatch) -> None:
+    from db import migration_runner
+
+    db_path = _crr_like_db(tmp_path)
+    real_discover = migration_runner.discover_migrations
+
+    def discover(directory, verbose=True):
+        return [
+            migration_runner.Migration(m.version, m.name, m.path, _ends_transaction_then_fails)
+            if m.version == 18 else m
+            for m in real_discover(directory, verbose=verbose)
+        ]
+
+    monkeypatch.setattr(migration_runner, "discover_migrations", discover)
+    with pytest.raises(sqlite3.OperationalError, match="disk is full"):
+        DatabaseManager(db_path).migrations_apply()

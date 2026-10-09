@@ -191,7 +191,10 @@ def apply_migration(conn: sqlite3.Connection, migration: Migration) -> None:
         )
         conn.execute("COMMIT")
     except Exception:
-        conn.execute("ROLLBACK")
+        # SQLite already rolled back on some errors (disk full, I/O); a second
+        # ROLLBACK would raise and hide the error that actually happened.
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
 
 
