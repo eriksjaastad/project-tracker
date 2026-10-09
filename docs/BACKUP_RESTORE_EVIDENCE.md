@@ -8,7 +8,9 @@
 The historical evidence below predates dbmed retirement. It is not proof of
 current offsite health. Before cutover, `pt backup status` reported offsite
 unconfigured and `pt backup create` reported insufficient access privileges.
-Follow [the cutover runbook](DBMED_RETIREMENT.md) and record fresh evidence.
+The cutover ran on 2026-09-22 and its runbook was removed in #8093. For the
+current procedure see [offsite database backups](PORTFOLIO_OFFSITE_DB_BACKUPS.md)
+and `pt backup status`.
 
 ## Coverage snapshot (`pt backup status`)
 

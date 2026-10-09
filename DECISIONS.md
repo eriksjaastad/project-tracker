@@ -44,7 +44,8 @@ service. Project Tracker returns to its existing in-process database operations.
 Backups use the SQLite backup API and the existing rclone destination; preserve
 backup history, destructive-operation confirmation, and SAFE_MODE. No replacement
 storage gate is planned. Root-owned installation retirement follows
-[the cutover runbook](docs/DBMED_RETIREMENT.md), after the code is deployed.
+the cutover runbook (`docs/DBMED_RETIREMENT.md`, removed in #8093 after the
+2026-09-22 cutover; see git history), after the code is deployed.
 
 ---
 
