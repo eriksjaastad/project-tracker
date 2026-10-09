@@ -139,7 +139,6 @@ EXTRA_KEYS = {
         "PT_MINI_ENABLED": "Set to 0 to skip the Mac Mini section of the digest",
         "PT_LOG_MAX_BYTES": "Rotation cap for Python-written logs (default: 10MB)",
         "PT_LOG_BACKUP_COUNT": "Generations kept by the Python log handler (default: 3)",
-        "PT_LOG_BACKUPS": "Generations kept by scripts/log_rotation.py for launchd-owned logs (default: 2)",
         "PT_DASHBOARD_LOG_MAX_BYTES": "Rotation cap for the launchd-owned dashboard logs",
         "PT_DASHBOARD_LOG_BACKUPS": "Generations kept for the launchd-owned dashboard logs",
         "PT_DESTRUCTIVE_LOG_PATH": "Override for the in-process deletion audit log (tests redirect this)",

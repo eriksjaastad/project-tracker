@@ -23,13 +23,13 @@ def _iter_command_paths(cmd: Command, prefix: list[str] | None = None) -> Iterat
             yield from _iter_command_paths(subcmd, [*prefix, name])
 
 
-def test_root_help_lists_expected_sync_surfaces() -> None:
+def test_root_help_lists_backup_and_sync_project() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
-    assert "backup" in result.output
-    assert "sync" in result.output
-    assert "sync-project" in result.output
+    commands = {line.split()[0] for line in result.output.splitlines() if line.startswith("  ") and line.split()}
+    assert {"backup", "sync-project"} <= commands
+    assert "sync" not in commands
 
 
 def test_every_command_path_supports_help() -> None:

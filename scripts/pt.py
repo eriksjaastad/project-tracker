@@ -682,7 +682,6 @@ def sync_project(project_name, no_graph):
     """Sync one project to the database (fast alternative to full scan).
 
     PROJECT_NAME is the directory name under the projects root.
-    This is distinct from ``pt sync``, which manages replication state.
     """
     base_path = Path(PROJECTS_BASE_DIR)
     project_dir = _resolve_project_directory(project_name)
@@ -4471,7 +4470,7 @@ def db_group(ctx):
     `scripts/db/migrations/` to the local tracker.db. Each migration
     runs inside a transaction; CRR-table alters are bracketed with
     `crsql_begin_alter` / `crsql_commit_alter` when cr-sqlite is loaded
-    (skipped otherwise). See MAC_MINI_SYNC_PLAN.md §2.1a and §2.2.
+    (skipped otherwise).
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -4479,11 +4478,7 @@ def db_group(ctx):
 
 @db_group.command(name="migrate")
 def db_migrate():
-    """Apply every pending migration in order.
-
-    Future work (PR #3b) will refuse if data-plane sync is
-    currently running. Today sync isn't on, so that check is a no-op.
-    """
+    """Apply every pending migration in order."""
     db = DatabaseManager()
 
     # Schema migration is a destructive operation: it runs ALTERs, and for CRR
@@ -4505,185 +4500,6 @@ def db_migrate():
     for m in applied:
         console.print(f"  • {m['version']:03d}_{m['name']}")
 
-
-# =============================================================================
-# pt sync — data-plane pause/resume + status (Phase 2.1b)
-# =============================================================================
-#
-# The underlying sync daemon (cr-sqlite replication over Tailscale) isn't
-# built yet — this CLI is the operator-facing surface the migration
-# policy (§2.3 `pt db migrate`) depends on. Today `pt sync status`
-# reports "sync engine disabled" because cr-sqlite isn't loaded; pause
-# and resume still work (they persist intent to _metadata) so when the
-# daemon lands in PR #3c it reads the same state.
-
-
-@click.group(name="sync", invoke_without_command=True)
-@click.pass_context
-def sync_group(ctx):
-    """Data-plane sync control (cr-sqlite replication, Phase 2).
-
-    \b
-    Commands:
-        pt sync status     — show pause state + last sync + engine state
-        pt sync check      — verify local sync readiness before broader rollout
-        pt sync pause      — halt data-plane replication (control plane keeps running)
-        pt sync pause --all — halt everything (rare; stops migration announcements too)
-        pt sync resume     — resume data-plane replication
-        pt sync set-machine-id <id> — persist _metadata['pt.machine_id']
-    """
-    if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
-
-
-def _sync_conn() -> DatabaseManager:
-    """Return local operations for sync control commands."""
-    return DatabaseManager()
-
-
-def _handle_sync_db_error(cmd: str, err: Exception) -> None:
-    """Print a uniform error and exit 2 for sync DB failures.
-
-    Called by sync_status / sync_pause / sync_resume so a broken DB
-    path produces a clean message, not a traceback.
-    """
-    console.print(f"[red]pt sync {cmd}: {err}[/red]")
-    sys.exit(2)
-
-@sync_group.command(name="status")
-def sync_status():
-    """Show pause state, last successful sync, and engine availability."""
-    try:
-        state = _sync_conn().sync_status()
-    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
-        _handle_sync_db_error("status", err)
-        return  # pragma: no cover — _handle_sync_db_error raises SystemExit
-    paused = state["paused"]
-    scope = state["scope"]
-    last = state["last_sync"]
-    engine_on = state["engine_active"]
-
-    engine_line = (
-        "[green]engine: cr-sqlite loaded[/green]"
-        if engine_on
-        else "[dim]engine: cr-sqlite NOT loaded (sync not yet active)[/dim]"
-    )
-    if paused:
-        state = f"[yellow]paused ({scope})[/yellow]"
-    else:
-        state = "[green]running[/green]" if engine_on else "[dim]idle[/dim]"
-    last_line = last or "[dim]never[/dim]"
-
-    console.print(f"state:         {state}")
-    console.print(f"last sync:     {last_line}")
-    console.print(engine_line)
-
-
-@sync_group.command(name="check")
-def sync_check():
-    """Verify local sync-readiness prerequisites against the live DB."""
-    try:
-        checks = _sync_conn().sync_check()
-    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
-        _handle_sync_db_error("check", err)
-        return  # pragma: no cover
-
-    all_ok = True
-    for check in checks:
-        label = "[green]ok[/green]" if check["ok"] else "[red]fail[/red]"
-        if not check["ok"]:
-            all_ok = False
-        console.print(f"{label} {check['name']}: {check['detail']}")
-
-    if not all_ok:
-        sys.exit(3)
-
-
-@sync_group.command(name="set-machine-id")
-@click.argument("machine_id", type=int)
-def sync_set_machine_id(machine_id: int):
-    """Persist _metadata['pt.machine_id'] for this machine."""
-    try:
-        _sync_conn().sync_set_machine_id(machine_id=machine_id)
-    except ValueError as err:
-        # An out-of-range id is an operator error, not a traceback.
-        console.print(f"[red]pt sync set-machine-id: {err}[/red]")
-        sys.exit(2)
-    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
-        _handle_sync_db_error("set-machine-id", err)
-        return  # pragma: no cover
-
-    console.print(f"[green]✓ pt.machine_id set to {machine_id}.[/green]")
-
-
-@sync_group.command(name="pause")
-@click.option(
-    "--all", "all_scope", is_flag=True,
-    help="Halt control plane too (stops migration announcements). Rare.",
-)
-def sync_pause(all_scope: bool):
-    """Halt data-plane replication. Control plane keeps running unless --all."""
-    scope = "all" if all_scope else "data_plane"
-    try:
-        _sync_conn().sync_pause(scope=scope)
-    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
-        _handle_sync_db_error("pause", err)
-        return  # pragma: no cover
-    console.print(f"[yellow]✓ sync paused ({scope}).[/yellow]")
-    if scope == "all":
-        console.print(
-            "[dim]Control plane is ALSO halted — migration announcements "
-            "won't cross machines until resume.[/dim]"
-        )
-
-
-@sync_group.command(name="resume")
-@click.option(
-    "--force", is_flag=True,
-    help="Resume even if the peer hasn't acknowledged a recently-applied migration.",
-)
-def sync_resume(force: bool):
-    """Resume data-plane replication.
-
-    Implements the §2.3 step-6 gate: refuses to clear the pause state
-    when this machine has applied a migration that the peer hasn't
-    announced yet (determined from ``schema_migration_announcements``
-    — which is CRR-classified, so peer's rows replicate in via the
-    always-on control plane once cr-sqlite lands).
-
-    The gate only activates once ``schema_migration_announcements`` is
-    flipped to CRR (§2.5) AND this machine has a local ``site_id``
-    (cr-sqlite loaded). Before then it's a no-op — otherwise a
-    daemon-less install could never resume, since no peer rows can
-    replicate in.
-    """
-    db = _sync_conn()
-    try:
-        if not force:
-            blocked = db.sync_resume_blocked_versions()
-            if blocked:
-                versions = ", ".join(f"{v:03d}" for v in blocked)
-                console.print(
-                    f"[yellow]pt sync resume: waiting for peer to apply "
-                    f"migration(s) {versions}.[/yellow]"
-                )
-                console.print(
-                    "On the peer machine, run:\n"
-                    "    cd ~/projects/project-tracker && git pull\n"
-                    "    pt db migrate\n"
-                    "Resume will proceed automatically once the peer's "
-                    "announcement arrives. "
-                    "Use [cyan]--force[/cyan] to override this gate."
-                )
-                sys.exit(3)
-        was_paused = db.sync_resume()["was_paused"]
-    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
-        _handle_sync_db_error("resume", err)
-        return  # pragma: no cover
-    if was_paused:
-        console.print("[green]✓ sync resumed.[/green]")
-    else:
-        console.print("[dim]sync was not paused.[/dim]")
 
 # =============================================================================
 # Handoff group — structured unfinished-work / non-PR records (Phase D)
@@ -6116,7 +5932,6 @@ cli.add_command(config_group)
 cli.add_command(message_group)
 cli.add_command(skills_group)
 cli.add_command(db_group)
-cli.add_command(sync_group)
 cli.add_command(handoff_group)
 cli.add_command(jobs_group)
 cli.add_command(size_command)

@@ -11,9 +11,6 @@ pt info          # Reference data (credentials, infrastructure)
 pt backup status # Full backup + off-machine backup health
 pt memory search "query"  # Cross-agent shared memory
 pt memory recent --since 7d --json  # Read-only cron/SSH memory query
-pt sync status   # Replication status / pause / resume controls
-pt sync check    # Mini-local sync rollout readiness check
-pt sync set-machine-id 883  # Persist explicit machine identity for sync
 ```
 
 ## What It Does
@@ -24,7 +21,6 @@ pt sync set-machine-id 883  # Persist explicit machine identity for sync
 - **Automation** — Read-only JSON memory commands for SSH/cron integrations (`pt memory recent --json`, `pt doctor --json`, `pt hygiene --json`)
 - **Info** — Centralized reference store for env vars, credentials, infrastructure (`pt info`)
 - **Graph** — D3.js visualization of file relationships across the ecosystem
-- **Sync Controls** — Replication pause/resume/status plus Mini-local readiness checks for Phase 2 (`pt sync`)
 
 ## Project Structure
 

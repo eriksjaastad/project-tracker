@@ -146,11 +146,6 @@
   margin-bottom: var(--space-lg);
 }
 
-.marker-auto-hint {
-  color: #ffd43b;
-  opacity: 0.7;
-}
-
 .marker-error {
   background: rgba(255, 107, 107, 0.12);
   border: 1px solid rgba(255, 107, 107, 0.4);

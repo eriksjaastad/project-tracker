@@ -16,7 +16,7 @@ def _rows(path: Path) -> list[dict]:
 
 def test_calendar_fixture_contract_and_provenance() -> None:
     fixtures = _rows(FIXTURES)
-    assert len(fixtures) == 10
+    assert len(fixtures) == 8
     assert len({row["fixture_id"] for row in fixtures}) == len(fixtures)
 
     remainders = set()

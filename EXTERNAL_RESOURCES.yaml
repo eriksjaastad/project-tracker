@@ -332,7 +332,7 @@ projects:
         type: storage
         cost: 0
       - name: Tailscale
-        purpose: "Laptop ↔ Mac Mini network (com.pt.tailscale-up)"
+        purpose: "Laptop ↔ Mac Mini network (SSH scans); the com.pt.tailscale-up login job was retired 2026-10-09 (#8093)"
         type: network
         cost: 0
       - name: GitHub Actions
@@ -1805,15 +1805,12 @@ monitoring:
       docs/MONITORING_REGISTRY.md#the-laptop-sleeps when access fails.
     jobs:
       - {id: com.ai-memory.classifier-batcher,        project: ai-memory,            schedule: every 300s,   log: ~/projects/ai-memory/logs/launchd/classifier-batcher.log}
-      - {id: com.ai-memory.sync-pending,              project: ai-memory,            schedule: every 300s,   log: /tmp/brain-sync-pending.log}
       - {id: com.ai-memory.daily-backup,              project: ai-memory,            schedule: daily 12:30,  log: /tmp/brain-daily-backup.log}
       - {id: com.ai-memory.nightly-transcript-miner,  project: ai-memory,            schedule: daily 02:00,  log: /tmp/brain-nightly-transcript-miner.log}
       - {id: com.ai-memory.weekly-graph-build,        project: ai-memory,            schedule: daily 10:00,  log: ~/projects/ai-memory/logs/launchd/graph-build.log}
       - {id: com.ai-memory.weekly-dream,              project: ai-memory,            schedule: daily 12:00,  log: /tmp/brain-dream.log}
       - {id: com.ai-memory.weekly-benchmark,          project: ai-memory,            schedule: daily 14:00,  log: /tmp/brain-weekly-benchmark.log}
-      - {id: com.ai-memory.antigravity-sync,          project: ai-memory,            schedule: UNKNOWN,      log: ~/.gemini/tmp/ai-memory-antigravity-sync.log}
       - {id: com.eriksjaastad.brain-health,           project: ai-memory,            schedule: every 1800s,  log: ~/projects/ai-memory/logs/brain_health.log}
-      - {id: com.eriksjaastad.tracked-large-file-audit, project: ai-memory,          schedule: daily 09:00,  log: ~/projects/ai-memory/logs/tracked_large_file_audit.log}
       - {id: com.eriksjaastad.project-tracker,        project: project-tracker,      schedule: keepalive,    log: ~/projects/project-tracker/logs/dashboard.stdout.log}
       - id: com.eriksjaastad.dashboard-watchdog
         project: project-tracker
@@ -1834,7 +1831,8 @@ monitoring:
       - {id: com.eriksjaastad.alert-digest,           project: project-tracker,      schedule: daily 07:00,  log: ~/projects/project-tracker/logs/alert_digest.stdout.log}
       - {id: com.eriksjaastad.card-factory,           project: project-tracker,      schedule: none (retired), log: ~/projects/project-tracker/logs/card-factory.stdout.log,
          expect: "Retired 2026-10-08 (#8045): not loaded since 2026-08-10 and not expected to run; do not alert on it. The plist file remains in ~/Library/LaunchAgents but its script, scripts/card-factory-morning.sh, was deleted with the rest of the Card Factory scripts."}
-      - {id: com.pt.tailscale-up,                     project: project-tracker,      schedule: UNKNOWN,      log: ~/projects/project-tracker/logs/tailscale-up.log}
+      - {id: com.pt.tailscale-up,                     project: project-tracker,      schedule: none (retired), log: ~/projects/project-tracker/logs/tailscale-up.log,
+         expect: "Retired 2026-10-09 (#8093): the login job failed every login and its template (with the never-installed com.pt.sync-daemon) was deleted from the repo. The plist file may remain in ~/Library/LaunchAgents; do not alert on it."}
       - {id: pt-calendar-poller,                      project: project-tracker,      schedule: "*/10 * * * * (crontab)", log: ~/projects/project-tracker/data/logs/poller.log}
       - {id: com.eriksjaastad.landtracker.daily,      project: land-tracker,         schedule: daily 07:00,  log: ~/projects/land-tracker/daily_run.log}
       - {id: com.eriksjaastad.landtracker.stale-watch, project: land-tracker,        schedule: daily 13:00,  log: ~/projects/land-tracker/stale_watch.log}

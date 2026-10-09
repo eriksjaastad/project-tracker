@@ -208,7 +208,7 @@ export interface AgenticMarker {
   id: string;       // UUID generated on creation
   date: string;     // ISO YYYY-MM-DD
   label: string;    // Display text (max 120 chars)
-  source: 'manual' | 'auto';  // manual = user-created, auto = sync daemon
+  source: 'manual' | 'auto';  // manual = user-created, auto = written by tooling (no producer today)
   agent?: string;   // Which agent the marker is about (optional)
 }
 

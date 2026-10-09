@@ -121,22 +121,6 @@ pt add-cron "image-workflow" "10 2 * * *" "python scripts/backup/daily_backup.py
 pt add-cron "trading-copilot" "0 6,12,18 * * *" "python scripts/fetch_signals.py" "Fetch trading signals"
 ```
 
-### Sync Controls
-
-```bash
-# Show replication state
-pt sync status
-
-# Pause data-plane replication
-pt sync pause
-
-# Resume data-plane replication
-pt sync resume
-
-# Rare: pause everything, including control-plane announcements
-pt sync pause --all
-```
-
 ### Read-Only Memory Automation
 
 Use these commands from SSH `BatchMode` sessions, cron jobs, or service users that need memory data without touching databases directly:

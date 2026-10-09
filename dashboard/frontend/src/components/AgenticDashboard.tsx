@@ -582,7 +582,7 @@ export function AgenticDashboard() {
           <h2>Workflow Markers</h2>
           <p className="markers-description">
             Flag significant events (new agent, workflow change, Mac Mini sessions) to explain
-            metric shifts. <span className="marker-auto-hint">Auto markers from the sync daemon will appear here too.</span>
+            metric shifts.
           </p>
 
           {markerError && <div className="marker-error" role="alert">{markerError}</div>}
