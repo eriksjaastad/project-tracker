@@ -1174,19 +1174,20 @@ def has_legacy_crsql_triggers(db_path: Path) -> bool:
 
     Such triggers call cr-sqlite functions, which no connection loads any more,
     so every write to the affected tables fails with "no such function:
-    crsql_internal_sync_bit". Reads are unaffected. A missing or unreadable
-    file reports False; the normal open path raises its own error for those.
+    crsql_internal_sync_bit". Reads are unaffected. A missing file reports
+    False; any other error (unreadable or corrupt file) propagates.
     """
+    from contextlib import closing
+
+    db_path = Path(db_path)
     if not db_path.exists():
         return False
-    try:
-        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
-            return conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='trigger' "
-                "AND name LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' LIMIT 1"
-            ).fetchone() is not None
-    except sqlite3.Error:  # governance: allow-silent SF002: False sends the caller down the normal open path, which raises the real error for an unusable file
-        return False
+    uri = db_path.resolve().as_uri() + "?mode=ro"
+    with closing(sqlite3.connect(uri, uri=True)) as conn:
+        return conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='trigger' "
+            "AND name LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' LIMIT 1"
+        ).fetchone() is not None
 
 
 def raise_if_legacy_crsql(err: sqlite3.OperationalError) -> None:

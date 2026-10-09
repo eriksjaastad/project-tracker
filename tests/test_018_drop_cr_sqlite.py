@@ -346,3 +346,81 @@ def test_opening_a_legacy_database_logs_the_fix(tmp_path: Path, caplog) -> None:
     with caplog.at_level(logging.WARNING):
         BackendManager(db_path)
     assert LEGACY_CRSQL_MESSAGE in [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_018_creates_metadata_when_only_the_site_id_exists() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE crsql_site_id (site_id BLOB NOT NULL, ordinal INTEGER PRIMARY KEY)")
+    conn.execute("INSERT INTO crsql_site_id VALUES (?, 0)", (bytes.fromhex("ff" * 16),))
+    _m018().up(conn)
+    assert conn.execute("SELECT key, value FROM _metadata").fetchall() == [("pt.machine_id", "710")]
+    cols = [(r[1], r[2], r[3], r[5]) for r in conn.execute("PRAGMA table_info(_metadata)")]
+    ref = sqlite3.connect(":memory:")
+    from db.schema import ensure_schema
+    ensure_schema(ref.cursor())
+    assert cols == [(r[1], r[2], r[3], r[5]) for r in ref.execute("PRAGMA table_info(_metadata)")]
+
+
+def test_has_legacy_crsql_triggers_handles_missing_files_odd_paths_and_errors(tmp_path: Path) -> None:
+    from db.schema import has_legacy_crsql_triggers
+
+    assert has_legacy_crsql_triggers(tmp_path / "absent.db") is False
+
+    odd_dir = tmp_path / "a#b?c%20d"
+    odd_dir.mkdir()
+    odd = _legacy_db(odd_dir)
+    assert has_legacy_crsql_triggers(odd) is True
+    clean = odd_dir / "clean.db"
+    create_database(clean)
+    assert has_legacy_crsql_triggers(clean) is False
+
+    garbage = tmp_path / "garbage.db"
+    garbage.write_bytes(b"this is not a sqlite database" * 100)
+    with pytest.raises(sqlite3.DatabaseError):
+        has_legacy_crsql_triggers(garbage)
+
+
+def test_tracker_conn_translates_executemany_and_executescript(tmp_path: Path) -> None:
+    conn = DatabaseManager(_legacy_db(tmp_path))._tracker_conn()
+    row = (1, "t", "Backlog", "n", "n")
+    try:
+        with pytest.raises(LegacyCrsqlError):
+            conn.executemany(
+                "INSERT INTO tasks (id, text, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                [row],
+            )
+        with pytest.raises(LegacyCrsqlError):
+            conn.executescript(
+                "INSERT INTO tasks (id, text, status, created_at, updated_at) "
+                "VALUES (2, 't', 'Backlog', 'n', 'n');"
+            )
+    finally:
+        conn.close()
+
+
+def test_calendar_manager_gives_the_clear_error_on_a_legacy_db(tmp_path: Path) -> None:
+    from db.backend_calendar_manager import CalendarManager
+
+    db_path = _legacy_db(tmp_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TRIGGER calendar_events__crsql_itrig AFTER INSERT ON calendar_events "
+        "BEGIN SELECT crsql_internal_sync_bit(); END"
+    )
+    conn.commit()
+    conn.close()
+    cm = CalendarManager(db_path)
+    with pytest.raises(LegacyCrsqlError, match="pt db migrate"):
+        cm.add_event(title="x", event_date="2030-01-01")
+
+
+@pytest.mark.parametrize("module", ["backfill_blocked_by", "restore_deleted_tasks"])
+def test_one_off_scripts_refuse_a_legacy_db(tmp_path: Path, module: str) -> None:
+    import importlib
+
+    mod = importlib.import_module(module)
+    with pytest.raises(RuntimeError, match="run `pt db migrate`, which backs up first"):
+        mod.connect(_legacy_db(tmp_path))
+    clean = tmp_path / "clean.db"
+    create_database(clean)
+    mod.connect(clean).close()

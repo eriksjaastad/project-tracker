@@ -9,15 +9,24 @@ from types import SimpleNamespace
 from functools import wraps
 
 class _TranslatingConnection(sqlite3.Connection):
-    """Connection whose execute() turns a missing-crsql-function error into LegacyCrsqlError."""
+    """Connection whose statement methods turn a missing-crsql-function error into LegacyCrsqlError."""
 
-    def execute(self, *args, **kwargs):
+    def _translated(self, method, args, kwargs):
         try:
-            return super().execute(*args, **kwargs)
+            return method(*args, **kwargs)
         except sqlite3.OperationalError as err:
             from .schema import raise_if_legacy_crsql
             raise_if_legacy_crsql(err)
             raise
+
+    def execute(self, *args, **kwargs):
+        return self._translated(super().execute, args, kwargs)
+
+    def executemany(self, *args, **kwargs):
+        return self._translated(super().executemany, args, kwargs)
+
+    def executescript(self, *args, **kwargs):
+        return self._translated(super().executescript, args, kwargs)
 
 
 class ProjectTrackerOps:

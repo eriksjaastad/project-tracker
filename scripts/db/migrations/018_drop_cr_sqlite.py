@@ -18,8 +18,10 @@ the one ``db.pt_id`` used: the first two bytes of SHA-256 over the local
 
 Objects are discovered from ``sqlite_master`` rather than listed, and every
 DROP uses IF EXISTS, so the migration is a no-op on a fresh database or on
-one that never had cr-sqlite. It works without the extension loaded: the
-triggers are plain SQL objects and can be dropped like any others.
+one that never had cr-sqlite. If the site id exists but ``_metadata`` does
+not, the table is created (same DDL as schema.py) so the id is not lost.
+It works without the extension loaded: the triggers are plain SQL objects
+and can be dropped like any others.
 
 Destructive: ``pt db migrate`` takes and verifies a full backup first.
 """
@@ -44,17 +46,29 @@ def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
     ).fetchone() is not None
 
 
+# Mirrors the _metadata DDL in schema.py ensure_schema (not importable from
+# there: it is inline in a large function). Used only when the table is missing.
+_METADATA_DDL = """
+    CREATE TABLE IF NOT EXISTS _metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+"""
+
+
 def _preserve_machine_id(conn: sqlite3.Connection) -> None:
-    if not _table_exists(conn, "crsql_site_id") or not _table_exists(conn, "_metadata"):
-        return
-    if conn.execute(
-        "SELECT 1 FROM _metadata WHERE key = ?", (_METADATA_KEY,)
-    ).fetchone() is not None:
+    if not _table_exists(conn, "crsql_site_id"):
         return
     row = conn.execute(
         "SELECT site_id FROM crsql_site_id WHERE ordinal = 0"
     ).fetchone()
     if row is None:
+        return
+    conn.execute(_METADATA_DDL)
+    if conn.execute(
+        "SELECT 1 FROM _metadata WHERE key = ?", (_METADATA_KEY,)
+    ).fetchone() is not None:
         return
     digest = hashlib.sha256(bytes(row[0])).digest()
     machine_id = ((digest[0] << 8) | digest[1]) & _MID_MAX
