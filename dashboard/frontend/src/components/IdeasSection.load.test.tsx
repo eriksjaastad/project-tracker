@@ -7,9 +7,10 @@ vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api')>()),
   fetchIdeas: vi.fn(),
   createIdea: vi.fn(),
+  deleteIdea: vi.fn(),
 }));
 
-import { createIdea, fetchIdeas } from '../api';
+import { createIdea, deleteIdea, fetchIdeas } from '../api';
 
 const IDEA = { id: '1', text: 'first idea', created_at: 'x', updated_at: 'x' };
 
@@ -47,6 +48,32 @@ describe('IdeasSection load', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(fetchIdeas).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('first idea')).toBeTruthy();
+  });
+
+  it('keeps a failed reload\'s error after a later reload succeeds, until a save or close clears it', async () => {
+    vi.mocked(fetchIdeas).mockResolvedValueOnce([IDEA]);
+    vi.mocked(createIdea).mockResolvedValue(undefined as never);
+    vi.mocked(deleteIdea).mockResolvedValue(undefined as never);
+    const { container } = render(<IdeasSection />);
+    await screen.findByText('first idea');
+
+    // A save whose reload fails sets the error.
+    fireEvent.click(screen.getByRole('button', { name: '+ Create Idea' }));
+    fireEvent.change(screen.getByPlaceholderText('Enter your idea...'), { target: { value: 'new' } });
+    vi.mocked(fetchIdeas).mockRejectedValueOnce(new Error('reload down'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(fetchIdeas).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+
+    // A delete whose reload succeeds does not clear it.
+    vi.mocked(fetchIdeas).mockResolvedValueOnce([IDEA]);
+    fireEvent.mouseEnter(container.querySelector('.idea-card')!);
+    fireEvent.click(container.querySelector('.idea-delete-btn')!);
+    fireEvent.click(container.querySelector('.idea-confirm-delete-btn')!);
+    await waitFor(() => expect(fetchIdeas).toHaveBeenCalledTimes(3));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: '+ Create Idea' }));
+    expect(screen.getByText('reload down')).toBeTruthy();
   });
 
   it('aborts the load on unmount', async () => {

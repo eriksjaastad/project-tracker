@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import type { Idea } from '../types';
 import { fetchIdeas, createIdea, updateIdea, deleteIdea } from '../api';
 import { useRequest } from '../hooks/useRequest';
@@ -6,26 +6,25 @@ import { IdeaCard } from './IdeaCard';
 import './IdeasSection.css';
 
 export function IdeasSection() {
-    const request = useRequest(fetchIdeas, []);
-    const { loading, error: loadError, reload: loadIdeas } = request;
+    const [error, setError] = useState<string | null>(null);
+    // A failed load writes the shared error slot, which stays until a
+    // successful save, a close or an edit clears it, as a failed save does.
+    const request = useRequest(async (signal) => {
+        try {
+            return await fetchIdeas(signal);
+        } catch (err) {
+            if (!signal.aborted) {
+                console.error('Failed to load ideas:', err);
+                setError(err instanceof Error ? err.message : 'Failed to load ideas');
+            }
+            throw err;
+        }
+    }, []);
+    const { loading, reload: loadIdeas } = request;
     const ideas: Idea[] = request.data ?? [];
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [editingIdea, setEditingIdea] = useState<Idea | null>(null);
     const [ideaText, setIdeaText] = useState('');
-    const [saveError, setSaveError] = useState<string | null>(null);
-    const [clearedLoadError, setClearedLoadError] = useState<Error | null>(null);
-
-    // A failed load shows in the same slot as a failed save, until the next
-    // successful save or a close clears it.
-    const error = saveError ?? (loadError && loadError !== clearedLoadError ? loadError.message || 'Failed to load ideas' : null);
-    const setError = (message: string | null) => {
-        setSaveError(message);
-        if (message === null) setClearedLoadError(loadError);
-    };
-
-    useEffect(() => {
-        if (loadError) console.error('Failed to load ideas:', loadError);
-    }, [loadError]);
 
     const handleCreate = async () => {
         if (!ideaText.trim()) {

@@ -39,4 +39,17 @@ describe('ProjectsProvider', () => {
     unmount();
     expect(signal?.aborted).toBe(true);
   });
+
+  it('refetches when a consumer mounts later, so a failed load recovers', async () => {
+    vi.mocked(fetchProjects).mockRejectedValueOnce(new Error('down'));
+    const { rerender } = render(<ProjectsProvider><Probe label="one" /></ProjectsProvider>);
+    expect(await screen.findByText('one:none:down')).toBeTruthy();
+    expect(fetchProjects).toHaveBeenCalledTimes(1);
+
+    vi.mocked(fetchProjects).mockResolvedValueOnce([{ id: 'a' }] as never);
+    rerender(<ProjectsProvider><Probe label="one" /><Probe label="two" /></ProjectsProvider>);
+    expect(await screen.findByText('two:a:')).toBeTruthy();
+    expect(screen.getByText('one:a:')).toBeTruthy();
+    expect(fetchProjects).toHaveBeenCalledTimes(2);
+  });
 });

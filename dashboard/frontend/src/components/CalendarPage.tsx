@@ -90,7 +90,7 @@ export function CalendarPage() {
     },
     [],
   );
-  const { projects: loadedProjects, error: projectsError } = useProjects();
+  const { projects: loadedProjects, error: projectsError, reload: reloadProjects } = useProjects();
   const events: CalendarEvent[] = calendar.data?.events ?? [];
   const crons: CalendarCronJob[] = calendar.data?.crons ?? [];
   const projects = useMemo(
@@ -104,7 +104,11 @@ export function CalendarPage() {
   const error = loading
     ? null
     : (calendar.error ?? (loadedProjects === null ? projectsError : null))?.message ?? null;
-  const load = calendar.reload;
+  // After Mark Done or Add Event, everything is fetched again, as before.
+  const load = () => {
+    calendar.reload();
+    reloadProjects();
+  };
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);

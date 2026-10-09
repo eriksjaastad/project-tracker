@@ -24,7 +24,7 @@ export function ProjectFilterModal({
   const [searchTerm, setSearchTerm] = useState('');
   // The first load shows "Loading projects..."; a later reload keeps the list.
   const loading = loaded === null && loadError === null;
-  const error = loadError ? loadError.message || 'Failed to load projects' : null;
+  const error = loadError ? loadError.message : null;
 
   useEffect(() => {
     if (!isOpen) {

@@ -15,24 +15,24 @@ import './App.css';
 function App() {
   return (
     <ProjectsProvider>
-    <BrowserRouter>
-      <div className="app">
-        <Navigation />
-        <Routes>
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/kanban" element={<KanbanBoard />} />
-          <Route path="/kanban/:project" element={<KanbanBoard />} />
-          <Route path="/agentic" element={<AgenticDashboard />} />
-          <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/agent-chat" element={<AgentChatPage />} />
-          <Route path="/jobs" element={<JobsPage />} />
-          <Route path="/jobs/submitted" element={<JobsSubmittedPage />} />
-          <Route path="/codebase" element={<CodebasePage />} />
-          <Route path="/morning" element={<MorningPage />} />
-          <Route path="*" element={<Navigate to="/kanban" replace />} />
-        </Routes>
-      </div>
-    </BrowserRouter>
+      <BrowserRouter>
+        <div className="app">
+          <Navigation />
+          <Routes>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/kanban" element={<KanbanBoard />} />
+            <Route path="/kanban/:project" element={<KanbanBoard />} />
+            <Route path="/agentic" element={<AgenticDashboard />} />
+            <Route path="/calendar" element={<CalendarPage />} />
+            <Route path="/agent-chat" element={<AgentChatPage />} />
+            <Route path="/jobs" element={<JobsPage />} />
+            <Route path="/jobs/submitted" element={<JobsSubmittedPage />} />
+            <Route path="/codebase" element={<CodebasePage />} />
+            <Route path="/morning" element={<MorningPage />} />
+            <Route path="*" element={<Navigate to="/kanban" replace />} />
+          </Routes>
+        </div>
+      </BrowserRouter>
     </ProjectsProvider>
   );
 }
