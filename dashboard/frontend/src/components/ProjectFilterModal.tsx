@@ -20,11 +20,13 @@ export function ProjectFilterModal({
   currentProject,
 }: ProjectFilterModalProps) {
   const navigate = useNavigate();
-  const { projects: loaded, error: loadError, reload } = useProjects();
+  const { projects: loaded, error: loadError, loading: reloading, reload } = useProjects();
   const [searchTerm, setSearchTerm] = useState('');
-  // The first load shows "Loading projects..."; a later reload keeps the list.
-  const loading = loaded === null && loadError === null;
-  const error = loadError ? loadError.message : null;
+  // Each open (a fresh mount in KanbanBoard) refetches. With no list yet it
+  // shows "Loading projects..." until that settles; a last good list stays
+  // visible meanwhile. A previous failure is not shown while the retry runs.
+  const loading = loaded === null && (reloading || loadError === null);
+  const error = loadError && !reloading ? loadError.message : null;
 
   useEffect(() => {
     if (!isOpen) {

@@ -111,16 +111,23 @@ describe('ProjectFilterModal on the shared project list', () => {
     expect(screen.getByText('alpha')).toBeTruthy();
   });
 
-  it('shows the error text, not the loading text, when the first load fails and a reopen refetches', async () => {
-    vi.mocked(fetchProjects).mockRejectedValue(new Error('projects down'));
+  it('after a failed load, a reopen shows the loading text, not the stale error, until its retry settles', async () => {
+    vi.mocked(fetchProjects).mockRejectedValueOnce(new Error('projects down'));
     const { rerender } = renderModal(true);
     expect(await screen.findByText('projects down')).toBeTruthy();
     expect(screen.queryByText('Loading projects...')).toBeNull();
 
-    await act(async () => { rerender(modal(false)); });
+    // KanbanBoard unmounts the modal on close and mounts it again on open.
+    await act(async () => { rerender(<ProjectsProvider><MemoryRouter>{null}</MemoryRouter></ProjectsProvider>); });
+    let fail: (e: Error) => void = () => {};
+    vi.mocked(fetchProjects).mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; }));
     await act(async () => { rerender(modal(true)); });
     expect(fetchProjects).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('projects down')).toBeTruthy();
+    expect(screen.getByText('Loading projects...')).toBeTruthy();
+    expect(screen.queryByText('projects down')).toBeNull();
+
+    await act(async () => { fail(new Error('still down')); });
+    expect(screen.getByText('still down')).toBeTruthy();
     expect(screen.queryByText('Loading projects...')).toBeNull();
   });
 });
