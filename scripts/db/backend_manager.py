@@ -20,7 +20,6 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 from .schema import (
     create_database,
     get_db_path,
-    LEGACY_CRSQL_MESSAGE,
     has_legacy_crsql_triggers,
 )
 from .pt_id import next_id as pt_next_id
@@ -84,10 +83,9 @@ class DatabaseManager:
                     # CRR table would desync its triggers) and do not mark the
                     # path ensured: reads and `pt db migrate` keep working, and
                     # the next manager re-checks, so ensuring resumes once 018
-                    # has run. Writes fail until then; the log names the fix.
-                    if has_legacy_crsql_triggers(self.db_path):
-                        logger.warning(LEGACY_CRSQL_MESSAGE)
-                    else:
+                    # has run. Writes fail until then; pt's pending-migrations
+                    # notice names the fix.
+                    if not has_legacy_crsql_triggers(self.db_path):
                         create_database(self.db_path)
                         _local_schema_ensured_paths.add(db_key)
 

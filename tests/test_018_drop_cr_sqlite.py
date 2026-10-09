@@ -19,7 +19,7 @@ from db.backend_manager import DatabaseManager as BackendManager  # noqa: E402
 from db.manager import DatabaseManager  # noqa: E402
 from db.migration_runner import apply_all, apply_migration, discover_migrations  # noqa: E402
 from db.pt_id import load_machine_id, reset_for_testing  # noqa: E402
-from db.schema import LEGACY_CRSQL_MESSAGE, create_database  # noqa: E402
+from db.schema import create_database  # noqa: E402
 
 MIGRATIONS_DIR = Path(__file__).parent.parent / "scripts" / "db" / "migrations"
 DYLIB = Path.home() / ".local/lib/crsqlite/crsqlite.dylib"
@@ -235,8 +235,8 @@ def _legacy_db(tmp_path: Path) -> Path:
 
 
 def test_legacy_database_reads_work_and_writes_fail_until_migrated(tmp_path: Path) -> None:
-    """Until `pt db migrate` runs, writes fail with SQLite's own error; the
-    pending-migration notice and the startup log line name the fix."""
+    """Until `pt db migrate` runs, writes fail with SQLite's own error; pt's
+    pending-migrations notice names the fix (see the test below)."""
     db_path = _legacy_db(tmp_path)
     db = BackendManager(db_path)
 
@@ -324,15 +324,6 @@ def test_migrate_drops_legacy_triggers_first_so_old_row_writing_migrations_run(t
 
 
 
-
-def test_opening_a_legacy_database_logs_the_fix(tmp_path: Path, caplog) -> None:
-    """Some callers stringify write errors, so the remedy is logged up front too."""
-    import logging
-
-    db_path = _legacy_db(tmp_path)
-    with caplog.at_level(logging.WARNING):
-        BackendManager(db_path)
-    assert LEGACY_CRSQL_MESSAGE in [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
 
 
 def test_018_creates_metadata_when_only_the_site_id_exists() -> None:
@@ -525,3 +516,25 @@ def test_the_cleanup_reports_the_real_error_when_sqlite_already_rolled_back(tmp_
     monkeypatch.setattr(migration_runner, "discover_migrations", discover)
     with pytest.raises(sqlite3.OperationalError, match="disk is full"):
         DatabaseManager(db_path).migrations_apply()
+
+
+def test_pt_names_the_pending_018_for_a_restored_pre_018_backup(tmp_path: Path, monkeypatch, capsys) -> None:
+    """The whole promise for an unmigrated pre-018 DB: every pt command prints
+    the pending-migrations notice naming 018 and `pt db migrate`."""
+    import pt as pt_cli
+
+    db_path = tmp_path / "restored.db"
+    create_database(db_path)
+    conn = sqlite3.connect(db_path, isolation_level=None)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
+    )
+    _apply_below_018(conn)
+    conn.execute(FAKE_TRIGGER)
+    conn.close()
+
+    monkeypatch.setenv("PT_DB_PATH", str(db_path))
+    monkeypatch.delenv("PT_SUPPRESS_MIGRATION_WARNING", raising=False)
+    pt_cli._warn_unapplied_migrations()
+    err = capsys.readouterr().err
+    assert "018_drop_cr_sqlite" in err and "pt db migrate" in err

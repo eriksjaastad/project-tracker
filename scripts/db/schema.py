@@ -1159,12 +1159,6 @@ def ensure_schema(cursor: Any) -> None:
     cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (?, ?)", (CURRENT_SCHEMA_VERSION, datetime.now().isoformat()))
 
 
-LEGACY_CRSQL_MESSAGE = (
-    "tracker.db still has cr-sqlite triggers, so writes fail until you run "
-    "`pt db migrate` (it backs up first)"
-)
-
-
 def has_legacy_crsql_triggers(db_path: Path) -> bool:
     """True if the database still carries `__crsql_` triggers (pre-migration 018).
 
