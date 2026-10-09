@@ -1,0 +1,221 @@
+"""#8093 PR 8b: duplicate `pt` front ends merged into one implementation each.
+
+Each pair of spellings must run the same code and agree on output; hidden
+aliases stay out of --help; `pt hygiene worktrees` keeps the old `pt worktrees`
+safety (never remove a dirty worktree or an unmerged branch).
+"""
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+from click.testing import CliRunner
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+
+import pt  # noqa: E402
+from db.manager import DatabaseManager  # noqa: E402
+from db.schema import create_database  # noqa: E402
+
+
+@pytest.fixture
+def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManager:
+    db_path = tmp_path / "test.db"
+    create_database(db_path)
+    monkeypatch.setenv("PT_DB_PATH", str(db_path))
+    monkeypatch.setenv("PT_CALLER_CWD", str(tmp_path))
+    monkeypatch.setenv("PT_NO_BANNER", "1")
+    manager = DatabaseManager(db_path)
+    manager.add_project(project_id="proj-id", name="Proj Name", path="/tmp/proj", status="active")
+    manager.add_task(text="open one", project_id="proj-id", status="To Do")
+    manager.add_task(text="working", project_id="proj-id", status="In Progress")
+    manager.add_task(text="finished", project_id="proj-id", status="Done")
+    return manager
+
+
+def _run(args):
+    return CliRunner().invoke(pt.cli, args)
+
+
+# --- pt tasks == pt tasks list ------------------------------------------------
+
+TASK_ARGS = [
+    [],
+    ["-p", "proj-id"],
+    ["-p", "proj-id", "--json"],
+    ["-p", "proj-id", "--all"],
+    ["-p", "proj-id", "-s", "Done", "--json"],
+    ["-p", "proj-id", "--needs-prompt", "--json"],
+    ["-p", "proj-id", "--ready"],
+    ["-p", "proj-id", "--proposals", "--json"],
+    ["-p", "proj-id", "--archived"],
+    ["-p", "proj-id", "--board"],
+    ["-p", "missing"],
+]
+
+
+@pytest.mark.parametrize("args", TASK_ARGS)
+def test_bare_tasks_and_tasks_list_agree(db, args) -> None:
+    bare = _run(["tasks", *args])
+    listed = _run(["tasks", "list", *args])
+    assert bare.exit_code == listed.exit_code == 0, (bare.output, listed.output)
+    assert bare.output == listed.output
+    assert bare.output.strip()
+
+
+def test_tasks_json_shape_matches_and_parses(db) -> None:
+    bare = json.loads(_run(["tasks", "-p", "proj-id", "--json"]).output)
+    listed = json.loads(_run(["tasks", "list", "-p", "proj-id", "--json"]).output)
+    assert bare == listed
+    texts = {t["text"] for t in (bare["tasks"] if isinstance(bare, dict) else bare)}
+    assert texts == {"open one", "working"}
+
+
+def test_both_tasks_spellings_run_one_implementation(db, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(pt, "_tasks_list_impl", lambda *a: calls.append(a))
+    _run(["tasks", "-p", "proj-id", "--board", "--all"])
+    _run(["tasks", "list", "-p", "proj-id", "--board", "--all"])
+    assert len(calls) == 2 and calls[0] == calls[1]
+    assert calls[0][0] == "proj-id" and calls[0][2] is True and calls[0][3] is True
+
+
+def test_tasks_and_list_share_the_same_options() -> None:
+    def names(cmd):
+        return [(p.name, tuple(p.opts), p.default, p.help) for p in cmd.params]
+
+    listed = pt.tasks_group.commands["list"]
+    assert names(pt.tasks_group) == names(listed)
+
+
+# --- pt scan / pt refresh -----------------------------------------------------
+
+def test_scan_and_refresh_are_one_command(monkeypatch) -> None:
+    seen = []
+    monkeypatch.setattr(pt, "_scan_impl", lambda **kw: seen.append(kw))
+    flags = ["--no-graph", "--dry-run", "--force"]
+    assert _run(["scan", *flags]).exit_code == 0
+    assert _run(["refresh", *flags]).exit_code == 0
+    assert _run(["scan"]).exit_code == 0
+    assert _run(["refresh"]).exit_code == 0
+    assert seen[0] == seen[1] == {"no_graph": True, "dry_run": True, "force": True}
+    assert seen[2] == seen[3] == {"no_graph": False, "dry_run": False, "force": False}
+    assert pt.cli.commands["refresh"].callback is pt.cli.commands["scan"].callback
+
+
+def test_refresh_is_hidden_scan_is_not() -> None:
+    out = _run(["--help"]).output
+    assert "scan " in out
+    assert "refresh" not in out
+
+
+# --- pt help ------------------------------------------------------------------
+
+def test_help_is_clicks_own_help_and_hidden() -> None:
+    top = _run(["--help"])
+    assert _run(["help"]).output == top.output
+    assert not any(line.strip().startswith("help ") for line in top.output.splitlines())
+    assert _run(["help", "tasks"]).output == _run(["tasks", "--help"]).output
+    assert _run(["help", "tasks", "list"]).output == _run(["tasks", "list", "--help"]).output
+
+
+def test_help_unknown_command_is_a_usage_error() -> None:
+    result = _run(["help", "nope"])
+    assert result.exit_code == 2
+    assert "No such command 'nope'" in result.output
+
+
+# --- pt hygiene worktrees -----------------------------------------------------
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=str(repo), check=True, capture_output=True)
+
+
+@pytest.fixture
+def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-b", "main")
+    _git(root, "config", "user.email", "t@example.com")
+    _git(root, "config", "user.name", "T")
+    (root / "f.txt").write_text("x\n")
+    _git(root, "add", "f.txt")
+    _git(root, "commit", "-m", "init")
+    wt = root / ".claude" / "worktrees"
+    wt.mkdir(parents=True)
+    _git(root, "worktree", "add", "-b", "merged-clean", str(wt / "merged-clean"))
+    _git(root, "worktree", "add", "-b", "merged-dirty", str(wt / "merged-dirty"))
+    (wt / "merged-dirty" / "scratch.txt").write_text("uncommitted\n")
+    _git(root, "worktree", "add", "-b", "unmerged", str(wt / "unmerged"))
+    (wt / "unmerged" / "g.txt").write_text("y\n")
+    _git(wt / "unmerged", "add", "g.txt")
+    _git(wt / "unmerged", "-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-m", "ahead")
+    _git(root, "worktree", "add", "--detach", str(wt / "detached"))
+    monkeypatch.setenv("PT_CALLER_CWD", str(root))
+    monkeypatch.setenv("PT_NO_BANNER", "1")
+    monkeypatch.setenv("PT_SUPPRESS_MIGRATION_WARNING", "1")
+    return root
+
+
+def _branches(repo: Path) -> set:
+    out = subprocess.run(["git", "branch", "--format=%(refname:short)"], cwd=str(repo),
+                         capture_output=True, text=True, check=True).stdout
+    return set(out.split())
+
+
+def test_worktrees_list(repo) -> None:
+    result = _run(["hygiene", "worktrees", "list"])
+    assert result.exit_code == 0, result.output
+    out = result.output
+    assert "Worktrees (4)" in out
+    assert "merged-clean  merged-clean  merged" in out
+    assert "unmerged  unmerged  active" in out
+    assert "detached  detached  active" in out
+    assert _run(["hygiene", "worktrees"]).output == out
+
+
+def test_worktrees_clean_refuses_dirty_and_unmerged(repo) -> None:
+    wt = repo / ".claude" / "worktrees"
+    result = _run(["hygiene", "worktrees", "clean"])
+    assert result.exit_code == 0, result.output
+    assert "removed merged-clean (merged)" in result.output
+    assert "removed detached (orphaned)" in result.output
+    assert "failed to remove merged-dirty" in result.output
+    assert "keeping unmerged (branch: unmerged, not merged)" in result.output
+    assert not (wt / "merged-clean").exists() and not (wt / "detached").exists()
+    assert (wt / "merged-dirty" / "scratch.txt").exists()
+    assert (wt / "unmerged" / "g.txt").exists()
+    assert "unmerged" in _branches(repo)
+
+
+def test_worktrees_clean_dry_run_removes_nothing(repo) -> None:
+    wt = repo / ".claude" / "worktrees"
+    result = _run(["hygiene", "worktrees", "clean", "--dry-run"])
+    assert "would remove merged-clean (merged" in result.output
+    assert all((wt / n).exists() for n in ("merged-clean", "merged-dirty", "unmerged", "detached"))
+
+
+def test_worktrees_clean_force_takes_dirty_but_never_unmerged(repo) -> None:
+    wt = repo / ".claude" / "worktrees"
+    result = _run(["hygiene", "worktrees", "clean", "--force"])
+    assert "removed merged-dirty (merged)" in result.output
+    assert not (wt / "merged-dirty").exists()
+    assert (wt / "unmerged").exists()
+    assert "unmerged" in _branches(repo)
+
+
+def test_old_worktrees_spelling_is_gone() -> None:
+    result = _run(["worktrees", "list"])
+    assert result.exit_code == 2
+    assert "No such command" in result.output
+
+
+def test_hygiene_group_still_scans_bare(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PROJECTS_ROOT", str(tmp_path))
+    monkeypatch.setenv("PT_NO_BANNER", "1")
+    result = _run(["hygiene", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["command"] == "hygiene"
+    assert "worktrees" in _run(["hygiene", "--help"]).output

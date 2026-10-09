@@ -28,7 +28,7 @@ pt memory recent --since 7d --json  # Read-only cron/SSH memory query
 project-tracker/
 ├── pt                      # CLI entry point
 ├── scripts/
-│   ├── pt.py               # Click CLI (tasks, info, memory, calendar, worktrees)
+│   ├── pt.py               # Click CLI (tasks, info, memory, calendar, hygiene)
 │   ├── db/
 │   │   ├── schema.py       # Database schema (v7)
 │   │   └── manager.py      # DatabaseManager operations

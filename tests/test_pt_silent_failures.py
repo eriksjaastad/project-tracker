@@ -26,7 +26,7 @@ import pt  # noqa: E402
     ],
 )
 def test_worktree_branch_failure_raises_instead_of_orphaned(monkeypatch, tmp_path, error):
-    """`pt worktrees clean` removes worktrees whose branch is None, so a
+    """`pt hygiene worktrees clean` removes worktrees whose branch is None, so a
     failed git lookup must not return None."""
 
     def failing_run(*_args, **_kwargs):

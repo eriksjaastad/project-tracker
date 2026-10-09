@@ -103,9 +103,6 @@ pt list
 # Show project details
 pt status "project-name"
 
-# Refresh all data
-pt refresh
-
 # Sync one project only (faster than a full scan)
 pt sync-project "project-name"
 ```

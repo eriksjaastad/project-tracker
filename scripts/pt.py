@@ -14,9 +14,10 @@ Common Commands:
 - pt scan      # Scan for new projects and rebuild graph
 - pt launch    # Start the web dashboard
 - pt list      # List all projects in terminal
-- pt help      # Show help
+- pt --help    # Show help
 """
 
+import copy
 import os
 import shutil
 import sqlite3
@@ -592,6 +593,14 @@ def _detect_project_from_cwd(db):
 # Top-level commands
 # =============================================================================
 
+def _hidden_alias(command: click.Command, name: str) -> click.Command:
+    """The same command (same callback and options) under a second, hidden name."""
+    alias = copy.copy(command)
+    alias.name = name
+    alias.hidden = True
+    return alias
+
+
 @cli.command()
 def init():
     """Initialize the project tracker database."""
@@ -600,18 +609,18 @@ def init():
     console.print(f"✅ Database created at: {db_path}")
 
 
-def scan(no_graph, dry_run, force):
-    """Scan projects directory and update database."""
-    _scan_impl(no_graph=no_graph, dry_run=dry_run, force=force)
-
-
 @cli.command(name="scan")
 @click.option("--no-graph", is_flag=True, help="Skip rebuilding the project graph")
 @click.option("--dry-run", is_flag=True, help="Show what would change without writing")
 @click.option("--force", is_flag=True, help="Proceed even if scan results look unsafe")
 def scan_cli(no_graph, dry_run, force):
     """Scan projects directory and update database."""
-    scan(no_graph=no_graph, dry_run=dry_run, force=force)
+    _scan_impl(no_graph=no_graph, dry_run=dry_run, force=force)
+
+
+# `pt refresh` is the old spelling of `pt scan`: the same command object under a
+# second, hidden name, so the two cannot drift apart.
+cli.add_command(_hidden_alias(scan_cli, "refresh"))
 
 
 @cli.command(name="list")
@@ -666,14 +675,6 @@ def status(name):
             cost = f" (${service['cost_monthly']}/mo)" if service.get('cost_monthly') else ""
             console.print(f"  • {service['service_name']}{cost}")
     console.print()
-
-
-@cli.command()
-@click.option("--no-graph", is_flag=True, help="Skip rebuilding the project graph")
-def refresh(no_graph):
-    """Refresh all project metadata."""
-    console.print("[bold blue]Refreshing project data...[/bold blue]")
-    _scan_impl(no_graph=no_graph)
 
 
 @cli.command(name="sync-project")
@@ -733,18 +734,23 @@ def sync_project(project_name, no_graph):
     console.print(f"\n[bold green]✅ Synced: {project['name']}[/bold green]")
 
 
-@cli.command()
+@cli.group(invoke_without_command=True)
 @click.option("--json", "json_output", is_flag=True, help="Output stable machine-readable JSON (schema: pt.hygiene.v1)")
 @click.option("--project", "project_name", default=None, help="Inspect only one repo by name")
 @click.option("--quiet", is_flag=True, help="Only show repos with at least one finding")
-def hygiene(json_output: bool, project_name: Optional[str], quiet: bool) -> None:
+@click.pass_context
+def hygiene(ctx, json_output: bool, project_name: Optional[str], quiet: bool) -> None:
     """Check portfolio-wide git hygiene state.
 
     Detects: dirty working tree, local-only branches, branches ahead of remote,
     stashes, open bot PRs older than 24h, and stale PROGRESS.md files.
 
     Exit 0 = all repos clean; exit 6 = at least one finding.
+
+    `pt hygiene worktrees` lists and cleans this repo's .claude/worktrees/.
     """
+    if ctx.invoked_subcommand is not None:
+        return
     from datetime import timezone
 
     # Read at runtime so test harnesses can override via env var
@@ -875,16 +881,223 @@ def _hygiene_scan_repo(repo_dir: Path, json_mode: bool) -> dict:
     }
 
 
-def _run_git(repo_dir: Path, args: list[str], timeout: int = 10) -> tuple[str, int]:
-    """Run a git command in repo_dir. Returns (stdout, returncode)."""
-    result = subprocess.run(
+def _git(repo_dir: Path, args: list[str], timeout: int = 10) -> subprocess.CompletedProcess:
+    """Run a git command in repo_dir. The one subprocess wrapper hygiene and worktrees share."""
+    return subprocess.run(
         ["git"] + args,
         cwd=str(repo_dir),
         capture_output=True,
         text=True,
         timeout=timeout,
     )
+
+
+def _run_git(repo_dir: Path, args: list[str], timeout: int = 10) -> tuple[str, int]:
+    """Run a git command in repo_dir. Returns (stdout, returncode)."""
+    result = _git(repo_dir, args, timeout)
     return result.stdout, result.returncode
+
+
+# -----------------------------------------------------------------------------
+# `pt hygiene worktrees` - the .claude/worktrees/ sub-agents leave behind
+# -----------------------------------------------------------------------------
+
+@hygiene.group(name="worktrees", invoke_without_command=True)
+@click.pass_context
+def hygiene_worktrees(ctx):
+    """Manage .claude/worktrees/ created by sub-agents (bare = list)."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(hygiene_worktrees_list)
+
+
+@hygiene_worktrees.command(name="list")
+def hygiene_worktrees_list():
+    """List all worktrees in .claude/worktrees/."""
+    repo_root = _find_repo_root()
+    if repo_root is None:
+        console.print("[red]Not inside a git repository[/red]")
+        return
+    wt_dir = repo_root / ".claude" / "worktrees"
+    if not wt_dir.exists():
+        console.print("[dim]No .claude/worktrees/ directory found[/dim]")
+        return
+    entries = sorted(p for p in wt_dir.iterdir() if p.is_dir())
+    if not entries:
+        console.print("[dim]No worktrees found[/dim]")
+        return
+    # Get merged branches
+    merged = _get_merged_branches(repo_root)
+    console.print(f"\n[bold]Worktrees ({len(entries)})[/bold]\n")
+    for entry in entries:
+        branch = _worktree_branch(repo_root, entry)
+        status = "[green]merged[/green]" if branch and branch in merged else "[yellow]active[/yellow]"
+        branch_label = branch or "[dim]detached[/dim]"
+        console.print(f"  {entry.name}  {branch_label}  {status}")
+    console.print()
+
+
+@hygiene_worktrees.command(name="clean")
+@click.option("--dry-run", is_flag=True, help="Show what would be removed without removing")
+@click.option("--force", is_flag=True, help="Also remove worktrees with uncommitted changes")
+def hygiene_worktrees_clean(dry_run, force):
+    """Remove worktrees whose branches are merged to main or orphaned.
+
+    A worktree with uncommitted changes is kept (git refuses) unless --force;
+    a worktree whose branch is not merged to main is always kept.
+    """
+    repo_root = _find_repo_root()
+    if repo_root is None:
+        console.print("[red]Not inside a git repository[/red]")
+        return
+    wt_dir = repo_root / ".claude" / "worktrees"
+    if not wt_dir.exists():
+        console.print("[dim]No .claude/worktrees/ directory found[/dim]")
+        return
+    entries = sorted(p for p in wt_dir.iterdir() if p.is_dir())
+    if not entries:
+        console.print("[dim]No worktrees to clean[/dim]")
+        return
+
+    merged = _get_merged_branches(repo_root)
+    removed = []
+    kept = []
+
+    for entry in entries:
+        branch = _worktree_branch(repo_root, entry)
+        is_merged = branch and branch in merged
+        is_orphaned = branch is None  # no branch ref found
+
+        if is_merged or is_orphaned:
+            reason = "merged" if is_merged else "orphaned"
+            if dry_run:
+                console.print(f"  [yellow]would remove[/yellow] {entry.name} ({reason}, branch: {branch or 'none'})")
+                removed.append(entry.name)
+            else:
+                ok = _remove_worktree(repo_root, entry, force=force)
+                if ok:
+                    console.print(f"  [green]removed[/green] {entry.name} ({reason})")
+                    removed.append(entry.name)
+                    # Clean up the branch if it was a worktree-specific branch
+                    if branch and branch.startswith("worktree-"):
+                        _delete_local_branch(repo_root, branch)
+                else:
+                    console.print(f"  [red]failed to remove[/red] {entry.name} (use --force?)")
+                    kept.append(entry.name)
+        else:
+            console.print(f"  [cyan]keeping[/cyan] {entry.name} (branch: {branch}, not merged)")
+            kept.append(entry.name)
+
+    prefix = "[bold yellow]Dry run:[/bold yellow] " if dry_run else ""
+    console.print(f"\n{prefix}Removed {len(removed)}, kept {len(kept)}")
+
+
+def _find_repo_root() -> Optional[Path]:
+    """The git repo root of the directory the operator ran `pt` from.
+
+    This used to try project-tracker's own root FIRST — `Path(__file__).parent
+    .parent` — which always exists, so it returned project-tracker
+    unconditionally no matter where `pt` was invoked. Its callers are
+    `pt hygiene worktrees list` and `... clean`, and clean REMOVES worktrees,
+    so running it from another repo operated on project-tracker's worktrees
+    instead. Same wrong-target family as #6851 (#6883).
+
+    `Path.cwd()` is no help either: the launcher does `cd "$launcher_dir"`
+    before exec'ing, so cwd inside pt.py is always project-tracker. The
+    caller's real directory arrives as PT_CALLER_CWD.
+    """
+    root = _caller_repo_root()
+    if (root / ".git").exists():
+        return root
+    # _caller_repo_root falls back to the caller cwd when it is not a repo;
+    # walk up from there before giving up.
+    cur = root
+    while cur != cur.parent:
+        if (cur / ".git").exists():
+            return cur
+        cur = cur.parent
+    return None
+
+
+def _get_merged_branches(repo_root: Path) -> set:
+    """Return set of branch names that are merged into main."""
+    try:
+        result = _git(repo_root, ["branch", "--merged", "main"])
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                result.returncode, result.args, result.stdout, result.stderr
+            )
+        branches = set()
+        for line in result.stdout.splitlines():
+            name = line.strip().lstrip("* ").lstrip("+ ")
+            if name and name != "main":
+                branches.add(name)
+        return branches
+    except subprocess.CalledProcessError as e:  # governance: allow-silent SF002: CLI prints the warning; an empty set makes every worktree read as unmerged, so `pt hygiene worktrees clean` keeps them (fails safe)
+        console.print(f"[yellow]Warning: Failed to check merged branches: {e.stderr.strip()}[/yellow]")
+        return set()
+    except subprocess.TimeoutExpired:  # governance: allow-silent SF002: CLI prints the warning; an empty set makes every worktree read as unmerged, so `pt hygiene worktrees clean` keeps them (fails safe)
+        console.print("[yellow]Warning: Timed out checking merged branches[/yellow]")
+        return set()
+
+
+def _worktree_branch(repo_root: Path, wt_path: Path) -> Optional[str]:
+    """Get the branch name for a worktree, or None if detached/missing.
+
+    A git failure raises ClickException: `pt hygiene worktrees clean` treats
+    None as "orphaned" and removes the worktree, so a failed lookup must never
+    read as None.
+    """
+    try:
+        result = _git(repo_root, ["worktree", "list", "--porcelain"])
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                result.returncode, result.args, result.stdout, result.stderr
+            )
+        # Parse porcelain output: blocks separated by blank lines
+        current_path = None
+        for line in result.stdout.splitlines():
+            if line.startswith("worktree "):
+                current_path = line[len("worktree "):]
+            elif line.startswith("branch ") and current_path:
+                if Path(current_path).resolve() == wt_path.resolve():
+                    # branch refs/heads/foo -> foo
+                    ref = line[len("branch "):]
+                    return ref.replace("refs/heads/", "")
+        return None
+    except subprocess.CalledProcessError as e:
+        raise click.ClickException(
+            f"Failed to determine branch for {wt_path.name}: {e.stderr.strip()}"
+        ) from e
+    except subprocess.TimeoutExpired as e:
+        raise click.ClickException(
+            f"Timed out determining branch for {wt_path.name}"
+        ) from e
+
+
+def _remove_worktree(repo_root: Path, wt_path: Path, force: bool = False) -> bool:
+    """Remove a worktree using git worktree remove (git itself refuses a dirty one without force)."""
+    cmd = ["worktree", "remove", str(wt_path)]
+    if force:
+        cmd.append("--force")
+    try:
+        result = _git(repo_root, cmd, timeout=30)
+        if result.returncode != 0:
+            console.print(f"[yellow]Warning: git worktree remove failed for {wt_path.name}: {result.stderr.strip()}[/yellow]")
+            return False
+        return True
+    except subprocess.TimeoutExpired:  # governance: allow-silent SF002: False is the "not removed" result; hygiene_worktrees_clean prints "failed to remove" and keeps the entry
+        console.print(f"[yellow]Warning: Timed out removing worktree {wt_path.name}[/yellow]")
+        return False
+
+
+def _delete_local_branch(repo_root: Path, branch: str) -> None:
+    """Delete a local branch (merged only, safe -d flag)."""
+    try:
+        result = _git(repo_root, ["branch", "-d", branch])
+        if result.returncode != 0:
+            console.print(f"[yellow]Warning: Failed to delete branch {branch}: {result.stderr.strip()}[/yellow]")
+    except subprocess.TimeoutExpired:
+        console.print(f"[yellow]Warning: Timed out deleting branch {branch}[/yellow]")
 
 
 def _hygiene_non_progress_dirty_files(repo_dir: Path) -> list[str]:
@@ -1378,11 +1591,18 @@ def retire_project(project, execute, keep_files, yes):
         console.print(f"[yellow]Remember: {len(refs)} stale reference(s) in {len({r[0] for r in refs})} file(s) still need manual review.[/yellow]")
 
 
-@cli.command()
+@cli.command(name="help", hidden=True)
+@click.argument("command", nargs=-1)
 @click.pass_context
-def help(ctx):
-    """Show this help message."""
-    click.echo(ctx.parent.get_help())
+def help_command(ctx, command):
+    """Show click's own --help for pt, or for `pt help COMMAND [SUBCOMMAND...]`."""
+    target = ctx.parent
+    for name in command:
+        sub = target.command.get_command(target, name) if isinstance(target.command, click.Group) else None
+        if sub is None:
+            raise click.UsageError(f"No such command '{name}'.", ctx=target)
+        target = click.Context(sub, info_name=name, parent=target)
+    click.echo(target.get_help())
 
 
 # =============================================================================
@@ -1568,31 +1788,25 @@ def backup_restore(backup_name: str, yes: bool):
 # Tasks group
 # =============================================================================
 
-@click.group(name="tasks", invoke_without_command=True)
-@click.pass_context
-@click.option("-p", "--project", default=None, help="Filter by project name or ID")
-@click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Review, Done)")
-@click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-@click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
-@click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)")
-@click.option("--proposals", is_flag=True, help="Show only proposal tasks")
-@click.option("--archived", is_flag=True, help="Show only archived Done cards (hidden from the board, never deleted)")
-def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready, proposals, archived):
-    """Manage Kanban board tasks.
+def _tasks_list_options(f):
+    """The one option set shared by `pt tasks` and `pt tasks list`."""
+    for option in reversed([
+        click.option("-p", "--project", default=None, help="Filter by project name or ID"),
+        click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Review, Done)"),
+        click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks"),
+        click.option("--board", is_flag=True, help="Show columnar Kanban board view"),
+        click.option("--json", "json_output", is_flag=True, help="Output as JSON"),
+        click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts"),
+        click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)"),
+        click.option("--proposals", is_flag=True, help="Show only proposal tasks"),
+        click.option("--archived", is_flag=True, help="Show only archived Done cards (hidden from the board, never deleted)"),
+    ]):
+        f = option(f)
+    return f
 
-    \b
-    Examples:
-        pt tasks                       # Show open tasks (all projects)
-        pt tasks -p project-tracker    # Tasks for a specific project
-        pt tasks -s "In Progress"      # Filter by status
-        pt tasks --all                 # Include completed tasks
-        pt tasks --archived            # Show archived Done cards
-        pt tasks --proposals           # Show only proposals
-        pt tasks create "Fix bug" -p myproject -d "- [ ] pytest tests/test_foo.py passes"
 
-    """
-    if ctx.invoked_subcommand is not None: return
+def _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
+    """List tasks. Both `pt tasks` and `pt tasks list` run exactly this."""
     db = DatabaseManager()
     if project:
         project_id = _resolve_project_id(db, project)
@@ -1614,49 +1828,6 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
         task_list = [t for t in task_list if t.get("task_type") == "proposal"]
     else:
         # Hide proposals from default listing unless --all is used
-        if not show_all:
-            task_list = [t for t in task_list if t.get("task_type") != "proposal"]
-        if not show_all and not status:
-            task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
-    if needs_prompt:
-        task_list = [t for t in task_list if not t.get("prompt")]
-    if ready:
-        task_list = [t for t in task_list if t["status"] == "To Do" and _has_complete_prompt(t.get("prompt"))]
-    _display_tasks(task_list, project_label, json_output=json_output, db=db)
-
-
-@tasks_group.command(name="list")
-@click.option("-p", "--project", default=None, help="Filter by project name or ID")
-@click.option("-s", "--status", default=None, help="Filter by status")
-@click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
-@click.option("--board", is_flag=True, help="Show columnar Kanban board view")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-@click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
-@click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts")
-@click.option("--proposals", is_flag=True, help="Show only proposal tasks")
-@click.option("--archived", is_flag=True, help="Show only archived Done cards (hidden from the board, never deleted)")
-def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
-    """List tasks from the Kanban board."""
-    db = DatabaseManager()
-    if project:
-        project_id = _resolve_project_id(db, project)
-        project_label = project
-        if not project_id:
-            console.print(f"[red]Project '{project}' not found[/red]"); return
-    else:
-        project_id = _detect_project_from_cwd(db)
-        project_label = None
-        if project_id:
-            detected = db.get_project(project_id)
-            project_label = detected["name"] if detected else None
-    task_list = db.get_tasks(project_id=project_id, status=status, include_archived=archived)
-    if archived:
-        # --archived is a retention view: only the Done cards the per-project
-        # display cap has hidden. They still exist and are never deleted.
-        task_list = [t for t in task_list if t.get("archived_at")]
-    elif proposals:
-        task_list = [t for t in task_list if t.get("task_type") == "proposal"]
-    else:
         if not show_all:
             task_list = [t for t in task_list if t.get("task_type") != "proposal"]
         if not show_all and not status:
@@ -1689,6 +1860,38 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
         console.print(table)
         return
     _display_tasks(task_list, project_label, json_output=json_output, db=db)
+
+
+@click.group(name="tasks", invoke_without_command=True)
+@click.pass_context
+@_tasks_list_options
+def tasks_group(ctx, project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
+    """Manage Kanban board tasks.
+
+    Bare `pt tasks` and `pt tasks list` are the same command with the same
+    options.
+
+    \b
+    Examples:
+        pt tasks                       # Show open tasks (all projects)
+        pt tasks -p project-tracker    # Tasks for a specific project
+        pt tasks -s "In Progress"      # Filter by status
+        pt tasks --all                 # Include completed tasks
+        pt tasks --archived            # Show archived Done cards
+        pt tasks --proposals           # Show only proposals
+        pt tasks --board               # Columnar Kanban view
+        pt tasks create "Fix bug" -p myproject -d "- [ ] pytest tests/test_foo.py passes"
+
+    """
+    if ctx.invoked_subcommand is not None: return
+    _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived)
+
+
+@tasks_group.command(name="list")
+@_tasks_list_options
+def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
+    """List tasks from the Kanban board (same as bare `pt tasks`)."""
+    _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived)
 
 
 @tasks_group.command(name="create")
@@ -3139,213 +3342,6 @@ def graph_build(force: bool) -> None:
     if force:
         args.append("--force")
     _run_brain(*args)
-
-
-# =============================================================================
-# Worktrees management
-# =============================================================================
-
-@click.group(name="worktrees", invoke_without_command=True)
-@click.pass_context
-def worktrees_group(ctx):
-    """Manage .claude/worktrees/ created by sub-agents."""
-    if ctx.invoked_subcommand is None:
-        ctx.invoke(worktrees_list)
-
-
-@worktrees_group.command(name="list")
-def worktrees_list():
-    """List all worktrees in .claude/worktrees/."""
-    repo_root = _find_repo_root()
-    if repo_root is None:
-        console.print("[red]Not inside a git repository[/red]")
-        return
-    wt_dir = repo_root / ".claude" / "worktrees"
-    if not wt_dir.exists():
-        console.print("[dim]No .claude/worktrees/ directory found[/dim]")
-        return
-    entries = sorted(p for p in wt_dir.iterdir() if p.is_dir())
-    if not entries:
-        console.print("[dim]No worktrees found[/dim]")
-        return
-    # Get merged branches
-    merged = _get_merged_branches(repo_root)
-    console.print(f"\n[bold]Worktrees ({len(entries)})[/bold]\n")
-    for entry in entries:
-        branch = _worktree_branch(repo_root, entry)
-        status = "[green]merged[/green]" if branch and branch in merged else "[yellow]active[/yellow]"
-        branch_label = branch or "[dim]detached[/dim]"
-        console.print(f"  {entry.name}  {branch_label}  {status}")
-    console.print()
-
-
-@worktrees_group.command(name="clean")
-@click.option("--dry-run", is_flag=True, help="Show what would be removed without removing")
-@click.option("--force", is_flag=True, help="Also remove worktrees with uncommitted changes")
-def worktrees_clean(dry_run, force):
-    """Remove worktrees whose branches are merged to main or orphaned."""
-    repo_root = _find_repo_root()
-    if repo_root is None:
-        console.print("[red]Not inside a git repository[/red]")
-        return
-    wt_dir = repo_root / ".claude" / "worktrees"
-    if not wt_dir.exists():
-        console.print("[dim]No .claude/worktrees/ directory found[/dim]")
-        return
-    entries = sorted(p for p in wt_dir.iterdir() if p.is_dir())
-    if not entries:
-        console.print("[dim]No worktrees to clean[/dim]")
-        return
-
-    merged = _get_merged_branches(repo_root)
-    removed = []
-    kept = []
-
-    for entry in entries:
-        branch = _worktree_branch(repo_root, entry)
-        is_merged = branch and branch in merged
-        is_orphaned = branch is None  # no branch ref found
-
-        if is_merged or is_orphaned:
-            reason = "merged" if is_merged else "orphaned"
-            if dry_run:
-                console.print(f"  [yellow]would remove[/yellow] {entry.name} ({reason}, branch: {branch or 'none'})")
-                removed.append(entry.name)
-            else:
-                ok = _remove_worktree(repo_root, entry, force=force)
-                if ok:
-                    console.print(f"  [green]removed[/green] {entry.name} ({reason})")
-                    removed.append(entry.name)
-                    # Clean up the branch if it was a worktree-specific branch
-                    if branch and branch.startswith("worktree-"):
-                        _delete_local_branch(repo_root, branch)
-                else:
-                    console.print(f"  [red]failed to remove[/red] {entry.name} (use --force?)")
-                    kept.append(entry.name)
-        else:
-            console.print(f"  [cyan]keeping[/cyan] {entry.name} (branch: {branch}, not merged)")
-            kept.append(entry.name)
-
-    prefix = "[bold yellow]Dry run:[/bold yellow] " if dry_run else ""
-    console.print(f"\n{prefix}Removed {len(removed)}, kept {len(kept)}")
-
-
-def _find_repo_root() -> Optional[Path]:
-    """The git repo root of the directory the operator ran `pt` from.
-
-    This used to try project-tracker's own root FIRST — `Path(__file__).parent
-    .parent` — which always exists, so it returned project-tracker
-    unconditionally no matter where `pt` was invoked. Its callers are
-    `pt worktrees list` and `pt worktrees clean`, and clean REMOVES worktrees,
-    so running it from another repo operated on project-tracker's worktrees
-    instead. Same wrong-target family as #6851 (#6883).
-
-    `Path.cwd()` is no help either: the launcher does `cd "$launcher_dir"`
-    before exec'ing, so cwd inside pt.py is always project-tracker. The
-    caller's real directory arrives as PT_CALLER_CWD.
-    """
-    root = _caller_repo_root()
-    if (root / ".git").exists():
-        return root
-    # _caller_repo_root falls back to the caller cwd when it is not a repo;
-    # walk up from there before giving up.
-    cur = root
-    while cur != cur.parent:
-        if (cur / ".git").exists():
-            return cur
-        cur = cur.parent
-    return None
-
-
-def _get_merged_branches(repo_root: Path) -> set:
-    """Return set of branch names that are merged into main."""
-    try:
-        result = subprocess.run(
-            ["git", "branch", "--merged", "main"],
-            cwd=str(repo_root),
-            capture_output=True, text=True, timeout=10,
-            check=True,
-        )
-        branches = set()
-        for line in result.stdout.splitlines():
-            name = line.strip().lstrip("* ").lstrip("+ ")
-            if name and name != "main":
-                branches.add(name)
-        return branches
-    except subprocess.CalledProcessError as e:  # governance: allow-silent SF002: CLI prints the warning; an empty set makes every worktree read as unmerged, so `pt worktrees clean` keeps them (fails safe)
-        console.print(f"[yellow]Warning: Failed to check merged branches: {e.stderr.strip()}[/yellow]")
-        return set()
-    except subprocess.TimeoutExpired:  # governance: allow-silent SF002: CLI prints the warning; an empty set makes every worktree read as unmerged, so `pt worktrees clean` keeps them (fails safe)
-        console.print("[yellow]Warning: Timed out checking merged branches[/yellow]")
-        return set()
-
-
-def _worktree_branch(repo_root: Path, wt_path: Path) -> Optional[str]:
-    """Get the branch name for a worktree, or None if detached/missing.
-
-    A git failure raises ClickException: `pt worktrees clean` treats None as
-    "orphaned" and removes the worktree, so a failed lookup must never read
-    as None.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "worktree", "list", "--porcelain"],
-            cwd=str(repo_root),
-            capture_output=True, text=True, timeout=10,
-            check=True,
-        )
-        # Parse porcelain output: blocks separated by blank lines
-        current_path = None
-        for line in result.stdout.splitlines():
-            if line.startswith("worktree "):
-                current_path = line[len("worktree "):]
-            elif line.startswith("branch ") and current_path:
-                if Path(current_path).resolve() == wt_path.resolve():
-                    # branch refs/heads/foo -> foo
-                    ref = line[len("branch "):]
-                    return ref.replace("refs/heads/", "")
-        return None
-    except subprocess.CalledProcessError as e:
-        raise click.ClickException(
-            f"Failed to determine branch for {wt_path.name}: {e.stderr.strip()}"
-        ) from e
-    except subprocess.TimeoutExpired as e:
-        raise click.ClickException(
-            f"Timed out determining branch for {wt_path.name}"
-        ) from e
-
-
-def _remove_worktree(repo_root: Path, wt_path: Path, force: bool = False) -> bool:
-    """Remove a worktree using git worktree remove."""
-    cmd = ["git", "worktree", "remove", str(wt_path)]
-    if force:
-        cmd.append("--force")
-    try:
-        result = subprocess.run(
-            cmd, cwd=str(repo_root),
-            capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode != 0:
-            console.print(f"[yellow]Warning: git worktree remove failed for {wt_path.name}: {result.stderr.strip()}[/yellow]")
-            return False
-        return True
-    except subprocess.TimeoutExpired:  # governance: allow-silent SF002: False is the "not removed" result; worktrees_clean prints "failed to remove" and keeps the entry
-        console.print(f"[yellow]Warning: Timed out removing worktree {wt_path.name}[/yellow]")
-        return False
-
-
-def _delete_local_branch(repo_root: Path, branch: str) -> None:
-    """Delete a local branch (merged only, safe -d flag)."""
-    try:
-        result = subprocess.run(
-            ["git", "branch", "-d", branch],
-            cwd=str(repo_root),
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode != 0:
-            console.print(f"[yellow]Warning: Failed to delete branch {branch}: {result.stderr.strip()}[/yellow]")
-    except subprocess.TimeoutExpired:
-        console.print(f"[yellow]Warning: Timed out deleting branch {branch}[/yellow]")
 
 
 # =============================================================================
@@ -5675,7 +5671,6 @@ cli.add_command(tasks_group)
 cli.add_command(calendar_group)
 cli.add_command(memory_group)
 cli.add_command(graph_group)
-cli.add_command(worktrees_group)
 cli.add_command(info_group)
 cli.add_command(config_group)
 cli.add_command(message_group)
