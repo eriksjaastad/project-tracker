@@ -4551,13 +4551,10 @@ def _gh_call(args: List[str], timeout: int = 30) -> tuple:
         )
         if result.returncode != 0:
             stderr = result.stderr.strip()
+            logger.warning(f"gh command failed: gh {' '.join(args)} — {stderr}")
             blob = (stderr + " " + result.stdout).lower()
             if any(marker in blob for marker in _GH_NOT_FOUND_MARKERS):
-                # Expected for tracked projects that aren't on GitHub; callers
-                # count it, so it is not a warning.
-                logger.debug(f"gh target not found: gh {' '.join(args)} — {stderr}")
                 return None, GH_NOT_FOUND
-            logger.warning(f"gh command failed: gh {' '.join(args)} — {stderr}")
             return None, GH_ERROR
         if not result.stdout.strip():
             return None, GH_OK
@@ -4613,12 +4610,15 @@ def _get_tracked_repo_names() -> List[str]:
 
 
 # Most tracked projects that aren't on GitHub never will be (third-party
-# checkouts in github-repos/, local-only projects), so a "not found" is
-# remembered instead of asked again every refresh. They still count toward
-# repos_not_on_github, so a token losing `repo` scope still shows as a jump.
-# A repo created on GitHub appears within the TTL, or at once after a restart.
+# checkouts in github-repos/, local-only projects), so a "not found" for a repo
+# never seen in this process is remembered instead of asked again (and logged)
+# every refresh. It still counts toward repos_not_on_github. A repo that WAS
+# found and then goes missing is never remembered, so a token losing `repo`
+# scope shows as a jump and recovers on the first refresh after the fix. A repo
+# created on GitHub appears within the TTL, or at once after a restart.
 _GH_MISSING_TTL = 6 * 3600
 _gh_missing: Dict[str, float] = {}
+_gh_seen: set = set()
 _gh_missing_lock = threading.Lock()
 
 # gh calls run a few at a time; GitHub's secondary rate limit allows far more.
@@ -4657,7 +4657,9 @@ def _fetch_github_data() -> Dict:
     repos: List[Dict] = []
     now = _monotonic()
     with _gh_missing_lock:
-        known_missing = {n for n, until in _gh_missing.items() if until > now}
+        for name in [n for n, until in _gh_missing.items() if until <= now]:
+            del _gh_missing[name]
+        known_missing = set(_gh_missing)
     repos_missing = sum(1 for n in tracked_names if n in known_missing)
     to_view = [n for n in tracked_names if n not in known_missing]
     views = _gh_map(lambda name: _gh_call([
@@ -4667,6 +4669,8 @@ def _fetch_github_data() -> Dict:
     for name, (repo_info, failure) in zip(to_view, views):
         if repo_info:
             repos.append(repo_info)
+            with _gh_missing_lock:
+                _gh_seen.add(name)
         elif failure == GH_NOT_FOUND:
             # CAVEAT: GitHub answers "no such repo" and "you cannot see this
             # repo" identically, by design, so it never leaks a private repo's
@@ -4679,7 +4683,8 @@ def _fetch_github_data() -> Dict:
             # shows up as a jump in "Not on GitHub" rather than as nothing.
             repos_missing += 1
             with _gh_missing_lock:
-                _gh_missing[name] = _monotonic() + _GH_MISSING_TTL
+                if name not in _gh_seen:
+                    _gh_missing[name] = _monotonic() + _GH_MISSING_TTL
             logger.info(f"Tracked project '{name}' is not on GitHub (or not visible to this token)")
         else:
             # A failed fetch drops this repo from `repos` entirely, taking its
