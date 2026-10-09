@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -23,13 +21,13 @@ from db.backend_manager import DatabaseManager  # noqa: E402
 from db.schema import create_database  # noqa: E402
 
 
-def _open_handles(db_path: Path) -> int:
-    proc = subprocess.run(
-        ["lsof", "-p", str(os.getpid())], capture_output=True, text=True, timeout=60
-    )
-    if not proc.stdout.strip():
-        raise RuntimeError(f"lsof produced no output (rc={proc.returncode}); cannot measure")
-    return sum(1 for line in proc.stdout.splitlines() if db_path.name in line)
+def _open_descriptors() -> int:
+    """Open descriptors in this process, counted in-process (no subprocess).
+
+    Listing /dev/fd briefly holds one descriptor of its own; callers compare two
+    counts, so that one cancels out.
+    """
+    return len(os.listdir("/dev/fd"))
 
 
 def test_connection_still_usable_and_closed_cleanly(tmp_path: Path) -> None:
@@ -44,10 +42,7 @@ def test_connection_still_usable_and_closed_cleanly(tmp_path: Path) -> None:
         conn.execute("SELECT 1")
 
 
-@pytest.mark.skipif(
-    shutil.which("lsof") is None,
-    reason="lsof unavailable",
-)
+@pytest.mark.skipif(not os.path.isdir("/dev/fd"), reason="no /dev/fd on this platform")
 def test_repeated_connections_do_not_leak_descriptors(tmp_path: Path) -> None:
     db_path = tmp_path / "tracker.db"
     create_database(db_path)
@@ -55,10 +50,12 @@ def test_repeated_connections_do_not_leak_descriptors(tmp_path: Path) -> None:
 
     with db._get_conn() as conn:
         conn.execute("SELECT COUNT(*) FROM tasks").fetchone()
-    baseline = _open_handles(db_path)
+    baseline = _open_descriptors()
 
     for _ in range(60):
         with db._get_conn() as conn:
             conn.execute("SELECT COUNT(*) FROM tasks").fetchone()
 
-    assert _open_handles(db_path) - baseline <= 4
+    # A leaked connection holds at least the database file; 60 of them would
+    # push the delta far past this slack.
+    assert _open_descriptors() - baseline <= 4
