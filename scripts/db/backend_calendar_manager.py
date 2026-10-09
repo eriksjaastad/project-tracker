@@ -178,8 +178,13 @@ class CalendarManager:
         created_by: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> int:
-        """Add a calendar event. Returns the new event ID."""
+        """Add a calendar event. Returns the new event ID.
+
+        An empty ``event_time`` means no time and is stored as NULL.
+        """
         validate_event_date(event_date)
+        if event_time == "":
+            event_time = None
         if event_time is not None:
             validate_event_time(event_time)
         ok, err = validate_event_type(event_type)
@@ -224,6 +229,8 @@ class CalendarManager:
 
         if "event_date" in updates:
             validate_event_date(updates["event_date"])
+        if updates.get("event_time") == "":
+            updates["event_time"] = None  # an empty time clears it
         if updates.get("event_time") is not None:
             validate_event_time(updates["event_time"])
         if "event_type" in updates:

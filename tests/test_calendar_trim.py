@@ -27,7 +27,7 @@ EXPECTED_CALENDAR_COMMANDS = {
 }
 
 BAD_DATES = ["2026-13-01", "tomorrow", "2026-02-30", "2026-1-5", "", "2026-01-01T00:00"]
-BAD_TIMES = ["25:00", "9am", "9:00", "12:60", "", "12:00:00"]
+BAD_TIMES = ["25:00", "9am", "9:00", "12:60", "12:00:00"]
 
 
 @pytest.fixture
@@ -245,3 +245,28 @@ def test_manager_update_rejects_bad_values_for_any_caller(tracker):
         cm.update_event(event_id, event_time="9am")
     with pytest.raises(ValueError):
         cm.add_event("B", "tomorrow")
+
+
+def test_cli_update_empty_time_clears_it(tracker):
+    from db.calendar_manager import CalendarManager
+
+    cm = CalendarManager()
+    cm.ensure_tables()
+    event_id = cm.add_event("A", "2030-01-01", event_time="08:00")
+    result = CliRunner().invoke(tracker["cli"], ["calendar", "update", str(event_id), "--time", ""])
+    assert result.exit_code == 0, result.output
+    assert _event_rows(tracker["db_path"]) == [("2030-01-01", None)]
+
+
+def test_cli_add_empty_time_means_no_time(tracker):
+    result = CliRunner().invoke(
+        tracker["cli"], ["calendar", "add", "X", "--date", "2030-01-01", "--time", ""]
+    )
+    assert result.exit_code == 0, result.output
+    assert _event_rows(tracker["db_path"]) == [("2030-01-01", None)]
+
+
+def test_api_create_empty_time_means_no_time(client, tracker):
+    resp = client.post("/api/calendar/events", json={"title": "X", "event_date": "2030-01-01", "event_time": ""})
+    assert resp.status_code == 200, resp.text
+    assert _event_rows(tracker["db_path"]) == [("2030-01-01", None)]

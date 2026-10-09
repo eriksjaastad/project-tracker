@@ -2212,11 +2212,15 @@ def _display_events(events, json_output=False, cron_jobs=None):
         print(f"\nCron jobs: {len(cron_jobs)}")
 
 
-def _calendar_option_callback(validator):
-    """Click callback that runs a calendar validator, turning its ValueError into BadParameter."""
+def _calendar_option_callback(validator, allow_empty=False):
+    """Click callback that runs a calendar validator, turning its ValueError into BadParameter.
+
+    With ``allow_empty``, an empty string passes through unvalidated: ``--time ""``
+    means "no time" (on update, it clears the stored time).
+    """
     def callback(ctx, param, value):
-        if value is None:
-            return None
+        if value is None or (allow_empty and value == ""):
+            return value
         try:
             return validator(value)
         except ValueError as exc:
@@ -2225,7 +2229,7 @@ def _calendar_option_callback(validator):
 
 
 _date_option = _calendar_option_callback(validate_event_date)
-_time_option = _calendar_option_callback(validate_event_time)
+_time_option = _calendar_option_callback(validate_event_time, allow_empty=True)
 
 
 @click.group(name="calendar", invoke_without_command=True)
@@ -2439,7 +2443,7 @@ def calendar_cancel(event_id):
 @click.argument("event_id", type=int)
 @click.option("--title", default=None)
 @click.option("--date", "event_date", default=None, callback=_date_option, help="New date: YYYY-MM-DD")
-@click.option("--time", "event_time", default=None, callback=_time_option, help="New time: HH:MM, 24-hour")
+@click.option("--time", "event_time", default=None, callback=_time_option, help='New time: HH:MM, 24-hour; --time "" clears it')
 @click.option("-t", "--type", "event_type", default=None)
 @click.option("-p", "--project", default=None)
 @click.option("--prompt", default=None)
