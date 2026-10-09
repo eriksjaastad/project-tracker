@@ -2234,16 +2234,6 @@ async def list_tasks(
         )
 
 
-@app.delete("/api/tasks/done")
-async def delete_done_tasks(project_id: Optional[str] = None):
-    """Delete all tasks in Done status (disabled)."""
-    logger.warning("Blocked API delete_done_tasks attempt")
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Task deletions are disabled. Use manual DBA operations if needed."
-    )
-
-
 @app.get("/api/tasks/{task_id}")
 async def get_task(task_id: int):
     """Get a single task by ID with full enriched data.
