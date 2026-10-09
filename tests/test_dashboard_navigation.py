@@ -71,7 +71,7 @@ def test_navigation_api_returns_shared_contract():
     }
     assert children_by_group["group-kanban"] == ["kanban", "calendar"]
     assert children_by_group["group-jobs"] == ["jobs", "jobs-submitted"]
-    assert children_by_group["group-agents"] == ["agent-chat", "agentic", "code-reviews", "codebase", "holoscape"]
+    assert children_by_group["group-agents"] == ["agent-chat", "agentic", "codebase"]
     assert children_by_group["group-memory"] == ["memory", "graph"]
 
     for group in items:
@@ -93,9 +93,7 @@ def test_navigation_api_returns_shared_contract():
     assert leaves["jobs-submitted"]["label"] == "Submissions"
     assert leaves["agent-chat"]["label"] == "Chat"
     assert leaves["agentic"]["label"] == "Autonomy"
-    assert leaves["code-reviews"]["label"] == "Code reviews"
     assert leaves["codebase"]["label"] == "Codebase size"
-    assert leaves["holoscape"]["label"] == "Holoscape progress (temporary)"
     assert leaves["memory"]["label"] == "Memory"
     assert leaves["graph"]["label"] == "Graph"
 
@@ -144,8 +142,8 @@ def test_graph_view_renders_shared_shell_navigation():
     assert "Submissions" in body
     assert "Chat" in body
     assert "Autonomy" in body
-    assert "Code reviews" in body
-    assert "Holoscape progress (temporary)" in body
+    assert "Code reviews" not in body
+    assert "Holoscape" not in body
     assert "Graph" in body
     assert "Project Graph" in body
 
@@ -184,16 +182,12 @@ def test_agent_chat_spa_route_is_registered():
         assert "Frontend not built" in response.text
 
 
-def test_holoscape_spa_route_and_navigation():
-    response = client.get("/holoscape")
-    assert response.status_code in (200, 503)
-    nav = client.get("/api/navigation").json()["items"]
-    item = leaf_by_id(nav, "holoscape")
-    assert item["href"] == "/holoscape"
-    assert item["navigation_type"] == "spa"
-    assert leaf_by_id(build_navigation("/holoscape"), "holoscape")["active"]
-    if response.status_code == 200:
-        assert '"id": "holoscape"' in response.text
+def test_cut_pages_are_no_longer_served():
+    """#8093: the Code reviews and Holoscape progress pages and feeds are gone."""
+    for path in ("/holoscape", "/code-reviews", "/api/holoscape/series", "/api/code-review-metrics"):
+        assert client.get(path).status_code == 404, path
+    ids = {leaf["id"] for leaf in iter_navigation_leaves(client.get("/api/navigation").json()["items"])}
+    assert not ids & {"holoscape", "code-reviews"}
 
 
 def test_codebase_spa_route_and_navigation():
