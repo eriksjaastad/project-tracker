@@ -89,7 +89,7 @@ export function KanbanBreakdown() {
       </h2>
       {error && <p className="breakdown-error" role="alert">{error}{data ? ' Showing the last counts.' : ''}</p>}
       {!data ? (
-        <p className="breakdown-empty">{loading ? 'Loading board counts…' : 'Board counts are unavailable.'}</p>
+        <p className="breakdown-empty">{loading && !failure ? 'Loading board counts…' : 'Board counts are unavailable.'}</p>
       ) : (
         <>
           <div className="breakdown-columns">

@@ -89,4 +89,29 @@ describe('usePolling', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+
+  it('does not clear a standing error when a tick starts', async () => {
+    const fetcher = vi.fn()
+      .mockRejectedValueOnce(new Error('down'))
+      .mockReturnValue(new Promise<string>(() => {}));
+    const { result } = renderHook(() => usePolling(fetcher, 1000, []));
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(result.current).toMatchObject({ loading: true, data: null, error: expect.objectContaining({ message: 'down' }) });
+  });
+
+  it('leaves data and error untouched when the fetcher resolves undefined, and keeps polling', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce('good')
+      .mockRejectedValueOnce(new Error('down'))
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue('back');
+    const { result } = renderHook(() => usePolling(fetcher, 1000, []));
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(result.current).toMatchObject({ data: 'good', error: expect.objectContaining({ message: 'down' }), loading: false });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(result.current).toMatchObject({ data: 'back', error: null });
+  });
 });

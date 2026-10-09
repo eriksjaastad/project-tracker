@@ -88,4 +88,18 @@ describe('API activity', () => {
     await act(async () => resolve({ ok: true, json: async () => [row] }));
     expect(screen.queryByText('alpha')).not.toBeInTheDocument();
   });
+
+  it('keeps a standing error when the next tick only rolls the day over', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T23:59:30'));
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockReturnValue(new Promise(() => {}));
+    vi.stubGlobal('fetch', fetcher);
+    await act(async () => { render(<ApiActivityPanel />); });
+    expect(screen.getByRole('alert')).toHaveTextContent('unavailable');
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(screen.getByLabelText('API activity day')).toHaveValue('2026-09-07');
+    expect(screen.getByRole('alert')).toHaveTextContent('unavailable');
+  });
 });

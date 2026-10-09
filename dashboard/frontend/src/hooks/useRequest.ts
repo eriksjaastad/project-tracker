@@ -56,16 +56,19 @@ export function useLatest<T>(value: T) {
 /**
  * Runs one async fetcher on mount and whenever `deps` change. Every run gets
  * its own AbortController; a run is aborted by unmount, by a newer run (deps
- * change or `reload()`), and its late response is ignored. The last good
+ * change or `reload()`), and its late response is ignored. `reload()` after
+ * unmount does nothing. The last good
  * `data` is kept when a later run fails, so callers can show it with `error`.
  */
 export function useRequest<T>(fetcher: Fetcher<T>, deps: DependencyList, options: RequestOptions = {}) {
   const { timeoutMs } = options;
   const fetcherRef = useLatest(fetcher);
   const controllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(false);
   const [state, setState] = useState<RequestState<T>>(initialRequestState);
 
   const run = useCallback(() => {
+    if (!mountedRef.current) return;
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -81,8 +84,12 @@ export function useRequest<T>(fetcher: Fetcher<T>, deps: DependencyList, options
   }, [fetcherRef, timeoutMs]);
 
   useEffect(() => {
+    mountedRef.current = true;
     run();
-    return () => controllerRef.current?.abort();
+    return () => {
+      mountedRef.current = false;
+      controllerRef.current?.abort();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are the caller's
   }, [run, ...deps]);
 

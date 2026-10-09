@@ -16,12 +16,12 @@ export function ApiActivityPanel() {
   const [followToday, setFollowToday] = useState(true);
   type Snapshot = { day: string; rows: Activity[]; limited: boolean; fetchedAt: string };
 
-  const { data: snapshot, error: failure, loading: fetching } = usePolling<Snapshot | null>(async (signal) => {
-    if (!day) return null;
+  const { data: snapshot, error: failure, loading: fetching } = usePolling<Snapshot>(async (signal) => {
+    if (!day) return undefined;
     if (followToday && day !== localDate()) {
       // The calendar day rolled over; the new `day` restarts the poll.
       setDay(localDate());
-      return null;
+      return undefined;
     }
     const since = new Date(`${day}T00:00:00`).toISOString();
     const response = await fetch(`/api/costs/usage?since=${encodeURIComponent(since)}&limit=${LIMIT}`, { signal });

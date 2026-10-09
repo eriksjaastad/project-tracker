@@ -103,4 +103,13 @@ describe('useRequest', () => {
     expect(result.current.data).toBe(2);
     expect(result.current.error?.message).toBe('later failure');
   });
+
+  it('reload after unmount starts nothing', () => {
+    const fetcher = vi.fn(() => new Promise<string>(() => {}));
+    const { result, unmount } = renderHook(() => useRequest(fetcher, []));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    unmount();
+    result.current.reload();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
 });
