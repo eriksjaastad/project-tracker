@@ -126,7 +126,7 @@ def test_delete_project_cleans_children_without_fk_cascade(tmp_path: Path):
     stored_file.write_text("payload")
     db.add_ai_agent("proj", "architect", "reviewer")
     db.add_service("proj", "github", "hosting", 0.0)
-    db.add_cron_job("proj", "0 * * * *", "echo hi", "demo")
+    cal.add_cron_job("proj", "0 * * * *", "echo hi", "demo")
     db.set_info("stack", "python", project_id="proj")
     event_id = cal.add_event("Milestone", "2026-06-01", project_id="proj")
     cal.link_task(event_id, task["id"])

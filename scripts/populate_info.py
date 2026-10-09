@@ -102,7 +102,6 @@ EXTRA_KEYS = {
         "PT_EXTERNAL_BACKUP_DIR": "External backup directory for sandboxed environments",
         "PT_TEST_MODE": "Set to 1 for test mode (disables safety backups)",
         "PT_ALLOW_FRESH_DB": "Set to 1 to allow starting with empty database",
-        "PT_AGENT_MODEL": "Agent model for calendar poller hooks",
         "SAFE_MODE": "Set to 0 to enable permanent deletions (Erik only)",
         "ALLOW_BULK_DELETE": "Enable bulk delete operations in DatabaseManager",
         "COST_TRACKER_API_KEY": "SIL cost tracker API key (from Doppler synth-insight-labs)",
