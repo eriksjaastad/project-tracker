@@ -14,6 +14,7 @@ What these pin, and why:
 """
 
 import io
+from datetime import timedelta
 import json
 import urllib.error
 
@@ -51,6 +52,15 @@ def _no_live_review_loop_scan(monkeypatch):
         ad, "fetch_paused_review_loops",
         lambda now=None: {"loops": [], "errors": [], "fatal": None, "history_dir": ""},
     )
+
+
+_REAL_FETCH_CALENDAR = ad.fetch_calendar_events
+
+
+@pytest.fixture(autouse=True)
+def _no_live_calendar(monkeypatch):
+    """Keep every test off the live dashboard's calendar (no events by default)."""
+    monkeypatch.setattr(ad, "fetch_calendar_events", lambda: [])
 
 
 class _FakeResp:
@@ -1002,3 +1012,168 @@ class TestPausedReviewLoopsAgainstRealLauncher:
 
         launcher.append_event("o__r", "feat/x", "clear", {"reason": "Erik cleared"})
         assert ad.fetch_paused_review_loops()["loops"] == []
+
+
+
+# --- Deadlines (#8137) -------------------------------------------------------
+# The calendar's only route to Erik: due-soon and recently missed events.
+
+def _event(id_, event_date, title="Thing due", status="active", **extra):
+    return {"id": id_, "title": title, "event_date": event_date, "status": status, **extra}
+
+
+class TestDeadlines:
+    TODAY = ad.date(2026, 10, 8)
+
+    def test_window_bounds_status_and_order(self):
+        events = [
+            _event(1, "2026-10-22", "in 14 days"),         # edge: shown
+            _event(2, "2026-10-23", "in 15 days"),         # outside
+            _event(3, "2026-09-08", "missed 30 days ago"), # edge: shown
+            _event(4, "2026-09-07", "missed 31 days ago"), # stale: hidden
+            _event(5, "2026-10-15", "done already", status="done"),
+            _event(6, "2026-10-08", "today"),
+            _event(7, "2026-10-15T00:00:00", "tax return"),
+        ]
+        got = ad.upcoming_deadlines(events, self.TODAY)
+        assert [(e["id"], e["days"]) for e in got] == [(3, -30), (6, 0), (7, 7), (1, 14)]
+
+    def test_unreadable_date_is_shown_not_dropped(self, monkeypatch):
+        lines = []
+        monkeypatch.setattr(ad, "log", lines.append)
+        rows = ad.upcoming_deadlines(
+            [_event(1, "2026-10-15", "fine"), _event(9, "15/10/2026", "Tax return"),
+             _event(8, None, "No date at all")],
+            self.TODAY,
+        )
+        assert [(e["id"], e["days"]) for e in rows] == [(9, None), (8, None), (1, 7)]
+        assert rows[0]["problem"] == "date unreadable: '15/10/2026'"
+        assert rows[1]["problem"] == "date unreadable: None"
+        assert any("unreadable date" in line for line in lines)
+        html = ad.render_deadlines_section(rows)
+        assert "date unreadable: &#x27;15/10/2026&#x27;" in html or "date unreadable: '15/10/2026'" in html
+        assert "Tax return" in html and "No date at all" in html
+
+    def test_unknown_status_is_shown_finished_ones_are_not(self):
+        rows = ad.upcoming_deadlines(
+            [_event(1, "2026-10-15", "done one", status="done"),
+             _event(2, "2026-10-15", "cancelled one", status="cancelled"),
+             _event(3, "2026-10-15", "odd one", status="Active "),
+             _event(4, "2026-10-15", "no status", status=None)],
+            self.TODAY,
+        )
+        assert [(e["id"], e["problem"]) for e in rows] == [
+            (3, "status unreadable: 'Active '"), (4, "status unreadable: None")]
+
+    def test_an_unreadable_event_alone_is_never_all_clear(self, monkeypatch, capsys):
+        monkeypatch.setattr(ad, "fetch_calendar_events", lambda: [_event(9, "Oct 15", "Tax return")])
+        monkeypatch.setattr(ad, "fetch_alerts", lambda: [])
+        _stub_fetchers(monkeypatch, tasks=[], jobs=[])
+        assert ad.main(["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        subject = out.splitlines()[0]
+        assert "All clear" not in subject and "📅 1 deadline due or missed" in subject
+        assert "date unreadable" in out and "Tax return" in out
+
+    def test_section_is_absent_on_empty_days(self):
+        assert ad.render_deadlines_section([]) == ""
+        html = ad.render_html([], None, set(), [], [], None, "now", None, [])
+        assert "Deadlines" not in html
+
+    def test_section_lists_due_and_missed_with_escaping(self):
+        rows = ad.upcoming_deadlines(
+            [_event(1, "2026-10-15", "<b>Extended federal return</b>", project_id="tax-organizer"),
+             _event(2, "2026-09-15", "Q3 estimated tax")],
+            self.TODAY,
+        )
+        html = ad.render_deadlines_section(rows)
+        assert "in 7 days" in html and "missed 23 days ago" in html
+        assert "&lt;b&gt;Extended federal return&lt;/b&gt;" in html and "<b>Extended" not in html
+        assert "tax-organizer" in html
+        assert html.index("missed 23 days ago") < html.index("in 7 days")
+
+    def test_unreadable_calendar_is_shown_not_hidden(self):
+        assert "Could not read the calendar" in ad.render_deadlines_section(None)
+        assert "⚠️ calendar unreadable" in ad.build_subject([], None, None)
+
+    def test_subject_names_deadlines_within_a_week_only(self):
+        week = ad.upcoming_deadlines([_event(1, "2026-10-15")], self.TODAY)
+        later = ad.upcoming_deadlines([_event(2, "2026-10-20")], self.TODAY)
+        assert ad.build_subject([], None, week) == "[Project Alerts] 📅 1 deadline due or missed"
+        # Listed in the body, so never "All clear", but not flagged as urgent either.
+        assert ad.build_subject([], None, later) == "[Project Alerts] 📅 1 upcoming deadline"
+        assert ad.build_subject([], None, []) == "[Project Alerts] ✅ All clear"
+        assert ad.build_subject([], None) == "[Project Alerts] ✅ All clear"
+
+    def test_main_dry_run_shows_the_tax_deadline(self, monkeypatch, capsys):
+        today = ad.date.today()
+        due = (today + timedelta(days=6)).isoformat()
+        monkeypatch.setattr(ad, "fetch_calendar_events", lambda: [
+            _event(9, due, "Extended federal tax return due (2025)", project_id="tax-organizer"),
+        ])
+        monkeypatch.setattr(ad, "fetch_alerts", lambda: [])
+        _stub_fetchers(monkeypatch, tasks=[], jobs=[])
+        assert ad.main(["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "📅 1 deadline due or missed" in out.splitlines()[0]
+        assert "📅 Deadlines" in out and "Extended federal tax return due (2025)" in out
+        assert "in 6 days" in out
+
+    def test_main_with_calendar_down_says_so(self, monkeypatch, capsys):
+        monkeypatch.setattr(ad, "fetch_calendar_events", lambda: None)
+        monkeypatch.setattr(ad, "fetch_alerts", lambda: [])
+        _stub_fetchers(monkeypatch, tasks=[], jobs=[])
+        assert ad.main(["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "calendar unreadable" in out.splitlines()[0]
+        assert "Could not read the calendar" in out
+
+    def test_fetch_reads_events_and_fails_soft(self, monkeypatch):
+        monkeypatch.setattr(ad, "fetch_calendar_events", _REAL_FETCH_CALENDAR)
+        monkeypatch.setattr(ad.urllib.request, "urlopen",
+                            lambda req, timeout=10: _FakeResp({"events": [_event(1, "2026-10-15")], "total": 1}))
+        assert [e["id"] for e in ad.fetch_calendar_events()] == [1]
+        def down(req, timeout=10):
+            raise ad.urllib.error.URLError("refused")
+        monkeypatch.setattr(ad.urllib.request, "urlopen", down)
+        assert ad.fetch_calendar_events() is None
+
+
+    def test_non_object_event_is_a_read_failure(self, monkeypatch):
+        monkeypatch.setattr(ad, "fetch_calendar_events", _REAL_FETCH_CALENDAR)
+        monkeypatch.setattr(ad.urllib.request, "urlopen",
+                            lambda req, timeout=10: _FakeResp({"events": [_event(1, "2026-10-15"), "junk"]}))
+        assert ad.fetch_calendar_events() is None
+
+    def test_unparseable_events_still_send_the_digest_with_a_warning(self, monkeypatch, capsys):
+        monkeypatch.setattr(ad, "fetch_calendar_events", lambda: [_event(1, "2026-10-15")])
+        def boom(events, today):
+            raise TypeError("bad event")
+        monkeypatch.setattr(ad, "upcoming_deadlines", boom)
+        monkeypatch.setattr(ad, "fetch_alerts", lambda: [])
+        _stub_fetchers(monkeypatch, tasks=[], jobs=[])
+        assert ad.main(["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "calendar unreadable" in out.splitlines()[0]
+        assert "Could not read the calendar" in out
+
+    def test_mixed_event_time_types_sort_without_crashing(self):
+        rows = ad.upcoming_deadlines(
+            [_event(1, "2026-10-15", "a", event_time=900), _event(2, "2026-10-15", "b"),
+             _event(3, "2026-10-15", "c", event_time="08:00")],
+            self.TODAY,
+        )
+        assert [e["id"] for e in rows] == [2, 3, 1]
+        assert "900" in ad.render_deadlines_section(rows)
+
+
+    def test_trailing_junk_is_unreadable_but_a_full_datetime_is_fine(self):
+        rows = ad.upcoming_deadlines(
+            [_event(1, "2026-10-15garbage", "junk"), _event(2, "2026-10-15T09:30:00", "datetime"),
+             _event(3, "x" * 500, "huge")],
+            self.TODAY,
+        )
+        by_id = {e["id"]: e for e in rows}
+        assert by_id[1]["problem"] == "date unreadable: '2026-10-15garbage'"
+        assert by_id[2]["days"] == 7 and "problem" not in by_id[2]
+        assert len(by_id[3]["problem"]) <= len("date unreadable: ") + 80
