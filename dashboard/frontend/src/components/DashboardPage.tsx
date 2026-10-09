@@ -198,8 +198,9 @@ export function DashboardPage() {
       }
     }
 
-    // A hidden tab stops polling: past the cache's five minutes every poll
-    // starts a GitHub collection nobody is looking at. Showing it loads at once.
+    // A hidden tab does not poll, from the first load on: past the cache's five
+    // minutes every poll starts a GitHub collection nobody is looking at.
+    // Showing the tab loads at once.
     function poll() {
       if (document.hidden) {
         parked = true;
@@ -215,7 +216,7 @@ export function DashboardPage() {
     }
 
     document.addEventListener('visibilitychange', onVisibilityChange);
-    void load();
+    poll();
     return () => {
       disposed = true;
       clearTimeout(pollTimer);

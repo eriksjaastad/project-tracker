@@ -121,6 +121,20 @@ describe('DashboardPage — /api/github polling', () => {
     expect(fetcher).toHaveBeenCalledTimes(3);   // polling resumed
   });
 
+  it('waits to load until a tab opened in the background is shown', async () => {
+    const fetcher = respond(FRESH);
+    hidden = true;
+    await act(async () => { render(<MemoryRouter><DashboardPage /></MemoryRouter>); });
+    await advance(10 * 60000);
+    expect(fetcher).not.toHaveBeenCalled();
+
+    hidden = false;
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await advance(60000);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it('does not add a load when the tab is shown before a poll was skipped', async () => {
     const fetcher = respond(FRESH);
     await act(async () => { render(<MemoryRouter><DashboardPage /></MemoryRouter>); });
