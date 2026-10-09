@@ -276,3 +276,63 @@ def test_legacy_database_is_not_schema_ensured_and_migrate_fixes_it(tmp_path: Pa
     db2.add_project(project_id="p", name="P", path=str(tmp_path / "p"), status="active")
     task = db2.add_task("after migrate", "p")
     assert task["id"]
+
+
+def test_migrate_drops_legacy_triggers_first_so_old_row_writing_migrations_run(tmp_path: Path) -> None:
+    """A pre-009 backup that still has CRR triggers: 009 inserts rows into
+    task_display_ids, which the (fake) trigger would reject without the
+    extension. The apply path drops the triggers first; 018 finishes the rest."""
+    db_path = tmp_path / "old.db"
+    create_database(db_path)
+    conn = sqlite3.connect(db_path, isolation_level=None)
+    conn.execute("DROP TABLE IF EXISTS task_display_ids")
+    conn.execute("DROP TABLE IF EXISTS schema_migrations")
+    conn.execute(
+        "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
+    )
+    for m in discover_migrations(MIGRATIONS_DIR, verbose=False):
+        if m.version < 9:
+            apply_migration(conn, m)
+    conn.execute(
+        "INSERT INTO projects (id, name, path, status, created_at) VALUES ('p', 'P', '/p', 'active', 'n')"
+    )
+    conn.execute(
+        "INSERT INTO tasks (id, text, status, project_id, created_at, updated_at) "
+        "VALUES (7, 't', 'Backlog', 'p', 'n', 'n')"
+    )
+    conn.execute(
+        "CREATE TABLE task_display_ids (task_id INTEGER PRIMARY KEY NOT NULL, display_id INTEGER NOT NULL UNIQUE)"
+    )
+    conn.execute(
+        "CREATE TRIGGER task_display_ids__crsql_itrig AFTER INSERT ON task_display_ids "
+        "BEGIN SELECT crsql_internal_sync_bit(); END"
+    )
+    conn.execute("CREATE TABLE crsql_site_id (site_id BLOB NOT NULL, ordinal INTEGER PRIMARY KEY)")
+    conn.execute("INSERT INTO crsql_site_id VALUES (?, 0)", (bytes.fromhex("00" * 16),))
+    conn.close()
+
+    result = DatabaseManager(db_path).migrations_apply()
+    assert result["ok"], result
+    versions = [m["version"] for m in result["applied"]]
+    assert 9 in versions and versions[-1] == 18
+
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT display_id FROM task_display_ids WHERE task_id=7").fetchone() == (7,)
+    assert _crsql_objects(conn) == []
+    assert conn.execute(
+        "SELECT value FROM _metadata WHERE key='pt.machine_id'"
+    ).fetchone() == ("839",)
+
+
+def test_tracker_conn_translates_legacy_crsql_errors(tmp_path: Path) -> None:
+    db = DatabaseManager(_legacy_db(tmp_path))
+    conn = db._tracker_conn()
+    try:
+        with pytest.raises(LegacyCrsqlError, match="pt db migrate"):
+            conn.execute(
+                "INSERT INTO tasks (id, text, status, created_at, updated_at) "
+                "VALUES (1, 't', 'Backlog', 'n', 'n')"
+            )
+        assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+    finally:
+        conn.close()

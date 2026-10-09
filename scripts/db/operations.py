@@ -8,6 +8,18 @@ from typing import Any
 from types import SimpleNamespace
 from functools import wraps
 
+class _TranslatingConnection(sqlite3.Connection):
+    """Connection whose execute() turns a missing-crsql-function error into LegacyCrsqlError."""
+
+    def execute(self, *args, **kwargs):
+        try:
+            return super().execute(*args, **kwargs)
+        except sqlite3.OperationalError as err:
+            from .schema import raise_if_legacy_crsql
+            raise_if_legacy_crsql(err)
+            raise
+
+
 class ProjectTrackerOps:
     _DESTRUCTIVE_BACKEND_OPS = frozenset({
         "delete_project", "delete_done_tasks", "trim_done_tasks", "raw_import_tasks",
@@ -177,6 +189,15 @@ class ProjectTrackerOps:
 
         conn = sqlite3.connect(self.db_path, isolation_level=None)
         try:
+            # Legacy cr-sqlite triggers break every row write an older pending
+            # migration makes; drop them first (tables and ids are 018's job).
+            from .schema import has_legacy_crsql_triggers
+            if has_legacy_crsql_triggers(self.db_path):
+                for (name,) in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='trigger' "
+                    "AND name LIKE '%\\_\\_crsql\\_%' ESCAPE '\\'"
+                ).fetchall():
+                    conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
             try:
                 applied = apply_all(conn, directory)
             except MigrationError as err:
@@ -199,7 +220,7 @@ class ProjectTrackerOps:
     )
 
     def _tracker_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, factory=_TranslatingConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
