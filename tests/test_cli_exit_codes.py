@@ -133,10 +133,15 @@ def test_an_exception_while_changing_a_card_exits_one(db, monkeypatch) -> None:
     import db.backend_manager as backend
 
     monkeypatch.setattr(backend.DatabaseManager, "update_task", boom)
-    for args in (["done", str(task["id"])], ["move", "proj", "999999"], ["cancel", str(task["id"])]):
+    db.add_project(project_id="other", name="Other", path="/tmp/other", status="active")
+    for args, message in (
+        (["done", str(task["id"])], "Failed to complete task"),
+        (["cancel", str(task["id"])], "Failed to cancel task"),
+        (["move", "other", str(task["id"])], "Failed to move task"),  # a real card: reaches update_task
+    ):
         result = _run(*args)
         assert result.exit_code == 1, (args, result.output)
-    assert "Failed to complete task" in _run("done", str(task["id"])).output
+        assert message in result.output, (args, result.output)
 
 
 def test_an_exception_while_deleting_exits_one(db, monkeypatch) -> None:
