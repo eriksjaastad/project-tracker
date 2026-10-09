@@ -69,5 +69,5 @@ def test_cli_transition_rejection(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     runner = CliRunner()
     result = runner.invoke(tasks_group, ["start", str(task["id"])])
-    assert result.exit_code == 0
+    assert result.exit_code == 1  # a refused transition is a failure (#8093)
     assert "Cannot move from Backlog to In Progress" in result.output

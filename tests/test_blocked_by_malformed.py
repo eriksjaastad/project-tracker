@@ -81,7 +81,7 @@ def test_readable_blocked_by_has_no_error(board):
 def test_pt_tasks_start_refuses_with_the_reason(board, malformed_card):
     display_id = board.get_task_display_id(malformed_card["id"])
     result = CliRunner().invoke(tasks_group, ["start", str(display_id)])
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output  # refused start fails (#8093)
     assert "Cannot start" in result.output
     assert "blocked_by unreadable" in result.output
     assert MALFORMED in result.output
