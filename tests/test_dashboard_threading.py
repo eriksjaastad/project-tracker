@@ -124,3 +124,30 @@ def test_unexpected_error_shapes_are_unchanged(monkeypatch):
 
     assert client.get("/api/tasks/99999999").status_code == 404
     assert client.get("/api/tasks/not-a-number").status_code in (400, 404, 422)
+
+
+def test_concurrent_marker_creates_are_not_lost(monkeypatch, tmp_path):
+    """Marker writes are load-modify-save on one file; in the threadpool they
+    must not interleave and drop each other's markers."""
+    monkeypatch.setattr(dashboard_app, "MARKERS_PATH", tmp_path / "markers.json")
+    real_load = dashboard_app._load_markers
+
+    def slow_load():
+        markers = real_load()
+        time.sleep(0.05)  # widen the read-modify-write window
+        return markers
+
+    monkeypatch.setattr(dashboard_app, "_load_markers", slow_load)
+    threads = [
+        threading.Thread(
+            target=dashboard_app.create_marker,
+            args=(dashboard_app.MarkerCreateRequest(date="2026-10-0%d" % (i + 1), label=f"m{i}"),),
+        )
+        for i in range(8)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    saved = json.loads((tmp_path / "markers.json").read_text())
+    assert sorted(m["label"] for m in saved) == [f"m{i}" for i in range(8)]

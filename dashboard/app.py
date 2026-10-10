@@ -2793,8 +2793,14 @@ def _load_markers() -> list:
     return data
 
 
+# Marker writes are load-modify-save on one file (and one .tmp name). The
+# handlers run in the threadpool, so writers hold this lock; reads need none,
+# because _save_markers replaces the file atomically.
+_markers_lock = threading.Lock()
+
+
 def _save_markers(markers: list) -> None:
-    """Atomically write markers to disk."""
+    """Atomically write markers to disk. Callers hold _markers_lock."""
     MARKERS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = MARKERS_PATH.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(markers, indent=2))
@@ -2842,63 +2848,66 @@ def get_markers():
 def create_marker(req: MarkerCreateRequest):
     """Create a new agentic marker."""
     _validate_marker_fields(req.date, req.label)
-    try:
-        markers = _load_markers()
-    except MarkersUnreadable as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
-        ) from exc
-    marker = {
-        "id": str(uuid.uuid4()),
-        "date": req.date,
-        "label": req.label.strip(),
-        "source": req.source if req.source in ("manual", "auto") else "manual",
-        "agent": req.agent or None,
-    }
-    markers.append(marker)
-    markers.sort(key=lambda m: m["date"])
-    _save_markers(markers)
-    return marker
+    with _markers_lock:
+        try:
+            markers = _load_markers()
+        except MarkersUnreadable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+            ) from exc
+        marker = {
+            "id": str(uuid.uuid4()),
+            "date": req.date,
+            "label": req.label.strip(),
+            "source": req.source if req.source in ("manual", "auto") else "manual",
+            "agent": req.agent or None,
+        }
+        markers.append(marker)
+        markers.sort(key=lambda m: m["date"])
+        _save_markers(markers)
+        return marker
 
 
 @app.patch("/api/agentic/markers/{marker_id}")
 def update_marker(marker_id: str, req: MarkerUpdateRequest):
     """Update an existing agentic marker by id."""
     _validate_marker_fields(req.date, req.label)
-    try:
-        markers = _load_markers()
-    except MarkersUnreadable as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
-        ) from exc
-    for m in markers:
-        if m.get("id") == marker_id:
-            if req.date is not None:
-                m["date"] = req.date
-            if req.label is not None:
-                m["label"] = req.label.strip()
-            if req.agent is not None:
-                m["agent"] = req.agent
-            markers.sort(key=lambda x: x["date"])
-            _save_markers(markers)
-            return m
-    raise HTTPException(status_code=404, detail="Marker not found")
+    with _markers_lock:
+        try:
+            markers = _load_markers()
+        except MarkersUnreadable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+            ) from exc
+        for m in markers:
+            if m.get("id") == marker_id:
+                if req.date is not None:
+                    m["date"] = req.date
+                if req.label is not None:
+                    m["label"] = req.label.strip()
+                if req.agent is not None:
+                    m["agent"] = req.agent
+                markers.sort(key=lambda x: x["date"])
+                _save_markers(markers)
+                return m
+        raise HTTPException(status_code=404, detail="Marker not found")
 
 
 @app.delete("/api/agentic/markers/{marker_id}", status_code=204)
 def delete_marker(marker_id: str):
     """Delete an agentic marker by id."""
-    try:
-        markers = _load_markers()
-    except MarkersUnreadable as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
-        ) from exc
-    updated = [m for m in markers if m.get("id") != marker_id]
-    if len(updated) == len(markers):
-        raise HTTPException(status_code=404, detail="Marker not found")
-    _save_markers(updated)
-    return None
+    with _markers_lock:
+        try:
+            markers = _load_markers()
+        except MarkersUnreadable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+            ) from exc
+        updated = [m for m in markers if m.get("id") != marker_id]
+        if len(updated) == len(markers):
+            raise HTTPException(status_code=404, detail="Marker not found")
+        _save_markers(updated)
+        return None
 
 
 @app.get("/api/tool-stats")
