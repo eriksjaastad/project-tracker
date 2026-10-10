@@ -42,7 +42,6 @@ from db.manager import DatabaseManager
 from db.outreach import ContactStateConflictError
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
-from discovery.code_review_parser import parse_code_review
 from discovery.agent_registry import run_agent_command
 from pydantic import BaseModel
 
@@ -535,7 +534,7 @@ def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, Li
 def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
     """Enrich all projects using bulk-fetched data (4 DB queries instead of 4N).
 
-    Populates: ai_agents, cron_jobs, services, tasks, code_review,
+    Populates: ai_agents, cron_jobs, services, tasks,
     and time formatting fields.
     """
     all_agents = _group_by_project(db.get_ai_agents())
@@ -579,13 +578,6 @@ def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
         project["todo_count"] = len([t for t in tasks if t.get("status") == "To Do"])
         project["in_progress_count"] = len([t for t in tasks if t.get("status") == "In Progress"])
         project["review_count"] = len([t for t in tasks if t.get("status") == "Review"])
-
-        # Code review (filesystem — kept per-project, cheap)
-        review_path = Path(project["path"]) / "CODE_REVIEW.md"
-        if review_path.exists():
-            review_data = parse_code_review(review_path)
-            if review_data and review_data.get("completion_pct", 100) < 100:
-                project["code_review"] = review_data
 
         # Time formatting
         project["last_modified_human"] = format_time_ago(project.get("last_modified", ""))

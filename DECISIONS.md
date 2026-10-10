@@ -30,7 +30,8 @@ never installed and nothing consumed the output. Its pipeline reused cached
 batches, atlas entries and clusters without checking they were current, and
 fixing that properly would mean redesigning the cache around what each stage
 consumes. #7973 had just moved it to OpenRouter. Retiring it is cheaper than
-that redesign. The older prompt-only `scripts/doc_audit.py` is not affected.
+that redesign. The older prompt-only `scripts/doc_audit.py` is not affected (it was cut
+later in #8093; last version at b1a138a).
 To bring document auditing back, start from git history (last version at the
 #7973 merge, 4d5f637) and design cache invalidation first.
 
