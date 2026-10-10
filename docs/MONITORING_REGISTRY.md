@@ -25,8 +25,8 @@ block (added 2026-09-22) adds only what a monitor needs: production URL, repo,
 provider, health check, scheduled jobs, backup destination, owner.
 
 `pt info get external_resources_doc` points at this file. Both this alias and
-`remote_pt_invocation` are seeded by `scripts/populate_info.py` during info-store
-population; an unpopulated store must be initialized before these lookups work.
+`remote_pt_invocation` live in the info store (`pt info set`); a rebuilt store
+must have them set again before these lookups work.
 Nothing else is a source of truth for external connections, and no second copy
 may be created — including on the Mini.
 

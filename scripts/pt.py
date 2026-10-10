@@ -3395,7 +3395,6 @@ def info_group(ctx, project, json_output):
       mac_mini_ssh         SSH connection string for Mac Mini
       git_identity         gha vs git vs gh conventions (personal identity)
       pr_merge_policy      PR review/merge procedure (mirrors agent-runtime-config)
-      pr_sizing_policy     ~500-line PR target for reviewability (with fallback)
 
     \b
     Per-project keys (pt info -p <project>):
@@ -3403,11 +3402,6 @@ def info_group(ctx, project, json_output):
       deploy_target        Where it runs (Vercel, Railway, Docker, local)
       doppler              Doppler project/config (e.g. project-tracker/dev)
       infrastructure       Databases, services, cron jobs, external deps
-
-    \b
-    Repopulate after DB rebuild:
-      uv run scripts/populate_info.py          # Auto-detect and set all
-      uv run scripts/populate_info.py --dry-run  # Preview first
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -3464,21 +3458,6 @@ def info_get(key, project, json_output):
     db = DatabaseManager()
     entries = db.get_info(project_id=project, key=key)
     if not entries:
-        # Fallback: check populate_info.py GLOBAL_KEYS for pr_sizing_policy only
-        # (limiting to pr_sizing_policy prevents undoing intentional key deletes)
-        if not project and key == "pr_sizing_policy":
-            try:
-                from scripts.populate_info import GLOBAL_KEYS
-                if key in GLOBAL_KEYS:
-                    value = GLOBAL_KEYS[key]
-                    if json_output:
-                        click.echo(json_mod.dumps({"key": key, "value": value, "source": "fallback"}, indent=2))
-                    else:
-                        click.echo(value)
-                    return
-            except ImportError as e:
-                # Surface import failure instead of silently looking like "No entry found"
-                click.echo(f"Warning: Could not load fallback for '{key}': {e}", err=True)
         scope = f" for project '{project}'" if project else " (global)"
         click.echo(f"No entry found for '{key}'{scope}")
         return
