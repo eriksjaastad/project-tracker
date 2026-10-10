@@ -209,3 +209,89 @@ def test_concurrent_marker_creates_are_not_lost(live_server, monkeypatch, tmp_pa
     assert [r.status_code for r in results] == [201] * 8, [r.text[:200] for r in results]
     saved = json.loads((tmp_path / "markers.json").read_text())
     assert sorted(m["label"] for m in saved) == [f"m{i}" for i in range(8)]
+
+
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Sync on main already, with its own non-blocking try-lock.
+UNSERIALIZED_WRITES = {"refresh_codebase_size"}
+
+
+def test_every_write_route_is_serialized():
+    """A new POST/PUT/PATCH/DELETE handler must take the write lock too."""
+    missing = sorted(
+        route.endpoint.__name__
+        for route in dashboard_app.app.routes
+        if getattr(route, "methods", None) and route.methods & WRITE_METHODS
+        and not getattr(route.endpoint, "serialized", False)
+        and route.endpoint.__name__ not in UNSERIALIZED_WRITES
+    )
+    assert missing == []
+
+
+def test_background_graph_rebuild_does_not_hold_the_write_lock(live_server, monkeypatch, tmp_path):
+    """/api/refresh answers, then rebuilds the graph in a background task; that
+    rebuild must not stall other writes (main ran it in parallel)."""
+    monkeypatch.setattr(dashboard_app, "discover_projects", lambda: [])
+    monkeypatch.setattr(dashboard_app, "rebuild_project_graph", _slow(None))
+    monkeypatch.setattr(dashboard_app, "MARKERS_PATH", tmp_path / "markers.json")
+
+    assert httpx.post(f"{live_server}/api/refresh", timeout=10).status_code == 200
+    started = time.monotonic()
+    response = httpx.post(
+        f"{live_server}/api/agentic/markers",
+        json={"date": "2026-10-01", "label": "after refresh"},
+        timeout=10,
+    )
+    elapsed = time.monotonic() - started
+    assert response.status_code == 201
+    assert elapsed < HEALTH_BUDGET_SECONDS, f"write waited {elapsed:.2f}s behind the rebuild"
+
+
+def test_a_stalled_upload_body_does_not_block_other_writes(live_server, monkeypatch, tmp_path):
+    """The body is parsed before the handler runs, so a client that stops
+    sending mid-upload holds no lock."""
+    monkeypatch.setattr(dashboard_app, "MARKERS_PATH", tmp_path / "markers.json")
+    host, port = live_server.removeprefix("http://").split(":")
+    stalled = socket.create_connection((host, int(port)))
+    try:
+        stalled.sendall(
+            b"POST /api/tasks/1/attachments HTTP/1.1\r\n"
+            b"Host: x\r\nContent-Type: multipart/form-data; boundary=b\r\n"
+            b"Content-Length: 100000\r\n\r\n--b"
+        )
+        time.sleep(0.2)
+        started = time.monotonic()
+        response = httpx.post(
+            f"{live_server}/api/agentic/markers",
+            json={"date": "2026-10-01", "label": "during a stalled upload"},
+            timeout=10,
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        stalled.close()
+    assert response.status_code == 201
+    assert elapsed < HEALTH_BUDGET_SECONDS, f"write waited {elapsed:.2f}s behind a stalled upload"
+
+
+def test_failed_attachment_insert_leaves_no_file(monkeypatch, tmp_path):
+    """With no row to point at it, the stored file must not stay on disk."""
+    from fastapi.testclient import TestClient
+
+    class FailingInsertDB:
+        def get_task(self, task_id):
+            return {"id": task_id}
+
+        def add_attachment(self, **_kwargs):
+            raise RuntimeError("insert failed")
+
+    attach_dir = tmp_path / "attachments"
+    attach_dir.mkdir()
+    monkeypatch.setattr(dashboard_app, "attachments_dir", lambda _task_id: attach_dir)
+    monkeypatch.setattr(dashboard_app, "DatabaseManager", FailingInsertDB)
+    client = TestClient(dashboard_app.app, raise_server_exceptions=False)
+    response = client.post(
+        "/api/tasks/7/attachments", files={"file": ("a.txt", b"hello", "text/plain")}
+    )
+    assert response.status_code == 500
+    assert list(attach_dir.iterdir()) == []
+

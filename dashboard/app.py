@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import os
 import shutil
 import subprocess
-import asyncio
+import functools
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import httpx
@@ -18,7 +18,6 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.background import BackgroundTask
-from starlette.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 import re
 import sqlite3
@@ -81,41 +80,27 @@ async def _lifespan(application: FastAPI):
 app = FastAPI(title="Project Tracker Dashboard", lifespan=_lifespan)
 
 
-class _SerializeWrites:
-    """Run mutating requests one at a time; reads stay concurrent.
 
-    Blocking handlers are plain ``def`` so FastAPI runs them in its threadpool
-    and the event loop stays free. On the loop they used to run one at a time,
-    which made every write request atomic against every other one (status
-    transitions checked then written, load-modify-save files, delete backups).
-    This keeps that guarantee for POST/PUT/PATCH/DELETE without blocking the
-    loop: a waiting write holds no thread. GET handlers only read.
-    """
-
-    _MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
-
-    def __init__(self, app):
-        self.app = app
-        self._lock: asyncio.Lock | None = None
-        self._lock_loop = None
-
-    def _loop_lock(self) -> asyncio.Lock:
-        # An asyncio.Lock belongs to one event loop; make it on the loop that
-        # serves requests (one per process in production, one per test server).
-        loop = asyncio.get_running_loop()
-        if self._lock_loop is not loop:
-            self._lock, self._lock_loop = asyncio.Lock(), loop
-        return self._lock
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope["method"] in self._MUTATING:
-            async with self._loop_lock():
-                await self.app(scope, receive, send)
-        else:
-            await self.app(scope, receive, send)
+# Write handlers run one at a time. Blocking handlers are plain ``def`` so
+# FastAPI runs them in its threadpool and the event loop stays free; on the
+# loop they used to run one at a time, which made every write atomic against
+# every other (a status transition checked then written, a load-modify-save
+# file, a delete backup). The lock covers only the handler's own work: the
+# request body is parsed before it runs and background tasks run after it.
+# GET handlers only read and stay concurrent.
+_write_lock = threading.Lock()
 
 
-app.add_middleware(_SerializeWrites)
+def _serialized(fn):
+    """Run a write handler while holding ``_write_lock``."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _write_lock:
+            return fn(*args, **kwargs)
+
+    wrapper.serialized = True
+    return wrapper
 
 # Wall-clock and monotonic marks taken at import so /api/health can report how
 # long this process has been up (a restarted dashboard looks identical to a
@@ -791,6 +776,7 @@ async def api_navigation():
 
 
 @app.post("/api/refresh")
+@_serialized
 def refresh_data():
     """Trigger full data refresh."""
     try:
@@ -1119,6 +1105,7 @@ def api_calendar_events(
 
 
 @app.post("/api/calendar/events")
+@_serialized
 def api_calendar_create(payload: CalendarEventCreate):
     """Create a calendar event."""
     try:
@@ -1145,6 +1132,7 @@ def api_calendar_create(payload: CalendarEventCreate):
 
 
 @app.patch("/api/calendar/events/{event_id}/done")
+@_serialized
 def api_calendar_done(event_id: int):
     """Mark calendar event as done."""
     try:
@@ -1982,6 +1970,7 @@ def _extract_pattern_from_error(error_message: str) -> Optional[str]:
 # --- Task API Endpoints ---
 
 @app.post("/api/tasks", status_code=status.HTTP_201_CREATED)
+@_serialized
 def create_task(task_data: TaskCreateRequest):
     """Create a new task.
 
@@ -2263,6 +2252,7 @@ def get_task(task_id: int):
 
 
 @app.patch("/api/tasks/{task_id:int}")
+@_serialized
 def update_task(task_id: int, task_data: TaskUpdateRequest):
     """Update a task (text, status, priority).
     
@@ -2370,6 +2360,7 @@ def update_task(task_id: int, task_data: TaskUpdateRequest):
 
 
 @app.post("/api/tasks/{task_id:int}/checklist")
+@_serialized
 def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
     """Tick or untick one notes checklist line as a server-side atomic toggle (#7821).
 
@@ -2448,6 +2439,7 @@ def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
 
 
 @app.delete("/api/tasks/{task_id:int}", status_code=status.HTTP_200_OK)
+@_serialized
 def delete_task(task_id: int):
     """Delete a single task."""
     try:
@@ -2500,40 +2492,33 @@ def _stringify_attachment_ids(record: dict) -> dict:
 
 
 @app.post("/api/tasks/{task_id:int}/attachments", status_code=status.HTTP_201_CREATED)
-async def upload_attachment(task_id: int, file: UploadFile = File(...)):
+@_serialized
+def upload_attachment(task_id: int, file: UploadFile = File(...)):
     """Upload a file and attach it to a task."""
     import mimetypes
 
-    # This handler awaits the upload stream, so it stays async; every blocking
-    # call (sqlite, directory creation, disk writes) goes to the threadpool.
-    db = await run_in_threadpool(DatabaseManager)
-    task = await run_in_threadpool(db.get_task, task_id)
+    db = DatabaseManager()
+    task = db.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
-    # Stream to a temp file so we never hold >ATTACHMENT_MAX_BYTES in RAM
-    dest_dir = await run_in_threadpool(attachments_dir, task_id)
+    # The request parser has already spooled the upload; copy it in chunks so
+    # we never hold >ATTACHMENT_MAX_BYTES in RAM.
+    dest_dir = attachments_dir(task_id)
     ext = Path(file.filename or "upload").suffix
     stored_name = f"{uuid.uuid4()}{ext}"
     dest_path = dest_dir / stored_name
 
     size = 0
-    out = await run_in_threadpool(dest_path.open, "wb")
     try:
-        while chunk := await file.read(65_536):  # 64 KB chunks
-            size += len(chunk)
-            if size > ATTACHMENT_MAX_BYTES:
-                out.close()
-                await run_in_threadpool(dest_path.unlink, missing_ok=True)
-                raise HTTPException(status_code=413, detail="File exceeds 20 MB limit")
-            await run_in_threadpool(out.write, chunk)
-    finally:
-        out.close()
-
-    mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0]
-    try:
-        record = await run_in_threadpool(
-            db.add_attachment,
+        with dest_path.open("wb") as out:
+            while chunk := file.file.read(65_536):  # 64 KB chunks
+                size += len(chunk)
+                if size > ATTACHMENT_MAX_BYTES:
+                    raise HTTPException(status_code=413, detail="File exceeds 20 MB limit")
+                out.write(chunk)
+        mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0]
+        record = db.add_attachment(
             task_id=task_id,
             filename=file.filename or stored_name,
             stored_name=stored_name,
@@ -2541,8 +2526,8 @@ async def upload_attachment(task_id: int, file: UploadFile = File(...)):
             size_bytes=size,
         )
     except BaseException:
-        # No row points at the stored file, so it must not stay on disk.
-        await run_in_threadpool(dest_path.unlink, missing_ok=True)
+        # No row points at a partial, oversized or unrecorded file.
+        dest_path.unlink(missing_ok=True)  # governance: allow-delete DS001: this request created the file moments ago and no attachment row references it
         raise
     return _stringify_attachment_ids(record)
 
@@ -2557,6 +2542,7 @@ def list_attachments(task_id: int):
 
 
 @app.delete("/api/tasks/{task_id:int}/attachments/{attachment_id}", status_code=status.HTTP_200_OK)
+@_serialized
 def delete_attachment(task_id: int, attachment_id: int):
     """Delete an attachment record and its file from disk."""
     db = DatabaseManager()
@@ -2871,6 +2857,7 @@ def get_markers():
 
 
 @app.post("/api/agentic/markers", status_code=201)
+@_serialized
 def create_marker(req: MarkerCreateRequest):
     """Create a new agentic marker."""
     _validate_marker_fields(req.date, req.label)
@@ -2894,6 +2881,7 @@ def create_marker(req: MarkerCreateRequest):
 
 
 @app.patch("/api/agentic/markers/{marker_id}")
+@_serialized
 def update_marker(marker_id: str, req: MarkerUpdateRequest):
     """Update an existing agentic marker by id."""
     _validate_marker_fields(req.date, req.label)
@@ -2918,6 +2906,7 @@ def update_marker(marker_id: str, req: MarkerUpdateRequest):
 
 
 @app.delete("/api/agentic/markers/{marker_id}", status_code=204)
+@_serialized
 def delete_marker(marker_id: str):
     """Delete an agentic marker by id."""
     try:
@@ -3378,6 +3367,7 @@ def job_stats():
 
 
 @app.delete("/api/jobs/{job_id}")
+@_serialized
 def dismiss_job(job_id: int):
     try:
         job = DatabaseManager().soft_delete_job(job_id)
@@ -3390,6 +3380,7 @@ def dismiss_job(job_id: int):
 
 
 @app.post("/api/jobs/{job_id}/submissions", status_code=201)
+@_serialized
 def record_job_submission(job_id: int, payload: JobSubmissionRequest):
     try:
         submission = DatabaseManager().add_job_submission(
@@ -3406,6 +3397,7 @@ def record_job_submission(job_id: int, payload: JobSubmissionRequest):
 
 
 @app.post("/api/jobs/{job_id}/agent-prompt")
+@_serialized
 def queue_job_agent_prompt(request: Request, job_id: int):
     """Queue an agent prompt to tailor resume and cover letter for a job.
     
@@ -3481,6 +3473,7 @@ def list_outreach_contacts():
 
 
 @app.post("/api/outreach/contacts", status_code=201)
+@_serialized
 def add_outreach_contact(payload: OutreachContactRequest):
     try:
         contact = DatabaseManager().add_contact(payload.name)
@@ -3493,6 +3486,7 @@ def add_outreach_contact(payload: OutreachContactRequest):
 
 
 @app.patch("/api/outreach/contacts/{contact_id}")
+@_serialized
 def rename_outreach_contact(contact_id: int, payload: OutreachContactRequest):
     try:
         contact = DatabaseManager().rename_contact(contact_id, payload.name)
@@ -3511,6 +3505,7 @@ def rename_outreach_contact(contact_id: int, payload: OutreachContactRequest):
 
 
 @app.post("/api/outreach/contacts/{contact_id}/contacted")
+@_serialized
 def mark_outreach_contacted(contact_id: int):
     try:
         contact = DatabaseManager().mark_contacted(contact_id)
@@ -3525,6 +3520,7 @@ def mark_outreach_contacted(contact_id: int):
 
 
 @app.post("/api/outreach/contacts/{contact_id}/replied")
+@_serialized
 def mark_outreach_replied(contact_id: int):
     try:
         contact = DatabaseManager().mark_replied(contact_id)
@@ -3539,6 +3535,7 @@ def mark_outreach_replied(contact_id: int):
 
 
 @app.delete("/api/outreach/contacts/{contact_id}")
+@_serialized
 def soft_delete_outreach_contact(contact_id: int):
     try:
         contact = DatabaseManager().soft_delete_contact(contact_id)
@@ -3592,6 +3589,7 @@ def get_ideas():
 
 
 @app.post("/api/ideas", status_code=status.HTTP_201_CREATED)
+@_serialized
 def create_idea(idea_data: IdeaCreateRequest):
     """Create a new idea.
     
@@ -3620,6 +3618,7 @@ def create_idea(idea_data: IdeaCreateRequest):
 
 
 @app.patch("/api/ideas/{idea_id}")
+@_serialized
 def update_idea(idea_id: int, idea_data: IdeaUpdateRequest):
     """Update an idea's text.
     
@@ -3649,6 +3648,7 @@ def update_idea(idea_id: int, idea_data: IdeaUpdateRequest):
 
 
 @app.delete("/api/ideas/{idea_id}", status_code=status.HTTP_200_OK)
+@_serialized
 def delete_idea(idea_id: int):
     """Delete an idea.
     
