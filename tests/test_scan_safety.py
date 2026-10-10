@@ -141,7 +141,7 @@ def test_scan_integrity_check_zero_projects_aborts(scan_env, monkeypatch, capsys
 
     monkeypatch.setattr(pt, "discover_projects", lambda *_args, **_kwargs: [])
 
-    pt.scan(no_graph=True, dry_run=False, force=False)
+    pt._scan_impl(no_graph=True, dry_run=False, force=False)
     out = capsys.readouterr().out
 
     assert "Scan found 0 projects" in out
@@ -171,7 +171,7 @@ def test_scan_integrity_check_drop_aborts_without_force(scan_env, monkeypatch, c
         lambda *_args, **_kwargs: [_project_metadata(project_dir, "proj-0")]
     )
 
-    pt.scan(no_graph=True, dry_run=False, force=False)
+    pt._scan_impl(no_graph=True, dry_run=False, force=False)
     out = capsys.readouterr().out
 
     assert "far fewer projects" in out
@@ -203,7 +203,7 @@ def test_scan_integrity_check_force_allows(scan_env, monkeypatch):
     monkeypatch.setattr(pt, "scan_health_parallel", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(pt, "parse_external_resources", lambda: {})
 
-    pt.scan(no_graph=True, dry_run=False, force=True)
+    pt._scan_impl(no_graph=True, dry_run=False, force=True)
 
     proj = db.get_project("proj-0")
     assert proj["status"] == "active"
@@ -240,7 +240,7 @@ def test_scan_per_project_transaction_rolls_back_on_failure(scan_env, monkeypatc
 
     monkeypatch.setattr(backend_manager.DatabaseManager, "_sync_cron_jobs_with_cursor", _raise_on_bad)
 
-    pt.scan(no_graph=True, dry_run=False, force=True)
+    pt._scan_impl(no_graph=True, dry_run=False, force=True)
 
     assert db.get_project("good")["status"] == "active"
     assert db.get_project("bad")["status"] == "paused"
@@ -269,7 +269,7 @@ def test_scan_per_project_transaction_commits_success(scan_env, monkeypatch):
     monkeypatch.setattr(pt, "scan_health_parallel", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(pt, "parse_external_resources", lambda: {})
 
-    pt.scan(no_graph=True, dry_run=False, force=True)
+    pt._scan_impl(no_graph=True, dry_run=False, force=True)
 
     assert db.get_project("a")["status"] == "active"
     assert db.get_project("b")["status"] == "active"
@@ -293,7 +293,7 @@ def test_scan_persists_portfolio_project_info(scan_env, monkeypatch):
     monkeypatch.setattr(pt, "scan_health_parallel", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(pt, "parse_external_resources", lambda: {})
 
-    pt.scan(no_graph=True, dry_run=False, force=True)
+    pt._scan_impl(no_graph=True, dry_run=False, force=True)
 
     assert db.get_info(project_id="smart-invoice-workflow", key="portfolio_group")[0]["value"] == "AP"
     assert db.get_info(project_id="smart-invoice-workflow", key="portfolio_label")[0]["value"] == "[AP]"
@@ -317,7 +317,7 @@ def test_scan_dry_run_skips_writes(scan_env, monkeypatch, capsys):
         lambda *_args, **_kwargs: [_project_metadata(project_dir, "demo", status="active")]
     )
 
-    pt.scan(no_graph=True, dry_run=True, force=True)
+    pt._scan_impl(no_graph=True, dry_run=True, force=True)
     out = capsys.readouterr().out
 
     assert "Dry-run" in out
@@ -340,7 +340,7 @@ def test_scan_dry_run_reports_projects(scan_env, monkeypatch, capsys):
         lambda *_args, **_kwargs: [_project_metadata(project_dir, "demo")]
     )
 
-    pt.scan(no_graph=True, dry_run=True, force=True)
+    pt._scan_impl(no_graph=True, dry_run=True, force=True)
     out = capsys.readouterr().out
 
     assert "Found 1 projects" in out
@@ -404,7 +404,7 @@ def test_scan_aborts_before_writes_when_resources_registry_is_unusable(scan_env,
     monkeypatch.setattr(pt, "parse_external_resources", lambda: parse_external_resources(registry_path))
 
     with pytest.raises(SystemExit) as excinfo:
-        pt.scan(no_graph=True, dry_run=False, force=True)
+        pt._scan_impl(no_graph=True, dry_run=False, force=True)
     assert excinfo.value.code == 1
 
     assert [s["service_name"] for s in db.get_services(project_id="proj-0")] == ["Doppler"]

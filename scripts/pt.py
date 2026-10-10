@@ -14,9 +14,10 @@ Common Commands:
 - pt scan      # Scan for new projects and rebuild graph
 - pt launch    # Start the web dashboard
 - pt list      # List all projects in terminal
-- pt help      # Show help
+- pt --help    # Show help
 """
 
+import copy
 import os
 import shutil
 import sqlite3
@@ -592,6 +593,14 @@ def _detect_project_from_cwd(db):
 # Top-level commands
 # =============================================================================
 
+def _hidden_alias(command: click.Command, name: str) -> click.Command:
+    """The same command (same callback and options) under a second, hidden name."""
+    alias = copy.copy(command)
+    alias.name = name
+    alias.hidden = True
+    return alias
+
+
 @cli.command()
 def init():
     """Initialize the project tracker database."""
@@ -600,18 +609,23 @@ def init():
     console.print(f"✅ Database created at: {db_path}")
 
 
-def scan(no_graph, dry_run, force):
-    """Scan projects directory and update database."""
-    _scan_impl(no_graph=no_graph, dry_run=dry_run, force=force)
-
-
 @cli.command(name="scan")
 @click.option("--no-graph", is_flag=True, help="Skip rebuilding the project graph")
 @click.option("--dry-run", is_flag=True, help="Show what would change without writing")
 @click.option("--force", is_flag=True, help="Proceed even if scan results look unsafe")
 def scan_cli(no_graph, dry_run, force):
-    """Scan projects directory and update database."""
-    scan(no_graph=no_graph, dry_run=dry_run, force=force)
+    """Scan the projects directory and update the database.
+
+    Rescans every repo under PROJECTS_ROOT and rebuilds the project graph
+    (skip that with --no-graph). For a single project, `pt sync-project NAME`
+    is faster.
+    """
+    _scan_impl(no_graph=no_graph, dry_run=dry_run, force=force)
+
+
+# `pt refresh` is the old spelling of `pt scan`: the same command object under a
+# second, hidden name, so the two cannot drift apart.
+cli.add_command(_hidden_alias(scan_cli, "refresh"))
 
 
 @cli.command(name="list")
@@ -666,14 +680,6 @@ def status(name):
             cost = f" (${service['cost_monthly']}/mo)" if service.get('cost_monthly') else ""
             console.print(f"  • {service['service_name']}{cost}")
     console.print()
-
-
-@cli.command()
-@click.option("--no-graph", is_flag=True, help="Skip rebuilding the project graph")
-def refresh(no_graph):
-    """Refresh all project metadata."""
-    console.print("[bold blue]Refreshing project data...[/bold blue]")
-    _scan_impl(no_graph=no_graph)
 
 
 @cli.command(name="sync-project")
@@ -738,12 +744,33 @@ def sync_project(project_name, no_graph):
 @click.option("--project", "project_name", default=None, help="Inspect only one repo by name")
 @click.option("--quiet", is_flag=True, help="Only show repos with at least one finding")
 def hygiene(json_output: bool, project_name: Optional[str], quiet: bool) -> None:
-    """Check portfolio-wide git hygiene state.
+    """Check portfolio-wide git hygiene state. Read-only.
 
-    Detects: dirty working tree, local-only branches, branches ahead of remote,
-    stashes, open bot PRs older than 24h, and stale PROGRESS.md files.
+    \b
+    pt hygiene --json                        portfolio-wide scan, JSON
+    pt hygiene --json --project my-project   one repo
+    pt hygiene --quiet                       human output, findings only
 
-    Exit 0 = all repos clean; exit 6 = at least one finding.
+    Detects: dirty working tree (PROGRESS.md excluded), local-only branches,
+    branches ahead of remote, stashes, open bot PRs older than 24h, and a
+    stale PROGRESS.md (over 7 days old while the repo has uncommitted work).
+
+    Exit 0 = all repos clean; exit 6 = at least one finding (for cron
+    branching).
+
+    --json emits schema pt.hygiene.v1. Each entry under "results" has one of
+    two disjoint shapes:
+
+    \b
+    - scanned:  {project, path, clean, findings: {dirty_tree,
+                local_only_branches, branches_ahead_of_remote, stashes,
+                open_pr_drift, stale_progress_md}}  (all six keys present;
+                each finding has "present")
+    - failed:   {project, path, clean: false, error: {class, message}}
+                ("findings" is omitted, so a broken repo never reads as
+                checked-and-clean)
+
+    Consumers must check for "error" before reading "findings".
     """
     from datetime import timezone
 
@@ -1378,11 +1405,18 @@ def retire_project(project, execute, keep_files, yes):
         console.print(f"[yellow]Remember: {len(refs)} stale reference(s) in {len({r[0] for r in refs})} file(s) still need manual review.[/yellow]")
 
 
-@cli.command()
+@cli.command(name="help", hidden=True)
+@click.argument("command", nargs=-1)
 @click.pass_context
-def help(ctx):
-    """Show this help message."""
-    click.echo(ctx.parent.get_help())
+def help_command(ctx, command):
+    """Show click's own --help for pt, or for `pt help COMMAND [SUBCOMMAND...]`."""
+    target = ctx.parent
+    for name in command:
+        sub = target.command.get_command(target, name) if isinstance(target.command, click.Group) else None
+        if sub is None:
+            raise click.UsageError(f"No such command '{name}'.", ctx=target)
+        target = click.Context(sub, info_name=name, parent=target)
+    click.echo(target.get_help())
 
 
 # =============================================================================
@@ -1568,31 +1602,25 @@ def backup_restore(backup_name: str, yes: bool):
 # Tasks group
 # =============================================================================
 
-@click.group(name="tasks", invoke_without_command=True)
-@click.pass_context
-@click.option("-p", "--project", default=None, help="Filter by project name or ID")
-@click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Review, Done)")
-@click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-@click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
-@click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)")
-@click.option("--proposals", is_flag=True, help="Show only proposal tasks")
-@click.option("--archived", is_flag=True, help="Show only archived Done cards (hidden from the board, never deleted)")
-def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready, proposals, archived):
-    """Manage Kanban board tasks.
+def _tasks_list_options(f):
+    """The one option set shared by `pt tasks` and `pt tasks list`."""
+    for option in reversed([
+        click.option("-p", "--project", default=None, help="Filter by project name or ID"),
+        click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Review, Done)"),
+        click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks"),
+        click.option("--board", is_flag=True, help="Show columnar Kanban board view"),
+        click.option("--json", "json_output", is_flag=True, help="Output as JSON"),
+        click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts"),
+        click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)"),
+        click.option("--proposals", is_flag=True, help="Show only proposal tasks"),
+        click.option("--archived", is_flag=True, help="Show only archived Done cards (hidden from the board, never deleted)"),
+    ]):
+        f = option(f)
+    return f
 
-    \b
-    Examples:
-        pt tasks                       # Show open tasks (all projects)
-        pt tasks -p project-tracker    # Tasks for a specific project
-        pt tasks -s "In Progress"      # Filter by status
-        pt tasks --all                 # Include completed tasks
-        pt tasks --archived            # Show archived Done cards
-        pt tasks --proposals           # Show only proposals
-        pt tasks create "Fix bug" -p myproject -d "- [ ] pytest tests/test_foo.py passes"
 
-    """
-    if ctx.invoked_subcommand is not None: return
+def _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
+    """List tasks. Both `pt tasks` and `pt tasks list` run exactly this."""
     db = DatabaseManager()
     if project:
         project_id = _resolve_project_id(db, project)
@@ -1614,49 +1642,6 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
         task_list = [t for t in task_list if t.get("task_type") == "proposal"]
     else:
         # Hide proposals from default listing unless --all is used
-        if not show_all:
-            task_list = [t for t in task_list if t.get("task_type") != "proposal"]
-        if not show_all and not status:
-            task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
-    if needs_prompt:
-        task_list = [t for t in task_list if not t.get("prompt")]
-    if ready:
-        task_list = [t for t in task_list if t["status"] == "To Do" and _has_complete_prompt(t.get("prompt"))]
-    _display_tasks(task_list, project_label, json_output=json_output, db=db)
-
-
-@tasks_group.command(name="list")
-@click.option("-p", "--project", default=None, help="Filter by project name or ID")
-@click.option("-s", "--status", default=None, help="Filter by status")
-@click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
-@click.option("--board", is_flag=True, help="Show columnar Kanban board view")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-@click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
-@click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts")
-@click.option("--proposals", is_flag=True, help="Show only proposal tasks")
-@click.option("--archived", is_flag=True, help="Show only archived Done cards (hidden from the board, never deleted)")
-def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
-    """List tasks from the Kanban board."""
-    db = DatabaseManager()
-    if project:
-        project_id = _resolve_project_id(db, project)
-        project_label = project
-        if not project_id:
-            console.print(f"[red]Project '{project}' not found[/red]"); return
-    else:
-        project_id = _detect_project_from_cwd(db)
-        project_label = None
-        if project_id:
-            detected = db.get_project(project_id)
-            project_label = detected["name"] if detected else None
-    task_list = db.get_tasks(project_id=project_id, status=status, include_archived=archived)
-    if archived:
-        # --archived is a retention view: only the Done cards the per-project
-        # display cap has hidden. They still exist and are never deleted.
-        task_list = [t for t in task_list if t.get("archived_at")]
-    elif proposals:
-        task_list = [t for t in task_list if t.get("task_type") == "proposal"]
-    else:
         if not show_all:
             task_list = [t for t in task_list if t.get("task_type") != "proposal"]
         if not show_all and not status:
@@ -1689,6 +1674,38 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
         console.print(table)
         return
     _display_tasks(task_list, project_label, json_output=json_output, db=db)
+
+
+@click.group(name="tasks", invoke_without_command=True)
+@click.pass_context
+@_tasks_list_options
+def tasks_group(ctx, project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
+    """Manage Kanban board tasks.
+
+    Bare `pt tasks` and `pt tasks list` are the same command with the same
+    options.
+
+    \b
+    Examples:
+        pt tasks                       # Show open tasks (all projects)
+        pt tasks -p project-tracker    # Tasks for a specific project
+        pt tasks -s "In Progress"      # Filter by status
+        pt tasks --all                 # Include completed tasks
+        pt tasks --archived            # Show archived Done cards
+        pt tasks --proposals           # Show only proposals
+        pt tasks --board               # Columnar Kanban view
+        pt tasks create "Fix bug" -p myproject -d "- [ ] pytest tests/test_foo.py passes"
+
+    """
+    if ctx.invoked_subcommand is not None: return
+    _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived)
+
+
+@tasks_group.command(name="list")
+@_tasks_list_options
+def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
+    """List tasks from the Kanban board (same as bare `pt tasks`)."""
+    _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived)
 
 
 @tasks_group.command(name="create")
