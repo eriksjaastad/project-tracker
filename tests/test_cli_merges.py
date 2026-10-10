@@ -226,3 +226,11 @@ def test_scan_options_before_a_hygiene_subcommand_are_a_usage_error(opts) -> Non
     result = CliRunner().invoke(pt.cli, ["hygiene", *opts, "worktrees", "list"])
     assert result.exit_code == 2, result.output
     assert "apply to the hygiene scan" in result.output
+
+
+def test_hygiene_and_scan_help_carry_their_usage_contract() -> None:
+    """The hygiene JSON contract and scan usage live in --help, not in USAGE.md."""
+    hygiene_help = CliRunner().invoke(pt.cli, ["hygiene", "--help"]).output
+    for needle in ("pt.hygiene.v1", "exit 6", '"error"', "findings", "worktrees"):
+        assert needle in hygiene_help, needle
+    assert "sync-project" in CliRunner().invoke(pt.cli, ["scan", "--help"]).output

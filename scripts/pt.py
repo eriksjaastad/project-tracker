@@ -614,7 +614,12 @@ def init():
 @click.option("--dry-run", is_flag=True, help="Show what would change without writing")
 @click.option("--force", is_flag=True, help="Proceed even if scan results look unsafe")
 def scan_cli(no_graph, dry_run, force):
-    """Scan projects directory and update database."""
+    """Scan the projects directory and update the database.
+
+    Rescans every repo under PROJECTS_ROOT and rebuilds the project graph
+    (skip that with --no-graph). For a single project, `pt sync-project NAME`
+    is faster.
+    """
     _scan_impl(no_graph=no_graph, dry_run=dry_run, force=force)
 
 
@@ -742,12 +747,32 @@ def sync_project(project_name, no_graph):
 def hygiene(ctx, json_output: bool, project_name: Optional[str], quiet: bool) -> None:
     """Check portfolio-wide git hygiene state.
 
-    Detects: dirty working tree, local-only branches, branches ahead of remote,
-    stashes, open bot PRs older than 24h, and stale PROGRESS.md files.
+    \b
+    pt hygiene --json                        portfolio-wide scan, JSON
+    pt hygiene --json --project my-project   one repo
+    pt hygiene --quiet                       human output, findings only
+    pt hygiene worktrees [list|clean]        this repo's .claude/worktrees/
 
-    Exit 0 = all repos clean; exit 6 = at least one finding.
+    Detects: dirty working tree (PROGRESS.md excluded), local-only branches,
+    branches ahead of remote, stashes, open bot PRs older than 24h, and a
+    stale PROGRESS.md (over 7 days old while the repo has uncommitted work).
 
-    `pt hygiene worktrees` lists and cleans this repo's .claude/worktrees/.
+    Exit 0 = all repos clean; exit 6 = at least one finding (for cron
+    branching). Read-only.
+
+    --json emits schema pt.hygiene.v1. Each entry under "results" has one of
+    two disjoint shapes:
+
+    \b
+    - scanned:  {project, path, clean, findings: {dirty_tree,
+                local_only_branches, branches_ahead_of_remote, stashes,
+                open_pr_drift, stale_progress_md}}  (all six keys present;
+                each finding has "present")
+    - failed:   {project, path, clean: false, error: {class, message}}
+                ("findings" is omitted, so a broken repo never reads as
+                checked-and-clean)
+
+    Consumers must check for "error" before reading "findings".
     """
     if ctx.invoked_subcommand is not None:
         if json_output or project_name or quiet:

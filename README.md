@@ -50,7 +50,6 @@ project-tracker/
 ```bash
 uv run pytest tests/                    # Run tests
 cd dashboard/frontend && npm run build  # Rebuild React frontend
-pt scan                               # Rescan projects directory
 pt sync-project project-tracker       # Refresh one project only
 ```
 
