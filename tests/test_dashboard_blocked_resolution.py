@@ -55,14 +55,7 @@ def _blocked_view(db, task_id, monkeypatch):
     # status_filter must be passed explicitly: its default is a FastAPI
     # Query() marker that only the framework resolves.
     #
-    # run_until_complete on the existing loop, NOT asyncio.run() — the latter
-    # closes the loop on exit, and the other dashboard tests reach for
-    # get_event_loop() afterwards and got a closed one. That took out seven
-    # unrelated tests.
-    loop = asyncio.get_event_loop_policy().get_event_loop()
-    payload = loop.run_until_complete(
-        dashboard_app.list_tasks(project_id="alpha", status_filter=None)
-    )
+    payload = dashboard_app.list_tasks(project_id="alpha", status_filter=None)
     rows = payload["tasks"] if isinstance(payload, dict) else payload
     # str(): the API stringifies Snowflake-scale ids on the wire (#7824);
     # task_id here is the raw int from the DatabaseManager layer.
@@ -146,11 +139,7 @@ def test_cross_project_blockers_are_resolved_once_per_request(board, monkeypatch
     monkeypatch.setattr(board, "get_task", counting_get_task)
     monkeypatch.setattr(dashboard_app, "DatabaseManager", lambda *a, **k: board)
 
-    import asyncio
-    loop = asyncio.get_event_loop_policy().get_event_loop()
-    rows = loop.run_until_complete(
-        dashboard_app.list_tasks(project_id="alpha", status_filter=None)
-    )
+    rows = dashboard_app.list_tasks(project_id="alpha", status_filter=None)
     rows = rows["tasks"] if isinstance(rows, dict) else rows
 
     blocked = [r for r in rows if r.get("blocked_by_ids")]

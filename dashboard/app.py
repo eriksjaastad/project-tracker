@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 import re
 import sqlite3
@@ -689,7 +690,7 @@ def _enrich_task_payloads_with_display_ids(tasks: list[dict], db: DatabaseManage
 
 
 @app.get("/api/agent-chat/messages")
-async def api_agent_chat_messages(limit: int = 100):
+def api_agent_chat_messages(limit: int = 100):
     """Read-only Agent Chat board — ALL traffic, newest first (#7145).
 
     Deliberately does not default to inbox filtering. The CLI trap of a
@@ -751,9 +752,20 @@ async def api_navigation():
     return build_navigation_payload()
 
 
+# A refresh is a full scan plus upserts and stale-row deletes. Handlers now run
+# in worker threads, so two overlapping refreshes are serialized here as they
+# were when the handler ran on the event loop.
+_refresh_lock = threading.Lock()
+
+
 @app.post("/api/refresh")
-async def refresh_data():
+def refresh_data():
     """Trigger full data refresh."""
+    with _refresh_lock:
+        return _refresh_data_locked()
+
+
+def _refresh_data_locked():
     try:
         db = DatabaseManager()
         
@@ -811,7 +823,7 @@ async def refresh_data():
 
 
 @app.get("/api/projects")
-async def api_projects():
+def api_projects():
     """JSON API for projects."""
     db = DatabaseManager()
     projects = db.get_all_projects(order_by="last_modified DESC")
@@ -827,7 +839,7 @@ async def api_projects():
 
 
 @app.get("/api/task-policy")
-async def api_task_policy():
+def api_task_policy():
     """Return backend-owned task creation policy metadata for clients."""
     blocked_ids = get_blocked_card_project_ids()
     blocked_reasons = {project_id: get_blocked_card_reason(project_id) for project_id in blocked_ids}
@@ -838,7 +850,7 @@ async def api_task_policy():
 
 
 @app.get("/api/health")
-async def api_health():
+def api_health():
     """Deep health check: is this process actually able to serve requests?
 
     Deliberately NOT a liveness stub. The dashboard has twice (2026-07-06,
@@ -887,7 +899,7 @@ async def api_health():
 
 
 @app.get("/api/alerts")
-async def api_alerts():
+def api_alerts():
     """Get all alerts."""
     db = DatabaseManager()
     projects = db.get_all_projects()
@@ -898,7 +910,7 @@ async def api_alerts():
 
 
 @app.get("/api/kanban/breakdown")
-async def api_kanban_breakdown():
+def api_kanban_breakdown():
     """Per-project card counts for the open Kanban columns.
 
     Feeds the dashboard's board breakdown. Deliberately an aggregate rather
@@ -999,7 +1011,7 @@ async def proxy_costs(path: str, request: Request):
 
 
 @app.get("/api/shadow-pricing")
-async def shadow_pricing():
+def shadow_pricing():
     """Shadow pricing: what Claude Max usage would cost at API rates."""
     from dashboard.shadow_pricing import get_shadow_pricing_data
     try:
@@ -1055,7 +1067,7 @@ def _get_cal_manager():
 
 
 @app.get("/api/calendar/events")
-async def api_calendar_events(
+def api_calendar_events(
     days: int = 30,
     project_id: Optional[str] = None,
     machine: Optional[str] = None,
@@ -1080,7 +1092,7 @@ async def api_calendar_events(
 
 
 @app.post("/api/calendar/events")
-async def api_calendar_create(payload: CalendarEventCreate):
+def api_calendar_create(payload: CalendarEventCreate):
     """Create a calendar event."""
     try:
         cm = _get_cal_manager()
@@ -1106,7 +1118,7 @@ async def api_calendar_create(payload: CalendarEventCreate):
 
 
 @app.patch("/api/calendar/events/{event_id}/done")
-async def api_calendar_done(event_id: int):
+def api_calendar_done(event_id: int):
     """Mark calendar event as done."""
     try:
         cm = _get_cal_manager()
@@ -1121,7 +1133,7 @@ async def api_calendar_done(event_id: int):
 
 
 @app.get("/api/calendar/crons")
-async def api_calendar_crons(
+def api_calendar_crons(
     project_id: Optional[str] = None,
     machine: Optional[str] = None,
 ):
@@ -1137,13 +1149,17 @@ async def api_calendar_crons(
 
 _graph_cache: Dict = {"data": None, "timestamp": 0, "params": None}
 _GRAPH_CACHE_TTL = 300  # 5 minutes
+# Handlers run in worker threads, so the three cache keys must change together:
+# an unlocked reader could pair one request's data with another's params.
+_graph_cache_lock = threading.Lock()
 
 
 def _invalidate_graph_cache() -> None:
     """Drop the /api/memory-graph in-memory cache so the next request recomputes."""
-    _graph_cache["data"] = None
-    _graph_cache["timestamp"] = 0
-    _graph_cache["params"] = None
+    with _graph_cache_lock:
+        _graph_cache["data"] = None
+        _graph_cache["timestamp"] = 0
+        _graph_cache["params"] = None
 
 
 # ---- Rebuild job tracker -------------------------------------------------
@@ -1208,7 +1224,7 @@ async def memory_view(request: Request):
 
 
 @app.get("/api/memory-graph")
-async def get_memory_graph_data(
+def get_memory_graph_data(
     min_similarity: float = 0.3,   # Minimum similarity threshold for edges
     max_edges_per_node: int = 10,  # Limit edges per node to keep response size reasonable
     max_nodes: int = 1000          # Cap nodes to prevent N×N memory explosion
@@ -1223,10 +1239,11 @@ async def get_memory_graph_data(
     """
     now = _time()
     cache_key = (min_similarity, max_edges_per_node, max_nodes)
-    if (_graph_cache["data"] is not None
-            and now - _graph_cache["timestamp"] < _GRAPH_CACHE_TTL
-            and _graph_cache["params"] == cache_key):
-        return _graph_cache["data"]
+    with _graph_cache_lock:
+        if (_graph_cache["data"] is not None
+                and now - _graph_cache["timestamp"] < _GRAPH_CACHE_TTL
+                and _graph_cache["params"] == cache_key):
+            return _graph_cache["data"]
 
     projects_root = config_projects_root()
     brain_db_path = projects_root / "ai-memory" / "brain.db"
@@ -1318,9 +1335,10 @@ async def get_memory_graph_data(
             "edges": edges
         }
 
-        _graph_cache["data"] = result
-        _graph_cache["timestamp"] = _time()
-        _graph_cache["params"] = cache_key
+        with _graph_cache_lock:
+            _graph_cache["data"] = result
+            _graph_cache["timestamp"] = _time()
+            _graph_cache["params"] = cache_key
 
         return result
 
@@ -1401,7 +1419,7 @@ _AI_MEMORY_BUILD_SCHEDULE = "Mondays 10:00"
 
 @app.get("/api/ai-memory")
 @app.get("/api/knowledge-graph")  # legacy alias
-async def get_ai_memory_graph(request: Request):
+def get_ai_memory_graph(request: Request):
     """Return the ai-memory graph from brain.db (graph_nodes + graph_edges).
 
     Query params:
@@ -1519,7 +1537,7 @@ async def get_ai_memory_graph(request: Request):
 
 
 @app.get("/api/ai-memory/build-status")
-async def get_ai_memory_build_status():
+def get_ai_memory_build_status():
     """Read-only status of the weekly ai-memory graph build.
 
     Reads the cron receipt written by the Monday 10:00 job
@@ -1606,7 +1624,7 @@ def _cluster_dust_nodes(nodes: list[dict], degree: dict) -> tuple[list[dict], di
 
 
 @app.get("/api/memory/types")
-async def get_memory_types():
+def get_memory_types():
     """Return distinct thought types present in brain.db.
 
     Used by the frontend to populate filter dropdowns dynamically.
@@ -1644,7 +1662,7 @@ async def get_memory_types():
 
 
 @app.get("/api/memory/heatmap")
-async def get_memory_heatmap():
+def get_memory_heatmap():
     """Return thought density grouped by date and type for the heatmap view.
 
     Returns rows of { date, type, count } sorted chronologically.
@@ -1689,7 +1707,7 @@ async def get_memory_heatmap():
 
 
 @app.get("/api/graph")
-async def get_graph_data(
+def get_graph_data(
     project: Optional[str] = None,      # Filter to single project
     file_types: Optional[str] = None,   # Comma-separated: "py,ts,md"
     include_orphans: bool = True,       # Show orphaned nodes
@@ -1943,7 +1961,7 @@ def _extract_pattern_from_error(error_message: str) -> Optional[str]:
 # --- Task API Endpoints ---
 
 @app.post("/api/tasks", status_code=status.HTTP_201_CREATED)
-async def create_task(task_data: TaskCreateRequest):
+def create_task(task_data: TaskCreateRequest):
     """Create a new task.
 
     Args:
@@ -1993,7 +2011,7 @@ async def create_task(task_data: TaskCreateRequest):
 
 
 @app.get("/api/tasks")
-async def list_tasks(
+def list_tasks(
     project_id: Optional[str] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
     task_status: Optional[str] = None,
@@ -2164,7 +2182,7 @@ async def list_tasks(
 
 
 @app.get("/api/tasks/{task_id:int}")
-async def get_task(task_id: int):
+def get_task(task_id: int):
     """Get a single task by ID with full enriched data.
     
     Args:
@@ -2224,7 +2242,7 @@ async def get_task(task_id: int):
 
 
 @app.patch("/api/tasks/{task_id:int}")
-async def update_task(task_id: int, task_data: TaskUpdateRequest):
+def update_task(task_id: int, task_data: TaskUpdateRequest):
     """Update a task (text, status, priority).
     
     Args:
@@ -2331,7 +2349,7 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
 
 
 @app.post("/api/tasks/{task_id:int}/checklist")
-async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
+def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
     """Tick or untick one notes checklist line as a server-side atomic toggle (#7821).
 
     The toggle applies only to the notes the client saw: if the stored notes
@@ -2409,7 +2427,7 @@ async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
 
 
 @app.delete("/api/tasks/{task_id:int}", status_code=status.HTTP_200_OK)
-async def delete_task(task_id: int):
+def delete_task(task_id: int):
     """Delete a single task."""
     try:
         db = DatabaseManager()
@@ -2465,29 +2483,35 @@ async def upload_attachment(task_id: int, file: UploadFile = File(...)):
     """Upload a file and attach it to a task."""
     import mimetypes
 
-    db = DatabaseManager()
-    task = db.get_task(task_id)
+    # This handler awaits the upload stream, so it stays async; every blocking
+    # call (sqlite, directory creation, disk writes) goes to the threadpool.
+    db = await run_in_threadpool(DatabaseManager)
+    task = await run_in_threadpool(db.get_task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
     # Stream to a temp file so we never hold >ATTACHMENT_MAX_BYTES in RAM
-    dest_dir = attachments_dir(task_id)
+    dest_dir = await run_in_threadpool(attachments_dir, task_id)
     ext = Path(file.filename or "upload").suffix
     stored_name = f"{uuid.uuid4()}{ext}"
     dest_path = dest_dir / stored_name
 
     size = 0
-    with dest_path.open("wb") as out:
+    out = await run_in_threadpool(dest_path.open, "wb")
+    try:
         while chunk := await file.read(65_536):  # 64 KB chunks
             size += len(chunk)
             if size > ATTACHMENT_MAX_BYTES:
                 out.close()
-                dest_path.unlink(missing_ok=True)
+                await run_in_threadpool(dest_path.unlink, missing_ok=True)
                 raise HTTPException(status_code=413, detail="File exceeds 20 MB limit")
-            out.write(chunk)
+            await run_in_threadpool(out.write, chunk)
+    finally:
+        out.close()
 
     mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0]
-    record = db.add_attachment(
+    record = await run_in_threadpool(
+        db.add_attachment,
         task_id=task_id,
         filename=file.filename or stored_name,
         stored_name=stored_name,
@@ -2498,7 +2522,7 @@ async def upload_attachment(task_id: int, file: UploadFile = File(...)):
 
 
 @app.get("/api/tasks/{task_id:int}/attachments")
-async def list_attachments(task_id: int):
+def list_attachments(task_id: int):
     """List all attachments for a task."""
     db = DatabaseManager()
     if not db.get_task(task_id):
@@ -2507,7 +2531,7 @@ async def list_attachments(task_id: int):
 
 
 @app.delete("/api/tasks/{task_id:int}/attachments/{attachment_id}", status_code=status.HTTP_200_OK)
-async def delete_attachment(task_id: int, attachment_id: int):
+def delete_attachment(task_id: int, attachment_id: int):
     """Delete an attachment record and its file from disk."""
     db = DatabaseManager()
     record = db.delete_attachment(attachment_id=attachment_id, task_id=task_id)
@@ -2540,7 +2564,7 @@ async def delete_attachment(task_id: int, attachment_id: int):
 
 
 @app.get("/api/attachments/{task_id}/{stored_name}")
-async def serve_attachment(task_id: int, stored_name: str):
+def serve_attachment(task_id: int, stored_name: str):
     """Serve an attachment file for inline preview."""
     from fastapi.responses import FileResponse
     import mimetypes
@@ -2560,7 +2584,7 @@ async def serve_attachment(task_id: int, stored_name: str):
 
 
 @app.get("/api/agentic/summary")
-async def agentic_summary(days: int = 30, project_id: Optional[str] = None):
+def agentic_summary(days: int = 30, project_id: Optional[str] = None):
     """Get agentic workflow metrics from task_history.
 
     Tracks Review -> In Progress bounces, Review -> Done promotions, and
@@ -2810,7 +2834,7 @@ def _validate_marker_fields(date: Optional[str], label: Optional[str]) -> None:
 
 
 @app.get("/api/agentic/markers")
-async def get_markers():
+def get_markers():
     """Return all agentic markers."""
     try:
         return {"markers": _load_markers()}
@@ -2821,7 +2845,7 @@ async def get_markers():
 
 
 @app.post("/api/agentic/markers", status_code=201)
-async def create_marker(req: MarkerCreateRequest):
+def create_marker(req: MarkerCreateRequest):
     """Create a new agentic marker."""
     _validate_marker_fields(req.date, req.label)
     try:
@@ -2844,7 +2868,7 @@ async def create_marker(req: MarkerCreateRequest):
 
 
 @app.patch("/api/agentic/markers/{marker_id}")
-async def update_marker(marker_id: str, req: MarkerUpdateRequest):
+def update_marker(marker_id: str, req: MarkerUpdateRequest):
     """Update an existing agentic marker by id."""
     _validate_marker_fields(req.date, req.label)
     try:
@@ -2868,7 +2892,7 @@ async def update_marker(marker_id: str, req: MarkerUpdateRequest):
 
 
 @app.delete("/api/agentic/markers/{marker_id}", status_code=204)
-async def delete_marker(marker_id: str):
+def delete_marker(marker_id: str):
     """Delete an agentic marker by id."""
     try:
         markers = _load_markers()
@@ -2884,7 +2908,7 @@ async def delete_marker(marker_id: str):
 
 
 @app.get("/api/tool-stats")
-async def get_tool_stats(
+def get_tool_stats(
     tool: str = "WebSearch",
     days: int = 30,
     model: Optional[str] = None,
@@ -3010,7 +3034,7 @@ async def get_tool_stats(
 
 
 @app.get("/api/bash-stats")
-async def get_bash_stats(days: int = 30):
+def get_bash_stats(days: int = 30):
     """Bash error rate (stuck score) per day from ai-memory's bash_calls table.
 
     Returns:
@@ -3301,7 +3325,7 @@ class JobSubmissionRequest(BaseModel):
 
 
 @app.get("/api/jobs")
-async def list_open_jobs():
+def list_open_jobs():
     try:
         return {"jobs": DatabaseManager().get_open_jobs()}
     except Exception:
@@ -3310,7 +3334,7 @@ async def list_open_jobs():
 
 
 @app.get("/api/jobs/submissions")
-async def list_job_submissions():
+def list_job_submissions():
     try:
         return {"jobs": DatabaseManager().get_submitted_jobs()}
     except Exception:
@@ -3319,7 +3343,7 @@ async def list_job_submissions():
 
 
 @app.get("/api/jobs/stats")
-async def job_stats():
+def job_stats():
     try:
         return DatabaseManager().get_job_stats()
     except Exception:
@@ -3328,7 +3352,7 @@ async def job_stats():
 
 
 @app.delete("/api/jobs/{job_id}")
-async def dismiss_job(job_id: int):
+def dismiss_job(job_id: int):
     try:
         job = DatabaseManager().soft_delete_job(job_id)
     except Exception:
@@ -3340,7 +3364,7 @@ async def dismiss_job(job_id: int):
 
 
 @app.post("/api/jobs/{job_id}/submissions", status_code=201)
-async def record_job_submission(job_id: int, payload: JobSubmissionRequest):
+def record_job_submission(job_id: int, payload: JobSubmissionRequest):
     try:
         submission = DatabaseManager().add_job_submission(
             job_id, **payload.model_dump()
@@ -3356,7 +3380,7 @@ async def record_job_submission(job_id: int, payload: JobSubmissionRequest):
 
 
 @app.post("/api/jobs/{job_id}/agent-prompt")
-async def queue_job_agent_prompt(request: Request, job_id: int):
+def queue_job_agent_prompt(request: Request, job_id: int):
     """Queue an agent prompt to tailor resume and cover letter for a job.
     
     Card #7400: Composes a prompt with job details and house rules, then
@@ -3411,7 +3435,7 @@ class OutreachContactRequest(BaseModel):
 
 
 @app.get("/api/outreach/contacts")
-async def list_outreach_contacts():
+def list_outreach_contacts():
     try:
         contacts = DatabaseManager().list_active_contacts()
     except Exception:
@@ -3431,7 +3455,7 @@ async def list_outreach_contacts():
 
 
 @app.post("/api/outreach/contacts", status_code=201)
-async def add_outreach_contact(payload: OutreachContactRequest):
+def add_outreach_contact(payload: OutreachContactRequest):
     try:
         contact = DatabaseManager().add_contact(payload.name)
     except ValueError:
@@ -3443,7 +3467,7 @@ async def add_outreach_contact(payload: OutreachContactRequest):
 
 
 @app.patch("/api/outreach/contacts/{contact_id}")
-async def rename_outreach_contact(contact_id: int, payload: OutreachContactRequest):
+def rename_outreach_contact(contact_id: int, payload: OutreachContactRequest):
     try:
         contact = DatabaseManager().rename_contact(contact_id, payload.name)
     except ContactStateConflictError:
@@ -3461,7 +3485,7 @@ async def rename_outreach_contact(contact_id: int, payload: OutreachContactReque
 
 
 @app.post("/api/outreach/contacts/{contact_id}/contacted")
-async def mark_outreach_contacted(contact_id: int):
+def mark_outreach_contacted(contact_id: int):
     try:
         contact = DatabaseManager().mark_contacted(contact_id)
     except ValueError:
@@ -3475,7 +3499,7 @@ async def mark_outreach_contacted(contact_id: int):
 
 
 @app.post("/api/outreach/contacts/{contact_id}/replied")
-async def mark_outreach_replied(contact_id: int):
+def mark_outreach_replied(contact_id: int):
     try:
         contact = DatabaseManager().mark_replied(contact_id)
     except ValueError:
@@ -3489,7 +3513,7 @@ async def mark_outreach_replied(contact_id: int):
 
 
 @app.delete("/api/outreach/contacts/{contact_id}")
-async def soft_delete_outreach_contact(contact_id: int):
+def soft_delete_outreach_contact(contact_id: int):
     try:
         contact = DatabaseManager().soft_delete_contact(contact_id)
     except Exception:
@@ -3503,7 +3527,7 @@ async def soft_delete_outreach_contact(contact_id: int):
 # --- Morning warm-up API Endpoint (#7616) ---
 
 @app.get("/api/morning")
-async def get_morning_snapshot():
+def get_morning_snapshot():
     try:
         from dashboard.morning import morning_snapshot, MorningPlanError
         return morning_snapshot()
@@ -3523,7 +3547,7 @@ class IdeaUpdateRequest(BaseModel):
 
 
 @app.get("/api/ideas")
-async def get_ideas():
+def get_ideas():
     """Get all ideas.
     
     Returns:
@@ -3542,7 +3566,7 @@ async def get_ideas():
 
 
 @app.post("/api/ideas", status_code=status.HTTP_201_CREATED)
-async def create_idea(idea_data: IdeaCreateRequest):
+def create_idea(idea_data: IdeaCreateRequest):
     """Create a new idea.
     
     Args:
@@ -3570,7 +3594,7 @@ async def create_idea(idea_data: IdeaCreateRequest):
 
 
 @app.patch("/api/ideas/{idea_id}")
-async def update_idea(idea_id: int, idea_data: IdeaUpdateRequest):
+def update_idea(idea_id: int, idea_data: IdeaUpdateRequest):
     """Update an idea's text.
     
     Args:
@@ -3599,7 +3623,7 @@ async def update_idea(idea_id: int, idea_data: IdeaUpdateRequest):
 
 
 @app.delete("/api/ideas/{idea_id}", status_code=status.HTTP_200_OK)
-async def delete_idea(idea_id: int):
+def delete_idea(idea_id: int):
     """Delete an idea.
     
     Args:

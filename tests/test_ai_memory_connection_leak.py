@@ -18,47 +18,13 @@ runs in both cases (via a sqlite3.Connection subclass passed as `factory=`,
 since Connection instances don't allow attribute monkeypatching).
 """
 
-import asyncio
 import sqlite3
-import threading
 from pathlib import Path
 
 import pytest
 from starlette.requests import Request
 
 import dashboard.app as dashboard_app
-
-
-def _run_coro(coro):
-    """Run `coro` to completion on a brand-new event loop in a dedicated
-    OS thread, and return its result (re-raising any exception).
-
-    Neither `asyncio.run()` on the main thread (closes the loop other
-    tests' `get_event_loop()` calls expect open — see
-    test_dashboard_sqlite_leak_fix.py) nor
-    `asyncio.get_event_loop_policy().get_event_loop().run_until_complete()`
-    (collides with the main thread's asyncio state once
-    tests/test_kanban_visual.py has run Playwright's sync API, which
-    drives its own event loop via greenlets on that same thread and
-    leaves `asyncio.events._get_running_loop()` non-None — confirmed with
-    a minimal repro independent of this endpoint) is safe here. A fresh
-    thread has never touched that state, so `asyncio.run()` there is
-    unaffected by ordering relative to other test files.
-    """
-    box: dict = {}
-
-    def _runner():
-        try:
-            box["result"] = asyncio.run(coro)
-        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller's thread
-            box["error"] = exc
-
-    thread = threading.Thread(target=_runner)
-    thread.start()
-    thread.join()
-    if "error" in box:
-        raise box["error"]
-    return box["result"]
 
 
 class _SpyConnection(sqlite3.Connection):
@@ -157,7 +123,7 @@ def _force_brain_db_present(monkeypatch: pytest.MonkeyPatch, db_path: Path, fail
 def test_ai_memory_closes_connection_on_success(monkeypatch, brain_db):
     _force_brain_db_present(monkeypatch, brain_db, fail=False)
 
-    result = _run_coro(dashboard_app.get_ai_memory_graph(_request()))
+    result = dashboard_app.get_ai_memory_graph(_request())
 
     assert _SpyConnection.close_calls == 1
     assert result["stats"]["total_nodes"] == 2
@@ -166,7 +132,7 @@ def test_ai_memory_closes_connection_on_success(monkeypatch, brain_db):
 def test_ai_memory_closes_connection_on_query_failure(monkeypatch, brain_db):
     _force_brain_db_present(monkeypatch, brain_db, fail=True)
 
-    result = _run_coro(dashboard_app.get_ai_memory_graph(_request()))
+    result = dashboard_app.get_ai_memory_graph(_request())
 
     assert _SpyConnection.close_calls == 1
     assert result.status_code == 500

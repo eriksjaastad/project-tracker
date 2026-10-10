@@ -1,0 +1,176 @@
+"""Blocking dashboard handlers must not freeze the event loop (#8093, PR 9).
+
+A handler declared ``async def`` that does blocking work (sqlite, subprocess,
+urlopen, a directory scan) stalls every other request until it returns. These
+tests run a real uvicorn server, because TestClient serializes requests and
+would hide the stall, and prove that ``/api/health`` answers while a slow
+handler is mid-flight.
+"""
+
+import json
+import socket
+import threading
+import time
+
+import httpx
+import pytest
+import uvicorn
+from fastapi.testclient import TestClient
+
+import dashboard.app as dashboard_app
+
+SLOW_SECONDS = 1.5
+HEALTH_BUDGET_SECONDS = 0.75
+
+
+@pytest.fixture
+def live_server():
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    server = uvicorn.Server(
+        uvicorn.Config(dashboard_app.app, log_level="warning", lifespan="off")
+    )
+    thread = threading.Thread(
+        target=server.run, kwargs={"sockets": [sock]}, daemon=True
+    )
+    thread.start()
+    base = f"http://127.0.0.1:{port}"
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            httpx.get(f"{base}/api/health", timeout=1)
+            break
+        except httpx.HTTPError:
+            time.sleep(0.05)
+    else:
+        raise RuntimeError("test server did not start")
+    yield base
+    server.should_exit = True
+    thread.join(timeout=10)
+    sock.close()
+
+
+def _slow(result):
+    def _inner(*_args, **_kwargs):
+        time.sleep(SLOW_SECONDS)
+        return result
+
+    return _inner
+
+
+def _health_latency_during(base, slow_request):
+    """Start ``slow_request`` in a thread, then time /api/health meanwhile."""
+    done = threading.Event()
+
+    def _go():
+        try:
+            slow_request()
+        finally:
+            done.set()
+
+    threading.Thread(target=_go, daemon=True).start()
+    time.sleep(0.3)  # let the slow request reach its blocking call
+    assert not done.is_set(), "slow request finished too early to prove anything"
+    started = time.monotonic()
+    response = httpx.get(f"{base}/api/health", timeout=10)
+    elapsed = time.monotonic() - started
+    assert response.status_code == 200
+    assert done.wait(timeout=10)
+    return elapsed
+
+
+def test_refresh_scan_does_not_block_other_requests(live_server, monkeypatch):
+    monkeypatch.setattr(dashboard_app, "discover_projects", _slow([]))
+    monkeypatch.setattr(dashboard_app, "rebuild_project_graph", lambda: None)
+
+    elapsed = _health_latency_during(
+        live_server, lambda: httpx.post(f"{live_server}/api/refresh", timeout=10)
+    )
+
+    assert elapsed < HEALTH_BUDGET_SECONDS, f"health waited {elapsed:.2f}s behind a scan"
+
+
+def test_alerts_do_not_block_other_requests(live_server, monkeypatch):
+    monkeypatch.setattr(dashboard_app, "get_all_alerts", _slow([]))
+
+    elapsed = _health_latency_during(
+        live_server, lambda: httpx.get(f"{live_server}/api/alerts", timeout=10)
+    )
+
+    assert elapsed < HEALTH_BUDGET_SECONDS, f"health waited {elapsed:.2f}s behind alerts"
+
+
+def test_memory_graph_cache_survives_concurrent_requests(monkeypatch, tmp_path):
+    """Eight threads hit the cache-mutating endpoint; none may see torn state."""
+    dashboard_app._invalidate_graph_cache()
+    brain = tmp_path / "ai-memory" / "brain.db"
+    brain.parent.mkdir()
+    import sqlite3
+
+    conn = sqlite3.connect(brain)
+    conn.execute(
+        "CREATE TABLE thoughts (id INTEGER PRIMARY KEY, content TEXT, embedding TEXT, "
+        "metadata TEXT, created_at TEXT, source_machine TEXT)"
+    )
+    for i in range(6):
+        conn.execute(
+            "INSERT INTO thoughts VALUES (?, ?, ?, '{}', '2026-01-01', 'test')",
+            (i, f"thought {i}", json.dumps([1.0, float(i), 0.5])),
+        )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(dashboard_app, "config_projects_root", lambda: tmp_path)
+
+    client = TestClient(dashboard_app.app)
+    results = []
+    errors = []
+
+    def _hit(i):
+        try:
+            # Alternate params so readers and writers race on the cache keys.
+            response = client.get(
+                "/api/memory-graph", params={"max_nodes": 100 + (i % 2)}
+            )
+            results.append(response.status_code)
+            if i % 4 == 0:
+                dashboard_app._invalidate_graph_cache()
+        except Exception as exc:  # noqa: BLE001 - surfaced by the assert below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_hit, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    assert results == [200] * 8
+    # The cache triple is only ever consistent: data present iff params set.
+    cache = dashboard_app._graph_cache
+    assert (cache["data"] is None) == (cache["params"] is None)
+
+
+def test_unexpected_error_shapes_are_unchanged(monkeypatch):
+    """500 bodies the frontend reads: calendar uses ``detail``, the rest do not."""
+
+    def boom(*_a, **_k):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(dashboard_app, "_get_cal_manager", boom)
+    client = TestClient(dashboard_app.app, raise_server_exceptions=False)
+
+    response = client.get("/api/calendar/events")
+    assert response.status_code == 500
+    assert response.json() == {"detail": "kaboom"}
+
+    monkeypatch.setattr(dashboard_app, "get_all_alerts", boom)
+    response = client.get("/api/alerts")
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": "internal_error",
+        "message": "An unexpected error occurred",
+    }
+
+    assert client.get("/api/tasks/99999999").status_code == 404
+    assert client.get("/api/tasks/not-a-number").status_code in (400, 404, 422)

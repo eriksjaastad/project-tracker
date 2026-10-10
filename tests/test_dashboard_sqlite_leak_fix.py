@@ -12,7 +12,6 @@ These tests force a query failure inside each of the three fixed endpoints
 and assert the underlying sqlite3.Connection.close() still runs.
 """
 
-import asyncio
 import sqlite3
 from pathlib import Path
 
@@ -97,12 +96,7 @@ def test_memory_graph_closes_connection_on_query_failure(monkeypatch, brain_db):
 
     _force_brain_db_present(monkeypatch, brain_db)
 
-    # run_until_complete on the existing loop, NOT asyncio.run() — the latter
-    # closes the loop on exit, and test_github_api.py reaches for
-    # get_event_loop() afterwards and gets a closed one (see
-    # test_dashboard_blocked_resolution.py for the same note).
-    loop = asyncio.get_event_loop_policy().get_event_loop()
-    result = loop.run_until_complete(dashboard_app.get_memory_graph_data())
+    result = dashboard_app.get_memory_graph_data()
 
     assert _SpyConnection.close_calls == 1
     assert result.status_code == 500
@@ -111,8 +105,7 @@ def test_memory_graph_closes_connection_on_query_failure(monkeypatch, brain_db):
 def test_memory_types_closes_connection_on_query_failure(monkeypatch, brain_db):
     _force_brain_db_present(monkeypatch, brain_db)
 
-    loop = asyncio.get_event_loop_policy().get_event_loop()
-    result = loop.run_until_complete(dashboard_app.get_memory_types())
+    result = dashboard_app.get_memory_types()
 
     assert _SpyConnection.close_calls == 1
     # Falls back to the canonical defaults when the query fails.
@@ -122,8 +115,7 @@ def test_memory_types_closes_connection_on_query_failure(monkeypatch, brain_db):
 def test_memory_heatmap_closes_connection_on_query_failure(monkeypatch, brain_db):
     _force_brain_db_present(monkeypatch, brain_db)
 
-    loop = asyncio.get_event_loop_policy().get_event_loop()
-    result = loop.run_until_complete(dashboard_app.get_memory_heatmap())
+    result = dashboard_app.get_memory_heatmap()
 
     assert _SpyConnection.close_calls == 1
     assert result.status_code == 500
