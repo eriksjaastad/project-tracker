@@ -47,7 +47,6 @@ def _blocked_view(db, task_id, monkeypatch):
     scans the filesystem — it made unrelated hygiene tests fail intermittently
     and added a minute to the suite.
     """
-    import asyncio
 
     import dashboard.app as dashboard_app
 

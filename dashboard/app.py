@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import os
 import shutil
 import subprocess
+import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import httpx
@@ -78,6 +79,43 @@ async def _lifespan(application: FastAPI):
 
 
 app = FastAPI(title="Project Tracker Dashboard", lifespan=_lifespan)
+
+
+class _SerializeWrites:
+    """Run mutating requests one at a time; reads stay concurrent.
+
+    Blocking handlers are plain ``def`` so FastAPI runs them in its threadpool
+    and the event loop stays free. On the loop they used to run one at a time,
+    which made every write request atomic against every other one (status
+    transitions checked then written, load-modify-save files, delete backups).
+    This keeps that guarantee for POST/PUT/PATCH/DELETE without blocking the
+    loop: a waiting write holds no thread. GET handlers only read.
+    """
+
+    _MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+
+    def __init__(self, app):
+        self.app = app
+        self._lock: asyncio.Lock | None = None
+        self._lock_loop = None
+
+    def _loop_lock(self) -> asyncio.Lock:
+        # An asyncio.Lock belongs to one event loop; make it on the loop that
+        # serves requests (one per process in production, one per test server).
+        loop = asyncio.get_running_loop()
+        if self._lock_loop is not loop:
+            self._lock, self._lock_loop = asyncio.Lock(), loop
+        return self._lock
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["method"] in self._MUTATING:
+            async with self._loop_lock():
+                await self.app(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)
+
+
+app.add_middleware(_SerializeWrites)
 
 # Wall-clock and monotonic marks taken at import so /api/health can report how
 # long this process has been up (a restarted dashboard looks identical to a
@@ -752,20 +790,9 @@ async def api_navigation():
     return build_navigation_payload()
 
 
-# A refresh is a full scan plus upserts and stale-row deletes. Handlers now run
-# in worker threads, so two overlapping refreshes are serialized here as they
-# were when the handler ran on the event loop.
-_refresh_lock = threading.Lock()
-
-
 @app.post("/api/refresh")
 def refresh_data():
     """Trigger full data refresh."""
-    with _refresh_lock:
-        return _refresh_data_locked()
-
-
-def _refresh_data_locked():
     try:
         db = DatabaseManager()
         
@@ -2504,14 +2531,19 @@ async def upload_attachment(task_id: int, file: UploadFile = File(...)):
         out.close()
 
     mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0]
-    record = await run_in_threadpool(
-        db.add_attachment,
-        task_id=task_id,
-        filename=file.filename or stored_name,
-        stored_name=stored_name,
-        mime_type=mime_type,
-        size_bytes=size,
-    )
+    try:
+        record = await run_in_threadpool(
+            db.add_attachment,
+            task_id=task_id,
+            filename=file.filename or stored_name,
+            stored_name=stored_name,
+            mime_type=mime_type,
+            size_bytes=size,
+        )
+    except BaseException:
+        # No row points at the stored file, so it must not stay on disk.
+        await run_in_threadpool(dest_path.unlink, missing_ok=True)
+        raise
     return _stringify_attachment_ids(record)
 
 
@@ -2793,14 +2825,8 @@ def _load_markers() -> list:
     return data
 
 
-# Marker writes are load-modify-save on one file (and one .tmp name). The
-# handlers run in the threadpool, so writers hold this lock; reads need none,
-# because _save_markers replaces the file atomically.
-_markers_lock = threading.Lock()
-
-
 def _save_markers(markers: list) -> None:
-    """Atomically write markers to disk. Callers hold _markers_lock."""
+    """Atomically write markers to disk."""
     MARKERS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = MARKERS_PATH.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(markers, indent=2))
@@ -2848,66 +2874,63 @@ def get_markers():
 def create_marker(req: MarkerCreateRequest):
     """Create a new agentic marker."""
     _validate_marker_fields(req.date, req.label)
-    with _markers_lock:
-        try:
-            markers = _load_markers()
-        except MarkersUnreadable as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
-            ) from exc
-        marker = {
-            "id": str(uuid.uuid4()),
-            "date": req.date,
-            "label": req.label.strip(),
-            "source": req.source if req.source in ("manual", "auto") else "manual",
-            "agent": req.agent or None,
-        }
-        markers.append(marker)
-        markers.sort(key=lambda m: m["date"])
-        _save_markers(markers)
-        return marker
+    try:
+        markers = _load_markers()
+    except MarkersUnreadable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    marker = {
+        "id": str(uuid.uuid4()),
+        "date": req.date,
+        "label": req.label.strip(),
+        "source": req.source if req.source in ("manual", "auto") else "manual",
+        "agent": req.agent or None,
+    }
+    markers.append(marker)
+    markers.sort(key=lambda m: m["date"])
+    _save_markers(markers)
+    return marker
 
 
 @app.patch("/api/agentic/markers/{marker_id}")
 def update_marker(marker_id: str, req: MarkerUpdateRequest):
     """Update an existing agentic marker by id."""
     _validate_marker_fields(req.date, req.label)
-    with _markers_lock:
-        try:
-            markers = _load_markers()
-        except MarkersUnreadable as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
-            ) from exc
-        for m in markers:
-            if m.get("id") == marker_id:
-                if req.date is not None:
-                    m["date"] = req.date
-                if req.label is not None:
-                    m["label"] = req.label.strip()
-                if req.agent is not None:
-                    m["agent"] = req.agent
-                markers.sort(key=lambda x: x["date"])
-                _save_markers(markers)
-                return m
-        raise HTTPException(status_code=404, detail="Marker not found")
+    try:
+        markers = _load_markers()
+    except MarkersUnreadable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    for m in markers:
+        if m.get("id") == marker_id:
+            if req.date is not None:
+                m["date"] = req.date
+            if req.label is not None:
+                m["label"] = req.label.strip()
+            if req.agent is not None:
+                m["agent"] = req.agent
+            markers.sort(key=lambda x: x["date"])
+            _save_markers(markers)
+            return m
+    raise HTTPException(status_code=404, detail="Marker not found")
 
 
 @app.delete("/api/agentic/markers/{marker_id}", status_code=204)
 def delete_marker(marker_id: str):
     """Delete an agentic marker by id."""
-    with _markers_lock:
-        try:
-            markers = _load_markers()
-        except MarkersUnreadable as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
-            ) from exc
-        updated = [m for m in markers if m.get("id") != marker_id]
-        if len(updated) == len(markers):
-            raise HTTPException(status_code=404, detail="Marker not found")
-        _save_markers(updated)
-        return None
+    try:
+        markers = _load_markers()
+    except MarkersUnreadable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    updated = [m for m in markers if m.get("id") != marker_id]
+    if len(updated) == len(markers):
+        raise HTTPException(status_code=404, detail="Marker not found")
+    _save_markers(updated)
+    return None
 
 
 @app.get("/api/tool-stats")

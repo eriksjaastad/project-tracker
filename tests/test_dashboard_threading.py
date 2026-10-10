@@ -24,7 +24,10 @@ HEALTH_BUDGET_SECONDS = 0.75
 
 
 @pytest.fixture
-def live_server():
+def live_server(tmp_path, monkeypatch):
+    # The default DB path is relative to the cwd; a refresh against it from the
+    # main checkout would be the live tracker.db. Every server here gets its own.
+    monkeypatch.setenv("PT_DB_PATH", str(tmp_path / "tracker.db"))
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
@@ -126,9 +129,64 @@ def test_unexpected_error_shapes_are_unchanged(monkeypatch):
     assert client.get("/api/tasks/not-a-number").status_code in (400, 404, 422)
 
 
-def test_concurrent_marker_creates_are_not_lost(monkeypatch, tmp_path):
-    """Marker writes are load-modify-save on one file; in the threadpool they
-    must not interleave and drop each other's markers."""
+def _run_concurrently(requests):
+    """Fire each zero-arg callable in its own thread; return their results."""
+    results = [None] * len(requests)
+
+    def _go(i, fn):
+        results[i] = fn()
+
+    threads = [threading.Thread(target=_go, args=(i, fn)) for i, fn in enumerate(requests)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
+    return results
+
+
+def test_write_requests_never_overlap_even_across_endpoints(live_server, monkeypatch, tmp_path):
+    """POST/PATCH/DELETE run one at a time, as they did on the event loop: two
+    different write endpoints must not interleave (no per-endpoint lock can
+    guarantee that)."""
+    active, peak, guard = [0], [0], threading.Lock()
+
+    def tracked(result):
+        def _inner(*_args, **_kwargs):
+            with guard:
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+            time.sleep(0.3)
+            with guard:
+                active[0] -= 1
+            return result() if callable(result) else result
+        return _inner
+
+    monkeypatch.setattr(dashboard_app, "discover_projects", tracked([]))
+    monkeypatch.setattr(dashboard_app, "rebuild_project_graph", lambda: None)
+    monkeypatch.setattr(dashboard_app, "MARKERS_PATH", tmp_path / "markers.json")
+    monkeypatch.setattr(dashboard_app, "_load_markers", tracked(list))
+
+    results = _run_concurrently(
+        [lambda: httpx.post(f"{live_server}/api/refresh", timeout=20)] * 2
+        + [
+            lambda i=i: httpx.post(
+                f"{live_server}/api/agentic/markers",
+                json={"date": "2026-10-0%d" % (i + 1), "label": f"m{i}"},
+                timeout=20,
+            )
+            for i in range(3)
+        ]
+    )
+
+    assert all(r is not None and r.status_code < 300 for r in results), [
+        getattr(r, "status_code", None) for r in results
+    ]
+    assert peak[0] == 1, f"{peak[0]} write handlers ran at once"
+
+
+def test_concurrent_marker_creates_are_not_lost(live_server, monkeypatch, tmp_path):
+    """Marker writes are load-modify-save on one JSON file; concurrent creates
+    through the server must all persist."""
     monkeypatch.setattr(dashboard_app, "MARKERS_PATH", tmp_path / "markers.json")
     real_load = dashboard_app._load_markers
 
@@ -138,16 +196,17 @@ def test_concurrent_marker_creates_are_not_lost(monkeypatch, tmp_path):
         return markers
 
     monkeypatch.setattr(dashboard_app, "_load_markers", slow_load)
-    threads = [
-        threading.Thread(
-            target=dashboard_app.create_marker,
-            args=(dashboard_app.MarkerCreateRequest(date="2026-10-0%d" % (i + 1), label=f"m{i}"),),
-        )
-        for i in range(8)
-    ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=10)
+    results = _run_concurrently(
+        [
+            lambda i=i: httpx.post(
+                f"{live_server}/api/agentic/markers",
+                json={"date": "2026-10-0%d" % (i + 1), "label": f"m{i}"},
+                timeout=20,
+            )
+            for i in range(8)
+        ]
+    )
+
+    assert [r.status_code for r in results] == [201] * 8, [r.text[:200] for r in results]
     saved = json.loads((tmp_path / "markers.json").read_text())
     assert sorted(m["label"] for m in saved) == [f"m{i}" for i in range(8)]
