@@ -34,8 +34,10 @@ pt info set remote_pt_invocation "ssh macbook-pro 'cd <PROJECTS_ROOT> && <tracke
 ```
 
 The invocation names the launcher by absolute path because `pt` is a shell
-alias on the laptop and is not on `PATH` over non-interactive SSH. Prefix it
-with `env PT_RESOURCES_FILE=<path>` only when the laptop overrides the default.
+alias on the laptop and is not on `PATH` over non-interactive SSH. `cd` does
+not set the projects root: `pt` reads `PROJECTS_ROOT` from the environment and
+otherwise falls back to `~/projects`. When the laptop overrides either path,
+prefix the launcher with `env PROJECTS_ROOT=<path> PT_RESOURCES_FILE=<path>`.
 Nothing else is a source of truth for external connections, and no second copy
 may be created — including on the Mini.
 
