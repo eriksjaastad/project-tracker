@@ -108,18 +108,6 @@ def test_discover_projects_raises_when_base_cannot_be_listed(tmp_path, monkeypat
         discover_projects(tmp_path)
 
 
-def test_telemetry_read_failure_raises_instead_of_zero_requests(tmp_path, monkeypatch):
-    """#6900: an unreadable telemetry file must not report "0 requests";
-    the alert detector reports the exception."""
-    from scripts.discovery import telemetry_reader
-
-    unreadable = tmp_path / "telemetry.jsonl"
-    unreadable.mkdir()  # exists() is True, open() fails
-    monkeypatch.setattr(telemetry_reader, "TELEMETRY_PATH", unreadable)
-    with pytest.raises(IsADirectoryError):
-        telemetry_reader.get_telemetry_stats(days=7)
-
-
 def test_external_resources_missing_file_raises(tmp_path):
     """#6900: the registry ships in the repo, so a missing file is a
     misconfiguration, never "no services" (which `pt scan` would delete)."""
@@ -153,3 +141,21 @@ def test_external_resources_valid_registry_still_parses(tmp_path):
     assert parse_external_resources(path) == {
         "demo": [{"service_name": "Doppler", "cost_monthly": 0, "purpose": "secrets"}]
     }
+
+
+def test_get_all_alerts_runs_live_detectors(tmp_path):
+    """The aggregate still runs the surviving detectors (stalled, cron) and sorts them."""
+    from scripts.discovery.alert_detector import get_all_alerts
+
+    projects = [
+        {"id": "old", "name": "Old", "path": str(tmp_path), "last_modified": "2020-01-01T00:00:00Z",
+         "cron_jobs": []},
+        {"id": "new", "name": "New", "path": str(tmp_path), "last_modified": "2999-01-01T00:00:00Z",
+         "cron_jobs": [{"schedule": "not a cron", "command": "true", "description": "bad"}]},
+    ]
+    alerts = get_all_alerts(projects)
+    kinds = {(a["project_id"], a["type"]) for a in alerts}
+    assert ("old", "stalled") in kinds
+    assert any(pid == "new" and t.startswith("cron_") for pid, t in kinds)
+    order = {"critical": 0, "warning": 1, "info": 2}
+    assert [order[a["severity"]] for a in alerts] == sorted(order[a["severity"]] for a in alerts)
