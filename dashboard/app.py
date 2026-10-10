@@ -1149,17 +1149,13 @@ def api_calendar_crons(
 
 _graph_cache: Dict = {"data": None, "timestamp": 0, "params": None}
 _GRAPH_CACHE_TTL = 300  # 5 minutes
-# Handlers run in worker threads, so the three cache keys must change together:
-# an unlocked reader could pair one request's data with another's params.
-_graph_cache_lock = threading.Lock()
 
 
 def _invalidate_graph_cache() -> None:
     """Drop the /api/memory-graph in-memory cache so the next request recomputes."""
-    with _graph_cache_lock:
-        _graph_cache["data"] = None
-        _graph_cache["timestamp"] = 0
-        _graph_cache["params"] = None
+    _graph_cache["data"] = None
+    _graph_cache["timestamp"] = 0
+    _graph_cache["params"] = None
 
 
 # ---- Rebuild job tracker -------------------------------------------------
@@ -1224,7 +1220,7 @@ async def memory_view(request: Request):
 
 
 @app.get("/api/memory-graph")
-def get_memory_graph_data(
+async def get_memory_graph_data(
     min_similarity: float = 0.3,   # Minimum similarity threshold for edges
     max_edges_per_node: int = 10,  # Limit edges per node to keep response size reasonable
     max_nodes: int = 1000          # Cap nodes to prevent N×N memory explosion
@@ -1239,11 +1235,10 @@ def get_memory_graph_data(
     """
     now = _time()
     cache_key = (min_similarity, max_edges_per_node, max_nodes)
-    with _graph_cache_lock:
-        if (_graph_cache["data"] is not None
-                and now - _graph_cache["timestamp"] < _GRAPH_CACHE_TTL
-                and _graph_cache["params"] == cache_key):
-            return _graph_cache["data"]
+    if (_graph_cache["data"] is not None
+            and now - _graph_cache["timestamp"] < _GRAPH_CACHE_TTL
+            and _graph_cache["params"] == cache_key):
+        return _graph_cache["data"]
 
     projects_root = config_projects_root()
     brain_db_path = projects_root / "ai-memory" / "brain.db"
@@ -1335,10 +1330,9 @@ def get_memory_graph_data(
             "edges": edges
         }
 
-        with _graph_cache_lock:
-            _graph_cache["data"] = result
-            _graph_cache["timestamp"] = _time()
-            _graph_cache["params"] = cache_key
+        _graph_cache["data"] = result
+        _graph_cache["timestamp"] = _time()
+        _graph_cache["params"] = cache_key
 
         return result
 
@@ -1419,7 +1413,7 @@ _AI_MEMORY_BUILD_SCHEDULE = "Mondays 10:00"
 
 @app.get("/api/ai-memory")
 @app.get("/api/knowledge-graph")  # legacy alias
-def get_ai_memory_graph(request: Request):
+async def get_ai_memory_graph(request: Request):
     """Return the ai-memory graph from brain.db (graph_nodes + graph_edges).
 
     Query params:
@@ -1537,7 +1531,7 @@ def get_ai_memory_graph(request: Request):
 
 
 @app.get("/api/ai-memory/build-status")
-def get_ai_memory_build_status():
+async def get_ai_memory_build_status():
     """Read-only status of the weekly ai-memory graph build.
 
     Reads the cron receipt written by the Monday 10:00 job
@@ -1624,7 +1618,7 @@ def _cluster_dust_nodes(nodes: list[dict], degree: dict) -> tuple[list[dict], di
 
 
 @app.get("/api/memory/types")
-def get_memory_types():
+async def get_memory_types():
     """Return distinct thought types present in brain.db.
 
     Used by the frontend to populate filter dropdowns dynamically.
@@ -1662,7 +1656,7 @@ def get_memory_types():
 
 
 @app.get("/api/memory/heatmap")
-def get_memory_heatmap():
+async def get_memory_heatmap():
     """Return thought density grouped by date and type for the heatmap view.
 
     Returns rows of { date, type, count } sorted chronologically.
@@ -1707,7 +1701,7 @@ def get_memory_heatmap():
 
 
 @app.get("/api/graph")
-def get_graph_data(
+async def get_graph_data(
     project: Optional[str] = None,      # Filter to single project
     file_types: Optional[str] = None,   # Comma-separated: "py,ts,md"
     include_orphans: bool = True,       # Show orphaned nodes

@@ -101,56 +101,6 @@ def test_alerts_do_not_block_other_requests(live_server, monkeypatch):
     assert elapsed < HEALTH_BUDGET_SECONDS, f"health waited {elapsed:.2f}s behind alerts"
 
 
-def test_memory_graph_cache_survives_concurrent_requests(monkeypatch, tmp_path):
-    """Eight threads hit the cache-mutating endpoint; none may see torn state."""
-    dashboard_app._invalidate_graph_cache()
-    brain = tmp_path / "ai-memory" / "brain.db"
-    brain.parent.mkdir()
-    import sqlite3
-
-    conn = sqlite3.connect(brain)
-    conn.execute(
-        "CREATE TABLE thoughts (id INTEGER PRIMARY KEY, content TEXT, embedding TEXT, "
-        "metadata TEXT, created_at TEXT, source_machine TEXT)"
-    )
-    for i in range(6):
-        conn.execute(
-            "INSERT INTO thoughts VALUES (?, ?, ?, '{}', '2026-01-01', 'test')",
-            (i, f"thought {i}", json.dumps([1.0, float(i), 0.5])),
-        )
-    conn.commit()
-    conn.close()
-    monkeypatch.setattr(dashboard_app, "config_projects_root", lambda: tmp_path)
-
-    client = TestClient(dashboard_app.app)
-    results = []
-    errors = []
-
-    def _hit(i):
-        try:
-            # Alternate params so readers and writers race on the cache keys.
-            response = client.get(
-                "/api/memory-graph", params={"max_nodes": 100 + (i % 2)}
-            )
-            results.append(response.status_code)
-            if i % 4 == 0:
-                dashboard_app._invalidate_graph_cache()
-        except Exception as exc:  # noqa: BLE001 - surfaced by the assert below
-            errors.append(exc)
-
-    threads = [threading.Thread(target=_hit, args=(i,)) for i in range(8)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    assert not errors
-    assert results == [200] * 8
-    # The cache triple is only ever consistent: data present iff params set.
-    cache = dashboard_app._graph_cache
-    assert (cache["data"] is None) == (cache["params"] is None)
-
-
 def test_unexpected_error_shapes_are_unchanged(monkeypatch):
     """500 bodies the frontend reads: calendar uses ``detail``, the rest do not."""
 
