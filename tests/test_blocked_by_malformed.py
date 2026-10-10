@@ -13,6 +13,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import asyncio
+
 import pytest
 from click.testing import CliRunner
 from fastapi import HTTPException
@@ -116,13 +118,19 @@ def test_pt_tasks_tree_renders_the_reason(board):
     assert "READY NOW" not in result.output
 
 
+
+def _run(coro):
+    # asyncio.run() would clear the loop other dashboard tests reuse.
+    return asyncio.get_event_loop_policy().get_event_loop().run_until_complete(coro)
+
 def test_dashboard_start_refuses_with_400_and_the_reason(board, malformed_card, monkeypatch):
     import dashboard.app as dashboard_app
 
     monkeypatch.setattr(dashboard_app, "DatabaseManager", lambda *a, **k: board)
     request = dashboard_app.TaskUpdateRequest(status="In Progress")
     with pytest.raises(HTTPException) as excinfo:
-        dashboard_app.update_task(malformed_card["id"], request)
+        # Write handlers are async wrappers that run on the single write thread.
+        _run(dashboard_app.update_task(malformed_card["id"], request))
     assert excinfo.value.status_code == 400
     assert "blocked_by unreadable" in excinfo.value.detail
     assert board.get_task(malformed_card["id"])["status"] == "To Do"

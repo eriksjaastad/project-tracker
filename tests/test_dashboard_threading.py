@@ -212,8 +212,13 @@ def test_concurrent_marker_creates_are_not_lost(live_server, monkeypatch, tmp_pa
 
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-# Sync on main already, with its own non-blocking try-lock.
-UNSERIALIZED_WRITES = {"refresh_codebase_size"}
+UNSERIALIZED_WRITES = {
+    # Sync on main already, with its own non-blocking try-lock.
+    "refresh_codebase_size",
+    # Writes nothing to tracker.db: reads open jobs, then shells out to
+    # `pt message send` (up to 60 s), which must not hold up other writes.
+    "queue_job_agent_prompt",
+}
 
 
 def test_every_write_route_is_serialized():
@@ -294,4 +299,36 @@ def test_failed_attachment_insert_leaves_no_file(monkeypatch, tmp_path):
     )
     assert response.status_code == 500
     assert list(attach_dir.iterdir()) == []
+
+
+def test_a_burst_of_queued_writes_does_not_starve_reads(live_server, monkeypatch, tmp_path):
+    """Queued writes wait on the single write thread, not in the request
+    threadpool: 45 of them behind a slow refresh leave /api/health answering."""
+    monkeypatch.setattr(dashboard_app, "discover_projects", _slow([]))
+    monkeypatch.setattr(dashboard_app, "rebuild_project_graph", lambda: None)
+    monkeypatch.setattr(dashboard_app, "MARKERS_PATH", tmp_path / "markers.json")
+
+    writes = [lambda: httpx.post(f"{live_server}/api/refresh", timeout=30)] + [
+        lambda i=i: httpx.post(
+            f"{live_server}/api/agentic/markers",
+            json={"date": "2026-10-01", "label": f"burst {i}"},
+            timeout=30,
+        )
+        for i in range(45)
+    ]
+    threads = [threading.Thread(target=fn, daemon=True) for fn in writes]
+    for t in threads:
+        t.start()
+    time.sleep(0.5)  # the refresh holds the write thread; the rest are queued
+
+    started = time.monotonic()
+    response = httpx.get(f"{live_server}/api/health", timeout=10)
+    elapsed = time.monotonic() - started
+    for t in threads:
+        t.join(timeout=30)
+
+    assert response.status_code == 200
+    assert elapsed < HEALTH_BUDGET_SECONDS, f"health waited {elapsed:.2f}s behind queued writes"
+    saved = json.loads((tmp_path / "markers.json").read_text())
+    assert len(saved) == 45
 

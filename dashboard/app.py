@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import os
 import shutil
 import subprocess
+import asyncio
 import functools
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -81,25 +82,26 @@ app = FastAPI(title="Project Tracker Dashboard", lifespan=_lifespan)
 
 
 
-# Write handlers run one at a time. Blocking handlers are plain ``def`` so
-# FastAPI runs them in its threadpool and the event loop stays free; on the
-# loop they used to run one at a time, which made every write atomic against
-# every other (a status transition checked then written, a load-modify-save
-# file, a delete backup). The lock covers only the handler's own work: the
-# request body is parsed before it runs and background tasks run after it.
-# GET handlers only read and stay concurrent.
-_write_lock = threading.Lock()
+# Write handlers run one at a time on one dedicated thread. Blocking handlers
+# are plain ``def`` so the event loop stays free; on the loop they used to run
+# one at a time, which made every write atomic against every other (a status
+# transition checked then written, a load-modify-save file, a delete backup).
+# A single-worker executor keeps that: queued writes wait in its queue, not in
+# FastAPI's threadpool, so a burst of writes cannot starve the reads. Only the
+# handler's own work runs there: the request body is parsed before it and
+# background tasks run after it. GET handlers only read and stay concurrent.
+_write_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pt-write")
 
 
 def _serialized(fn):
-    """Run a write handler while holding ``_write_lock``."""
+    """Run a write handler on the single write thread."""
 
     @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        with _write_lock:
-            return fn(*args, **kwargs)
+    async def wrapper(*args, **kwargs):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_write_executor, functools.partial(fn, *args, **kwargs))
 
-    wrapper.serialized = True
+    setattr(wrapper, "serialized", True)
     return wrapper
 
 # Wall-clock and monotonic marks taken at import so /api/health can report how
@@ -3397,7 +3399,6 @@ def record_job_submission(job_id: int, payload: JobSubmissionRequest):
 
 
 @app.post("/api/jobs/{job_id}/agent-prompt")
-@_serialized
 def queue_job_agent_prompt(request: Request, job_id: int):
     """Queue an agent prompt to tailor resume and cover letter for a job.
     
