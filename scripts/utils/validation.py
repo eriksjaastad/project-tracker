@@ -270,15 +270,14 @@ def validate_acceptance_criteria(notes: Optional[str]) -> Tuple[bool, Optional[s
     Where this is (and isn't) enforced:
         - Called explicitly by every user/agent-facing card-creation surface
           before it calls DatabaseManager.add_task(): ``pt tasks create``
-          (scripts/pt.py), ``POST /api/tasks`` (dashboard/app.py), and the
-          ``kanban_add_task`` MCP tool (scripts/mcp_server.py). Those three
+          (scripts/pt.py) and ``POST /api/tasks`` (dashboard/app.py). Those two
           are the complete set of production creation routes (#7608).
         - NOT called from ``add_task()``/``validate_task_input()`` directly.
           ``add_task()`` is also the low-level DB primitive used by ~100
           internal test fixtures and maintenance scripts that aren't "a new
           card" in the product sense; enforcing there would have required
           rewriting all of them. New creation routes must remember to call
-          this function themselves — see the three call sites above for the
+          this function themselves — see the two call sites above for the
           pattern.
         - NOT called from ``update_task()``: editing an existing card never
           requires retroactively adding criteria, so pre-#7608 cards stay
