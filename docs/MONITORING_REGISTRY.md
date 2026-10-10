@@ -11,22 +11,31 @@ There is one registry file, not several:
 ~/projects/project-tracker/EXTERNAL_RESOURCES.yaml
 ```
 
-This is the default-layout example. The seeded alias uses the configured
-`EXTERNAL_RESOURCES_FILE` (including `PT_RESOURCES_FILE`); generate these laptop
-paths on the laptop. The remote invocation uses the actual tracker checkout,
-the configured `PROJECTS_ROOT`, and explicit resource configuration, with shell
-quoting for each path. Saga executes that invocation from the Mini rather than
-regenerating it from the Mini's settings. SSH examples below show the default
-layout; use the seeded invocation when the laptop's paths differ.
+This is the default-layout example; the laptop's configured
+`EXTERNAL_RESOURCES_FILE` (`PT_RESOURCES_FILE` overrides it) is the real path.
+SSH examples below show the default layout; when the laptop's paths differ,
+use the `remote_pt_invocation` row rather than regenerating paths from the
+Mini's settings.
 
 Its `projects:` block (pre-existing) is the authority on **which third-party
 services each project uses**, account ownership and cost. Its `monitoring:`
 block (added 2026-09-22) adds only what a monitor needs: production URL, repo,
 provider, health check, scheduled jobs, backup destination, owner.
 
-`pt info get external_resources_doc` points at this file. Both this alias and
-`remote_pt_invocation` live in the info store (`pt info set`); a rebuilt store
-must have them set again before these lookups work.
+`pt info get external_resources_doc` points at this file, and
+`pt info get remote_pt_invocation` gives Saga the SSH command for the live
+board. Both are curated rows in the info store. If the store is rebuilt, set
+them again on the laptop with absolute laptop paths, and shell-quote any path
+that has spaces:
+
+```bash
+pt info set external_resources_doc "<absolute EXTERNAL_RESOURCES_FILE>"
+pt info set remote_pt_invocation "ssh macbook-pro 'cd <PROJECTS_ROOT> && <tracker checkout>/pt tasks -p <project>'"
+```
+
+The invocation names the launcher by absolute path because `pt` is a shell
+alias on the laptop and is not on `PATH` over non-interactive SSH. Prefix it
+with `env PT_RESOURCES_FILE=<path>` only when the laptop overrides the default.
 Nothing else is a source of truth for external connections, and no second copy
 may be created — including on the Mini.
 
