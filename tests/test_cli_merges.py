@@ -219,3 +219,10 @@ def test_hygiene_group_still_scans_bare(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["command"] == "hygiene"
     assert "worktrees" in _run(["hygiene", "--help"]).output
+
+
+@pytest.mark.parametrize("opts", [["--json"], ["--quiet"], ["--project", "x"]])
+def test_scan_options_before_a_hygiene_subcommand_are_a_usage_error(opts) -> None:
+    result = CliRunner().invoke(pt.cli, ["hygiene", *opts, "worktrees", "list"])
+    assert result.exit_code == 2, result.output
+    assert "apply to the hygiene scan" in result.output

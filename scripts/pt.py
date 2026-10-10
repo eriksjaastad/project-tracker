@@ -750,6 +750,11 @@ def hygiene(ctx, json_output: bool, project_name: Optional[str], quiet: bool) ->
     `pt hygiene worktrees` lists and cleans this repo's .claude/worktrees/.
     """
     if ctx.invoked_subcommand is not None:
+        if json_output or project_name or quiet:
+            raise click.UsageError(
+                "--json, --project and --quiet apply to the hygiene scan, "
+                f"not to `hygiene {ctx.invoked_subcommand}`"
+            )
         return
     from datetime import timezone
 
