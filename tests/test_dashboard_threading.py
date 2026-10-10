@@ -24,10 +24,9 @@ HEALTH_BUDGET_SECONDS = 0.75
 
 
 @pytest.fixture
-def live_server(tmp_path, monkeypatch):
-    # The default DB path is relative to the cwd; a refresh against it from the
-    # main checkout would be the live tracker.db. Every server here gets its own.
-    monkeypatch.setenv("PT_DB_PATH", str(tmp_path / "tracker.db"))
+def live_server():
+    # The server thread reads PT_DB_PATH per request, so the root conftest's
+    # autouse isolated_database fixture already gives it this test's own DB.
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
