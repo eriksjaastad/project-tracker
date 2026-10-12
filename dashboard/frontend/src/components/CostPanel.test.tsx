@@ -36,6 +36,14 @@ describe('CostPanel', () => {
     expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
   });
 
+  it('says the tracker is unavailable on a failing status even when the body looks like data', async () => {
+    serve({ daily: [], providers: [], projects: [] }, 500);
+    render(<CostPanel />);
+
+    expect(await screen.findByText('Cost tracker unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('No API cost data yet')).not.toBeInTheDocument();
+  });
+
   it('treats a response it cannot read as an error rather than an empty month', async () => {
     serve({ daily: { rows: [] }, providers: [], projects: [] });
     render(<CostPanel />);
