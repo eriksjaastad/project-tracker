@@ -70,7 +70,7 @@ def brain_db(tmp_path: Path) -> Path:
     setup_conn = sqlite3.connect(db_path)
     setup_conn.execute(
         "CREATE TABLE thoughts (id INTEGER PRIMARY KEY, content TEXT, "
-        "embedding TEXT, metadata TEXT, created_at TEXT, source_machine TEXT)"
+        "embedding TEXT, embedding_blob BLOB, metadata TEXT, created_at TEXT, source_machine TEXT)"
     )
     setup_conn.commit()
     setup_conn.close()
