@@ -127,7 +127,7 @@ describe('TaskDetailModal edit Save', () => {
     await user.type(notes, '\nmine');
     await user.click(screen.getByRole('button', { name: 'Save Changes' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('The current notes are loaded: Save again to replace them');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Save again to replace the current notes with your version');
     expect(notes).toHaveValue(`${NOTES}\nmine`);
 
     await user.click(screen.getByRole('button', { name: 'Save Changes' }));
@@ -153,7 +153,7 @@ describe('TaskDetailModal edit Save', () => {
     expect(notes).toHaveValue(`${NOTES}\nmine`);
 
     await user.click(screen.getByRole('button', { name: 'Save Changes' }));
-    expect(await screen.findByText(/The current notes are loaded/)).toBeInTheDocument();
+    expect(await screen.findByText(/Save again to replace the current notes/)).toBeInTheDocument();
     expect(notes).toHaveValue(`${NOTES}\nmine`);
   });
 

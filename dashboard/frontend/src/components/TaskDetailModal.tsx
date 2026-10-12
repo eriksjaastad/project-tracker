@@ -227,7 +227,7 @@ export function TaskDetailModal({
           // writer may have been this draft: then its notes need no write.
           setError(optional(fresh.notes) === optional(editedNotes)
             ? 'The saved notes already match your version, so they need no change. Save again to apply any other changes, or Cancel.'
-            : `${stale}. The current notes are loaded: Save again to replace them with your version, or Cancel to keep them.`);
+            : `${stale}. Save again to replace the current notes with your version, or Cancel to keep them.`);
         }
       } catch (refetchErr) {
         if (currentTaskIdRef.current === taskId) {
