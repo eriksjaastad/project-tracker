@@ -139,5 +139,5 @@ improve first-review coverage:
    cannot establish a portfolio-wide rate. Expand only after reviewing misses
    and false blocks, then use a fresh held-out case for a further claim.
 
-The bounded pilot and its limitations are recorded in
-[the September 23 review pilot](docs/REVIEW_COVERAGE_PILOT_2026-09-23.md).
+The bounded pilot and its limitations were recorded in
+`docs/REVIEW_COVERAGE_PILOT_2026-09-23.md`, removed in #8093 and kept in git history.
