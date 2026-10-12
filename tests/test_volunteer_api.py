@@ -196,3 +196,66 @@ def test_upsert_rejects_wrong_types_with_value_error(db, field: str, value) -> N
               "source": "manual", field: value}
     with pytest.raises(ValueError):
         db.upsert_job(**fields)
+
+
+def test_volunteer_sections_come_from_one_snapshot(db, monkeypatch) -> None:
+    """Another tab's write landing between the section queries cannot drop a role."""
+    from contextlib import contextmanager
+
+    role = _role(db, "snap")
+    real_get_conn = db._db._get_conn
+
+    def other_tab_starts_volunteering() -> None:
+        with real_get_conn() as other:
+            other.execute(
+                "UPDATE jobs SET volunteering_since = '2026-10-12T00:00:00+00:00' WHERE id = ?",
+                (role["id"],),
+            )
+            other.commit()
+
+    class WriteAfterCurrentQuery:
+        """Delegates to the real connection; fires the other tab's write once."""
+
+        def __init__(self, conn) -> None:
+            self._conn = conn
+            self.fired = False
+
+        def execute(self, sql, *args):
+            cursor = self._conn.execute(sql, *args)
+            if not self.fired and "IS NOT NULL" in sql and "volunteering_since" in sql:
+                cursor = cursor.fetchall()  # the Current query has run
+                self.fired = True
+                other_tab_starts_volunteering()
+                return _Rows(cursor)
+            return cursor
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    class _Rows:
+        def __init__(self, rows) -> None:
+            self._rows = rows
+
+        def fetchall(self):
+            return self._rows
+
+    proxies = []
+
+    @contextmanager
+    def proxied_conn():
+        with real_get_conn() as conn:
+            proxy = WriteAfterCurrentQuery(conn)
+            proxies.append(proxy)
+            yield proxy
+
+    monkeypatch.setattr(db._db, "_get_conn", proxied_conn)
+    sections = db.get_volunteer_roles()
+    monkeypatch.undo()
+
+    assert proxies and proxies[0].fired
+    placements = [name for name in ("current", "applied", "possible", "possible_stale")
+                  if role["id"] in {row["id"] for row in sections[name]}]
+    # The snapshot predates the other tab's write: the role is still Possible.
+    assert placements == ["possible"]
+    # And the write did land: the next load shows it as Current.
+    assert role["id"] in {row["id"] for row in db.get_volunteer_roles()["current"]}

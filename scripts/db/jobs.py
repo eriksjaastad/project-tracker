@@ -96,6 +96,24 @@ def _kind_sql(conn: Any) -> tuple[str, str]:
     return "'job'", "NULL"
 
 
+def _open_rows(conn: Any, kind: str) -> list[dict[str, Any]]:
+    """Open listings of one kind on ``conn``, newest first.
+
+    A volunteer role with volunteering_since is Current, not Possible; a
+    job is listed whatever that column holds, so no job can fall off
+    both pages.
+    """
+    kind_sql, since_sql = _kind_sql(conn)
+    since_filter = f"AND {since_sql} IS NULL" if kind == "volunteer" else ""
+    rows = conn.execute(
+        f"""SELECT j.* FROM jobs AS j
+            WHERE {kind_sql} = ? {since_filter} AND {_OPEN}
+            ORDER BY j.first_seen DESC, j.id DESC""",
+        (kind,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 class JobsMixin:
     """Job operations exposed through the shared DatabaseManager."""
 
@@ -164,22 +182,9 @@ class JobsMixin:
             return _has_kind_columns(conn)
 
     def get_open_jobs(self, kind: str = "job") -> list[dict[str, Any]]:
-        """Listings of one kind neither dismissed nor submitted, newest first.
-
-        A volunteer role with volunteering_since is Current, not Possible; a
-        job is listed whatever that column holds, so no job can fall off
-        both pages.
-        """
+        """Listings of one kind neither dismissed nor submitted, newest first."""
         with self._db._get_conn() as conn:
-            kind_sql, since_sql = _kind_sql(conn)
-            since_filter = f"AND {since_sql} IS NULL" if kind == "volunteer" else ""
-            rows = conn.execute(
-                f"""SELECT j.* FROM jobs AS j
-                    WHERE {kind_sql} = ? {since_filter} AND {_OPEN}
-                    ORDER BY j.first_seen DESC, j.id DESC""",
-                (kind,),
-            ).fetchall()
-            return [dict(row) for row in rows]
+            return _open_rows(conn, kind)
 
     def get_ranked_open_jobs(self, kind: str = "job") -> dict[str, list[dict[str, Any]]]:
         """Open listings ranked by fit, split into fresh and stale (#101679546294759424)."""
@@ -190,25 +195,35 @@ class JobsMixin:
         """The Volunteer page: current, applied, and ranked possible roles.
 
         A role with volunteering_since is Current whether or not it was ever
-        submitted; Applied and Possible both exclude it.
+        submitted; Applied and Possible both exclude it. All sections come
+        from one read transaction, so a write from another tab can never land
+        between them and leave a role in no section (or two).
         """
         with self._db._get_conn() as conn:
-            migration_pending = not _has_kind_columns(conn)
-            kind_sql, since_sql = _kind_sql(conn)
-            current = conn.execute(
-                f"""SELECT j.* FROM jobs AS j
-                    WHERE {kind_sql} = 'volunteer' AND j.deleted_at IS NULL
-                      AND {since_sql} IS NOT NULL
-                    ORDER BY {since_sql} DESC, j.id DESC"""
-            ).fetchall()
-            applied = conn.execute(
-                f"""SELECT j.*, MAX(s.submitted_at) AS last_submitted_at
-                    FROM jobs AS j JOIN job_submissions AS s ON s.job_id = j.id
-                    WHERE {kind_sql} = 'volunteer' AND j.deleted_at IS NULL
-                      AND {since_sql} IS NULL
-                    GROUP BY j.id ORDER BY last_submitted_at DESC, j.id DESC"""
-            ).fetchall()
-        possible = self.get_ranked_open_jobs("volunteer")
+            conn.execute("BEGIN")  # one WAL snapshot for every query below
+            try:
+                return self._volunteer_sections(conn)
+            finally:
+                conn.rollback()  # read-only: nothing to keep
+
+    def _volunteer_sections(self, conn: Any) -> dict[str, Any]:
+        """current/applied/possible on ``conn``, inside the caller's read transaction."""
+        migration_pending = not _has_kind_columns(conn)
+        kind_sql, since_sql = _kind_sql(conn)
+        current = conn.execute(
+            f"""SELECT j.* FROM jobs AS j
+                WHERE {kind_sql} = 'volunteer' AND j.deleted_at IS NULL
+                  AND {since_sql} IS NOT NULL
+                ORDER BY {since_sql} DESC, j.id DESC"""
+        ).fetchall()
+        applied = conn.execute(
+            f"""SELECT j.*, MAX(s.submitted_at) AS last_submitted_at
+                FROM jobs AS j JOIN job_submissions AS s ON s.job_id = j.id
+                WHERE {kind_sql} = 'volunteer' AND j.deleted_at IS NULL
+                  AND {since_sql} IS NULL
+                GROUP BY j.id ORDER BY last_submitted_at DESC, j.id DESC"""
+        ).fetchall()
+        possible = ranked_split(_open_rows(conn, "volunteer"), datetime.now(timezone.utc).date())
         return {
             "migration_pending": migration_pending,
             "current": [dict(row) for row in current],
