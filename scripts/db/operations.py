@@ -657,49 +657,50 @@ class ProjectTrackerOps(BackendDatabaseManager):
             "verified": True,
         }
 
-    def _backups_to_prune(self) -> list[list[Path]]:
-        """Every backup the retention rule drops, as move units, read-only.
+    def _backups_to_prune(self, directory: Path) -> list[list[Path]]:
+        """Every backup in ``directory`` the retention rule drops, as move units.
 
-        In each backup directory a kind (``tracker``, ``before_destructive``,
+        Read-only. A kind (``tracker``, ``before_destructive``,
         ``tasks_delete_backup``, ...) keeps its newest backups by modification
         time: _KEEP_SNAPSHOTS for ``tracker``, _KEEP_OTHER for every other
         kind. A unit is a database followed by its ``-wal``/``-shm`` sidecars,
         or a lone sidecar whose database is gone. Files whose names carry no
         kind and timestamp, or that are not .db/.json backups, are never
-        touched. A missing directory is skipped; any other OS error raises.
+        touched. A missing directory has none; any other OS error raises.
         """
         import stat as stat_mode
 
-        units: list[list[Path]] = []
-        for directory in self._backup_dirs():
+        try:
+            entries = list(directory.iterdir())
+        # governance: allow-silent SF002: a backup directory that does not exist holds no backups to prune; any other OSError raises and backup_prune reports it
+        except FileNotFoundError:
+            return []
+        kinds: dict[str, dict[str, list[Path]]] = {}
+        mtimes: dict[str, float] = {}
+        for path in entries:
             try:
-                entries = list(directory.iterdir())
+                info = path.lstat()
             except FileNotFoundError:
                 continue
-            kinds: dict[str, dict[str, list[Path]]] = {}
-            mtimes: dict[str, float] = {}
-            for path in entries:
-                try:
-                    info = path.lstat()
-                except FileNotFoundError:
-                    continue
-                if not stat_mode.S_ISREG(info.st_mode):
-                    continue
-                base = path.name.removesuffix("-wal").removesuffix("-shm")
-                match = self._BACKUP_KIND.match(base)
-                if not match or not base.endswith((".db", ".json")):
-                    continue
-                kinds.setdefault(match["kind"], {}).setdefault(base, []).append(path)
-                if path.name == base:
-                    mtimes[base] = info.st_mtime
-            for kind, backups in kinds.items():
-                keep = self._KEEP_SNAPSHOTS if kind == "tracker" else self._KEEP_OTHER
-                present = sorted((b for b in backups if b in mtimes), key=mtimes.get, reverse=True)
-                kept = set(present[:keep])
-                for base, paths in sorted(backups.items()):
-                    if base not in kept:
-                        # The database first, so its sidecars move only after it.
-                        units.append(sorted(paths, key=lambda p: (p.name != base, p.name)))
+            if not stat_mode.S_ISREG(info.st_mode):
+                continue
+            base = path.name.removesuffix("-wal").removesuffix("-shm")
+            match = self._BACKUP_KIND.match(base)
+            if not match or not base.endswith((".db", ".json")):
+                continue
+            kinds.setdefault(match["kind"], {}).setdefault(base, []).append(path)
+            if path.name == base:
+                mtimes[base] = info.st_mtime
+        units: list[list[Path]] = []
+        for kind, backups in kinds.items():
+            keep = self._KEEP_SNAPSHOTS if kind == "tracker" else self._KEEP_OTHER
+            # Newest first; the name breaks mtime ties, so a dry run matches the real one.
+            present = sorted((b for b in backups if b in mtimes), key=lambda b: (mtimes[b], b), reverse=True)
+            kept = set(present[:keep])
+            for base, paths in sorted(backups.items()):
+                if base not in kept:
+                    # The database first, so its sidecars move only after it.
+                    units.append(sorted(paths, key=lambda p: (p.name != base, p.name)))
         return units
 
     def backup_prune(self, dry_run: bool = False) -> dict:
@@ -717,10 +718,13 @@ class ProjectTrackerOps(BackendDatabaseManager):
         pruned: list[str] = []
         errors: list[str] = []
         size = 0
-        try:
-            units = self._backups_to_prune()
-        except OSError as err:
-            return {"pruned": [], "size_bytes": 0, "errors": [f"listing backups: {err}"]}
+        units: list[list[Path]] = []
+        for directory in self._backup_dirs():
+            # One unreadable directory is reported; the other is still pruned.
+            try:
+                units.extend(self._backups_to_prune(directory))
+            except OSError as err:
+                errors.append(f"listing {directory}: {err}")
         for unit in units:
             has_database = not unit[0].name.endswith(("-wal", "-shm"))
             for index, path in enumerate(unit):

@@ -415,16 +415,24 @@ def test_prune_keeps_sidecars_with_a_database_that_cannot_move(db, monkeypatch):
     assert result["errors"] == ["tracker_20260920_000000.db: [Errno 1] Operation not permitted"]
 
 
-def test_prune_reports_an_unreadable_backup_directory(db, monkeypatch):
+def test_prune_reports_an_unreadable_backup_directory_and_prunes_the_other(db, monkeypatch):
+    import os
     import send2trash
 
-    monkeypatch.setattr(send2trash, "send2trash", lambda path: pytest.fail(f"trashed {path}"))
-    directory = db.entry.backup_dir
-    directory.mkdir(parents=True, exist_ok=True)
+    trashed = []
+    monkeypatch.setattr(send2trash, "send2trash", lambda path: trashed.append(Path(path).name))
+    unreadable = db.entry.backup_dir
+    unreadable.mkdir(parents=True, exist_ok=True)
+    other = db.entry.external_backup_dir
+    other.mkdir(parents=True, exist_ok=True)
+    for i in range(11):
+        path = other / f"tracker_202609{i + 10:02d}_000000.db"
+        path.write_text("x")
+        os.utime(path, (1_000_000 - i, 1_000_000 - i))
     real_iterdir = Path.iterdir
 
     def iterdir(self):
-        if self == directory:
+        if self == unreadable:
             raise PermissionError(13, "Permission denied")
         return real_iterdir(self)
 
@@ -432,4 +440,5 @@ def test_prune_reports_an_unreadable_backup_directory(db, monkeypatch):
 
     result = db.backup_prune()
 
-    assert result["errors"] and result["errors"][0].startswith("listing backups:")
+    assert result["errors"] and result["errors"][0].startswith(f"listing {unreadable}:")
+    assert trashed == ["tracker_20260920_000000.db"]
