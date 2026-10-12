@@ -341,7 +341,7 @@ def test_prune_reports_every_failure_and_leaves_files(db, monkeypatch, failing):
     from pt import backup_prune as backup_prune_cmd
 
     def refuse(*_args):
-        raise PermissionError(1, "Operation not permitted")
+        raise PermissionError(1, "Operation not permitted | see\nnext line")
 
     directory = db.entry.backup_dir
     directory.mkdir(parents=True, exist_ok=True)
@@ -367,5 +367,23 @@ def test_prune_reports_every_failure_and_leaves_files(db, monkeypatch, failing):
 
     assert result.exit_code == 1, result.output
     assert result.output.count("\n") == 1
-    assert "left in place" in result.output and "Operation not permitted" in result.output
+    assert "left in place" in result.output and "Operation not permitted / see next line" in result.output
+    assert len(list(directory.glob("tracker_*.db"))) == 12
+
+
+def test_prune_dry_run_moves_nothing(db, monkeypatch):
+    import os
+    import send2trash
+
+    monkeypatch.setattr(send2trash, "send2trash", lambda path: pytest.fail(f"dry run trashed {path}"))
+    directory = db.entry.backup_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    for i in range(12):
+        path = directory / f"tracker_202609{i + 10:02d}_000000.db"
+        path.write_text("x")
+        os.utime(path, (1_000_000 - i, 1_000_000 - i))
+
+    result = db.backup_prune(dry_run=True)
+
+    assert result["pruned"] == ["tracker_20260920_000000.db", "tracker_20260921_000000.db"]
     assert len(list(directory.glob("tracker_*.db"))) == 12

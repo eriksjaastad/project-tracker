@@ -1533,20 +1533,23 @@ def backup_prune(dry_run):
     this after the snapshot and the offsite copy. Exits 1 if anything could
     not be moved or listed.
     """
+    def one_line(text):
+        # The scheduled job logs this output as one `|`-separated field.
+        return " ".join(str(text).split()).replace("|", "/")
+
     try:
         result = DatabaseManager().backup_prune(dry_run=dry_run)
     except _LOCAL_DB_ERRORS as err:
-        console.print(f"[red]pt backup prune: {err}[/red]")
+        click.echo(one_line(f"pt backup prune: {err}"))
         raise SystemExit(2)
     size_mb = result["size_bytes"] / (1024 * 1024)
     if dry_run:
         for name in result["pruned"]:
             click.echo(name)
-    # One summary line: the scheduled job logs it as the prune entry's detail.
     summary = f"{'would move' if dry_run else 'moved'} {len(result['pruned'])} file(s), {size_mb:.1f} MB"
     if result["errors"]:
         summary += f"; failed for {len(result['errors'])}, left in place: {result['errors'][0]}"
-    click.echo(summary)
+    click.echo(one_line(summary))
     if result["errors"]:
         raise SystemExit(1)
 

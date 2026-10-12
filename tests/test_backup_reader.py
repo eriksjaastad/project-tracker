@@ -148,3 +148,9 @@ def test_get_backup_status_warns_when_the_last_prune_failed(tmp_path, monkeypatc
 
     assert status["status"] == "warning"
     assert "Pruning old backups failed" in status["message"] and "x.db: denied" in status["message"]
+
+    # Not hidden behind a cloud warning either.
+    monkeypatch.setenv("PT_BACKUP_RCLONE_DEST", "")
+    status = backup_reader.get_backup_status()
+    assert status["status"] == "warning"
+    assert "not configured" in status["message"] and "Pruning old backups failed" in status["message"]

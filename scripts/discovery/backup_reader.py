@@ -328,12 +328,16 @@ def get_backup_status() -> dict[str, Any]:
     elif cloud_status != "healthy":
         status = "warning"
         message = f"{local_message} {cloud_message}"
-    elif log["last_prune_failed"]:
-        status = "warning"
-        message = f"Pruning old backups failed: {log['last_prune_detail']}"
     else:
         status = "healthy"
         message = "Local and off-machine backups look healthy."
+    # A failed prune is reported whatever else is wrong, never hidden behind it.
+    if log["last_prune_failed"]:
+        prune_message = f"Pruning old backups failed: {log['last_prune_detail']}"
+        if status == "healthy":
+            status, message = "warning", prune_message
+        else:
+            message = f"{message} {prune_message}"
 
     last_local_log = _parse_iso(log["last_local_success_at"])
     return {
