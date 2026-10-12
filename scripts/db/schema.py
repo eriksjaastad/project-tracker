@@ -1044,7 +1044,9 @@ def ensure_schema(cursor: Any) -> None:
     """)
 
     # Local job-search dashboard tables. Also defined in migration 013 for
-    # databases already at schema version 9; keep both definitions in sync.
+    # databases already at schema version 9, plus kind/volunteering_since from
+    # migration 016 (appended last so column order matches an ALTERed table);
+    # keep the definitions in sync.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS jobs (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1063,7 +1065,10 @@ def ensure_schema(cursor: Any) -> None:
                             'Backend', 'Other'
                         )),
             raw         TEXT,
-            deleted_at  TEXT
+            deleted_at  TEXT,
+            kind        TEXT NOT NULL DEFAULT 'job'
+                        CHECK (kind IN ('job', 'volunteer')),
+            volunteering_since TEXT
         )
     """)
     cursor.execute("""
@@ -1079,6 +1084,12 @@ def ensure_schema(cursor: Any) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_first_seen ON jobs(first_seen)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_category ON jobs(category)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_deleted_at ON jobs(deleted_at)")
+    # A jobs table created before migration 016 has no kind column, and
+    # CREATE TABLE IF NOT EXISTS above did not add one. Index it only once the
+    # column exists; migration 016 adds the column and this index itself.
+    cursor.execute("PRAGMA table_info(jobs)")
+    if any(column[1] == "kind" for column in cursor.fetchall()):
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_kind ON jobs(kind)")
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_job_submissions_job_submitted
         ON job_submissions(job_id, submitted_at)

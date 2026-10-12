@@ -95,9 +95,10 @@ def test_pt_db_migrate_applies_pending_and_reports(
     assert "013_add_jobs_tables" in result.output
     assert "014_add_task_notes_history" in result.output
     assert "015_add_outreach_contacts" in result.output
+    assert "016_add_jobs_kind_and_volunteering" in result.output
     assert "017_add_codebase_size_snapshots" in result.output
     assert "018_drop_cr_sqlite" in result.output
-    assert "applied 16 migration" in result.output
+    assert "applied 17 migration" in result.output
 
     # The tables the migrations create are proven present by counting rows in
     # them through the sanctioned interface, and by nothing being pending

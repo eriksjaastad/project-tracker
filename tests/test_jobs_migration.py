@@ -17,9 +17,9 @@ from db.schema import ensure_schema  # noqa: E402
 MIGRATIONS_DIR = Path(__file__).parent.parent / "scripts" / "db" / "migrations"
 
 
-def _migration_up(conn: sqlite3.Connection) -> None:
+def _migration_up(conn: sqlite3.Connection, version: int = 13) -> None:
     migration = next(
-        m for m in discover_migrations(MIGRATIONS_DIR) if m.version == 13
+        m for m in discover_migrations(MIGRATIONS_DIR) if m.version == version
     )
     migration.up(conn)
 
@@ -95,8 +95,10 @@ def test_fresh_schema_matches_migration_and_manifest() -> None:
     conn = sqlite3.connect(":memory:")
     ensure_schema(conn.cursor())
     _migration_up(conn)
+    _migration_up(conn, 16)  # a fresh schema already has kind: ALTERs skip
     migrated = sqlite3.connect(":memory:")
     _migration_up(migrated)
+    _migration_up(migrated, 16)
     for table in ("jobs", "job_submissions"):
         assert conn.execute(f"PRAGMA table_info({table})").fetchall() == (
             migrated.execute(f"PRAGMA table_info({table})").fetchall()
@@ -106,3 +108,69 @@ def test_fresh_schema_matches_migration_and_manifest() -> None:
         )
     conn.close()
     migrated.close()
+
+
+def _legacy_jobs_db(path: Path) -> sqlite3.Connection:
+    """A jobs table as migration 013 left it, with hand-entered volunteer rows."""
+    conn = sqlite3.connect(path)
+    _migration_up(conn)
+    conn.executemany(
+        "INSERT INTO jobs (company, title, url, source) VALUES (?, ?, ?, ?)",
+        [
+            ("Husky Crew", "Volunteer: Rowing coach", "https://example.test/v1", "manual"),
+            ("Food Bank", "volunteer: Website help", "https://example.test/v2", "manual"),
+            ("Acme", "Volunteer: Imported", "https://example.test/v3", "ats_sweep"),
+            ("HN", "VOLUNTEER: From HN", "https://example.test/v5", "hn"),
+            ("Acme", "Frontend Engineer", "https://example.test/j1", "manual"),
+            # A paid role whose title merely starts with the word stays a job.
+            ("Org", "Volunteer Coordinator", "https://example.test/j2", "ats_sweep"),
+            ("Bare", "Volunteer: ", "https://example.test/v4", "manual"),
+        ],
+    )
+    conn.commit()
+    return conn
+
+
+def test_kind_migration_backfills_volunteer_rows_and_is_idempotent(tmp_path: Path) -> None:
+    conn = _legacy_jobs_db(tmp_path / "legacy.db")
+    _migration_up(conn, 16)
+    first = conn.execute("SELECT url, title, kind, volunteering_since FROM jobs ORDER BY url").fetchall()
+    assert first == [
+        ("https://example.test/j1", "Frontend Engineer", "job", None),
+        ("https://example.test/j2", "Volunteer Coordinator", "job", None),
+        ("https://example.test/v1", "Rowing coach", "volunteer", None),
+        ("https://example.test/v2", "Website help", "volunteer", None),
+        # The prefix marks a volunteer role whatever the source.
+        ("https://example.test/v3", "Imported", "volunteer", None),
+        # Nothing after the prefix: keep the title rather than blank it.
+        ("https://example.test/v4", "Volunteer: ", "volunteer", None),
+        ("https://example.test/v5", "From HN", "volunteer", None),
+    ]
+    _migration_up(conn, 16)
+    assert conn.execute(
+        "SELECT url, title, kind, volunteering_since FROM jobs ORDER BY url"
+    ).fetchall() == first
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO jobs (company, title, url, kind) VALUES ('X', 'Y', 'https://example.test/x', 'gig')"
+        )
+    conn.close()
+
+
+def test_ensure_schema_over_legacy_jobs_table_then_016_adds_kind(tmp_path: Path) -> None:
+    """Startup DDL must not touch kind on a 013-shape table; 016 adds it afterwards."""
+    conn = _legacy_jobs_db(tmp_path / "legacy.db")
+    ensure_schema(conn.cursor())
+    conn.commit()
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    assert "kind" not in columns and "volunteering_since" not in columns
+    assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 7
+
+    _migration_up(conn, 16)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    assert {"kind", "volunteering_since"} <= columns
+    assert "idx_jobs_kind" in {row[1] for row in conn.execute("PRAGMA index_list(jobs)")}
+    assert conn.execute(
+        "SELECT kind, COUNT(*) FROM jobs GROUP BY kind ORDER BY kind"
+    ).fetchall() == [("job", 2), ("volunteer", 5)]
+    conn.close()

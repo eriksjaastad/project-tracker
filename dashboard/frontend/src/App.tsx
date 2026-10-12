@@ -7,6 +7,7 @@ import { CalendarPage } from './components/CalendarPage';
 import { AgentChatPage } from './components/AgentChatPage';
 import { JobsPage } from './components/JobsPage';
 import { JobsSubmittedPage } from './components/JobsSubmittedPage';
+import { VolunteerPage } from './components/VolunteerPage';
 import { CodebasePage } from './components/CodebasePage';
 import { MorningPage } from './components/MorningPage';
 import { ProjectsProvider } from './hooks/ProjectsProvider';
@@ -27,6 +28,7 @@ function App() {
             <Route path="/agent-chat" element={<AgentChatPage />} />
             <Route path="/jobs" element={<JobsPage />} />
             <Route path="/jobs/submitted" element={<JobsSubmittedPage />} />
+            <Route path="/jobs/volunteer" element={<VolunteerPage />} />
             <Route path="/codebase" element={<CodebasePage />} />
             <Route path="/morning" element={<MorningPage />} />
             <Route path="*" element={<Navigate to="/kanban" replace />} />

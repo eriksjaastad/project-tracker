@@ -118,20 +118,27 @@ def test_import_validates_required_fields(tmp_path: Path) -> None:
         )
 
 
-def test_hn_multi_role_contract_documented_in_import_contract() -> None:
+def _import_help() -> str:
+    """`pt jobs import --help`: the import contract job-search's exporters follow."""
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", "--help"],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent, timeout=60,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    # Click re-wraps paragraphs; compare on single spaces.
+    return " ".join(result.stdout.split())
+
+
+def test_hn_multi_role_contract_documented_in_import_help() -> None:
     """HN comments guarantee one #post row; #role-N rows are best-effort.
 
     Free-text HN headers can't be parsed completely, so the contract
     guarantees one {comment_url}#post row per comment carrying the full
     comment text (no role is lost), and treats #role-N rows as extras.
-    The job-search export side lives in that repo; the contract is
-    documented in docs/JOB_IMPORT_CONTRACT.md.
+    The job-search export side lives in that repo; the contract is the
+    `pt jobs import --help` text.
     """
-    contract_path = Path(__file__).parent.parent / "docs" / "JOB_IMPORT_CONTRACT.md"
-    assert contract_path.exists(), "JOB_IMPORT_CONTRACT.md must exist"
-
-    contract = contract_path.read_text()
-    assert "HN Multi-Role Handling" in contract
+    contract = _import_help()
     assert "{comment_url}#post" in contract
     assert "full comment text" in contract.lower()
     assert "#role-{N}" in contract
@@ -140,7 +147,7 @@ def test_hn_multi_role_contract_documented_in_import_contract() -> None:
     assert "Full HN post (read for every role)" in contract
     assert '"Unknown"' not in contract  # retired label (job-search PR #20)
     assert '"See raw text"' not in contract
-    assert "Contract violation" in contract
+    assert "Omitting it, or cutting its raw text, breaks the contract" in contract
     assert "Every advertised position must produce one JSONL line" not in contract
 
 
@@ -350,3 +357,120 @@ def test_cli_import_dry_run_mode(tmp_path: Path) -> None:
     
     assert result.returncode == 0
     assert "DRY RUN: Would import 1 job(s)" in result.stdout
+
+
+def _run_import_json(jsonl: Path, *extra: str) -> subprocess.CompletedProcess:
+    """`pt jobs import --json`, bounded; JSON mode reports line errors with exit 0."""
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", str(jsonl), "--json", *extra],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    return result
+
+
+def test_cli_import_kind_and_rejects_unknown_kind(db, tmp_path: Path) -> None:
+    """kind is optional (default 'job'); 'volunteer' lands on the Volunteer page; others are rejected."""
+    jsonl = tmp_path / "kinds.jsonl"
+    jsonl.write_text(
+        '{"company": "Acme", "title": "Engineer", "url": "https://example.test/k1", "source": "manual"}\n'
+        '{"company": "Food Bank", "title": "Website help", "url": "https://example.test/k2", "source": "manual", "kind": "volunteer"}\n'
+        '{"company": "Gig Co", "title": "Driver", "url": "https://example.test/k3", "source": "manual", "kind": "gig"}\n'
+    )
+    result = _run_import_json(jsonl)
+    response = json.loads(result.stdout)
+    assert response["ok"] is False
+    assert response["result"]["imported"] == 2
+    [error] = response["result"]["details"]["errors"]
+    assert error["line"] == 3 and "invalid kind" in error["reason"]
+
+    assert [job["url"] for job in db.get_open_jobs()] == ["https://example.test/k1"]
+    assert [job["url"] for job in db.get_open_jobs("volunteer")] == ["https://example.test/k2"]
+    assert "https://example.test/k3" not in {
+        job["url"] for kind in ("job", "volunteer") for job in db.get_open_jobs(kind)
+    }
+
+
+def test_kind_and_null_rules_documented_in_import_help() -> None:
+    contract = _import_help()
+    assert "kind job (default for a new row) | volunteer" in contract
+    assert "an explicit null" in contract
+    assert "/jobs/volunteer" in contract
+    # Matches _run_import_json (exit 0) and the exit-1 tests for plain mode.
+    assert 'The command then exits 1; with --json it exits 0 and the envelope says "ok": false.' in contract
+
+
+_GOOD = {"company": "Acme", "title": "Engineer", "source": "manual"}
+
+# Each bad line must reject only itself; a valid line after it still imports.
+_BAD_LINES = [
+    ("not an object", [1, 2], "must be a JSON object"),
+    ("number line", 5, "must be a JSON object"),
+    ("company list", {**_GOOD, "company": ["Acme"]}, "invalid company"),
+    ("title number", {**_GOOD, "title": 42}, "invalid title"),
+    ("url object", {**_GOOD, "url": {"href": "x"}}, "invalid url"),
+    ("source object", {**_GOOD, "source": {"hn": 1}}, "invalid source"),
+    ("source unknown", {**_GOOD, "source": "linkedin"}, "invalid source"),
+    ("category list", {**_GOOD, "category": ["SEO"]}, "invalid category"),
+    ("category null", {**_GOOD, "category": None}, "invalid category"),
+    ("kind list", {**_GOOD, "kind": []}, "invalid kind"),
+    ("kind null", {**_GOOD, "kind": None}, "invalid kind"),
+    ("kind empty", {**_GOOD, "kind": ""}, "invalid kind"),
+    ("source null", {**_GOOD, "source": None}, "missing required fields: source"),
+    ("title null", {**_GOOD, "title": None}, "missing required fields: title"),
+    ("company blank", {**_GOOD, "company": "   "}, "missing required fields: company"),
+    ("title blank", {**_GOOD, "title": "\t "}, "missing required fields: title"),
+    ("url blank", {**_GOOD, "url": "  "}, "missing required fields: url"),
+    ("kind object", {**_GOOD, "kind": {"a": 1}}, "invalid kind"),
+    ("kind unknown", {**_GOOD, "kind": "gig"}, "invalid kind"),
+    ("location list", {**_GOOD, "location": ["Remote"]}, "invalid location"),
+    ("posted_date number", {**_GOOD, "posted_date": 20261001}, "invalid posted_date"),
+    ("raw object", {**_GOOD, "raw": {"html": "<p>"}}, "invalid raw"),
+    ("missing company", {k: v for k, v in _GOOD.items() if k != "company"}, "missing required fields: company"),
+]
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["real", "dry-run"])
+@pytest.mark.parametrize("label,bad,reason", _BAD_LINES, ids=[row[0] for row in _BAD_LINES])
+def test_cli_import_rejects_only_the_bad_line(
+    db, tmp_path: Path, label: str, bad, reason: str, dry_run: bool,
+) -> None:
+    """A dry run reports the same line error a real run gives (rule E1)."""
+    if isinstance(bad, dict) and "company" in bad:
+        bad = {**bad, "url": bad.get("url", "https://example.test/bad")}
+    good = {**_GOOD, "url": "https://example.test/good", "kind": "volunteer",
+            "location": None, "posted_date": "2026-10-01", "raw": "text"}
+    jsonl = tmp_path / "mixed.jsonl"
+    jsonl.write_text(json.dumps(bad) + "\n" + json.dumps(good) + "\n")
+
+    response = json.loads(_run_import_json(jsonl, *(["--dry-run"] if dry_run else [])).stdout)
+    assert response["ok"] is False
+    assert response["result"]["imported"] == 1
+    assert response["result"]["dry_run"] is dry_run
+    [error] = response["result"]["details"]["errors"]
+    assert error["line"] == 1 and reason in error["reason"], error
+    expected = [] if dry_run else ["https://example.test/good"]
+    assert [job["url"] for job in db.get_open_jobs("volunteer")] == expected
+    assert db.get_open_jobs() == []
+
+
+def test_cli_import_omitted_kind_defaults_then_keeps_existing_kind(db, tmp_path: Path) -> None:
+    """Omitted kind: new row is a job; on conflict the row keeps its kind. Null is an error."""
+    jsonl = tmp_path / "omitted.jsonl"
+    new_job = {**_GOOD, "url": "https://example.test/omit/job"}
+    volunteer = {**_GOOD, "url": "https://example.test/omit/vol", "kind": "volunteer"}
+    jsonl.write_text(json.dumps(new_job) + "\n" + json.dumps(volunteer) + "\n")
+    assert json.loads(_run_import_json(jsonl).stdout)["ok"] is True
+
+    # Re-import the volunteer row without kind (kept), then with kind null (rejected).
+    refresh = {k: v for k, v in volunteer.items() if k != "kind"}
+    jsonl.write_text(json.dumps({**refresh, "title": "Renamed"}) + "\n"
+                     + json.dumps({**refresh, "kind": None}) + "\n")
+    response = json.loads(_run_import_json(jsonl).stdout)
+    assert response["result"]["imported"] == 1
+    [error] = response["result"]["details"]["errors"]
+    assert error["line"] == 2 and "invalid kind" in error["reason"]
+
+    assert [job["url"] for job in db.get_open_jobs()] == ["https://example.test/omit/job"]
+    [kept] = db.get_open_jobs("volunteer")
+    assert kept["url"] == "https://example.test/omit/vol" and kept["title"] == "Renamed"

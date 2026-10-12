@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 
@@ -55,7 +55,7 @@ describe('JobsPage', () => {
     vi.resetAllMocks();
   });
 
-  it('groups jobs by company', async () => {
+  it('lists jobs flat in server rank order, never regrouped by company', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -74,19 +74,6 @@ describe('JobsPage', () => {
             raw: null,
           },
           {
-            id: 2,
-            company: 'Acme Corp',
-            title: 'Backend Engineer',
-            url: 'https://example.com/job2',
-            location: 'Remote',
-            posted_date: '2026-09-21',
-            first_seen: '2026-09-23',
-            category: 'Backend',
-            source: 'ats_sweep',
-            deleted_at: null,
-            raw: null,
-          },
-          {
             id: 3,
             company: 'Tech Inc',
             title: 'Full Stack Developer',
@@ -96,6 +83,19 @@ describe('JobsPage', () => {
             first_seen: '2026-09-21',
             category: 'Full Stack',
             source: 'hn',
+            deleted_at: null,
+            raw: null,
+          },
+          {
+            id: 2,
+            company: 'Acme Corp',
+            title: 'Backend Engineer',
+            url: 'https://example.com/job2',
+            location: 'Remote',
+            posted_date: '2026-09-21',
+            first_seen: '2026-09-23',
+            category: 'Backend',
+            source: 'ats_sweep',
             deleted_at: null,
             raw: null,
           },
@@ -109,12 +109,12 @@ describe('JobsPage', () => {
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
     });
 
-    expect(screen.getByText('Acme Corp')).toBeInTheDocument();
-    expect(screen.getByText('Tech Inc')).toBeInTheDocument();
-
-    expect(screen.getByText('Frontend Developer')).toBeInTheDocument();
-    expect(screen.getByText('Backend Engineer')).toBeInTheDocument();
-    expect(screen.getByText('Full Stack Developer')).toBeInTheDocument();
+    // Server rank: Acme (best), Tech Inc, then Acme's weaker role. Grouping
+    // by company would have pulled Backend Engineer above Full Stack.
+    const titles = screen.getAllByRole('link').map(link => link.textContent);
+    expect(titles).toEqual(['Frontend Developer', 'Full Stack Developer', 'Backend Engineer']);
+    expect(screen.getAllByText('Acme Corp')).toHaveLength(2);
+    expect(screen.getAllByText('Tech Inc')).toHaveLength(1);
   });
 
   it('deletes a job and removes it from view', async () => {
@@ -976,6 +976,152 @@ describe('JobsPage', () => {
       expect(agentButton).not.toBeDisabled();
       expect(agentButton).toHaveTextContent('🤖');
     });
+  });
+
+  function rankedJob(id: number, company = `Company ${id}`) {
+    return {
+      id,
+      company,
+      title: `Role ${id}`,
+      url: `https://example.com/ranked/${id}`,
+      location: 'Remote',
+      posted_date: null,
+      first_seen: '2026-10-01',
+      category: 'Other',
+      source: 'ats_sweep',
+      deleted_at: null,
+      raw: null,
+    };
+  }
+
+  it('shows the top 25 in server rank order and a Show all control', async () => {
+    const user = userEvent.setup();
+    const fresh = Array.from({ length: 30 }, (_, i) => rankedJob(i + 1));
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: fresh, stale: [] }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Role 1')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Role 25')).toBeInTheDocument();
+    expect(screen.queryByText('Role 26')).not.toBeInTheDocument();
+    const titles = screen.getAllByRole('link').map(link => link.textContent);
+    expect(titles.slice(0, 3)).toEqual(['Role 1', 'Role 2', 'Role 3']);
+    expect(screen.queryByText(/older listing/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show all 30' }));
+    expect(screen.getByText('Role 30')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Show all/ })).not.toBeInTheDocument();
+  });
+
+  it('hides stale listings behind a count until asked', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: [rankedJob(1)], stale: [rankedJob(2), rankedJob(3)] }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Role 1')).toBeInTheDocument();
+    });
+    expect(screen.getByText('2 older listings hidden')).toBeInTheDocument();
+    expect(screen.queryByText('Role 2')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show older listings' }));
+    expect(screen.getByText('Role 2')).toBeInTheDocument();
+    expect(screen.getByText('Role 3')).toBeInTheDocument();
+    expect(screen.queryByText('2 older listings hidden')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Hide older listings' }));
+    expect(screen.queryByText('Role 2')).not.toBeInTheDocument();
+  });
+
+  it('reveals older listings even when 25 or more fresh listings fill the limit', async () => {
+    const user = userEvent.setup();
+    const fresh = Array.from({ length: 30 }, (_, i) => rankedJob(i + 1));
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: fresh, stale: [rankedJob(91), rankedJob(92)] }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('2 older listings hidden')).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: 'Show older listings' }));
+    const older = screen.getByRole('region', { name: 'Older listings' });
+    expect(older).toHaveTextContent('Role 91');
+    expect(older).toHaveTextContent('Role 92');
+    // The fresh list is still limited to its top 25.
+    expect(screen.queryByText('Role 26')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show all 30' })).toBeInTheDocument();
+  });
+
+  it('keeps older listings in server rank order across companies', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        jobs: [],
+        stale: [rankedJob(11, 'Acme'), rankedJob(12, 'Beta'), rankedJob(13, 'Acme')],
+      }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Show older listings' }));
+    const older = screen.getByRole('region', { name: 'Older listings' });
+    const titles = within(older).getAllByRole('link').map(link => link.textContent);
+    expect(titles).toEqual(['Role 11', 'Role 12', 'Role 13']);
+  });
+
+  it('dismisses and submits rows from the older-listings section', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: [rankedJob(1)], stale: [rankedJob(31), rankedJob(32)] }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Show older listings' }));
+    // Each action refetches stats; answer those with a well-formed payload.
+    vi.mocked(fetch).mockImplementation(async input => ({
+      ok: true,
+      json: async () => (String(input) === '/api/jobs/stats'
+        ? { jobs_per_day: [], submissions_per_day: [], categories: [] }
+        : {}),
+    }) as Response);
+
+    await user.click(screen.getByLabelText('Dismiss Role 31'));
+    expect(fetch).toHaveBeenCalledWith('/api/jobs/31', { method: 'DELETE' });
+    await waitFor(() => expect(screen.queryByText('Role 31')).not.toBeInTheDocument());
+
+    await user.click(screen.getByLabelText('Mark Role 32 as submitted'));
+    expect(fetch).toHaveBeenCalledWith('/api/jobs/32/submissions', expect.objectContaining({ method: 'POST' }));
+    await waitFor(() => expect(screen.queryByText('Role 32')).not.toBeInTheDocument());
+    expect(screen.getByText('Role 1')).toBeInTheDocument();
+  });
+
+  it('offers the hidden older listings when no fresh ones remain', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: [], stale: [rankedJob(4)] }),
+    } as Response);
+
+    render(<JobsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 older listing hidden')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('No open job listings')).not.toBeInTheDocument();
   });
 
   it('aborts its jobs and stats requests on unmount', () => {

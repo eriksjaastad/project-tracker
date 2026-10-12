@@ -4863,19 +4863,62 @@ def jobs_group(ctx: click.Context) -> None:
 @click.option("--dry-run", is_flag=True, help="Parse and validate without writing to database")
 @click.option("--json", "json_output", is_flag=True, help="Emit JSON envelope")
 def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
-    """Import job listings from JSONL file.
-    
-    Each line must be a JSON object with required fields: company, title, url, source.
-    Optional fields: location, posted_date, category, raw.
-    
-    Upserts jobs by URL (unique key). Preserves first_seen, deleted_at, and existing
-    raw text on conflict. See docs/JOB_IMPORT_CONTRACT.md for full contract.
+    """Import job listings from a JSONL file: the job-search export contract.
+
+    job-search's exporters (tools/ats_sweep.py and market-monitor/hn_jobs.py,
+    each with --export-jsonl) write one JSON object per line; this command
+    upserts them into the local database. A bad line rejects only itself:
+    the other lines still import and the bad ones are reported. The command
+    then exits 1; with --json it exits 0 and the envelope says "ok": false.
+
+    \b
+    Required (non-empty strings; null, empty or whitespace counts as missing):
+      company, title   trimmed
+      url              canonical posting URL, the unique key for upsert
+      source           ats_sweep | hn | manual
+
+    \b
+    Optional:
+      location, posted_date (ISO date), raw   string or null; null = omitted
+      category   Frontend/React | Full Stack | Forward Deployed / Solutions |
+                 SEO | Backend | Other (default)
+      kind       job (default for a new row) | volunteer
+    category and kind must be omitted to get the default: an explicit null,
+    or any other value, rejects the line. Volunteer rows appear only on the
+    dashboard's Volunteer page (/jobs/volunteer), never in Jobs listings,
+    stats or submissions. Always include raw when the source has it.
+
+    \b
+    Re-import (idempotent by url):
+      - updates company, title, location, source, posted_date, category
+      - updates kind only when the line supplies it; changing a row to job
+        drops its volunteering start date, so it returns to the Jobs page
+      - keeps first_seen and deleted_at (a dismissed job stays dismissed),
+        and keeps the stored raw when the new raw is null
+
+    \b
+    HN "Who's Hiring" comments (free text, often several roles each):
+      - required: one line per comment with url {comment_url}#post, title
+        "Full HN post (read for every role)" and the full comment text in raw;
+        company is best-effort, "Hacker News (company not parsed)" otherwise.
+        Omitting it, or cutting its raw text, breaks the contract.
+      - best-effort: one line per confidently parsed role, url
+        {comment_url}#role-{N} (N from 1, stable for the same text).
+        Missing or partial #role-N lines are allowed.
+
+    \b
+    Example lines:
+      {"company": "Acme Corp", "title": "Senior React Engineer", "url": "https://jobs.acme.com/123", "source": "ats_sweep", "category": "Frontend/React", "raw": "..."}
+      {"company": "Example Food Bank", "title": "Website volunteer", "url": "https://volunteer.example.org/roles/42", "source": "manual", "kind": "volunteer", "raw": "..."}
     """
-    from db.jobs import JOB_CATEGORIES, JOB_SOURCES
+    from db.jobs import JobsMigrationPendingError, validate_import_record
     
     errors: list[dict] = []
     imported: list[dict] = []
     skipped: list[dict] = []
+    # Dry run must flag what a real run rejects (#101668605654102016):
+    # volunteer lines need migration 016. Checked once, on first need.
+    volunteer_supported: bool | None = None
     
     try:
         with jsonl_path.open("r", encoding="utf-8") as f:
@@ -4893,53 +4936,30 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
                     })
                     continue
                 
-                # Validate required fields
-                missing_fields = [
-                    f for f in ("company", "title", "url", "source")
-                    if f not in record or not record[f]
-                ]
-                if missing_fields:
-                    errors.append({
-                        "line": line_num,
-                        "reason": f"missing required fields: {', '.join(missing_fields)}",
-                        "data": record,
-                    })
+                # Type and value checks reject only this line (#101668605654102016).
+                try:
+                    fields = validate_import_record(record)
+                except ValueError as exc:
+                    errors.append({"line": line_num, "reason": str(exc), "data": record})
                     continue
-                
-                source = record.get("source")
-                if source not in JOB_SOURCES:
-                    errors.append({
-                        "line": line_num,
-                        "reason": f"invalid source: {source!r}; must be one of {list(JOB_SOURCES)}",
-                        "data": record,
-                    })
-                    continue
-                
-                category = record.get("category", "Other")
-                if category not in JOB_CATEGORIES:
-                    errors.append({
-                        "line": line_num,
-                        "reason": f"invalid category: {category!r}; must be one of {list(JOB_CATEGORIES)}",
-                        "data": record,
-                    })
-                    continue
-                
+
                 if dry_run:
+                    if fields["kind"] == "volunteer":
+                        if volunteer_supported is None:
+                            volunteer_supported = DatabaseManager().volunteer_kind_supported()
+                        if not volunteer_supported:
+                            errors.append({
+                                "line": line_num,
+                                "reason": str(JobsMigrationPendingError()),
+                                "data": record,
+                            })
+                            continue
                     imported.append({"line": line_num, "url": record["url"]})
                     continue
                 
                 try:
                     db = DatabaseManager()
-                    job = db.upsert_job(
-                        company=record["company"],
-                        title=record["title"],
-                        url=record["url"],
-                        source=source,
-                        location=record.get("location"),
-                        posted_date=record.get("posted_date"),
-                        category=category,
-                        raw=record.get("raw"),
-                    )
+                    job = db.upsert_job(**fields)
                     imported.append({
                         "line": line_num,
                         "url": record["url"],
