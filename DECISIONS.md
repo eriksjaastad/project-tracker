@@ -76,15 +76,8 @@ service. Project Tracker returns to its existing in-process database operations.
 Backups use the SQLite backup API and the existing rclone destination; preserve
 backup history, destructive-operation confirmation, and SAFE_MODE. No replacement
 storage gate is planned. The root-owned installation was retired the same day
-(runbook `docs/DBMED_RETIREMENT.md`, removed in #8093; see git history).
-
-Snapshot with SQLite's backup API (copying a live file without its WAL is not a
-backup), then rclone the snapshot to `gbackup:db-backups/<project>/`; rclone
-credentials stay in the user's rclone config. An upload is not proof of
-recovery: restore a downloaded copy into an isolated directory, never over
-production. ai-memory keeps its encrypted `gbackup:ai-memory-encrypted`
-destination, and its thoughts export is not a full-database recovery path.
-(Folded from `docs/PORTFOLIO_OFFSITE_DB_BACKUPS.md`, removed in #8093.)
+(runbook `docs/DBMED_RETIREMENT.md`, removed in #8093; see git history). How
+to back up a project offsite: `docs/PORTFOLIO_OFFSITE_DB_BACKUPS.md`.
 
 ---
 

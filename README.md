@@ -68,7 +68,7 @@ dashboard/frontend/node_modules/.bin/eslint --no-config-lookup \
 
 ## CI
 
-The GitHub workflow (`.github/workflows/tests.yml`) is disabled. Its pytest and frontend lint, test and build jobs run locally instead: the shared pre-push hook runs `scripts/local-checks.sh` on every push, in a fresh worktree. Review by a separate local Codex reviewer process on the exact committed HEAD (the implementer never reviews its own work) and the merge gates are defined by `pt info get pr_merge_policy`.
+The GitHub workflow (`.github/workflows/tests.yml`) is disabled. Its pytest and frontend lint, test and build jobs run locally instead: the shared pre-push hook runs `scripts/local-checks.sh` in a fresh worktree. Review by a separate local Codex reviewer process on the exact committed HEAD (the implementer never reviews its own work) and the merge gates are defined by `pt info get pr_merge_policy`.
 
 After opening or updating a PR, start `pt pr settle` and keep the owning agent
 attached to its event stream. Follow the [PR settle runbook](docs/PR_SETTLE.md)

@@ -154,7 +154,8 @@ The convention is for setup; it is not evidence of an installed backup.
 
 The two wired projects have explicit destinations: project-tracker uses
 `gbackup:db-backups/project-tracker/`; ai-memory uses the canonical encrypted
-`gbackup:ai-memory-encrypted` destination.
+`gbackup:ai-memory-encrypted` destination documented in
+[the backup guide](PORTFOLIO_OFFSITE_DB_BACKUPS.md).
 Check the latter's freshness through its sanctioned encrypted-backup tooling;
 never flatten, migrate, or copy its data to the conventional plain path.
 Track thoughts-export freshness separately from full-database recovery
@@ -375,4 +376,3 @@ ssh macbook-pro 'cd ~/projects && ~/projects/project-tracker/pt tasks -p <projec
 ```
 
 Also recorded as `pt info get remote_pt_invocation`.
-
