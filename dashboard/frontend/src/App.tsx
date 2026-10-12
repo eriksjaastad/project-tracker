@@ -10,6 +10,7 @@ import { VolunteerPage } from './components/VolunteerPage';
 import { CodebasePage } from './components/CodebasePage';
 import { MorningPage } from './components/MorningPage';
 import { Spinner } from './components/Spinner';
+import { PageBoundary } from './components/RouteErrorBoundary';
 import { ProjectsProvider } from './hooks/ProjectsProvider';
 import './App.css';
 
@@ -26,22 +27,24 @@ function App() {
       <BrowserRouter>
         <div className="app">
           <Navigation />
-          <Suspense fallback={<Spinner size="large" />}>
-            <Routes>
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/kanban" element={<KanbanBoard />} />
-              <Route path="/kanban/:project" element={<KanbanBoard />} />
-              <Route path="/agentic" element={<AgenticDashboard />} />
-              <Route path="/calendar" element={<CalendarPage />} />
-              <Route path="/agent-chat" element={<AgentChatPage />} />
-              <Route path="/jobs" element={<JobsPage />} />
-              <Route path="/jobs/submitted" element={<JobsSubmittedPage />} />
-              <Route path="/jobs/volunteer" element={<VolunteerPage />} />
-              <Route path="/codebase" element={<CodebasePage />} />
-              <Route path="/morning" element={<MorningPage />} />
-              <Route path="*" element={<Navigate to="/kanban" replace />} />
-            </Routes>
-          </Suspense>
+          <PageBoundary>
+            <Suspense fallback={<Spinner size="large" />}>
+              <Routes>
+                <Route path="/dashboard" element={<DashboardPage />} />
+                <Route path="/kanban" element={<KanbanBoard />} />
+                <Route path="/kanban/:project" element={<KanbanBoard />} />
+                <Route path="/agentic" element={<AgenticDashboard />} />
+                <Route path="/calendar" element={<CalendarPage />} />
+                <Route path="/agent-chat" element={<AgentChatPage />} />
+                <Route path="/jobs" element={<JobsPage />} />
+                <Route path="/jobs/submitted" element={<JobsSubmittedPage />} />
+                <Route path="/jobs/volunteer" element={<VolunteerPage />} />
+                <Route path="/codebase" element={<CodebasePage />} />
+                <Route path="/morning" element={<MorningPage />} />
+                <Route path="*" element={<Navigate to="/kanban" replace />} />
+              </Routes>
+            </Suspense>
+          </PageBoundary>
         </div>
       </BrowserRouter>
     </ProjectsProvider>

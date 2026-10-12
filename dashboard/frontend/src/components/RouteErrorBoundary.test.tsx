@@ -1,0 +1,59 @@
+import { lazy, Suspense } from 'react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { PageBoundary } from './RouteErrorBoundary';
+
+// What a tab opened before a redeploy gets: the old chunk is gone.
+const MissingChunkPage = lazy(() =>
+  Promise.reject(new TypeError('Failed to fetch dynamically imported module: /assets/JobsPage-old.js')));
+
+function renderApp(path: string) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <nav>
+        <Link to="/kanban">Kanban</Link>
+      </nav>
+      <PageBoundary>
+        <Suspense fallback={<p>Loading…</p>}>
+          <Routes>
+            <Route path="/jobs" element={<MissingChunkPage />} />
+            <Route path="/kanban" element={<p>Kanban board</p>} />
+          </Routes>
+        </Suspense>
+      </PageBoundary>
+    </MemoryRouter>,
+  );
+}
+
+describe('PageBoundary', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('keeps the app and offers a reload when a page chunk fails to load', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reload = vi.fn();
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, reload });
+    const user = userEvent.setup();
+    renderApp('/jobs');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("This page couldn't load");
+    expect(screen.getByRole('link', { name: 'Kanban' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the failure when the user moves to another page', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const user = userEvent.setup();
+    renderApp('/jobs');
+
+    await screen.findByRole('alert');
+    await user.click(screen.getByRole('link', { name: 'Kanban' }));
+    expect(screen.getByText('Kanban board')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
