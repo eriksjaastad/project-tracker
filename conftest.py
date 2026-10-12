@@ -61,34 +61,16 @@ os.environ["PT_DB_PATH"] = str(_TEST_DB_ROOT / "collection.db")
 
 @pytest.fixture(scope="session")
 def _template(tmp_path_factory) -> Path:
-    """A schema-only database, built once and copied per test.
+    """A database built once through create_database and copied per test.
 
-    Building the schema takes about 15ms and copying a 100KB file takes well
-    under one. Multiplied across the suite that is the difference between a
-    boundary that tests tolerate and one they resent.
+    It is the database production creates: schema.sql already contains every
+    migration (a test fails until `make schema` folds a new one in), so the
+    tests never run against a schema nobody ships.
     """
-    import sqlite3
-
-    from db.migration_runner import apply_all
     from db.schema import create_database
 
     template = tmp_path_factory.mktemp("local-template") / "tracker.db"
     create_database(template)
-
-    # Apply the numbered migrations too. `create_database` builds the base
-    # schema; tables like `handoffs` (010) and `migrations` (011) arrive as
-    # migrations, and a test database missing them is not the database
-    # production runs — tests would pass against a schema nobody ships.
-    migrations_dir = Path(__file__).resolve().parent / "scripts" / "db" / "migrations"
-    conn = sqlite3.connect(template, isolation_level=None)
-    try:
-        apply_all(conn, migrations_dir)
-    except Exception as exc:  # pragma: no cover - surfaced, never swallowed
-        raise RuntimeError(
-            f"could not build the test schema template: {type(exc).__name__}: {exc}"
-        ) from exc
-    finally:
-        conn.close()
     return template
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import scripts.db.schema_dump as schema_dump_module
 from scripts.db import schema
 from scripts.db.migration_runner import (
     apply_all,
@@ -23,6 +24,33 @@ def _objects(path: Path) -> list[tuple]:
 def test_schema_sql_is_current_with_the_migrations():
     """Fails when a migration lands without `make schema`."""
     assert schema_dump(["--check"]) == 0
+
+
+def test_a_hand_edited_schema_sql_is_refused(tmp_path, monkeypatch):
+    """schema.sql changes only through `make schema`; an edit must not pass silently."""
+    edited = tmp_path / "schema.sql"
+    edited.write_text(schema.SCHEMA_SQL.read_text().replace("DEFAULT 'user'", "DEFAULT 'agent'", 1))
+    monkeypatch.setattr(schema_dump_module, "SCHEMA_SQL", edited)
+    before = edited.read_text()
+    assert schema_dump(["--check"]) == 1
+    assert schema_dump(["--write"]) == 1
+    assert edited.read_text() == before
+
+
+@pytest.mark.parametrize(("text", "error"), [
+    ("CREATE TABLE t (id INTEGER);\n", "no '-- Migrations: through NNN' header"),
+    ("-- Migrations: through 999\nCREATE TABLE t (id INTEGER);\n", "that are not in"),
+    ("-- Migrations: through 002\nCREATE TABLE t (id INTEGER\n", "incomplete statement"),
+])
+def test_a_malformed_schema_sql_is_refused_before_anything_is_written(tmp_path, monkeypatch, text, error):
+    broken = tmp_path / "schema.sql"
+    broken.write_text(text)
+    monkeypatch.setattr(schema, "SCHEMA_SQL", broken)
+    db_path = tmp_path / "tracker.db"
+    with pytest.raises(RuntimeError, match=error):
+        schema.create_database(db_path)
+    with closing(sqlite3.connect(db_path)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0] == 0
 
 
 def test_fresh_database_is_marked_for_exactly_the_migrations_schema_sql_contains(tmp_path):
