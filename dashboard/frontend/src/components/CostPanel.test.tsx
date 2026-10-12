@@ -44,9 +44,10 @@ describe('CostPanel', () => {
 
   it('shows the totals and breakdowns from both response shapes', async () => {
     serve({
+      // The live tracker sends total_cost as a string.
       daily: [
-        { date: '2026-10-11', calls: 3, total_tokens: 1_500, total_cost: 2 },
-        { date: '2026-10-12', calls: 2, total_tokens: 1_000, total_cost: 3 },
+        { date: '2026-10-11', calls: 3, total_tokens: 1_500, total_cost: '2.000000' },
+        { date: '2026-10-12', calls: 2, total_tokens: 1_000, total_cost: '3.000000' },
       ],
       providers: { data: [{ provider: 'openrouter', calls: 5, total_tokens: 2_500, total_cost: 5 }] },
       projects: [{ project: 'project-tracker', calls: 5, total_tokens: 2_500, total_cost: 5 }],
