@@ -1174,10 +1174,7 @@ class DatabaseManager:
                 passed (str or None), the UPDATE only applies if the stored
                 notes still equal this value; otherwise nothing is written
                 (the notes-history row rolls back with it) and
-                NotesConflictError is raised. A base already stale on entry
-                raises before any validation: the caller's other values were
-                chosen against notes that no longer hold, so a conflict, not
-                (say) a status-transition error, is the true answer.
+                NotesConflictError is raised.
             **updates: Fields to update (text, status, priority)
             
         Returns:
@@ -1215,8 +1212,6 @@ class DatabaseManager:
         existing_task = self.get_task(task_id)
         if not existing_task:
             raise ValueError(f"Task with ID {task_id} not found")
-        if expected_notes is not _UNSET and existing_task.get("notes") != expected_notes:
-            raise NotesConflictError(f"Notes for task {task_id} changed since they were read")
 
         # Auto-promote to agent when a prompt is added and task_type is not explicit
         if "prompt" in updates and "task_type" not in updates:

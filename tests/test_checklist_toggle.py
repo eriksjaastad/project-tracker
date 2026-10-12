@@ -327,17 +327,43 @@ def test_patch_with_stale_base_notes_is_409_and_writes_nothing(db, client):
     assert _history(db, task["id"]) == []
 
 
-def test_patch_with_stale_base_notes_is_409_even_when_the_status_move_is_invalid(db, client):
-    # Another writer changed the notes and cancelled the task; the edit's
-    # Done is invalid from Cancelled, but the stale base is the real answer.
-    task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
-    db.update_task(task["id"], status="Cancelled")
+@pytest.mark.parametrize("case", ["cancelled", "blocked"])
+def test_stale_base_notes_is_409_before_any_status_validation(db, client, case):
+    # Another writer changed the notes and either cancelled the task (Done is
+    # invalid from Cancelled) or left it blocked (the start gate refuses In
+    # Progress). The edit was built on stale notes, so 409 is the answer.
+    if case == "cancelled":
+        task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
+        db.update_task(task["id"], status="Cancelled")
+        move = "Done"
+    else:
+        blocker = db.add_task(text="blocker", project_id=PROJECT_ID)
+        task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES, blocked_by=[blocker["id"]])
+        move = "In Progress"
+    before = db.get_task(task["id"])["status"]
     resp = client.patch(
         f"/api/tasks/{task['id']}",
-        json={"notes": "mine", "base_notes": "what the edit started from", "status": "Done"},
+        json={"notes": "mine", "base_notes": "what the edit started from", "status": move},
     )
     assert resp.status_code == 409, resp.text
-    assert db.get_task(task["id"])["status"] == "Cancelled"
+    assert db.get_task(task["id"])["status"] == before
+
+
+def test_patch_writer_between_precondition_and_write_wins(db, client, monkeypatch):
+    # The handler's early check passed; another writer lands before the
+    # UPDATE. The SQL CAS must still refuse the edit.
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
+    real = DatabaseManager.update_task
+    late = NOTES + "\n- [ ] late"
+
+    def racing(self, task_id, *a, **kw):
+        real(self, task_id, notes=late, notes_source="cli")
+        return real(self, task_id, *a, **kw)
+
+    monkeypatch.setattr(DatabaseManager, "update_task", racing)
+    resp = client.patch(f"/api/tasks/{task['id']}", json={"notes": "mine", "base_notes": NOTES})
+    assert resp.status_code == 409, resp.text
+    assert db.get_task(task["id"])["notes"] == late
 
 
 def test_patch_with_null_base_notes_conflicts_with_existing_notes(db, client):
