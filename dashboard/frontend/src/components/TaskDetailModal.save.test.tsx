@@ -136,4 +136,19 @@ describe('TaskDetailModal edit Save', () => {
       base_notes: theirs,
     }));
   });
+
+  it('keeps the draft and says to reopen when the reload after a conflict fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(updateTask).mockRejectedValueOnce(new NotesConflictError('changed'));
+    vi.mocked(fetchTask).mockRejectedValueOnce(new Error('offline'));
+    renderModal();
+
+    await user.click(screen.getByRole('button', { name: 'Edit Task' }));
+    const notes = screen.getByPlaceholderText('Optional notes, context, or comments...');
+    await user.type(notes, '\nmine');
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('reloading failed (offline). Close and reopen the task before saving.');
+    expect(notes).toHaveValue(`${NOTES}\nmine`);
+  });
 });

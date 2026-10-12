@@ -327,6 +327,19 @@ def test_patch_with_stale_base_notes_is_409_and_writes_nothing(db, client):
     assert _history(db, task["id"]) == []
 
 
+def test_patch_with_stale_base_notes_is_409_even_when_the_status_move_is_invalid(db, client):
+    # Another writer changed the notes and cancelled the task; the edit's
+    # Done is invalid from Cancelled, but the stale base is the real answer.
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
+    db.update_task(task["id"], status="Cancelled")
+    resp = client.patch(
+        f"/api/tasks/{task['id']}",
+        json={"notes": "mine", "base_notes": "what the edit started from", "status": "Done"},
+    )
+    assert resp.status_code == 409, resp.text
+    assert db.get_task(task["id"])["status"] == "Cancelled"
+
+
 def test_patch_with_null_base_notes_conflicts_with_existing_notes(db, client):
     # The edit started from a task with no notes; an agent has since added some.
     task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
