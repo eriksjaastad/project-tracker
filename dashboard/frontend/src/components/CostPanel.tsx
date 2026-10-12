@@ -1,4 +1,5 @@
 import { useRequest } from '../hooks/useRequest';
+import { formatCost, formatTokens } from '../utils/format';
 import './CostPanel.css';
 
 interface DailyEntry {
@@ -30,15 +31,29 @@ interface CostData {
 
 type UnknownRow = Record<string, unknown>;
 
-function formatCost(cost: number): string {
-  if (cost < 0.01) return '<$0.01';
-  return `$${cost.toFixed(2)}`;
-}
-
-function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(0)}K`;
-  return tokens.toString();
+// The cost proxy answers a down or slow tracker with an error status and an
+// empty `data` list; reading that as "no spend" would show $0.00 and tell the
+// user to instrument callers. Any non-OK status or unexpected shape is an error.
+async function fetchRows(url: string, signal: AbortSignal): Promise<UnknownRow[]> {
+  const response = await fetch(url, { signal });
+  if (!response.ok) {
+    throw new Error(`${url}: HTTP ${response.status}`);
+  }
+  const body: unknown = await response.json();
+  // The proxy passes the tracker's status through; an error body is an error
+  // whatever the status (ShadowPricingPanel does the same).
+  if (typeof body === 'object' && body !== null && 'error' in body && (body as { error?: unknown }).error) {
+    throw new Error(`${url}: ${String((body as { error: unknown }).error)}`);
+  }
+  const rows = Array.isArray(body)
+    ? body
+    : typeof body === 'object' && body !== null && Array.isArray((body as { data?: unknown }).data)
+      ? (body as { data: unknown[] }).data
+      : null;
+  if (rows === null) {
+    throw new Error(`${url}: unexpected response shape`);
+  }
+  return rows.filter((row): row is UnknownRow => typeof row === 'object' && row !== null);
 }
 
 export function CostPanel() {
@@ -48,22 +63,10 @@ export function CostPanel() {
     const sinceStr = since.toISOString().split('T')[0];
 
     const [daily, providers, projects] = await Promise.all([
-      fetch(`/api/costs/daily?days=30`, { signal }).then(r => r.json()),
-      fetch(`/api/costs/providers?since=${sinceStr}`, { signal }).then(r => r.json()),
-      fetch(`/api/costs/projects?since=${sinceStr}`, { signal }).then(r => r.json()),
+      fetchRows(`/api/costs/daily?days=30`, signal),
+      fetchRows(`/api/costs/providers?since=${sinceStr}`, signal),
+      fetchRows(`/api/costs/projects?since=${sinceStr}`, signal),
     ]);
-    // Handle both direct arrays and wrapped responses
-    const toArray = (value: unknown): UnknownRow[] => {
-      if (Array.isArray(value)) {
-        return value.filter((row): row is UnknownRow => typeof row === 'object' && row !== null);
-      }
-      if (typeof value === 'object' && value !== null && Array.isArray((value as { data?: unknown }).data)) {
-        return (value as { data: unknown[] }).data.filter(
-          (row): row is UnknownRow => typeof row === 'object' && row !== null
-        );
-      }
-      return [];
-    };
     const toNumber = (value: unknown): number => {
       if (typeof value === 'number') {
         return Number.isFinite(value) ? value : 0;
@@ -96,9 +99,9 @@ export function CostPanel() {
         total_cost: toNumber(row.total_cost),
       }));
     return {
-      daily: coerceDaily(toArray(daily)),
-      providers: coerceProviders(toArray(providers)),
-      projects: coerceProjects(toArray(projects)),
+      daily: coerceDaily(daily),
+      providers: coerceProviders(providers),
+      projects: coerceProjects(projects),
     };
   }, []);
 
