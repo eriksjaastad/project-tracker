@@ -32,6 +32,21 @@ def _no_sleep(monkeypatch):
     monkeypatch.setattr(ad.time, "sleep", lambda _s: None)
 
 
+def test_log_writes_one_stderr_line_and_no_file(monkeypatch, capsys):
+    # launchd already captures stderr; a second copy in a log file was 6.6's
+    # double log. AssertionError, not OSError: the old copy swallowed OSError.
+    def no_file(*_a, **_k):
+        raise AssertionError("log() must not write a file")
+    monkeypatch.setattr("builtins.open", no_file)
+    monkeypatch.setattr(ad.Path, "open", no_file)
+
+    ad.log("hello")
+
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err.count("\n") == 1 and err.rstrip().endswith(" hello")
+
+
 _REAL_FETCH_PAUSED_LOOPS = ad.fetch_paused_review_loops
 
 
