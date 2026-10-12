@@ -16,7 +16,7 @@ vi.mock('../api', async (importOriginal) => ({
 }));
 
 import {
-  ChecklistConflictError,
+  NotesConflictError,
   fetchAttachments,
   fetchProjects,
   fetchTask,
@@ -138,7 +138,7 @@ describe('TaskDetailModal checklist toggle (#7821)', () => {
 
   it('409 shows a message and refetches the task', async () => {
     const user = userEvent.setup();
-    vi.mocked(toggleChecklistItem).mockRejectedValue(new ChecklistConflictError('moved'));
+    vi.mocked(toggleChecklistItem).mockRejectedValue(new NotesConflictError('moved'));
     vi.mocked(fetchTask).mockResolvedValue(
       makeTask({ notes: '- [ ] new top\n- [ ] first\n- [x] second' })
     );

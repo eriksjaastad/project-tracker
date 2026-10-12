@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Task, TaskStatus, TaskPriority, TaskType, Attachment } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
-import { updateTask, fetchTask, toggleChecklistItem, ChecklistConflictError, fetchAttachments, uploadAttachment, deleteAttachment, isAbortError } from '../api';
+import { updateTask, fetchTask, toggleChecklistItem, NotesConflictError, fetchAttachments, uploadAttachment, deleteAttachment, isAbortError } from '../api';
 import { useProjects } from '../hooks/useProjects';
 import { parseNotesLines } from '../utils/checklist';
 import './TaskDetailModal.css';
@@ -32,6 +32,9 @@ export function TaskDetailModal({
   const [editedStatus, setEditedStatus] = useState<TaskStatus>('Backlog');
   const [editedPriority, setEditedPriority] = useState<TaskPriority | null>(null);
   const [editedTaskType, setEditedTaskType] = useState<TaskType>('manual');
+  // The stored notes the edit started from: Save sends them as base_notes, so
+  // a change made elsewhere meanwhile is a conflict, not a silent overwrite.
+  const [editBaseNotes, setEditBaseNotes] = useState<string | null>(null);
   const { projects } = useProjects();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +137,7 @@ export function TaskDetailModal({
       // than the checkbox state we guessed.
       if (currentTaskIdRef.current === taskId) {
         setToggleMessage(
-          err instanceof ChecklistConflictError
+          err instanceof NotesConflictError
             ? 'That item changed elsewhere; showing the latest notes.'
             : `${err instanceof Error ? err.message : 'Failed to toggle checklist item'}; showing the latest notes.`
         );
@@ -160,6 +163,7 @@ export function TaskDetailModal({
     // The draft starts from the freshest notes (including toggles), not the
     // possibly stale `task` prop.
     setEditedNotes(currentNotes || '');
+    setEditBaseNotes(currentNotes ?? null);
     setIsEditing(true);
   };
 
@@ -174,25 +178,56 @@ export function TaskDetailModal({
     }
 
 
+    // Send only what the user changed: an untouched field keeps whatever the
+    // server has now, including changes an agent made while this edit was open.
+    const optional = (value: string) => value.trim() || null;
+    const changes: Parameters<typeof updateTask>[1] = {};
+    if (editedText.trim() !== task.text) changes.text = editedText.trim();
+    if (optional(editedTitle) !== (task.title || null)) changes.title = optional(editedTitle);
+    if (optional(editedReviewComment) !== (task.review_comment || null)) changes.review_comment = optional(editedReviewComment);
+    if (optional(editedCommitSha) !== (task.commit_sha || null)) changes.commit_sha = optional(editedCommitSha);
+    if (optional(editedCategory) !== (task.category || null)) changes.category = optional(editedCategory);
+    if (editedStatus !== task.status) changes.status = editedStatus;
+    if (editedPriority !== task.priority) changes.priority = editedPriority;
+    if (editedTaskType !== (task.task_type || 'manual')) changes.task_type = editedTaskType;
+    if (optional(editedNotes) !== (editBaseNotes || null)) {
+      changes.notes = optional(editedNotes);
+      changes.base_notes = editBaseNotes;
+    }
+    if (Object.keys(changes).length === 0) {
+      setIsEditing(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
+    const taskId = task.id;
     try {
-      await updateTask(task.id, {
-        text: editedText.trim(),
-        title: editedTitle.trim() || null,
-        notes: editedNotes.trim() || null,
-        review_comment: editedReviewComment.trim() || null,
-        commit_sha: editedCommitSha.trim() || null,
-        category: editedCategory.trim() || null,
-        status: editedStatus,
-        priority: editedPriority,
-        task_type: editedTaskType,
-      });
+      await updateTask(taskId, changes);
       setIsEditing(false);
       onUpdate();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update task');
+      if (!(err instanceof NotesConflictError)) {
+        setError(err instanceof Error ? err.message : 'Failed to update task');
+        return;
+      }
+      // Keep the draft. The latest notes become the base, so the user decides:
+      // save again to replace them, or cancel to keep them.
+      try {
+        const fresh = await fetchTask(taskId);
+        applyServerNotes(taskId, fresh.notes ?? null, fresh.updated_at);
+        if (currentTaskIdRef.current === taskId) {
+          setEditBaseNotes(fresh.notes ?? null);
+          setError('The notes were changed elsewhere while you were editing, so nothing was saved. Save again to replace them with your version, or Cancel to keep theirs.');
+        }
+      } catch (refetchErr) {
+        if (currentTaskIdRef.current === taskId) {
+          setError(`The notes were changed elsewhere, so nothing was saved, and reloading failed (${
+            refetchErr instanceof Error ? refetchErr.message : 'unknown error'
+          }). Close and reopen the task before saving.`);
+        }
+      }
     } finally {
       setLoading(false);
     }
