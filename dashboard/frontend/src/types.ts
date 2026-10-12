@@ -96,6 +96,21 @@ export interface Attachment {
   uploaded_by: string;
 }
 
+/** A job listing as /api/jobs and /api/jobs/submissions return it. */
+export interface Job {
+  id: number;
+  company: string;
+  title: string;
+  url: string;
+  location: string | null;
+  posted_date: string | null;
+  first_seen: string;
+  category: string;
+  source: string;
+  deleted_at: string | null;
+  raw: string | null;
+}
+
 export interface Project {
   id: string;
   name: string;

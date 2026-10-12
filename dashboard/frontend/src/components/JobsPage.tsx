@@ -6,21 +6,8 @@ import { JobStatsChart } from './JobStatsChart';
 import { CategoryTable } from './CategoryTable';
 import { RankedListControls, TOP_LISTINGS } from './RankedListControls';
 import { useRequest } from '../hooks/useRequest';
+import type { Job } from '../types';
 import './JobsPage.css';
-
-interface Job {
-  id: number;
-  company: string;
-  title: string;
-  url: string;
-  location: string | null;
-  posted_date: string | null;
-  first_seen: string;
-  category: string;
-  source: string;
-  deleted_at: string | null;
-  raw: string | null;
-}
 
 // Both lists arrive ranked best-first from the API; `stale` is older than 30 days.
 interface RankedJobs {
