@@ -12,7 +12,6 @@ import pytest
 import sqlite3
 import tempfile
 import re
-import html
 from pathlib import Path
 from datetime import datetime
 
@@ -176,8 +175,7 @@ def test_property_1_task_creation_completeness(text, project_id, status, priorit
         )
         
         # Verify all provided fields are present
-        # Text is sanitized (HTML-escaped) before storage, so compare against escaped version
-        assert task["text"] == html.escape(text, quote=True)
+        assert task["text"] == text
         assert task["project_id"] == project_id
         assert task["status"] == status
         assert task["priority"] == priority
@@ -306,6 +304,21 @@ def test_add_task_inherits_portfolio_label_from_project_info(tmp_path):
     )
 
     assert task["category"] == "[AP]"
+
+
+def test_task_text_is_stored_as_typed(tmp_path):
+    # Escaping on store (#8246) showed "Erik&#x27;s" in pt and the dashboard,
+    # and every re-save escaped again. HTML renderers escape at render time.
+    db_path = tmp_path / "test.db"
+    create_database(db_path)
+    db = BackendDatabaseManager(db_path)
+    db.add_project(project_id="p", name="P", path="/tmp/p", status="active")
+    typed = "Erik's <b>Q&A</b> \"notes\""
+
+    task = db.add_task(text=typed, project_id="p", status="Backlog")
+    assert db.get_task(task["id"])["text"] == typed
+    db.update_task(task["id"], text=typed + " again")
+    assert db.get_task(task["id"])["text"] == typed + " again"
 
 
 def test_add_task_explicit_category_overrides_portfolio_label(tmp_path):

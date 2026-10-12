@@ -1,5 +1,5 @@
 -- Maintained by scripts/db/schema_dump.py (make schema). Never edit by hand: add a migration.
--- Migrations: through 020
+-- Migrations: through 021
 -- Body sha256: 74a5ba629af5450a8faaba8364f43d1b0a01f14a33ed39a2ca45bb79e485a12c
 
 CREATE TABLE _delete_permissions (
