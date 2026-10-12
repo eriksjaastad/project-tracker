@@ -37,7 +37,7 @@ def _request_for_host(host: str) -> Request:
         {
             "type": "http",
             "method": "POST",
-            "path": "/api/agents/run",
+            "path": "/api/codebase-size/refresh",
             "headers": [],
             "client": (host, 5000),
             "server": ("testserver", 80),
@@ -101,27 +101,3 @@ def test_attachment_download_requires_live_db_record(tmp_path: Path, monkeypatch
 def test_require_local_admin_request_blocks_remote_host():
     with pytest.raises(HTTPException, match="restricted to local requests"):
         dashboard_app._require_local_admin_request(_request_for_host("203.0.113.10"))
-
-
-def test_agents_run_endpoint_allows_loopback_client(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(
-        dashboard_app,
-        "run_agent_command",
-        lambda agent_name, command_name, args: SimpleNamespace(
-            success=True,
-            output=f"{agent_name}:{command_name}:{args}",
-            error="",
-            return_code=0,
-            duration_ms=12,
-            command=f"{agent_name} {command_name} {args}".strip(),
-        ),
-    )
-
-    response = TestClient(dashboard_app.app).post(
-        "/api/agents/run",
-        json={"agent_name": "pt", "command_name": "list", "args": ""},
-    )
-
-    assert response.status_code == 200, response.text
-    assert response.json()["success"] is True
-    assert response.json()["output"] == "pt:list:"

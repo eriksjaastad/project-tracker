@@ -3,7 +3,7 @@ Calendar Manager — AI-first calendar for project-tracker.
 
 Design philosophy:
 - Every field is optional except title + date (minimal barrier to entry)
-- Agents can do everything humans can, plus poll for reminders via JSON
+- Agents can do everything humans can; the 7am digest (scripts/alert_digest.py) reports deadlines
 - Flexible: add new event types / fields without breaking existing rows
 - Cron jobs are surfaced alongside events (they're scheduled too)
 - Extensible metadata field for future fields (dict stored as JSON)
@@ -13,13 +13,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
-from .pt_id import _find_crsqlite_dylib, next_id as pt_next_id
+from .pt_id import next_id as pt_next_id
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,34 @@ VALID_EVENT_TYPES = {"reminder", "deadline", "milestone", "meeting", "recurring"
 VALID_RECURRENCE = {None, "daily", "weekly", "monthly"}
 
 
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_TIME_RE = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
+
+
+def validate_event_date(value: str) -> str:
+    """Return ``value`` if it is a real calendar date written YYYY-MM-DD, else raise ValueError.
+
+    The one date/time validator for the calendar: the CLI (``pt calendar add`` /
+    ``update``), the dashboard create endpoint and ``CalendarManager`` writes all
+    use it. Digest and sort logic compare these strings, so a loose form such as
+    ``2026-1-5`` is rejected along with impossible dates like ``2026-02-30``.
+    """
+    if not isinstance(value, str) or not _DATE_RE.fullmatch(value):
+        raise ValueError(f"event_date must be a real date written YYYY-MM-DD, got {value!r}")
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(f"event_date must be a real date written YYYY-MM-DD, got {value!r}") from None
+    return value
+
+
+def validate_event_time(value: str) -> str:
+    """Return ``value`` if it is a 24-hour HH:MM time, else raise ValueError."""
+    if not isinstance(value, str) or not _TIME_RE.fullmatch(value):
+        raise ValueError(f"event_time must be a 24-hour time written HH:MM, got {value!r}")
+    return value
+
+
 def validate_event_type(event_type: str) -> tuple[bool, str]:
     if event_type not in VALID_EVENT_TYPES:
         return False, f"Invalid event_type '{event_type}'. Must be one of: {', '.join(sorted(VALID_EVENT_TYPES))}"
@@ -70,7 +99,7 @@ class CalendarManager:
     Designed to be used standalone OR via an existing db_path.
     """
 
-    def __init__(self, db_path: Optional[Path] = None, crsqlite_path: Optional[Path] = None) -> None:
+    def __init__(self, db_path: Optional[Path] = None) -> None:
         if db_path is None:
             import sys
             sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -80,41 +109,15 @@ class CalendarManager:
             except ImportError:
                 db_path = Path("data/tracker.db")
         self.db_path = Path(db_path)
-        self.crsqlite_path = Path(crsqlite_path) if crsqlite_path else None
 
     @contextmanager
     def _conn(self) -> Generator[sqlite3.Connection, None, None]:
-        # calendar_events and calendar_event_tasks are cr-sqlite CRRs
-        # (crr_manifest.CRR_TABLES): their triggers call crsql_* functions,
-        # so every write fails with "no such function: crsql_internal_sync_bit"
-        # unless the extension is loaded on this connection (#7899). Mirrors
-        # DatabaseManager._get_conn, including crsql_finalize() before close
-        # (without it each connection leaks file descriptors, #6482).
         conn = sqlite3.connect(self.db_path)
-        crsql_loaded = False
-        try:
-            dylib = self.crsqlite_path
-            if dylib is None:
-                dylib = _find_crsqlite_dylib()
-            if dylib and Path(dylib).exists():
-                conn.enable_load_extension(True)
-                conn.load_extension(str(dylib), entrypoint="sqlite3_crsqlite_init")
-                conn.enable_load_extension(False)
-                crsql_loaded = True
-            elif self.crsqlite_path is not None:
-                logger.warning("crsqlite missing at registered path: %s", self.crsqlite_path)
-        except Exception as exc:  # governance: allow-silent SF001: same soft-fail as DatabaseManager._get_conn; reads still work and a CRR write then fails loudly with "no such function"
-            logger.warning("crsqlite load skipped: %s", exc)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         try:
             yield conn
         finally:
-            if crsql_loaded:
-                try:
-                    conn.execute("SELECT crsql_finalize()")
-                except Exception as exc:  # governance: allow-silent SF001: cleanup must not block the close below
-                    logger.warning("crsql_finalize failed: %s", exc)
             conn.close()
 
     def ensure_tables(self) -> None:
@@ -175,7 +178,15 @@ class CalendarManager:
         created_by: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> int:
-        """Add a calendar event. Returns the new event ID."""
+        """Add a calendar event. Returns the new event ID.
+
+        An empty ``event_time`` means no time and is stored as NULL.
+        """
+        validate_event_date(event_date)
+        if event_time == "":
+            event_time = None
+        if event_time is not None:
+            validate_event_time(event_time)
         ok, err = validate_event_type(event_type)
         if not ok:
             raise ValueError(err)
@@ -208,7 +219,7 @@ class CalendarManager:
         allowed = {
             "title", "description", "event_date", "event_time", "event_type",
             "recurrence", "project_id", "machine", "prompt", "notify_before_minutes",
-            "notified_at", "status", "created_by", "metadata",
+            "status", "created_by", "metadata",
         }
         bad = set(updates) - allowed
         if bad:
@@ -216,6 +227,12 @@ class CalendarManager:
         if not updates:
             return True
 
+        if "event_date" in updates:
+            validate_event_date(updates["event_date"])
+        if updates.get("event_time") == "":
+            updates["event_time"] = None  # an empty time clears it
+        if updates.get("event_time") is not None:
+            validate_event_time(updates["event_time"])
         if "event_type" in updates:
             ok, err = validate_event_type(updates["event_type"])
             if not ok:
@@ -249,14 +266,6 @@ class CalendarManager:
             conn.execute(
                 "INSERT OR REPLACE INTO calendar_event_tasks (event_id, task_id, link_type) VALUES (?, ?, ?)",
                 (event_id, task_id, link_type),
-            )
-            conn.commit()
-
-    def unlink_task(self, event_id: int, task_id: int) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                "DELETE FROM calendar_event_tasks WHERE event_id = ? AND task_id = ?",
-                (event_id, task_id),
             )
             conn.commit()
 
@@ -317,49 +326,6 @@ class CalendarManager:
             rows = conn.execute(query, params).fetchall()
         return [_row_to_dict(r) for r in rows]
 
-    def get_upcoming_reminders(
-        self, within_minutes: int = 60, machine: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """Return events whose notification window is now open and haven't been notified yet.
-
-        Timezone note: event_date and event_time are stored as user-entered local wall-clock
-        values (no TZ info). We do a date-only comparison for all-day events and strip
-        timezone info for time comparisons to avoid UTC-vs-local drift.
-        """
-        from datetime import timedelta
-
-        now_dt = datetime.now(timezone.utc)
-        window_end = now_dt + timedelta(minutes=within_minutes)
-        # Use naive ISO strings for SQLite datetime() comparison — SQLite has no TZ support
-        now_naive = now_dt.strftime("%Y-%m-%dT%H:%M:%S")
-        end_naive = window_end.strftime("%Y-%m-%dT%H:%M:%S")
-        today = now_dt.date().isoformat()
-        end_date = window_end.date().isoformat()
-
-        query = """
-            SELECT * FROM calendar_events
-            WHERE status = 'active'
-              AND notified_at IS NULL
-              AND (
-                -- Events with a specific time: compare datetime values (naive, wall-clock)
-                (event_time IS NOT NULL
-                 AND datetime(event_date || 'T' || event_time)
-                     BETWEEN datetime(?) AND datetime(?))
-                OR
-                -- All-day events: fire if the event date falls in the window's date range
-                (event_time IS NULL
-                 AND event_date BETWEEN ? AND ?)
-              )
-        """
-        params: list = [now_naive, end_naive, today, end_date]
-        if machine:
-            query += " AND machine = ?"
-            params.append(machine)
-
-        with self._conn() as conn:
-            rows = conn.execute(query, params).fetchall()
-        return [_row_to_dict(r) for r in rows]
-
     def _get_linked_tasks(self, event_id: int) -> List[Dict[str, Any]]:
         with self._conn() as conn:
             rows = conn.execute(
@@ -373,27 +339,6 @@ class CalendarManager:
                 (event_id,),
             ).fetchall()
         return [dict(r) for r in rows]
-
-    def get_events_for_task(self, task_id: int) -> List[Dict[str, Any]]:
-        """Get all calendar events linked to a specific task."""
-        with self._conn() as conn:
-            rows = conn.execute(
-                """
-                SELECT ce.*, cet.link_type
-                FROM calendar_events ce
-                JOIN calendar_event_tasks cet ON cet.event_id = ce.id
-                WHERE cet.task_id = ?
-                ORDER BY ce.event_date ASC
-                """,
-                (task_id,),
-            ).fetchall()
-        return [_row_to_dict(r) for r in rows]
-
-    def mark_notified(self, event_id: int) -> None:
-        self.update_event(event_id, notified_at=_now())
-
-    def reset_notify(self, event_id: int) -> None:
-        self.update_event(event_id, notified_at=None)
 
     # ------------------------------------------------------------------
     # Cron jobs — surface existing jobs alongside calendar events
@@ -441,55 +386,3 @@ class CalendarManager:
             )
             conn.commit()
             return cursor.lastrowid
-
-    # ------------------------------------------------------------------
-    # iCal export
-    # ------------------------------------------------------------------
-
-    def export_ical(
-        self,
-        *,
-        project_id: Optional[str] = None,
-        include_all: bool = True,
-    ) -> str:
-        """Export events as iCal (.ics) format for Apple/Google Calendar import."""
-        events = self.get_events(
-            project_id=project_id, include_all=include_all
-        )
-
-        lines = [
-            "BEGIN:VCALENDAR",
-            "VERSION:2.0",
-            "PRODID:-//project-tracker//AI Calendar//EN",
-            "CALSCALE:GREGORIAN",
-            "METHOD:PUBLISH",
-        ]
-
-        for ev in events:
-            dt_start = ev["event_date"].replace("-", "")
-            if ev.get("event_time"):
-                dt_start += "T" + ev["event_time"].replace(":", "") + "00"
-            uid = f"pt-cal-{ev['id']}@project-tracker"
-            summary = ev["title"].replace("\n", " ")
-            desc_parts = []
-            if ev.get("description"):
-                desc_parts.append(ev["description"])
-            if ev.get("prompt"):
-                desc_parts.append(f"[Agent prompt] {ev['prompt']}")
-            description = "\\n".join(desc_parts) if desc_parts else ""
-
-            lines += [
-                "BEGIN:VEVENT",
-                f"UID:{uid}",
-                f"SUMMARY:{summary}",
-                f"DTSTART:{dt_start}" if "T" in dt_start else f"DTSTART;VALUE=DATE:{dt_start}",
-                f"CATEGORIES:{ev.get('event_type', 'reminder').upper()}",
-            ]
-            if description:
-                lines.append(f"DESCRIPTION:{description}")
-            if ev.get("project_id"):
-                lines.append(f"COMMENT:Project: {ev['project_id']}")
-            lines.append("END:VEVENT")
-
-        lines.append("END:VCALENDAR")
-        return "\r\n".join(lines) + "\r\n"

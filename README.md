@@ -10,10 +10,7 @@ pt tasks         # View Kanban board
 pt info          # Reference data (credentials, infrastructure)
 pt backup status # Full backup + off-machine backup health
 pt memory search "query"  # Cross-agent shared memory
-PT_SKIP_DOPPLER=1 pt memory recent --since 7d --json  # Read-only cron/SSH memory query
-pt sync status   # Replication status / pause / resume controls
-pt sync check    # Mini-local sync rollout readiness check
-pt sync set-machine-id 883  # Persist explicit machine identity for sync
+pt memory recent --since 7d --json  # Read-only cron/SSH memory query
 ```
 
 ## What It Does
@@ -24,7 +21,6 @@ pt sync set-machine-id 883  # Persist explicit machine identity for sync
 - **Automation** — Read-only JSON memory commands for SSH/cron integrations (`pt memory recent --json`, `pt doctor --json`, `pt hygiene --json`)
 - **Info** — Centralized reference store for env vars, credentials, infrastructure (`pt info`)
 - **Graph** — D3.js visualization of file relationships across the ecosystem
-- **Sync Controls** — Replication pause/resume/status plus Mini-local readiness checks for Phase 2 (`pt sync`)
 
 ## Project Structure
 
@@ -32,7 +28,7 @@ pt sync set-machine-id 883  # Persist explicit machine identity for sync
 project-tracker/
 ├── pt                      # CLI entry point
 ├── scripts/
-│   ├── pt.py               # Click CLI (tasks, info, memory, calendar, inbox, worktrees)
+│   ├── pt.py               # Click CLI (tasks, info, memory, calendar, worktrees)
 │   ├── db/
 │   │   ├── schema.py       # Database schema (v7)
 │   │   └── manager.py      # DatabaseManager operations
@@ -44,7 +40,7 @@ project-tracker/
 │   ├── templates/          # Jinja2 (graph view)
 │   └── static/             # CSS, JS
 ├── data/
-│   ├── tracker.db          # Local SQLite (Turso in production)
+│   ├── tracker.db          # Local SQLite
 │   └── graph.json          # Project graph data
 └── tests/
 ```
@@ -54,7 +50,6 @@ project-tracker/
 ```bash
 uv run pytest tests/                    # Run tests
 cd dashboard/frontend && npm run build  # Rebuild React frontend
-pt scan                               # Rescan projects directory
 pt sync-project project-tracker       # Refresh one project only
 ```
 

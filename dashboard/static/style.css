@@ -86,52 +86,6 @@ body {
     flex-wrap: wrap;
 }
 
-.compliance-metric {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    background: rgba(0, 0, 0, 0.2);
-    padding: 0.4rem 0.8rem;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    transition: background 0.3s;
-}
-
-.compliance-link {
-    color: inherit;
-    text-decoration: none;
-    cursor: pointer;
-}
-
-.compliance-link:hover {
-    text-decoration: underline;
-}
-
-.metric-label {
-    color: var(--text-secondary);
-}
-
-.metric-value {
-    font-weight: 700;
-}
-
-.metric-value.good {
-    color: var(--status-active);
-}
-
-.metric-value.warning {
-    color: var(--status-paused);
-}
-
-.metric-value.critical {
-    color: var(--status-stalled);
-}
-
-.project-count {
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-}
-
 /* Navigation Bar (matches React component) */
 
 .navigation {
@@ -415,12 +369,6 @@ body {
     margin-bottom: 0.5rem;
 }
 
-.progress-label {
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: var(--text-primary);
-}
-
 .progress-percentage {
     font-size: 0.9rem;
     font-weight: 600;
@@ -433,13 +381,6 @@ body {
     height: 12px;
     overflow: hidden;
     margin-bottom: 1rem;
-}
-
-.progress-bar {
-    height: 100%;
-    background: linear-gradient(90deg, #ffa726, #ff9800);
-    transition: width 0.3s ease;
-    border-radius: 10px;
 }
 
 .action-items-list {
@@ -486,27 +427,6 @@ body {
 
 /* Alerts Section - Compact Design */
 
-.alerts-section {
-    margin-bottom: 1.5rem;
-    background: var(--bg-secondary);
-    border-radius: 8px;
-    padding: 1rem 1.5rem;
-    border-left: 4px solid var(--status-paused);
-}
-
-.alerts-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.75rem;
-}
-
-.alerts-header h2 {
-    font-size: 1.1rem;
-    margin: 0;
-    color: var(--text-primary);
-}
-
 .alerts-tools {
     display: flex;
     gap: 0.75rem;
@@ -535,11 +455,6 @@ body {
     border-color: var(--accent-primary);
 }
 
-.alerts-count {
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-}
-
 .alert-toggle {
     color: var(--text-secondary);
     text-decoration: none;
@@ -552,114 +467,12 @@ body {
     text-decoration: underline;
 }
 
-.alerts-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-    gap: 0.5rem;
-}
-
-.alert-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.75rem;
-    background: rgba(255, 255, 255, 0.02);
-    border-radius: 4px;
-    border-left: 3px solid var(--border-color);
-    text-decoration: none;
-    color: inherit;
-    transition: all 0.2s;
-    font-size: 0.9rem;
-}
-
-.alert-item:hover {
-    background: rgba(255, 255, 255, 0.05);
-    transform: translateX(2px);
-}
-
-.alert-item.alert-critical {
-    border-left-color: var(--status-stalled);
-}
-
-.alert-item.alert-warning {
-    border-left-color: var(--status-paused);
-}
-
-.alert-item.alert-info {
-    border-left-color: var(--status-development);
-    opacity: 0.7;
-}
-
 .alert-icon-small {
     font-size: 0.85rem;
     flex-shrink: 0;
 }
 
-.alert-project-name {
-    font-weight: 600;
-    color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 120px;
-    max-width: 180px;
-}
-
-.alert-msg {
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
 /* Alert Groups — collapsible */
-
-.alert-group {
-    margin-bottom: 0.25rem;
-}
-
-.alert-group-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.5rem;
-    cursor: pointer;
-    border-radius: 4px;
-    user-select: none;
-    transition: background 0.15s;
-}
-
-.alert-group-header:hover {
-    background: rgba(255, 255, 255, 0.04);
-}
-
-.alert-group-chevron {
-    font-size: 0.7rem;
-    color: var(--text-secondary);
-    width: 1rem;
-    text-align: center;
-    flex-shrink: 0;
-}
-
-.alert-group-icon {
-    font-size: 0.85rem;
-    flex-shrink: 0;
-}
-
-.alert-group-label {
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: var(--text-primary);
-}
-
-.alert-group-badge {
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 0.1rem 0.5rem;
-    border-radius: 10px;
-    margin-left: 0.25rem;
-}
 
 .alert-badge-critical {
     background: rgba(244, 67, 54, 0.2);
@@ -676,193 +489,11 @@ body {
     color: #64b5f6;
 }
 
-.alert-group-items {
-    margin-left: 1.5rem;
-    margin-top: 0.25rem;
-    margin-bottom: 0.5rem;
-}
-
-/* Projects Grid */
-
-.projects-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-    gap: 1.5rem;
-}
-
-.project-card {
-    background: var(--bg-secondary);
-    border-radius: 8px;
-    padding: 1.5rem;
-    border-left: 4px solid var(--status-unknown);
-    transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.project-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-/* Projects with open code reviews get full border */
-.project-card.has-code-review {
-    border: 3px solid #ffa726 !important;
-    border-left: 3px solid #ffa726 !important;
-}
-
-.project-card.status-active {
-    border-left-color: var(--status-active);
-}
-
-.project-card.status-development {
-    border-left-color: var(--status-development);
-}
-
-.project-card.status-paused {
-    border-left-color: var(--status-paused);
-}
-
-.project-card.status-stalled {
-    border-left-color: var(--status-stalled);
-}
-
-.project-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 1rem;
-}
-
-.project-title-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.project-header h2 {
-    font-size: 1.3rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-}
-
 .infra-badge {
     font-size: 1.2rem;
     line-height: 1;
     opacity: 0.8;
     cursor: help;
-}
-
-.index-badge {
-    font-size: 1.1rem;
-    line-height: 1;
-    cursor: help;
-}
-
-.index-badge.missing {
-    opacity: 1;
-}
-
-.index-badge.incomplete {
-    opacity: 1;
-}
-
-.index-badge.valid {
-    opacity: 0.8;
-}
-
-.status-badge {
-    background: var(--bg-tertiary);
-    padding: 0.3rem 0.8rem;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-}
-
-.project-description {
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-    line-height: 1.5;
-}
-
-.project-meta {
-    margin-bottom: 1rem;
-}
-
-.meta-row {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0.4rem 0;
-    font-size: 0.9rem;
-    align-items: flex-start;
-}
-
-.meta-row.space-between {
-    justify-content: space-between;
-}
-
-/* Task Status Pills on Project Cards */
-.meta-row.task-status-row {
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-}
-
-.task-status-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    flex: 1;
-}
-
-.task-pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.15rem 0.5rem;
-    border-radius: 10px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.3px;
-    white-space: nowrap;
-}
-
-.pill-backlog {
-    background: rgba(120, 120, 120, 0.2);
-    color: #9e9e9e;
-    border: 1px solid rgba(120, 120, 120, 0.35);
-}
-
-.pill-todo {
-    background: rgba(33, 150, 243, 0.15);
-    color: #64b5f6;
-    border: 1px solid rgba(33, 150, 243, 0.3);
-}
-
-.pill-inprogress {
-    background: rgba(255, 152, 0, 0.15);
-    color: #ffa726;
-    border: 1px solid rgba(255, 152, 0, 0.35);
-}
-
-.pill-review {
-    background: rgba(156, 39, 176, 0.15);
-    color: #ce93d8;
-    border: 1px solid rgba(156, 39, 176, 0.35);
-}
-
-.meta-label {
-    color: var(--text-secondary);
-    white-space: nowrap;
-    flex-shrink: 0;
-}
-
-.meta-value {
-    color: var(--text-primary);
-    font-weight: 500;
-    flex: 1;
-    word-wrap: break-word;
 }
 
 /* Index Age Colors */
@@ -912,82 +543,7 @@ body {
     color: var(--text-secondary);
 }
 
-/* Progress Bar */
-
-.progress-bar {
-    background: var(--bg-tertiary);
-    height: 28px;
-    border-radius: 6px;
-    overflow: hidden;
-    position: relative;
-    margin-bottom: 1rem;
-}
-
-.progress-fill {
-    background: linear-gradient(90deg, var(--status-active), #8bc34a);
-    height: 100%;
-    transition: width 0.3s ease;
-}
-
-.progress-label {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #fff;
-    text-shadow: 0 0 4px rgba(0, 0, 0, 0.7);
-}
-
-/* Code Review Status Bar on Project Cards */
-
-.code-review-status-bar {
-    background: rgba(255, 167, 38, 0.15);
-    border: 1px solid #ffa726;
-    border-radius: 6px;
-    padding: 0.75rem;
-    margin-bottom: 1rem;
-}
-
-.code-review-header-small {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.5rem;
-}
-
-.code-review-label {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #ffa726;
-}
-
-.code-review-percentage {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #ffa726;
-}
-
-.progress-bar-mini {
-    background: rgba(0, 0, 0, 0.3);
-    height: 8px;
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.progress-fill-review {
-    background: linear-gradient(90deg, #ffa726, #ff9800);
-    height: 100%;
-    transition: width 0.3s ease;
-}
-
 /* Buttons */
-
-.project-actions {
-    display: flex;
-    gap: 0.75rem;
-}
 
 .btn {
     flex: 1;
@@ -1009,24 +565,6 @@ body {
 
 .btn-primary:hover {
     background: #1976d2;
-}
-
-.btn-secondary {
-    background: var(--accent-secondary);
-    color: white;
-}
-
-.btn-secondary:hover {
-    background: #555;
-}
-
-.btn-warning {
-    background: var(--status-paused);
-    color: white;
-}
-
-.btn-warning:hover {
-    background: #e68a00;
 }
 
 .btn-success {
@@ -1074,161 +612,15 @@ body {
     font-family: 'Monaco', 'Courier New', monospace;
 }
 
-/* Detail View */
-
-.detail-container {
-    max-width: 900px;
-    margin: 0 auto;
-}
-
-.detail-section {
-    background: var(--bg-secondary);
-    padding: 2rem;
-    border-radius: 8px;
-    margin-bottom: 1.5rem;
-}
-
-.detail-section h2 {
-    font-size: 1.4rem;
-    margin-bottom: 1rem;
-    color: var(--text-primary);
-}
-
-.detail-section h3 {
-    font-size: 1.1rem;
-    margin-top: 1.5rem;
-    margin-bottom: 0.5rem;
-    color: var(--text-primary);
-}
-
-.detail-list {
-    display: grid;
-    grid-template-columns: 150px 1fr;
-    gap: 0.8rem;
-}
-
-.detail-list dt {
-    color: var(--text-secondary);
-    font-weight: 600;
-}
-
-.detail-list dd {
-    color: var(--text-primary);
-}
-
-.detail-list code {
-    background: var(--bg-primary);
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.9rem;
-}
-
-.description {
-    margin-top: 1.5rem;
-}
-
-.agent-list,
-.work-log {
-    list-style: none;
-}
-
-.agent-list li,
-.work-log li {
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.agent-list li:last-child,
-.work-log li:last-child {
-    border-bottom: none;
-}
-
-.cron-job {
-    background: var(--bg-primary);
-    padding: 1rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-}
-
-.cron-schedule {
-    color: var(--status-development);
-    font-weight: 600;
-    margin-bottom: 0.3rem;
-}
-
-.cron-command {
-    margin-bottom: 0.3rem;
-}
-
-.cron-description {
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-}
-
-.services-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-.services-table th,
-.services-table td {
-    padding: 0.8rem;
-    text-align: left;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.services-table th {
-    background: var(--bg-primary);
-    color: var(--text-secondary);
-    font-weight: 600;
-    text-transform: uppercase;
-    font-size: 0.85rem;
-    letter-spacing: 0.5px;
-}
-
-.work-log li {
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-    font-size: 0.9rem;
-}
-
-.log-time {
-    color: var(--text-secondary);
-    font-family: 'Monaco', 'Courier New', monospace;
-    font-size: 0.85rem;
-}
-
-.log-type {
-    background: var(--bg-primary);
-    padding: 0.2rem 0.6rem;
-    border-radius: 4px;
-    font-size: 0.85rem;
-}
-
-.log-details {
-    color: var(--text-secondary);
-}
-
 /* Responsive */
 
 @media (max-width: 768px) {
-    .projects-grid {
-        grid-template-columns: 1fr;
-    }
-
     .header-content {
         flex-direction: column;
         gap: 1rem;
         align-items: flex-start;
     }
-
-    .detail-list {
-        grid-template-columns: 1fr;
-        gap: 0.3rem;
-    }
 }
-
 
 /* Health Badges */
 .health-badge {
@@ -1275,34 +667,6 @@ body {
 }
 
 /* Stats Summary */
-.stats-summary {
-    display: flex;
-    gap: 1.5rem;
-    margin-bottom: 2rem;
-    flex-wrap: wrap;
-}
-
-.stats-card {
-    background: var(--bg-secondary);
-    border-radius: 8px;
-    padding: 1.25rem;
-    flex: 1;
-    border: 1px solid var(--border-color);
-}
-
-.stats-card h3 {
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-    margin-bottom: 1rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.stats-content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
 
 .stat-item {
     display: flex;
@@ -1325,28 +689,6 @@ body {
     color: #4caf50;
 }
 
-.alert-savings {
-    background: rgba(76, 175, 80, 0.1);
-    border: 1px solid rgba(76, 175, 80, 0.3);
-    color: #4caf50;
-    padding: 0.5rem;
-    border-radius: 4px;
-    margin-top: 0.5rem;
-    text-align: center;
-}
-
-.model-list-compact {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    margin-top: 0.25rem;
-}
-
-.model-item {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
 .badge {
     display: inline-block;
     padding: 0.25em 0.4em;
@@ -1359,44 +701,6 @@ body {
     border-radius: 0.25rem;
 }
 
-.bg-success {
-    background-color: var(--status-active);
-    color: #fff;
-}
-
-.bg-warning {
-    background-color: var(--status-paused);
-    color: #000;
-}
-
-.bg-danger {
-    background-color: var(--status-stalled);
-    color: #fff;
-}
-
-.indicator-dot {
-    margin-left: 0.25rem;
-    font-size: 1.2rem;
-    line-height: 1;
-}
-
-.indicator-dot.good {
-    color: var(--status-active);
-}
-
-.indicator-dot.warning {
-    color: var(--status-paused);
-}
-
-.indicator-dot.critical {
-    color: var(--status-stalled);
-}
-
-.error-text {
-    color: var(--status-stalled);
-    font-size: 0.85rem;
-}
-
 .system-warning .warning-link {
     margin-left: auto;
     color: #fcd34d;
@@ -1407,18 +711,7 @@ body {
     text-decoration: underline;
 }
 
-/* Activity Feed - DELETED */
-
 /* Project Type Badges */
-.type-badge {
-    font-size: 1.1rem;
-    line-height: 1;
-    opacity: 0.8;
-    cursor: help;
-    padding: 2px 4px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.05);
-}
 
 .type-infrastructure {
     border: 1px solid #9c27b0;
@@ -1458,38 +751,6 @@ body {
 
 .type-meta-project {
     border: 1px solid #673ab7;
-}
-
-/* ── Cache Status Indicator ──────────────────────────────────── */
-
-.cache-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    padding: 2px 8px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.cache-status.refreshing {
-    color: var(--accent-primary);
-    background: rgba(33, 150, 243, 0.1);
-}
-
-.cache-spinner {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border: 2px solid rgba(33, 150, 243, 0.3);
-    border-top-color: var(--accent-primary);
-    border-radius: 50%;
-    animation: cache-spin 0.8s linear infinite;
-}
-
-@keyframes cache-spin {
-    to { transform: rotate(360deg); }
 }
 
 /* Shared toast notifications (rebuild status, etc.) */
@@ -1563,4 +824,3 @@ body {
     padding: 0;
     font-family: inherit;
 }
-

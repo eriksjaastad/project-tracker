@@ -43,7 +43,8 @@ def fabricated_project(monkeypatch):
         db.add_task("First shell crack", "humpty-dumpty", priority="Medium")
         db.add_task("Put him back together", "humpty-dumpty", priority="Medium")
 
-        db.add_cron_job("humpty-dumpty", "0 * * * *", "echo wall", "hourly wall check")
+        from db.calendar_manager import CalendarManager
+        CalendarManager().add_cron_job("humpty-dumpty", "0 * * * *", "echo wall", "hourly wall check")
         db.add_ai_agent("humpty-dumpty", "king-horse", "attempts reconstruction")
 
         yield {

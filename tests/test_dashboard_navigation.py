@@ -39,13 +39,6 @@ def test_root_redirects_to_dashboard():
     assert response.headers["location"] == "/dashboard"
 
 
-def test_old_redirects_to_canonical_spa_entry():
-    response = client.get("/old", follow_redirects=False)
-
-    assert response.status_code == 307
-    assert response.headers["location"] == "/kanban"
-
-
 def test_navigation_api_returns_shared_contract():
     response = client.get("/api/navigation")
 
@@ -71,7 +64,7 @@ def test_navigation_api_returns_shared_contract():
     }
     assert children_by_group["group-kanban"] == ["kanban", "calendar"]
     assert children_by_group["group-jobs"] == ["jobs", "jobs-submitted", "jobs-volunteer"]
-    assert children_by_group["group-agents"] == ["agent-chat", "agentic", "code-reviews", "holoscape"]
+    assert children_by_group["group-agents"] == ["agent-chat", "agentic", "codebase"]
     assert children_by_group["group-memory"] == ["memory", "graph"]
 
     for group in items:
@@ -94,8 +87,7 @@ def test_navigation_api_returns_shared_contract():
     assert leaves["jobs-volunteer"]["label"] == "Volunteer"
     assert leaves["agent-chat"]["label"] == "Chat"
     assert leaves["agentic"]["label"] == "Autonomy"
-    assert leaves["code-reviews"]["label"] == "Code reviews"
-    assert leaves["holoscape"]["label"] == "Holoscape progress (temporary)"
+    assert leaves["codebase"]["label"] == "Codebase size"
     assert leaves["memory"]["label"] == "Memory"
     assert leaves["graph"]["label"] == "Graph"
 
@@ -145,8 +137,8 @@ def test_graph_view_renders_shared_shell_navigation():
     assert "Submissions" in body
     assert "Chat" in body
     assert "Autonomy" in body
-    assert "Code reviews" in body
-    assert "Holoscape progress (temporary)" in body
+    assert "Code reviews" not in body
+    assert "Holoscape" not in body
     assert "Graph" in body
     assert "Project Graph" in body
 
@@ -185,13 +177,47 @@ def test_agent_chat_spa_route_is_registered():
         assert "Frontend not built" in response.text
 
 
-def test_holoscape_spa_route_and_navigation():
-    response = client.get("/holoscape")
+def test_cut_pages_are_no_longer_served():
+    """#8093: the Code reviews and Holoscape progress pages and feeds are gone."""
+    for path in ("/holoscape", "/code-reviews", "/api/holoscape/series", "/api/code-review-metrics"):
+        assert client.get(path).status_code == 404, path
+    ids = {leaf["id"] for leaf in iter_navigation_leaves(client.get("/api/navigation").json()["items"])}
+    assert not ids & {"holoscape", "code-reviews"}
+
+
+def test_dead_dashboard_endpoints_are_no_longer_served():
+    """#8093: legacy action endpoints, the unused cache, /project and /old are gone."""
+    gets = (
+        "/old", "/project/project-tracker", "/api/telemetry", "/api/backup",
+        "/api/learning", "/api/loops", "/api/agents", "/api/stats",
+        "/api/dashboard-cache-status", "/api/api-cost-stats",
+    )
+    posts = ("/api/create-index/x", "/api/fix-frontmatter/x", "/api/agents/run")
+    for path in gets:
+        assert client.get(path).status_code == 404, path
+    for path in posts:
+        assert client.post(path, json={}).status_code in (404, 405), path
+    # The removed DELETE /api/tasks/done must not fall through to the task-id
+    # routes (which would answer 422): task ids only match integers.
+    for method in ("get", "patch", "delete"):
+        response = client.request(method.upper(), "/api/tasks/done")
+        assert response.status_code == 404, method
+        assert response.json()["detail"] == "Not Found", method
+    # Integer ids still reach the task handler rather than the router's 404.
+    integer = client.get("/api/tasks/999999999")
+    assert not (integer.status_code == 404 and integer.json().get("detail") == "Not Found")
+    # /api/refresh is the one legacy action that stays; the Memory and Graph pages too.
+    assert client.get("/memory").status_code == 200
+    assert client.get("/graph").status_code == 200
+
+
+def test_codebase_spa_route_and_navigation():
+    response = client.get("/codebase")
     assert response.status_code in (200, 503)
     nav = client.get("/api/navigation").json()["items"]
-    item = leaf_by_id(nav, "holoscape")
-    assert item["href"] == "/holoscape"
+    item = leaf_by_id(nav, "codebase")
+    assert item["href"] == "/codebase"
     assert item["navigation_type"] == "spa"
-    assert leaf_by_id(build_navigation("/holoscape"), "holoscape")["active"]
+    assert leaf_by_id(build_navigation("/codebase"), "codebase")["active"]
     if response.status_code == 200:
-        assert '"id": "holoscape"' in response.text
+        assert '"id": "codebase"' in response.text

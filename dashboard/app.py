@@ -8,7 +8,10 @@ from datetime import datetime, timedelta, timezone
 import os
 import shutil
 import subprocess
+import asyncio
+import functools
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import httpx
 
 from fastapi import FastAPI, Request, HTTPException, status, UploadFile, File, Query
@@ -40,18 +43,11 @@ from db.manager import DatabaseManager
 from db.outreach import ContactStateConflictError
 from discovery.project_scanner import discover_projects
 from discovery.alert_detector import get_all_alerts
-from discovery.code_review_parser import parse_code_review
-from discovery.providers import get_provider
-from discovery.telemetry_reader import get_telemetry_stats
-from discovery.backup_reader import get_backup_status
-from discovery.agent_registry import (
-    get_available_agents,
-    run_agent_command
-)
+from discovery.agent_registry import run_agent_command
 from pydantic import BaseModel
 
 # Import config
-from scripts.config import PROJECTS_BASE_DIR, REINDEX_SCRIPT_PATH, projects_root as config_projects_root
+from scripts.config import PROJECTS_BASE_DIR, projects_root as config_projects_root
 from scripts.utils.checklist import ChecklistLineError, toggle_checklist_line
 from scripts.utils.validation import get_blocked_card_reason, get_blocked_card_project_ids, is_card_creation_allowed
 
@@ -83,6 +79,30 @@ async def _lifespan(application: FastAPI):
 
 
 app = FastAPI(title="Project Tracker Dashboard", lifespan=_lifespan)
+
+
+
+# Write handlers run one at a time on one dedicated thread. Blocking handlers
+# are plain ``def`` so the event loop stays free; on the loop they used to run
+# one at a time, which made every write atomic against every other (a status
+# transition checked then written, a load-modify-save file, a delete backup).
+# A single-worker executor keeps that: queued writes wait in its queue, not in
+# FastAPI's threadpool, so a burst of writes cannot starve the reads. Only the
+# handler's own work runs there: the request body is parsed before it and
+# background tasks run after it. GET handlers only read and stay concurrent.
+_write_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pt-write")
+
+
+def _serialized(fn):
+    """Run a write handler on the single write thread."""
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_write_executor, functools.partial(fn, *args, **kwargs))
+
+    setattr(wrapper, "serialized", True)
+    return wrapper
 
 # Wall-clock and monotonic marks taken at import so /api/health can report how
 # long this process has been up (a restarted dashboard looks identical to a
@@ -203,17 +223,10 @@ NAVIGATION_ITEMS = [
                 "navigation_type": "spa",
             },
             {
-                "id": "code-reviews",
-                "label": "Code reviews",
-                "href": "/code-reviews",
-                "match_prefixes": ["/code-reviews"],
-                "navigation_type": "spa",
-            },
-            {
-                "id": "holoscape",
-                "label": "Holoscape progress (temporary)",
-                "href": "/holoscape",
-                "match_prefixes": ["/holoscape"],
+                "id": "codebase",
+                "label": "Codebase size",
+                "href": "/codebase",
+                "match_prefixes": ["/codebase"],
                 "navigation_type": "spa",
             },
         ],
@@ -267,7 +280,7 @@ def iter_navigation_leaves(items: List[Dict[str, object]]) -> Iterator[Dict[str,
 
     Kept as a helper because the leaves now live under `children` keys on the
     four dropdown groups, while tests and other consumers still need to find a
-    leaf by id (holoscape, agent-chat, spa-shell bootstrap, ...).
+    leaf by id (agent-chat, spa-shell bootstrap, ...).
     """
     for item in items:
         children = item.get("children")
@@ -393,13 +406,12 @@ async def serve_spa_shell(request: Request):
 @app.get("/kanban", response_class=HTMLResponse)
 @app.get("/kanban/{project}", response_class=HTMLResponse)
 @app.get("/agentic", response_class=HTMLResponse)
-@app.get("/holoscape", response_class=HTMLResponse)
 @app.get("/calendar", response_class=HTMLResponse)
 @app.get("/agent-chat", response_class=HTMLResponse)
 @app.get("/jobs", response_class=HTMLResponse)
 @app.get("/jobs/submitted", response_class=HTMLResponse)
 @app.get("/jobs/volunteer", response_class=HTMLResponse)
-@app.get("/code-reviews", response_class=HTMLResponse)
+@app.get("/codebase", response_class=HTMLResponse)
 @app.get("/morning", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
@@ -513,71 +525,10 @@ def categorize_services(services):
     return {k: v for k, v in categories.items() if v}
 
 
-def enrich_project_data(project: dict, db: DatabaseManager) -> dict:
-    """Add related data to project."""
-    # Get AI agents
-    agents = db.get_ai_agents(project["id"])
-    project["ai_agents"] = [a["agent_name"] for a in agents]
-    
-    # Get cron jobs
-    jobs = db.get_cron_jobs(project["id"])
-    project["has_cron"] = len(jobs) > 0
-    project["cron_jobs"] = jobs
-    
-    # Get services
-    services = db.get_services(project["id"])
-    project["services"] = [s["service_name"] for s in services]
-    project["service_details"] = services
-    project["services_by_category"] = categorize_services(services)
-    
-    # Get task counts
-    all_tasks = db.get_tasks(project_id=project["id"])
-    open_tasks = [t for t in all_tasks if t.get("status") != "Done"]
-    project["task_count"] = len(open_tasks)
-    project["total_tasks"] = len(all_tasks)
-
-    # Per-status breakdowns (excluding Done)
-    project["backlog_count"] = len([t for t in all_tasks if t.get("status") == "Backlog"])
-    project["todo_count"] = len([t for t in all_tasks if t.get("status") == "To Do"])
-    project["in_progress_count"] = len([t for t in all_tasks if t.get("status") == "In Progress"])
-    project["review_count"] = len([t for t in all_tasks if t.get("status") == "Review"])
-    
-    # Check for code review
-    review_path = Path(project["path"]) / "CODE_REVIEW.md"
-    if review_path.exists():
-        review_data = parse_code_review(review_path)
-        if review_data and review_data.get("completion_pct", 100) < 100:
-            project["code_review"] = review_data
-    
-    # Format time
-    project["last_modified_human"] = format_time_ago(project.get("last_modified", ""))
-    
-    # Format index time
-    if project.get("index_updated_at"):
-        project["index_updated_human"] = format_time_ago(project["index_updated_at"])
-
-    project["version_status"] = "unmanaged"
-
-    return project
-
-
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Redirect the root route to the canonical dashboard URL."""
     return RedirectResponse(url="/dashboard", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-
-@app.get("/old", response_class=HTMLResponse)
-async def react_frontend():
-    """Redirect the legacy SPA entry to the canonical Kanban route."""
-    return RedirectResponse(url="/kanban", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-
-# ---------------------------------------------------------------------------
-# Dashboard cache — stale-while-revalidate
-# ---------------------------------------------------------------------------
-_dashboard_cache: Dict = {"data": None, "timestamp": 0}
-_DASHBOARD_CACHE_TTL = 300  # 5 minutes — matches the page auto-refresh
-_dashboard_refresh_lock = threading.Lock()
-_dashboard_refreshing = False
 
 
 def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, List[Dict]]:
@@ -589,57 +540,10 @@ def _group_by_project(rows: List[Dict], key: str = "project_id") -> Dict[str, Li
     return grouped
 
 
-_ALERT_TYPE_LABELS = {
-    "rules_drift": "Rules Drift",
-    "missing_index": "Missing Index",
-    "stalled": "Stalled Projects",
-    "blocked": "Project Blocked",
-    "code_review": "Code Review",
-    "cron_execution_error": "Cron Errors",
-    "cron_missed_run": "Cron Missed Runs",
-    "stale_heartbeat": "Stale Heartbeats",
-    "telemetry_error": "Telemetry Errors",
-    "unknown_status": "Unknown Status",
-}
-
-_SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2}
-
-
-def _group_alerts_by_type(alerts: List[Dict]) -> List[Dict]:
-    """Group flat alerts into collapsible type groups for the template.
-
-    Returns a list of groups sorted by worst severity then count, each with:
-        type, label, severity (worst in group), count, items, collapsed (bool).
-    """
-    groups_map: Dict[str, Dict] = {}
-    for alert in alerts:
-        atype = alert["type"]
-        if atype not in groups_map:
-            groups_map[atype] = {
-                "type": atype,
-                "label": _ALERT_TYPE_LABELS.get(atype, atype.replace("_", " ").title()),
-                "severity": alert["severity"],
-                "items": [],
-            }
-        group = groups_map[atype]
-        group["items"].append(alert)
-        # Escalate group severity to worst member
-        if _SEVERITY_ORDER.get(alert["severity"], 9) < _SEVERITY_ORDER.get(group["severity"], 9):
-            group["severity"] = alert["severity"]
-
-    groups = list(groups_map.values())
-    for g in groups:
-        g["count"] = len(g["items"])
-        g["collapsed"] = g["severity"] != "critical"
-
-    groups.sort(key=lambda g: (_SEVERITY_ORDER.get(g["severity"], 9), -g["count"]))
-    return groups
-
-
 def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
     """Enrich all projects using bulk-fetched data (4 DB queries instead of 4N).
 
-    Populates: ai_agents, cron_jobs, services, tasks, code_review,
+    Populates: ai_agents, cron_jobs, services, tasks,
     and time formatting fields.
     """
     all_agents = _group_by_project(db.get_ai_agents())
@@ -683,13 +587,6 @@ def _bulk_enrich(projects: List[dict], db: DatabaseManager) -> List[dict]:
         project["todo_count"] = len([t for t in tasks if t.get("status") == "To Do"])
         project["in_progress_count"] = len([t for t in tasks if t.get("status") == "In Progress"])
         project["review_count"] = len([t for t in tasks if t.get("status") == "Review"])
-
-        # Code review (filesystem — kept per-project, cheap)
-        review_path = Path(project["path"]) / "CODE_REVIEW.md"
-        if review_path.exists():
-            review_data = parse_code_review(review_path)
-            if review_data and review_data.get("completion_pct", 100) < 100:
-                project["code_review"] = review_data
 
         # Time formatting
         project["last_modified_human"] = format_time_ago(project.get("last_modified", ""))
@@ -818,112 +715,8 @@ def _enrich_task_payloads_with_display_ids(tasks: list[dict], db: DatabaseManage
     return [_apply_task_display_ids(task, display_map) for task in tasks]
 
 
-def _build_dashboard_data() -> Dict:
-    """Compute all dashboard context data (the expensive part)."""
-    db = DatabaseManager()
-    projects = db.get_all_projects(order_by="last_modified DESC")
-
-    enriched_projects = _bulk_enrich(projects, db)
-    alerts = get_all_alerts(enriched_projects)
-
-    indexed_count = len([p for p in enriched_projects if p.get("has_index") and p.get("index_is_valid")])
-    compliance_pct = int((indexed_count / len(projects)) * 100) if projects else 0
-
-    agents = get_available_agents()
-    agents_data = [
-        {
-            "name": a.name,
-            "description": a.description,
-            "available": a.available,
-            "commands": [{"name": c.name, "description": c.description} for c in a.commands]
-        }
-        for a in agents
-    ]
-
-    backup_status = get_backup_status()
-
-    # Collect code reviews populated by _bulk_enrich (see line ~483 for identical
-    # exists() + parse + completion_pct guards — removes duplicate file reads)
-    code_reviews = []
-    for project in enriched_projects:
-        if project.get("code_review"):
-            code_reviews.append({
-                "project_id": project["id"],
-                "project_name": project["name"],
-                **project["code_review"],
-            })
-
-    # Group alerts by type for collapsible display
-    alert_groups = _group_alerts_by_type(alerts)
-
-    return {
-        "projects": enriched_projects,
-        "alerts": alerts,
-        "alert_groups": alert_groups,
-        "code_reviews": code_reviews,
-        "total_projects": len(projects),
-        "indexed_count": indexed_count,
-        "compliance_pct": compliance_pct,
-        "agents": agents_data,
-        "backup_status": backup_status,
-    }
-
-
-def _refresh_dashboard_cache() -> None:
-    """Refresh the dashboard cache in a background thread."""
-    global _dashboard_refreshing
-    if not _dashboard_refresh_lock.acquire(blocking=False):
-        return  # Another refresh is already running
-    try:
-        data = _build_dashboard_data()
-        _dashboard_cache["data"] = data
-        _dashboard_cache["timestamp"] = _time()
-    except Exception as exc:
-        logger.error(f"Background dashboard refresh failed: {exc}")
-    finally:
-        _dashboard_refreshing = False
-        _dashboard_refresh_lock.release()
-
-
-# NOTE: The /dashboard HTML route is now served by the React SPA via serve_react_app().
-# The Jinja2 template rendering was removed as part of the SPA migration (#5372).
-# Dashboard data APIs (e.g. /api/dashboard-cache-status) are preserved below.
-
-
-@app.get("/api/dashboard-cache-status")
-async def dashboard_cache_status():
-    """Lightweight endpoint for the frontend to poll refresh progress."""
-    ts = _dashboard_cache["timestamp"]
-    return {
-        "cached": _dashboard_cache["data"] is not None,
-        "age": int(_time() - ts) if ts else None,
-        "refreshing": _dashboard_refreshing,
-        "timestamp": int(ts) if ts else None,
-    }
-
-
-@app.get("/project/{project_id}", response_class=HTMLResponse)
-async def project_detail(request: Request, project_id: str):
-    """Project detail view."""
-    db = DatabaseManager()
-    project = db.get_project(project_id)
-    
-    if not project:
-        return HTMLResponse(content="<h1>Project not found</h1>", status_code=404)
-    
-    # Enrich with related data
-    project = enrich_project_data(project, db)
-    
-    return templates.TemplateResponse(
-        request,
-        "project_detail.html",
-        build_template_context(request, project=project),
-    )
-
-
-
 @app.get("/api/agent-chat/messages")
-async def api_agent_chat_messages(limit: int = 100):
+def api_agent_chat_messages(limit: int = 100):
     """Read-only Agent Chat board — ALL traffic, newest first (#7145).
 
     Deliberately does not default to inbox filtering. The CLI trap of a
@@ -985,95 +778,9 @@ async def api_navigation():
     return build_navigation_payload()
 
 
-@app.post("/api/create-index/{project_id}")
-async def create_index(project_id: str):
-    """Run reindex_projects.py for a specific project."""
-    try:
-        db = DatabaseManager()
-        project = db.get_project(project_id)
-        if not project:
-            return JSONResponse({"status": "error", "message": "Project not found"}, status_code=404)
-            
-        if not REINDEX_SCRIPT_PATH.exists():
-            return JSONResponse({"status": "error", "message": "Reindex script not found"}, status_code=500)
-            
-        # Run script
-        try:
-            result = subprocess.run(
-                [sys.executable, str(REINDEX_SCRIPT_PATH), project["path"]],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-        except subprocess.TimeoutExpired:
-            return JSONResponse({
-                "status": "error", 
-                "message": "Reindex script timed out after 30 seconds"
-            }, status_code=504)
-        
-        if result.returncode != 0:
-            return JSONResponse({
-                "status": "error", 
-                "message": f"Script failed: {result.stderr}"
-            }, status_code=500)
-            
-        # Rescan to update DB
-        try:
-            subprocess.run(
-                [sys.executable, str(Path(__file__).parent.parent / "scripts" / "pt.py"), "scan"],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-        except subprocess.TimeoutExpired:
-            logger.warning("Project rescan timed out after index creation, but index may have been created.")
-            # We don't return error here because the index was already created
-        
-        return JSONResponse({
-            "status": "success",
-            "message": f"Index created for {project['name']}"
-        })
-    except Exception as e:
-        logger.error(f"Error creating index: {e}")
-        return JSONResponse({
-            "status": "error",
-            "message": str(e)
-        }, status_code=500)
-
-
-@app.post("/api/fix-frontmatter/{project_id}")
-async def fix_frontmatter(project_id: str):
-    """Attempt to auto-fix frontmatter in a project's CLAUDE.md or README.md.
-
-    Always reports failure: this was backed by the archived audit-agent binary,
-    and LegacyProvider.fix_file() returns False.
-    """
-    db = DatabaseManager()
-    project = db.get_project(project_id)
-    if not project:
-        return JSONResponse({"success": False, "error": "Project not found"}, status_code=404)
-
-    # Find CLAUDE.md or README.md
-    project_path = Path(project["path"])
-    target_file = project_path / "CLAUDE.md"
-    if not target_file.exists():
-        target_file = project_path / "README.md"
-    if not target_file.exists():
-        return JSONResponse({"success": False, "error": "No CLAUDE.md or README.md found"}, status_code=404)
-
-    provider = get_provider()
-    try:
-        success = provider.fix_file(str(target_file))
-        return {"success": success, "error": None if success else "Fix failed"}
-    except NotImplementedError:
-        return JSONResponse({"success": False, "error": "Frontmatter auto-fix is not implemented"}, status_code=501)
-    except Exception as e:
-        logger.error(f"Error fixing frontmatter: {e}")
-        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
-
 @app.post("/api/refresh")
-async def refresh_data():
+@_serialized
+def refresh_data():
     """Trigger full data refresh."""
     try:
         db = DatabaseManager()
@@ -1096,7 +803,7 @@ async def refresh_data():
 
         # Clean up stale projects whose directories no longer exist on disk.
         # Only remove projects whose path is under the local PROJECTS_BASE_DIR
-        # so we don't accidentally delete remote/Turso entries from other machines.
+        # so we don't accidentally delete remote entries from other machines.
         disk_paths = {p["path"] for p in projects}
         local_prefix = str(PROJECTS_BASE_DIR)
         all_db_projects = db.get_all_projects()
@@ -1131,30 +838,8 @@ async def refresh_data():
         }, status_code=500)
 
 
-@app.get("/api/telemetry")
-async def api_telemetry(days: int = 7):
-    """Get AI Router telemetry stats."""
-    try:
-        stats = get_telemetry_stats(days=days)
-        return stats
-    except Exception as e:
-        logger.error(f"Error getting telemetry: {e}")
-        return {"error": str(e), "total_requests": 0}
-
-
-@app.get("/api/backup")
-async def api_backup():
-    """Get backup audit status."""
-    try:
-        status = get_backup_status()
-        return status
-    except Exception as e:
-        logger.error(f"Error getting backup status: {e}")
-        return JSONResponse({"error": "Failed to get backup status", "status": "error"}, status_code=500)
-
-
 @app.get("/api/projects")
-async def api_projects():
+def api_projects():
     """JSON API for projects."""
     db = DatabaseManager()
     projects = db.get_all_projects(order_by="last_modified DESC")
@@ -1170,7 +855,7 @@ async def api_projects():
 
 
 @app.get("/api/task-policy")
-async def api_task_policy():
+def api_task_policy():
     """Return backend-owned task creation policy metadata for clients."""
     blocked_ids = get_blocked_card_project_ids()
     blocked_reasons = {project_id: get_blocked_card_reason(project_id) for project_id in blocked_ids}
@@ -1181,7 +866,7 @@ async def api_task_policy():
 
 
 @app.get("/api/health")
-async def api_health():
+def api_health():
     """Deep health check: is this process actually able to serve requests?
 
     Deliberately NOT a liveness stub. The dashboard has twice (2026-07-06,
@@ -1197,18 +882,16 @@ async def api_health():
     Not gated by _require_local_admin_request — health probes are
     conventionally unauthenticated, and a 403 to a remote monitor would be
     indistinguishable from a broken server. The payload is diagnostic only
-    (row count, uptime, cache age); it exposes no task or project content.
+    (row count, uptime); it exposes no task or project content.
 
     Returns 200 with the diagnostics when the DB answers, 503 with the error
     string when it does not — so both `curl` and the watchdog's %{http_code}
     check see the failure.
     """
-    cache_ts = _dashboard_cache["timestamp"]
     payload: Dict = {
         "status": "ok",
         "uptime_seconds": int(_monotonic() - _PROCESS_START_MONOTONIC),
         "started_at": _PROCESS_START_WALL.isoformat(timespec="seconds"),
-        "dashboard_cache_age_seconds": int(_time() - cache_ts) if cache_ts else None,
     }
 
     try:
@@ -1232,7 +915,7 @@ async def api_health():
 
 
 @app.get("/api/alerts")
-async def api_alerts():
+def api_alerts():
     """Get all alerts."""
     db = DatabaseManager()
     projects = db.get_all_projects()
@@ -1242,44 +925,8 @@ async def api_alerts():
     return {"alerts": alerts}
 
 
-@app.get("/api/stats")
-async def api_stats():
-    """Dashboard statistics."""
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    
-    # Count by status
-    status_counts = {}
-    for project in projects:
-        status = project["status"]
-        status_counts[status] = status_counts.get(status, 0) + 1
-    
-    # Bulk-fetch cron and agent counts (2 queries instead of 2N)
-    all_crons = _group_by_project(db.get_cron_jobs())
-    all_agents_map = _group_by_project(db.get_ai_agents())
-    projects_with_cron = sum(1 for p in projects if p["id"] in all_crons)
-    projects_with_ai = sum(1 for p in projects if p["id"] in all_agents_map)
-
-    # Get alert counts
-    enriched_projects = _bulk_enrich(projects, db)
-    alerts = get_all_alerts(enriched_projects)
-    alert_counts = {
-        "critical": len([a for a in alerts if a["severity"] == "critical"]),
-        "warning": len([a for a in alerts if a["severity"] == "warning"]),
-        "info": len([a for a in alerts if a["severity"] == "info"])
-    }
-    
-    return {
-        "total_projects": len(projects),
-        "status_counts": status_counts,
-        "projects_with_cron": projects_with_cron,
-        "projects_with_ai": projects_with_ai,
-        "alerts": alert_counts
-    }
-
-
 @app.get("/api/kanban/breakdown")
-async def api_kanban_breakdown():
+def api_kanban_breakdown():
     """Per-project card counts for the open Kanban columns.
 
     Feeds the dashboard's board breakdown. Deliberately an aggregate rather
@@ -1328,44 +975,6 @@ async def api_kanban_breakdown():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to build the Kanban breakdown"
         )
-
-
-@app.get("/api/learning")
-async def api_learning_stats():
-    """Get learning activity statistics for all projects."""
-    from learning_stats import get_all_learning_stats
-    
-    try:
-        stats = get_all_learning_stats()
-        
-        # Calculate summary statistics
-        total_with_learnings = sum(1 for s in stats if s['has_learnings'])
-        total_entries = sum(s['total_entries'] for s in stats)
-        stale_projects = sum(1 for s in stats if s['has_learnings'] and s['days_since_last_entry'] and s['days_since_last_entry'] > 30)
-        
-        # Get projects with recent activity (last 7 days)
-        active_projects = [s for s in stats if s['has_learnings'] and s['days_since_last_entry'] is not None and s['days_since_last_entry'] <= 7]
-        
-        return {
-            "summary": {
-                "total_projects_with_learnings": total_with_learnings,
-                "total_learning_entries": total_entries,
-                "stale_projects": stale_projects,
-                "active_projects_this_week": len(active_projects)
-            },
-            "projects": stats
-        }
-    except Exception as e:
-        logger.error(f"Failed to get learning stats: {e}")
-        return {
-            "summary": {
-                "total_projects_with_learnings": 0,
-                "total_learning_entries": 0,
-                "stale_projects": 0,
-                "active_projects_this_week": 0
-            },
-            "projects": []
-        }
 
 
 # --- API Cost Proxy (#5447) ---
@@ -1418,7 +1027,7 @@ async def proxy_costs(path: str, request: Request):
 
 
 @app.get("/api/shadow-pricing")
-async def shadow_pricing():
+def shadow_pricing():
     """Shadow pricing: what Claude Max usage would cost at API rates."""
     from dashboard.shadow_pricing import get_shadow_pricing_data
     try:
@@ -1449,29 +1058,8 @@ class CalendarEventCreate(BaseModel):
     recurrence: Optional[str] = None
     created_by: str = "human"
 
-    @staticmethod
-    def _validate_date(v: str) -> str:
-        from datetime import datetime
-        try:
-            datetime.strptime(v, "%Y-%m-%d")
-        except ValueError:
-            raise ValueError(f"event_date must be YYYY-MM-DD, got '{v}'")
-        return v
-
-    # Pydantic v2 field validator
-    try:
-        from pydantic import field_validator
-        @field_validator("event_date")
-        @classmethod
-        def validate_event_date(cls, v: str) -> str:
-            return cls._validate_date(v)
-    except ImportError:
-        # Pydantic v1 fallback
-        from pydantic import validator
-        @validator("event_date")
-        @classmethod  # type: ignore[misc]
-        def validate_event_date(cls, v: str) -> str:
-            return cls._validate_date(v)
+    # event_date / event_time are validated by CalendarManager.add_event (shared
+    # validator in db.backend_calendar_manager); its ValueError becomes a 422 below.
 
 
 def _stringify_pt_ids(record: dict, keys: tuple = ("id",)) -> dict:
@@ -1487,21 +1075,6 @@ def _stringify_pt_ids(record: dict, keys: tuple = ("id",)) -> dict:
     return record
 
 
-def _stringify_event(event: dict) -> dict:
-    """Stringify a calendar event's id and its linked tasks' ids (#7826).
-
-    ``linked_tasks`` rows carry the task id as ``id``; ``task_id`` is added as
-    the same string because that is the key the frontend reads.
-    """
-    linked = event.get("linked_tasks")
-    if isinstance(linked, list):
-        for task in linked:
-            if isinstance(task, dict) and isinstance(task.get("id"), int):
-                task["task_id"] = str(task["id"])
-                task["id"] = str(task["id"])
-    return _stringify_pt_ids(event)
-
-
 def _get_cal_manager():
     from db.calendar_manager import CalendarManager
     cm = CalendarManager()
@@ -1510,7 +1083,7 @@ def _get_cal_manager():
 
 
 @app.get("/api/calendar/events")
-async def api_calendar_events(
+def api_calendar_events(
     days: int = 30,
     project_id: Optional[str] = None,
     machine: Optional[str] = None,
@@ -1528,30 +1101,15 @@ async def api_calendar_events(
             event_type=event_type,
             include_all=include_all,
         )
-        return {"events": [_stringify_event(e) for e in events], "total": len(events)}
+        return {"events": [_stringify_pt_ids(e) for e in events], "total": len(events)}
     except Exception as e:
         logger.error(f"Calendar events error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/calendar/events/{event_id}")
-async def api_calendar_event_detail(event_id: int):
-    """Return a single calendar event with linked tasks."""
-    try:
-        cm = _get_cal_manager()
-        event = cm.get_event(event_id)
-        if not event:
-            raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
-        return _stringify_event(event)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Calendar event detail error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/api/calendar/events")
-async def api_calendar_create(payload: CalendarEventCreate):
+@_serialized
+def api_calendar_create(payload: CalendarEventCreate):
     """Create a calendar event."""
     try:
         cm = _get_cal_manager()
@@ -1577,7 +1135,8 @@ async def api_calendar_create(payload: CalendarEventCreate):
 
 
 @app.patch("/api/calendar/events/{event_id}/done")
-async def api_calendar_done(event_id: int):
+@_serialized
+def api_calendar_done(event_id: int):
     """Mark calendar event as done."""
     try:
         cm = _get_cal_manager()
@@ -1592,7 +1151,7 @@ async def api_calendar_done(event_id: int):
 
 
 @app.get("/api/calendar/crons")
-async def api_calendar_crons(
+def api_calendar_crons(
     project_id: Optional[str] = None,
     machine: Optional[str] = None,
 ):
@@ -1603,25 +1162,6 @@ async def api_calendar_crons(
         return {"cron_jobs": crons, "total": len(crons)}
     except Exception as e:
         logger.error(f"Calendar crons error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/calendar/remind")
-async def api_calendar_remind(
-    within_minutes: int = 60,
-    machine: Optional[str] = None,
-):
-    """Events firing soon — for agent polling and notification widgets."""
-    try:
-        cm = _get_cal_manager()
-        events = cm.get_upcoming_reminders(within_minutes=within_minutes, machine=machine)
-        return {
-            "events": [_stringify_event(e) for e in events],
-            "total": len(events),
-            "within_minutes": within_minutes,
-        }
-    except Exception as e:
-        logger.error(f"Calendar remind error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2240,13 +1780,6 @@ async def get_graph_data(
     }
 
 
-# Pydantic model for run request
-class AgentRunRequest(BaseModel):
-    agent_name: str
-    command_name: str
-    args: Optional[str] = ""
-
-
 # Pydantic models for task requests
 class TaskCreateRequest(BaseModel):
     text: str
@@ -2290,130 +1823,6 @@ class TaskUpdateRequest(BaseModel):
     task_type: Optional[str] = None
     parent_id: Optional[int] = None  # Task #4645
     blocked_by: Optional[List[int]] = None  # Task #4579
-
-
-# GET /api/loops - Get autonomous loop status
-@app.get("/api/loops")
-async def get_loop_status():
-    """Return status of all autonomous loops."""
-    db = DatabaseManager()
-    
-    loops = ["janitor", "patch-bot"]
-    status_data = []
-
-    executions = db.loop_last_executions(loop_names=loops)
-
-    for loop_name in loops:
-        last_run = executions.get(loop_name)
-
-        if last_run:
-            started = datetime.fromisoformat(last_run["started_at"])
-            completed = (
-                datetime.fromisoformat(last_run["completed_at"])
-                if last_run["completed_at"]
-                else None
-            )
-
-            # Calculate health status
-            now = datetime.now()
-            time_since_run = now - started
-
-            # Expected intervals (in hours)
-            expected_intervals = {
-                "janitor": 1,      # Hourly
-                "patch-bot": 0.5   # Every 30 minutes
-            }
-            
-            expected_hours = expected_intervals.get(loop_name, 24)
-            expected_delta = timedelta(hours=expected_hours)
-            
-            # Determine health
-            if last_run["status"] == "failed":
-                health = "failed"
-                health_icon = "🔴"
-            elif time_since_run > expected_delta * 2:
-                health = "overdue"
-                health_icon = "🔴"
-            elif time_since_run > expected_delta * 1.5:
-                health = "warning"
-                health_icon = "🟡"
-            else:
-                health = "healthy"
-                health_icon = "🟢"
-            
-            status_data.append({
-                "loop": loop_name,
-                "health": health,
-                "health_icon": health_icon,
-                "last_run": started.isoformat(),
-                "last_run_human": format_time_ago(started.isoformat()),
-                "status": last_run["status"],
-                "cards_created": last_run["cards_created"],
-                "duration_seconds": (completed - started).total_seconds() if completed else None,
-                "error": last_run["error_message"] or None
-            })
-        else:
-            status_data.append({
-                "loop": loop_name,
-                "health": "never_run",
-                "health_icon": "⚪",
-                "last_run": None,
-                "last_run_human": "Never",
-                "status": "N/A",
-                "cards_created": 0,
-                "duration_seconds": None,
-                "error": None
-            })
-
-    return {"loops": status_data}
-
-
-# GET /api/agents - List all agents
-@app.get("/api/agents")
-async def list_agents():
-    """Return list of available agents and their commands."""
-    agents = get_available_agents()
-    return {
-        "agents": [
-            {
-                "name": a.name,
-                "description": a.description,
-                "available": a.available,
-                "commands": [
-                    {
-                        "name": c.name,
-                        "description": c.description,
-                        "args_template": c.args_template,
-                        "dangerous": c.dangerous
-                    }
-                    for c in a.commands
-                ]
-            }
-            for a in agents
-        ]
-    }
-
-
-
-# POST /api/agents/run - Execute agent command
-@app.post("/api/agents/run")
-async def run_agent(request: Request, payload: AgentRunRequest):
-    """Execute an agent command and return result."""
-    _require_local_admin_request(request)
-    result = run_agent_command(
-        payload.agent_name,
-        payload.command_name,
-        payload.args or ""
-    )
-
-    return {
-        "success": result.success,
-        "output": result.output,
-        "error": result.error,
-        "return_code": result.return_code,
-        "duration_ms": result.duration_ms,
-        "command": result.command
-    }
 
 
 # --- Error Handling Middleware ---
@@ -2564,7 +1973,8 @@ def _extract_pattern_from_error(error_message: str) -> Optional[str]:
 # --- Task API Endpoints ---
 
 @app.post("/api/tasks", status_code=status.HTTP_201_CREATED)
-async def create_task(task_data: TaskCreateRequest):
+@_serialized
+def create_task(task_data: TaskCreateRequest):
     """Create a new task.
 
     Args:
@@ -2614,7 +2024,7 @@ async def create_task(task_data: TaskCreateRequest):
 
 
 @app.get("/api/tasks")
-async def list_tasks(
+def list_tasks(
     project_id: Optional[str] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
     task_status: Optional[str] = None,
@@ -2784,18 +2194,8 @@ async def list_tasks(
         )
 
 
-@app.delete("/api/tasks/done")
-async def delete_done_tasks(project_id: Optional[str] = None):
-    """Delete all tasks in Done status (disabled)."""
-    logger.warning("Blocked API delete_done_tasks attempt")
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Task deletions are disabled. Use manual DBA operations if needed."
-    )
-
-
-@app.get("/api/tasks/{task_id}")
-async def get_task(task_id: int):
+@app.get("/api/tasks/{task_id:int}")
+def get_task(task_id: int):
     """Get a single task by ID with full enriched data.
     
     Args:
@@ -2854,8 +2254,9 @@ async def get_task(task_id: int):
         )
 
 
-@app.patch("/api/tasks/{task_id}")
-async def update_task(task_id: int, task_data: TaskUpdateRequest):
+@app.patch("/api/tasks/{task_id:int}")
+@_serialized
+def update_task(task_id: int, task_data: TaskUpdateRequest):
     """Update a task (text, status, priority).
     
     Args:
@@ -2961,8 +2362,9 @@ async def update_task(task_id: int, task_data: TaskUpdateRequest):
         )
 
 
-@app.post("/api/tasks/{task_id}/checklist")
-async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
+@app.post("/api/tasks/{task_id:int}/checklist")
+@_serialized
+def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
     """Tick or untick one notes checklist line as a server-side atomic toggle (#7821).
 
     The toggle applies only to the notes the client saw: if the stored notes
@@ -3039,8 +2441,9 @@ async def toggle_task_checklist(task_id: int, body: ChecklistToggleRequest):
         )
 
 
-@app.delete("/api/tasks/{task_id}", status_code=status.HTTP_200_OK)
-async def delete_task(task_id: int):
+@app.delete("/api/tasks/{task_id:int}", status_code=status.HTTP_200_OK)
+@_serialized
+def delete_task(task_id: int):
     """Delete a single task."""
     try:
         db = DatabaseManager()
@@ -3091,8 +2494,9 @@ def _stringify_attachment_ids(record: dict) -> dict:
     return record
 
 
-@app.post("/api/tasks/{task_id}/attachments", status_code=status.HTTP_201_CREATED)
-async def upload_attachment(task_id: int, file: UploadFile = File(...)):
+@app.post("/api/tasks/{task_id:int}/attachments", status_code=status.HTTP_201_CREATED)
+@_serialized
+def upload_attachment(task_id: int, file: UploadFile = File(...)):
     """Upload a file and attach it to a task."""
     import mimetypes
 
@@ -3101,35 +2505,38 @@ async def upload_attachment(task_id: int, file: UploadFile = File(...)):
     if not task:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
-    # Stream to a temp file so we never hold >ATTACHMENT_MAX_BYTES in RAM
+    # The request parser has already spooled the upload; copy it in chunks so
+    # we never hold >ATTACHMENT_MAX_BYTES in RAM.
     dest_dir = attachments_dir(task_id)
     ext = Path(file.filename or "upload").suffix
     stored_name = f"{uuid.uuid4()}{ext}"
     dest_path = dest_dir / stored_name
 
     size = 0
-    with dest_path.open("wb") as out:
-        while chunk := await file.read(65_536):  # 64 KB chunks
-            size += len(chunk)
-            if size > ATTACHMENT_MAX_BYTES:
-                out.close()
-                dest_path.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="File exceeds 20 MB limit")
-            out.write(chunk)
-
-    mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0]
-    record = db.add_attachment(
-        task_id=task_id,
-        filename=file.filename or stored_name,
-        stored_name=stored_name,
-        mime_type=mime_type,
-        size_bytes=size,
-    )
+    try:
+        with dest_path.open("wb") as out:
+            while chunk := file.file.read(65_536):  # 64 KB chunks
+                size += len(chunk)
+                if size > ATTACHMENT_MAX_BYTES:
+                    raise HTTPException(status_code=413, detail="File exceeds 20 MB limit")
+                out.write(chunk)
+        mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0]
+        record = db.add_attachment(
+            task_id=task_id,
+            filename=file.filename or stored_name,
+            stored_name=stored_name,
+            mime_type=mime_type,
+            size_bytes=size,
+        )
+    except BaseException:
+        # No row points at a partial, oversized or unrecorded file.
+        dest_path.unlink(missing_ok=True)  # governance: allow-delete DS001: this request created the file moments ago and no attachment row references it
+        raise
     return _stringify_attachment_ids(record)
 
 
-@app.get("/api/tasks/{task_id}/attachments")
-async def list_attachments(task_id: int):
+@app.get("/api/tasks/{task_id:int}/attachments")
+def list_attachments(task_id: int):
     """List all attachments for a task."""
     db = DatabaseManager()
     if not db.get_task(task_id):
@@ -3137,8 +2544,9 @@ async def list_attachments(task_id: int):
     return {"attachments": [_stringify_attachment_ids(a) for a in db.get_attachments(task_id)]}
 
 
-@app.delete("/api/tasks/{task_id}/attachments/{attachment_id}", status_code=status.HTTP_200_OK)
-async def delete_attachment(task_id: int, attachment_id: int):
+@app.delete("/api/tasks/{task_id:int}/attachments/{attachment_id}", status_code=status.HTTP_200_OK)
+@_serialized
+def delete_attachment(task_id: int, attachment_id: int):
     """Delete an attachment record and its file from disk."""
     db = DatabaseManager()
     record = db.delete_attachment(attachment_id=attachment_id, task_id=task_id)
@@ -3171,7 +2579,7 @@ async def delete_attachment(task_id: int, attachment_id: int):
 
 
 @app.get("/api/attachments/{task_id}/{stored_name}")
-async def serve_attachment(task_id: int, stored_name: str):
+def serve_attachment(task_id: int, stored_name: str):
     """Serve an attachment file for inline preview."""
     from fastapi.responses import FileResponse
     import mimetypes
@@ -3191,7 +2599,7 @@ async def serve_attachment(task_id: int, stored_name: str):
 
 
 @app.get("/api/agentic/summary")
-async def agentic_summary(days: int = 30, project_id: Optional[str] = None):
+def agentic_summary(days: int = 30, project_id: Optional[str] = None):
     """Get agentic workflow metrics from task_history.
 
     Tracks Review -> In Progress bounces, Review -> Done promotions, and
@@ -3270,12 +2678,99 @@ async def agentic_summary(days: int = 30, project_id: Optional[str] = None):
         )
 
 
-@app.get("/api/holoscape/series")
-async def holoscape_series():
-    """Source-labeled daily progress for the temporary Holoscape page."""
-    from dashboard.holoscape_progress import progress_snapshot
+# --- Codebase size API (#8083) ---
 
-    return progress_snapshot()
+
+# Overlapping refreshes are serialized: a second one while a scan runs gets
+# 409 instead of a concurrent scan, so each refresh reports the run it stored.
+_codebase_refresh_lock = threading.Lock()
+
+
+def _codebase_report(db: DatabaseManager) -> dict:
+    """Report for the newest stored run against the baseline run.
+
+    Both runs come from one read transaction (``codebase_runs``), so the
+    response reflects one consistent snapshot. No runs yet is the valid empty
+    state. A DB failure propagates: it must not read as "no runs".
+    """
+    from scripts import codebase_size as cs
+
+    base_date, base, latest_date, latest = db.codebase_runs()
+    return cs.build_report(list(latest.values()), base, base_date, latest_date)
+
+
+def _codebase_db_error(exc: Exception) -> HTTPException:
+    logger.exception("codebase size request failed")
+    if "no such table" in str(exc):
+        detail = "Table codebase_size_snapshots is missing; run `pt db migrate`."
+    else:
+        detail = f"Codebase size data is unavailable: {exc}"
+    return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail)
+
+
+@app.get("/api/codebase-size")
+def get_codebase_size():
+    """Latest stored codebase size run with score vs the baseline. No scan."""
+    try:
+        return _codebase_report(DatabaseManager())
+    except Exception as exc:
+        raise _codebase_db_error(exc)
+
+
+@app.post("/api/codebase-size/refresh")
+def refresh_codebase_size(request: Request):
+    """Scan the portfolio, store one run if every repo scanned, return the report.
+
+    A plain ``def`` so the multi-second scan runs in the threadpool.
+    """
+    _require_local_admin_request(request)
+    from scripts import codebase_size as cs
+
+    if not _codebase_refresh_lock.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A codebase scan is already running; wait for it to finish.",
+        )
+    try:
+        try:
+            db = DatabaseManager()
+            db.codebase_baseline()  # table check before the scan
+        except Exception as exc:
+            raise _codebase_db_error(exc)
+
+        try:
+            rows = cs.scan_portfolio(config_projects_root())
+        except cs.ProjectsRootMissing as exc:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        except Exception as exc:
+            logger.exception("codebase size scan failed")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Codebase scan failed: {exc}",
+            )
+        if not rows:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="No git repos found under the projects root.",
+            )
+        failed = [r for r in rows if r.error]
+        if failed:
+            listing = "; ".join(f"{r.project}: {r.error}" for r in failed)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Scan failed for {len(failed)} repo(s); nothing was stored. {listing}",
+            )
+        today = datetime.now().date().isoformat()
+        try:
+            db.save_codebase_scan(rows, today)
+            # Report the run this request stored; the baseline comes from one
+            # consistent read (it is this run when no run existed before).
+            base_date, base, _, _ = db.codebase_runs()
+        except Exception as exc:
+            raise _codebase_db_error(exc)
+        return cs.build_report(rows, base, base_date, today)
+    finally:
+        _codebase_refresh_lock.release()
 
 
 # --- Agentic Markers API (#5009) ---
@@ -3354,7 +2849,7 @@ def _validate_marker_fields(date: Optional[str], label: Optional[str]) -> None:
 
 
 @app.get("/api/agentic/markers")
-async def get_markers():
+def get_markers():
     """Return all agentic markers."""
     try:
         return {"markers": _load_markers()}
@@ -3365,7 +2860,8 @@ async def get_markers():
 
 
 @app.post("/api/agentic/markers", status_code=201)
-async def create_marker(req: MarkerCreateRequest):
+@_serialized
+def create_marker(req: MarkerCreateRequest):
     """Create a new agentic marker."""
     _validate_marker_fields(req.date, req.label)
     try:
@@ -3388,7 +2884,8 @@ async def create_marker(req: MarkerCreateRequest):
 
 
 @app.patch("/api/agentic/markers/{marker_id}")
-async def update_marker(marker_id: str, req: MarkerUpdateRequest):
+@_serialized
+def update_marker(marker_id: str, req: MarkerUpdateRequest):
     """Update an existing agentic marker by id."""
     _validate_marker_fields(req.date, req.label)
     try:
@@ -3412,7 +2909,8 @@ async def update_marker(marker_id: str, req: MarkerUpdateRequest):
 
 
 @app.delete("/api/agentic/markers/{marker_id}", status_code=204)
-async def delete_marker(marker_id: str):
+@_serialized
+def delete_marker(marker_id: str):
     """Delete an agentic marker by id."""
     try:
         markers = _load_markers()
@@ -3428,7 +2926,7 @@ async def delete_marker(marker_id: str):
 
 
 @app.get("/api/tool-stats")
-async def get_tool_stats(
+def get_tool_stats(
     tool: str = "WebSearch",
     days: int = 30,
     model: Optional[str] = None,
@@ -3554,7 +3052,7 @@ async def get_tool_stats(
 
 
 @app.get("/api/bash-stats")
-async def get_bash_stats(days: int = 30):
+def get_bash_stats(days: int = 30):
     """Bash error rate (stuck score) per day from ai-memory's bash_calls table.
 
     Returns:
@@ -3835,178 +3333,6 @@ async def get_bash_stats(days: int = 30):
     }
 
 
-@app.get("/api/api-cost-stats")
-async def get_api_cost_stats(
-    days: int = 30,
-    provider: Optional[str] = None,
-    model: Optional[str] = None,
-    project: Optional[str] = None,
-    caller: Optional[str] = None,
-):
-    """Per-call API cost time-series from ai-memory's brain.db api_cost_logs
-    table (card #5995). Returns parallel series suitable for the local-cost
-    chart panel.
-
-    Series:
-      by_date    — total cost + call count per day
-      by_model   — total cost + call count per day per model
-      by_project — total cost + call count per day per project
-      by_caller  — total cost + call count per day per caller
-
-    Query params:
-      days:     lookback window 1..365 (default 30)
-      provider: optional filter (e.g. "anthropic")
-      model:    optional filter (exact match against api_cost_logs.model)
-      project:  optional filter
-      caller:   optional filter
-
-    Returns empty series if brain.db is absent, the table doesn't exist
-    yet, or no rows match. Read-only — never modifies brain.db.
-    """
-    projects_root = config_projects_root()
-    brain_db = projects_root / "ai-memory" / "brain.db"
-
-    empty = {
-        "by_date": [],
-        "by_model": [],
-        "by_project": [],
-        "by_caller": [],
-        "models": [],
-        "projects": [],
-        "callers": [],
-        "summary": {
-            "total_calls": 0,
-            "total_cost_usd": 0.0,
-            "window_days": 0,
-        },
-    }
-    if not brain_db.is_file():
-        return empty
-
-    end_date = datetime.now().date()
-    days = min(max(days, 1), 365)
-    start_date = end_date - timedelta(days=days - 1)
-    start_iso = start_date.isoformat()
-
-    # Build WHERE — every user-supplied value parameter-bound.
-    where_parts = ["DATE(timestamp) >= ?"]
-    params: list = [start_iso]
-    if provider is not None:
-        where_parts.append("provider = ?")
-        params.append(provider)
-    if model is not None:
-        where_parts.append("model = ?")
-        params.append(model)
-    if project is not None:
-        where_parts.append("project = ?")
-        params.append(project)
-    if caller is not None:
-        where_parts.append("caller = ?")
-        params.append(caller)
-    where_sql = "WHERE " + " AND ".join(where_parts)
-
-    try:
-        uri = f"file:{brain_db}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True, timeout=2.0)
-        conn.row_factory = sqlite3.Row
-        try:
-            if conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='api_cost_logs'"
-            ).fetchone() is None:
-                return empty
-
-            by_date_rows = conn.execute(
-                f"""
-                SELECT DATE(timestamp) AS date,
-                       COUNT(*) AS calls,
-                       COALESCE(SUM(cost_usd), 0) AS cost_usd
-                FROM api_cost_logs {where_sql}
-                GROUP BY DATE(timestamp)
-                ORDER BY date ASC
-                """,
-                params,
-            ).fetchall()
-
-            by_model_rows = conn.execute(
-                f"""
-                SELECT DATE(timestamp) AS date,
-                       COALESCE(model, 'unknown') AS model,
-                       COUNT(*) AS calls,
-                       COALESCE(SUM(cost_usd), 0) AS cost_usd
-                FROM api_cost_logs {where_sql}
-                GROUP BY DATE(timestamp), COALESCE(model, 'unknown')
-                ORDER BY date ASC
-                """,
-                params,
-            ).fetchall()
-
-            by_project_rows = conn.execute(
-                f"""
-                SELECT DATE(timestamp) AS date,
-                       COALESCE(project, 'unknown') AS project,
-                       COUNT(*) AS calls,
-                       COALESCE(SUM(cost_usd), 0) AS cost_usd
-                FROM api_cost_logs {where_sql}
-                GROUP BY DATE(timestamp), COALESCE(project, 'unknown')
-                ORDER BY date ASC
-                """,
-                params,
-            ).fetchall()
-
-            by_caller_rows = conn.execute(
-                f"""
-                SELECT DATE(timestamp) AS date,
-                       COALESCE(caller, 'unknown') AS caller,
-                       COUNT(*) AS calls,
-                       COALESCE(SUM(cost_usd), 0) AS cost_usd
-                FROM api_cost_logs {where_sql}
-                GROUP BY DATE(timestamp), COALESCE(caller, 'unknown')
-                ORDER BY date ASC
-                """,
-                params,
-            ).fetchall()
-        finally:
-            conn.close()
-    except Exception as exc:
-        logger.warning("Failed to read api_cost_logs from brain.db: %s", exc)
-        return empty
-
-    # Zero-fill by_date so the chart x-axis is contiguous.
-    date_to_total = {r["date"]: (r["calls"], r["cost_usd"]) for r in by_date_rows}
-    by_date = []
-    current = start_date
-    total_calls = 0
-    total_cost = 0.0
-    while current <= end_date:
-        ds = current.isoformat()
-        calls, cost = date_to_total.get(ds, (0, 0.0))
-        by_date.append({"date": ds, "calls": calls, "cost_usd": cost})
-        total_calls += calls
-        total_cost += cost
-        current += timedelta(days=1)
-
-    def _rows(records, key: str):
-        return [
-            {"date": r["date"], key: r[key], "calls": r["calls"], "cost_usd": r["cost_usd"]}
-            for r in records
-        ]
-
-    return {
-        "by_date": by_date,
-        "by_model": _rows(by_model_rows, "model"),
-        "by_project": _rows(by_project_rows, "project"),
-        "by_caller": _rows(by_caller_rows, "caller"),
-        "models": sorted({r["model"] for r in by_model_rows}),
-        "projects": sorted({r["project"] for r in by_project_rows}),
-        "callers": sorted({r["caller"] for r in by_caller_rows}),
-        "summary": {
-            "total_calls": total_calls,
-            "total_cost_usd": round(total_cost, 6),
-            "window_days": days,
-        },
-    }
-
-
 # --- Jobs API Endpoints (#7396) ---
 
 class JobSubmissionRequest(BaseModel):
@@ -4017,7 +3343,7 @@ class JobSubmissionRequest(BaseModel):
 
 
 @app.get("/api/jobs")
-async def list_open_jobs():
+def list_open_jobs():
     """Ranked open listings; ones older than 30 days come back separately."""
     try:
         ranked = DatabaseManager().get_ranked_open_jobs()
@@ -4028,7 +3354,7 @@ async def list_open_jobs():
 
 
 @app.get("/api/jobs/submissions")
-async def list_job_submissions():
+def list_job_submissions():
     try:
         return {"jobs": DatabaseManager().get_submitted_jobs()}
     except Exception:
@@ -4037,7 +3363,7 @@ async def list_job_submissions():
 
 
 @app.get("/api/jobs/stats")
-async def job_stats():
+def job_stats():
     try:
         return DatabaseManager().get_job_stats()
     except Exception:
@@ -4046,7 +3372,8 @@ async def job_stats():
 
 
 @app.delete("/api/jobs/{job_id}")
-async def dismiss_job(job_id: int):
+@_serialized
+def dismiss_job(job_id: int):
     try:
         job = DatabaseManager().soft_delete_job(job_id)
     except Exception:
@@ -4058,7 +3385,8 @@ async def dismiss_job(job_id: int):
 
 
 @app.post("/api/jobs/{job_id}/submissions", status_code=201)
-async def record_job_submission(job_id: int, payload: JobSubmissionRequest):
+@_serialized
+def record_job_submission(job_id: int, payload: JobSubmissionRequest):
     try:
         submission = DatabaseManager().add_job_submission(
             job_id, **payload.model_dump()
@@ -4074,7 +3402,7 @@ async def record_job_submission(job_id: int, payload: JobSubmissionRequest):
 
 
 @app.get("/api/volunteer")
-async def list_volunteer_roles():
+def list_volunteer_roles():
     """Volunteer page sections: current, applied, possible (+ stale possible)."""
     try:
         return DatabaseManager().get_volunteer_roles()
@@ -4084,7 +3412,8 @@ async def list_volunteer_roles():
 
 
 @app.post("/api/jobs/{job_id}/volunteering")
-async def start_volunteering(job_id: int):
+@_serialized
+def start_volunteering(job_id: int):
     """Record that Erik started volunteering in this role (idempotent)."""
     try:
         job = DatabaseManager().start_volunteering(job_id)
@@ -4099,7 +3428,7 @@ async def start_volunteering(job_id: int):
 
 
 @app.post("/api/jobs/{job_id}/agent-prompt")
-async def queue_job_agent_prompt(request: Request, job_id: int):
+def queue_job_agent_prompt(request: Request, job_id: int):
     """Queue an agent prompt to tailor resume and cover letter for a job.
     
     Card #7400: Composes a prompt with job details and house rules, then
@@ -4154,7 +3483,7 @@ class OutreachContactRequest(BaseModel):
 
 
 @app.get("/api/outreach/contacts")
-async def list_outreach_contacts():
+def list_outreach_contacts():
     try:
         contacts = DatabaseManager().list_active_contacts()
     except Exception:
@@ -4174,7 +3503,8 @@ async def list_outreach_contacts():
 
 
 @app.post("/api/outreach/contacts", status_code=201)
-async def add_outreach_contact(payload: OutreachContactRequest):
+@_serialized
+def add_outreach_contact(payload: OutreachContactRequest):
     try:
         contact = DatabaseManager().add_contact(payload.name)
     except ValueError:
@@ -4186,7 +3516,8 @@ async def add_outreach_contact(payload: OutreachContactRequest):
 
 
 @app.patch("/api/outreach/contacts/{contact_id}")
-async def rename_outreach_contact(contact_id: int, payload: OutreachContactRequest):
+@_serialized
+def rename_outreach_contact(contact_id: int, payload: OutreachContactRequest):
     try:
         contact = DatabaseManager().rename_contact(contact_id, payload.name)
     except ContactStateConflictError:
@@ -4204,7 +3535,8 @@ async def rename_outreach_contact(contact_id: int, payload: OutreachContactReque
 
 
 @app.post("/api/outreach/contacts/{contact_id}/contacted")
-async def mark_outreach_contacted(contact_id: int):
+@_serialized
+def mark_outreach_contacted(contact_id: int):
     try:
         contact = DatabaseManager().mark_contacted(contact_id)
     except ValueError:
@@ -4218,7 +3550,8 @@ async def mark_outreach_contacted(contact_id: int):
 
 
 @app.post("/api/outreach/contacts/{contact_id}/replied")
-async def mark_outreach_replied(contact_id: int):
+@_serialized
+def mark_outreach_replied(contact_id: int):
     try:
         contact = DatabaseManager().mark_replied(contact_id)
     except ValueError:
@@ -4232,7 +3565,8 @@ async def mark_outreach_replied(contact_id: int):
 
 
 @app.delete("/api/outreach/contacts/{contact_id}")
-async def soft_delete_outreach_contact(contact_id: int):
+@_serialized
+def soft_delete_outreach_contact(contact_id: int):
     try:
         contact = DatabaseManager().soft_delete_contact(contact_id)
     except Exception:
@@ -4246,7 +3580,7 @@ async def soft_delete_outreach_contact(contact_id: int):
 # --- Morning warm-up API Endpoint (#7616) ---
 
 @app.get("/api/morning")
-async def get_morning_snapshot():
+def get_morning_snapshot():
     try:
         from dashboard.morning import morning_snapshot, MorningPlanError
         return morning_snapshot()
@@ -4266,7 +3600,7 @@ class IdeaUpdateRequest(BaseModel):
 
 
 @app.get("/api/ideas")
-async def get_ideas():
+def get_ideas():
     """Get all ideas.
     
     Returns:
@@ -4285,7 +3619,8 @@ async def get_ideas():
 
 
 @app.post("/api/ideas", status_code=status.HTTP_201_CREATED)
-async def create_idea(idea_data: IdeaCreateRequest):
+@_serialized
+def create_idea(idea_data: IdeaCreateRequest):
     """Create a new idea.
     
     Args:
@@ -4313,7 +3648,8 @@ async def create_idea(idea_data: IdeaCreateRequest):
 
 
 @app.patch("/api/ideas/{idea_id}")
-async def update_idea(idea_id: int, idea_data: IdeaUpdateRequest):
+@_serialized
+def update_idea(idea_id: int, idea_data: IdeaUpdateRequest):
     """Update an idea's text.
     
     Args:
@@ -4342,7 +3678,8 @@ async def update_idea(idea_id: int, idea_data: IdeaUpdateRequest):
 
 
 @app.delete("/api/ideas/{idea_id}", status_code=status.HTTP_200_OK)
-async def delete_idea(idea_id: int):
+@_serialized
+def delete_idea(idea_id: int):
     """Delete an idea.
     
     Args:
@@ -4487,13 +3824,17 @@ GH_REPO_VIEW_VALID_FIELDS = frozenset({
 })
 
 
-def _gh_call(args: List[str], timeout: int = 30) -> tuple:
+def _gh_call(args: List[str], timeout: int = 30, missing_ok: bool = False) -> tuple:
     """Run a gh CLI command, returning (parsed_json, failure_kind).
 
     failure_kind is GH_OK on success, GH_NOT_FOUND when the target genuinely
     does not exist, or GH_ERROR for any other failure. Callers need the
     distinction: a missing repo is a fact about the world, while an auth or
     rate-limit failure means our data is incomplete and we must say so.
+
+    missing_ok is for a caller that expects some targets not to exist and
+    counts them itself (the repo view of every tracked project): its
+    not-found is logged at debug, not as a warning. Every other failure warns.
 
     stderr is logged but never returned — it can contain tokens and auth URLs,
     and callers surface these values to the browser.
@@ -4507,11 +3848,11 @@ def _gh_call(args: List[str], timeout: int = 30) -> tuple:
         )
         if result.returncode != 0:
             stderr = result.stderr.strip()
-            logger.warning(f"gh command failed: gh {' '.join(args)} — {stderr}")
             blob = (stderr + " " + result.stdout).lower()
-            if any(marker in blob for marker in _GH_NOT_FOUND_MARKERS):
-                return None, GH_NOT_FOUND
-            return None, GH_ERROR
+            not_found = any(marker in blob for marker in _GH_NOT_FOUND_MARKERS)
+            log = logger.debug if (not_found and missing_ok) else logger.warning
+            log(f"gh command failed: gh {' '.join(args)} — {stderr}")
+            return None, (GH_NOT_FOUND if not_found else GH_ERROR)
         if not result.stdout.strip():
             return None, GH_OK
         return json.loads(result.stdout), GH_OK
@@ -4565,8 +3906,24 @@ def _get_tracked_repo_names() -> List[str]:
     return sorted(set(names))
 
 
+# gh calls run a few at a time; GitHub's secondary rate limit allows far more.
+_GH_WORKERS = 6
+
+
+def _gh_map(fn, items: List) -> List:
+    """Run fn over items on a few threads; results come back in input order."""
+    if not items:
+        return []
+    with ThreadPoolExecutor(max_workers=_GH_WORKERS, thread_name_prefix="gh") as pool:
+        return list(pool.map(fn, items))
+
+
 def _fetch_github_data() -> Dict:
-    """Fetch GitHub data for tracked projects only (from kanban board)."""
+    """Fetch GitHub data for tracked projects only (from kanban board).
+
+    Each stage's calls run in parallel, and the snapshot is assembled in the
+    same order a one-at-a-time fetch would produce.
+    """
 
     # 1. Account info
     user = _gh_json(["api", "/user"])
@@ -4584,11 +3941,14 @@ def _fetch_github_data() -> Dict:
 
     repos: List[Dict] = []
     repos_missing = 0
-    for name in tracked_names:
-        repo_info, failure = _gh_call([
-            "repo", "view", f"{owner}/{name}",
-            "--json", ",".join(REPO_VIEW_FIELDS),
-        ], timeout=10)
+    # About half the tracked projects aren't on GitHub (third-party checkouts in
+    # github-repos/, local-only projects), so their not-found is expected and
+    # counted below rather than logged as a warning every refresh.
+    views = _gh_map(lambda name: _gh_call([
+        "repo", "view", f"{owner}/{name}",
+        "--json", ",".join(REPO_VIEW_FIELDS),
+    ], timeout=10, missing_ok=True), tracked_names)
+    for name, (repo_info, failure) in zip(tracked_names, views):
         if repo_info:
             repos.append(repo_info)
         elif failure == GH_NOT_FOUND:
@@ -4602,26 +3962,29 @@ def _fetch_github_data() -> Dict:
             # this count is surfaced in the dashboard summary, so losing access
             # shows up as a jump in "Not on GitHub" rather than as nothing.
             repos_missing += 1
-            logger.info(f"Tracked project '{name}' is not on GitHub (or not visible to this token)")
+            logger.debug(f"Tracked project '{name}' is not on GitHub (or not visible to this token)")
         else:
             # A failed fetch drops this repo from `repos` entirely, taking its
             # PRs, CI and branches with it. Counting that as "not on GitHub"
             # would assert a healthy fetch that never happened.
             fetch_errors.append(f"repo metadata for {owner}/{name}")
 
+    # One line per refresh keeps a jump visible in the log (a token losing
+    # `repo` scope makes private repos look absent; see the CAVEAT above).
+    logger.info(f"GitHub: {repos_missing} of {len(tracked_names)} tracked projects not on GitHub")
+
     # 3. Open PRs across tracked repos
     all_prs: List[Dict] = []
-    for repo in repos:
+    active = [r for r in repos if not r.get("isArchived")]
+    pr_lists = _gh_map(lambda repo: _gh_call([
+        "pr", "list",
+        "--repo", f"{owner}/{repo.get('name', '')}",
+        "--json", ",".join(PR_LIST_FIELDS),
+        "--state", "open",
+        "--limit", "50",
+    ], timeout=15), active)
+    for repo, (prs, failure) in zip(active, pr_lists):
         repo_name = repo.get("name", "")
-        if repo.get("isArchived"):
-            continue
-        prs, failure = _gh_call([
-            "pr", "list",
-            "--repo", f"{owner}/{repo_name}",
-            "--json", ",".join(PR_LIST_FIELDS),
-            "--state", "open",
-            "--limit", "50",
-        ], timeout=15)
         if failure is not GH_OK:
             # Distinguish a failed fetch from a repo with no open PRs. Without
             # this the UI renders an empty PR panel either way, which is how a
@@ -4630,9 +3993,9 @@ def _fetch_github_data() -> Dict:
             continue
         # `gh pr list` is already scoped to one repo, so it has no `repository`
         # field to return. Attach it here — consumers key PRs by repo name.
-        for pr in prs:
+        for pr in prs or []:
             pr["repository"] = {"name": repo_name}
-        all_prs.extend(prs)
+        all_prs.extend(prs or [])
 
     # 4. Recent commits (last 7 days) — only from tracked repos
     # Use timezone-aware UTC and a Zulu timestamp GitHub accepts. Avoid
@@ -4640,44 +4003,40 @@ def _fetch_github_data() -> Dict:
     # comparisons against GitHub's pushedAt brittle.
     seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     recent_commits: List[Dict] = []
-    for repo in repos:
-        pushed = repo.get("pushedAt", "")
-        if pushed and pushed >= seven_days_ago and not repo.get("isArchived"):
-            repo_name = repo.get("name", "")
-            default_branch = (repo.get("defaultBranchRef") or {}).get("name", "main")
-            commits, failure = _gh_call([
-                "api", f"/repos/{owner}/{repo_name}/commits",
-                "-q", ".",
-                "--method", "GET",
-                "-f", f"since={seven_days_ago}",
-                "-f", f"sha={default_branch}",
-                "-f", "per_page=20",
-            ], timeout=15)
-            if failure is not GH_OK:
-                fetch_errors.append(f"recent commits for {owner}/{repo_name}")
-            if commits and isinstance(commits, list):
-                for c in commits[:20]:
-                    recent_commits.append({
-                        "repo": repo_name,
-                        "sha": c.get("sha", "")[:7],
-                        "message": (c.get("commit", {}).get("message") or "").split("\n")[0],
-                        "author": (c.get("commit", {}).get("author") or {}).get("name", ""),
-                        "date": (c.get("commit", {}).get("author") or {}).get("date", ""),
-                        "url": c.get("html_url", ""),
-                    })
+    recent = [r for r in active if r.get("pushedAt") and r["pushedAt"] >= seven_days_ago]
+    commit_lists = _gh_map(lambda repo: _gh_call([
+        "api", f"/repos/{owner}/{repo.get('name', '')}/commits",
+        "-q", ".",
+        "--method", "GET",
+        "-f", f"since={seven_days_ago}",
+        "-f", f"sha={(repo.get('defaultBranchRef') or {}).get('name', 'main')}",
+        "-f", "per_page=20",
+    ], timeout=15), recent)
+    for repo, (commits, failure) in zip(recent, commit_lists):
+        repo_name = repo.get("name", "")
+        if failure is not GH_OK:
+            fetch_errors.append(f"recent commits for {owner}/{repo_name}")
+        if commits and isinstance(commits, list):
+            for c in commits[:20]:
+                recent_commits.append({
+                    "repo": repo_name,
+                    "sha": c.get("sha", "")[:7],
+                    "message": (c.get("commit", {}).get("message") or "").split("\n")[0],
+                    "author": (c.get("commit", {}).get("author") or {}).get("name", ""),
+                    "date": (c.get("commit", {}).get("author") or {}).get("date", ""),
+                    "url": c.get("html_url", ""),
+                })
 
     # 5. Workflow runs (CI status) — recent runs across tracked repos
     workflow_runs: List[Dict] = []
-    for repo in repos:
-        if repo.get("isArchived"):
-            continue
+    run_lists = _gh_map(lambda repo: _gh_call([
+        "api", f"/repos/{owner}/{repo.get('name', '')}/actions/runs",
+        "-q", ".",
+        "--method", "GET",
+        "-f", "per_page=5",
+    ], timeout=10), active)
+    for repo, (runs, failure) in zip(active, run_lists):
         repo_name = repo.get("name", "")
-        runs, failure = _gh_call([
-            "api", f"/repos/{owner}/{repo_name}/actions/runs",
-            "-q", ".",
-            "--method", "GET",
-            "-f", "per_page=5",
-        ], timeout=10)
         if failure is not GH_OK:
             # Without this a rate-limited runs endpoint empties workflow_runs,
             # silently blanking the Failing CI panel and undercounting failing_ci.
@@ -4696,16 +4055,14 @@ def _fetch_github_data() -> Dict:
 
     # 6. Branch info — only tracked repos
     branch_info: List[Dict] = []
-    for repo in repos:
-        if repo.get("isArchived"):
-            continue
+    branch_lists = _gh_map(lambda repo: _gh_call([
+        "api", f"/repos/{owner}/{repo.get('name', '')}/branches",
+        "-q", ".",
+        "--method", "GET",
+        "-f", "per_page=100",
+    ], timeout=10), active)
+    for repo, (branches, failure) in zip(active, branch_lists):
         repo_name = repo.get("name", "")
-        branches, failure = _gh_call([
-            "api", f"/repos/{owner}/{repo_name}/branches",
-            "-q", ".",
-            "--method", "GET",
-            "-f", "per_page=100",
-        ], timeout=10)
         if failure is not GH_OK:
             fetch_errors.append(f"branches for {owner}/{repo_name}")
         if branches and isinstance(branches, list):
@@ -4756,188 +4113,6 @@ def _fetch_github_data() -> Dict:
         "fetched_at": datetime.utcnow().isoformat() + "Z",
         "cached": False,
     }
-
-
-@app.get("/api/code-review-metrics")
-async def api_code_review_metrics(
-    days: int = Query(default=90, ge=1, le=365),
-    repo: Optional[str] = Query(default=None),
-):
-    """Return code-review metrics from ai-memory's brain.db.
-
-    Aggregates data from code_reviews and code_review_findings tables to provide:
-    - Rounds per PR and findings per round trends
-    - Severity distribution
-    - Time-to-first-review and inter-round latency
-    - Merged-head-never-reviewed count
-    - Reviewer comparison (when #7416 is implemented)
-
-    Query params:
-        days: lookback window (1-365, default 90)
-        repo: optional filter to one repository
-
-    Returns empty state if brain.db is absent or tables don't exist yet.
-    Read-only — never writes to brain.db.
-    """
-    projects_root = config_projects_root()
-    brain_db = projects_root / "ai-memory" / "brain.db"
-
-    empty = {
-        "available": False,
-        "message": "brain.db not found or tables not yet created",
-        "rounds_per_pr": [],
-        "findings_per_round": [],
-        "severity_distribution": [],
-        "time_to_first_review": [],
-        "inter_round_latency": [],
-        "merged_never_reviewed": 0,
-        "reviewer_comparison": None,
-        "repos": [],
-        "window": {"days": days, "repo": repo},
-    }
-
-    if not brain_db.is_file():
-        return empty
-
-    end_date = datetime.now().date()
-    start_date = end_date - timedelta(days=days - 1)
-    start_iso = start_date.isoformat()
-
-    try:
-        uri = f"file:{brain_db}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True, timeout=2.0)
-        conn.row_factory = sqlite3.Row
-        try:
-            # Check if tables exist
-            tables_check = conn.execute(
-                """
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name IN ('code_reviews', 'code_review_findings')
-                """
-            ).fetchall()
-
-            if len(tables_check) < 2:
-                return empty
-
-            # Build WHERE clause for repo filter
-            repo_filter = ""
-            base_params = [start_iso]
-            if repo:
-                repo_filter = " AND repo = ?"
-                base_params.append(repo)
-
-            # 1. Rounds per PR trend over time
-            rounds_per_pr_rows = conn.execute(
-                f"""
-                SELECT DATE(created_at) as date, 
-                       pr_url,
-                       MAX(round_number) as rounds
-                FROM code_reviews
-                WHERE DATE(created_at) >= ?{repo_filter}
-                GROUP BY pr_url, DATE(created_at)
-                ORDER BY date ASC
-                """,
-                base_params,
-            ).fetchall()
-
-            # Aggregate by date
-            rounds_by_date = {}
-            for row in rounds_per_pr_rows:
-                date = row["date"]
-                if date not in rounds_by_date:
-                    rounds_by_date[date] = []
-                rounds_by_date[date].append(row["rounds"])
-
-            rounds_per_pr = [
-                {
-                    "date": date,
-                    "avg_rounds": round(sum(rounds) / len(rounds), 2) if rounds else 0,
-                    "pr_count": len(rounds),
-                }
-                for date, rounds in sorted(rounds_by_date.items())
-            ]
-
-            # 2. Findings per round
-            findings_per_round_rows = conn.execute(
-                f"""
-                SELECT cr.round_number, COUNT(crf.id) as finding_count
-                FROM code_reviews cr
-                LEFT JOIN code_review_findings crf ON cr.id = crf.review_id
-                WHERE DATE(cr.created_at) >= ?{repo_filter}
-                GROUP BY cr.round_number
-                ORDER BY cr.round_number ASC
-                """,
-                base_params,
-            ).fetchall()
-
-            findings_per_round = [
-                {"round": row["round_number"], "avg_findings": row["finding_count"]}
-                for row in findings_per_round_rows
-            ]
-
-            # 3. Severity distribution
-            severity_rows = conn.execute(
-                f"""
-                SELECT crf.severity, COUNT(*) as count
-                FROM code_review_findings crf
-                JOIN code_reviews cr ON cr.id = crf.review_id
-                WHERE DATE(cr.created_at) >= ?{repo_filter}
-                GROUP BY crf.severity
-                ORDER BY count DESC
-                """,
-                base_params,
-            ).fetchall()
-
-            severity_distribution = [
-                {"severity": row["severity"] or "unspecified", "count": row["count"]}
-                for row in severity_rows
-            ]
-
-            # 4. Time to first review (placeholder - needs pr_created_at in schema)
-            time_to_first_review = []
-
-            # 5. Inter-round latency (placeholder - needs timestamps per round)
-            inter_round_latency = []
-
-            # 6. Merged never reviewed count (placeholder - needs merged_at, reviewed flags)
-            merged_never_reviewed = 0
-
-            # 7. Reviewer comparison (from #7416 - not yet implemented)
-            reviewer_comparison = {
-                "available": False,
-                "message": "Reviewer comparison pending #7416 implementation",
-            }
-
-            # Get available repos
-            repos_rows = conn.execute(
-                """
-                SELECT DISTINCT repo 
-                FROM code_reviews 
-                WHERE repo IS NOT NULL 
-                ORDER BY repo
-                """
-            ).fetchall()
-            repos_list = [row["repo"] for row in repos_rows]
-
-            return {
-                "available": True,
-                "rounds_per_pr": rounds_per_pr,
-                "findings_per_round": findings_per_round,
-                "severity_distribution": severity_distribution,
-                "time_to_first_review": time_to_first_review,
-                "inter_round_latency": inter_round_latency,
-                "merged_never_reviewed": merged_never_reviewed,
-                "reviewer_comparison": reviewer_comparison,
-                "repos": repos_list,
-                "window": {"days": days, "repo": repo},
-            }
-
-        finally:
-            conn.close()
-
-    except Exception as exc:
-        logger.warning("Failed to read code-review metrics from brain.db: %s", exc)
-        return empty
 
 
 @app.get("/api/github")

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Project } from '../types';
-import { fetchProjects, isAbortError } from '../api';
+import { useProjects } from '../hooks/useProjects';
 import './ProjectFilterModal.css';
 
 interface ProjectFilterModalProps {
@@ -20,10 +20,13 @@ export function ProjectFilterModal({
   currentProject,
 }: ProjectFilterModalProps) {
   const navigate = useNavigate();
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const { projects: loaded, error: loadError, loading: reloading, reload } = useProjects();
   const [searchTerm, setSearchTerm] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Each open (a fresh mount in KanbanBoard) refetches. With no list yet it
+  // shows "Loading projects..." until that settles; a last good list stays
+  // visible meanwhile. A previous failure is not shown while the retry runs.
+  const loading = loaded === null && (reloading || loadError === null);
+  const error = loadError && !reloading ? loadError.message : null;
 
   useEffect(() => {
     if (!isOpen) {
@@ -40,39 +43,18 @@ export function ProjectFilterModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Every open refreshes the list, since task counts go stale. Mounting open
+  // is covered by useProjects()' own mount refetch (KanbanBoard mounts the
+  // modal only when it opens), so only a later closed-to-open change reloads.
+  const wasOpen = useRef(isOpen);
   useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    async function loadProjects() {
-      try {
-        const data = await fetchProjects(controller.signal);
-        setProjects(data || []);
-        setError(null);
-      } catch (err) {
-        if (isAbortError(err)) {
-          return;
-        }
-        const message = err instanceof Error ? err.message : 'Failed to load projects';
-        setError(message);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    }
-
-    void loadProjects();
-
-    return () => {
-      controller.abort();
-    };
-  }, [isOpen]);
+    if (isOpen && !wasOpen.current) reload();
+    wasOpen.current = isOpen;
+  }, [isOpen, reload]);
 
   const filteredProjects = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-    const list = [...projects].sort((a, b) =>
+    const list = [...((loaded ?? []) as ProjectOption[])].sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
     );
 
@@ -86,7 +68,7 @@ export function ProjectFilterModal({
         project.id.toLowerCase().includes(query)
       );
     });
-  }, [projects, searchTerm]);
+  }, [loaded, searchTerm]);
 
   const groupedProjects = useMemo(() => groupByPortfolio(filteredProjects), [filteredProjects]);
 

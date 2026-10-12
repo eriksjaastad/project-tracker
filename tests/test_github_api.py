@@ -15,6 +15,8 @@ import warnings
 from datetime import datetime
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -30,7 +32,7 @@ def as_gh_call(fn):
     """
     from dashboard.app import GH_OK, GH_ERROR
 
-    def wrapper(args, timeout=30):
+    def wrapper(args, timeout=30, **_):
         result = fn(args, timeout)
         if isinstance(result, tuple):
             return result
@@ -771,7 +773,7 @@ class TestNonPrFetchErrors:
         """Run a fetch where `failing` names the call type that errors."""
         from dashboard.app import _fetch_github_data, GH_OK, GH_ERROR
 
-        def mock_gh_call(args, timeout=30):
+        def mock_gh_call(args, timeout=30, **_):
             if args == ["api", "/user"]:
                 return ({"login": "testuser"}, GH_OK)
             if args[0] == "repo" and args[1] == "view":
@@ -947,3 +949,266 @@ class TestRepoViewFields:
             f"The installed gh no longer accepts: {sorted(missing)}. "
             "Every repo fetch would fail. Update REPO_VIEW_FIELDS in dashboard/app.py."
         )
+
+
+class TestParallelFetch:
+    """#8093: every stage runs its gh calls in parallel, and the output keeps the
+    order a one-at-a-time fetch produces."""
+
+    STAGES = ("repo view", "pr list", "/commits", "actions/runs", "/branches")
+
+    @classmethod
+    def _fake(cls, missing=(), errors=(), meet=False, seen=None):
+        """A gh stand-in. With meet=True the first two calls of each stage wait
+        for each other at a barrier, which only succeeds if they run at once;
+        a one-at-a-time fetch times out there instead of hanging."""
+        import threading
+        from dashboard.app import GH_NOT_FOUND, GH_OK, GH_ERROR
+
+        lock = threading.Lock()
+        barriers = {kind: threading.Barrier(2, timeout=2) for kind in cls.STAGES}
+        arrivals = {kind: 0 for kind in cls.STAGES}
+        state = {"met": set(), "alone": set()}
+
+        def call(args, timeout=30, **_):
+            text = " ".join(args)
+            kind = next((k for k in cls.STAGES if k in text), None)
+            with lock:
+                if seen is not None:
+                    seen.append(args)
+                first_two = kind is not None and arrivals[kind] < 2
+                if kind is not None:
+                    arrivals[kind] += 1
+            if meet and first_two:
+                try:
+                    barriers[kind].wait()
+                    with lock:
+                        state["met"].add(kind)
+                except threading.BrokenBarrierError:
+                    with lock:
+                        state["alone"].add(kind)
+            if args == ["api", "/user"]:
+                return ({"login": "me"}, GH_OK)
+            for name in errors:
+                if f"me/{name}" in text and "branches" in text:
+                    return (None, GH_ERROR)
+            if args[:2] == ["repo", "view"]:
+                name = args[2].split("/", 1)[1]
+                if name in missing:
+                    return (None, GH_NOT_FOUND)
+                return ({"name": name, "isArchived": False,
+                         "pushedAt": "2999-01-01T00:00:00Z",
+                         "defaultBranchRef": {"name": "main"}}, GH_OK)
+            if args[0] == "pr":
+                repo = args[args.index("--repo") + 1].split("/", 1)[1]
+                return ([{"title": f"pr-{repo}", "headRefName": "x"}], GH_OK)
+            if "actions/runs" in text:
+                return ({"workflow_runs": []}, GH_OK)
+            return ([], GH_OK)
+
+        return call, state
+
+    def test_output_order_matches_the_tracked_order(self):
+        from dashboard.app import _fetch_github_data
+
+        names = [f"r{i:02d}" for i in range(12)]
+        call, state = self._fake(errors=("r03", "r07"), meet=True)
+        with patch("dashboard.app._gh_call", side_effect=call), \
+                patch("dashboard.app._get_tracked_repo_names", return_value=names):
+            result = _fetch_github_data()
+
+        assert [r["name"] for r in result["repos"]] == names
+        assert [p["repository"]["name"] for p in result["open_pull_requests"]] == names
+        assert result["fetch_errors"] == ["branches for me/r03", "branches for me/r07"]
+        assert state["alone"] == set(), f"these stages ran one call at a time: {state['alone']}"
+        assert state["met"] == set(self.STAGES)
+
+    def test_an_empty_pr_list_response_is_no_prs(self):
+        from dashboard.app import GH_OK, _fetch_github_data
+
+        def call(args, timeout=30, **_):
+            if args == ["api", "/user"]:
+                return ({"login": "me"}, GH_OK)
+            if args[:2] == ["repo", "view"]:
+                return ({"name": "r", "isArchived": False, "pushedAt": ""}, GH_OK)
+            if args[0] == "pr":
+                return (None, GH_OK)  # gh printed nothing
+            return ([], GH_OK)
+
+        with patch("dashboard.app._gh_call", side_effect=call), \
+                patch("dashboard.app._get_tracked_repo_names", return_value=["r"]):
+            result = _fetch_github_data()
+
+        assert result["open_pull_requests"] == []
+        assert result["fetch_errors"] == []
+
+
+
+class TestFetchStages:
+    """Stage filters and content, pinned so the parallel rewrite can't drift."""
+
+    @staticmethod
+    def _call(repos, seen, view_error=(), view_missing=(), boom=None):
+        from dashboard.app import GH_ERROR, GH_NOT_FOUND, GH_OK
+
+        def call(args, timeout=30, **_):
+            seen.append(args)
+            text = " ".join(args)
+            if boom and boom in text:
+                raise RuntimeError("worker blew up")
+            if args == ["api", "/user"]:
+                return ({"login": "me"}, GH_OK)
+            if args[:2] == ["repo", "view"]:
+                name = args[2].split("/", 1)[1]
+                if name in view_error:
+                    return (None, GH_ERROR)
+                if name in view_missing:
+                    return (None, GH_NOT_FOUND)
+                return (dict(repos[name], name=name), GH_OK)
+            if args[0] == "pr":
+                return ([], GH_OK)
+            if "/commits" in text:
+                return ([{"sha": f"{i:040d}", "html_url": "u",
+                          "commit": {"message": f"m{i}\nbody", "author": {"name": "a", "date": "d"}}}
+                         for i in range(25)], GH_OK)
+            if "actions/runs" in text:
+                return ({"workflow_runs": [{"name": "ci", "status": "completed", "conclusion": "failure",
+                                            "head_branch": "main", "created_at": "c", "html_url": "h"}]}, GH_OK)
+            if "branches" in text:
+                return ([{"name": "main", "protected": True}], GH_OK)
+            return (None, GH_ERROR)
+
+        return call
+
+    def _fetch(self, names, call):
+        from dashboard.app import _fetch_github_data
+
+        with patch("dashboard.app._gh_call", side_effect=call), \
+                patch("dashboard.app._get_tracked_repo_names", return_value=names):
+            return _fetch_github_data()
+
+    def test_filters_and_content_per_stage(self):
+        repos = {
+            "live": {"isArchived": False, "pushedAt": "2999-01-01T00:00:00Z", "defaultBranchRef": None},
+            "stale": {"isArchived": False, "pushedAt": "2000-01-01T00:00:00Z"},
+            "never": {"isArchived": False, "pushedAt": None},
+            "old": {"isArchived": True, "pushedAt": "2999-01-01T00:00:00Z"},
+        }
+        seen = []
+        result = self._fetch(list(repos), self._call(repos, seen))
+        text = [" ".join(a) for a in seen]
+
+        # Archived repos get no PR, commit, CI or branch calls.
+        assert not any("me/old" in t and not t.startswith("repo view") for t in text)
+        # Only a repo pushed in the last week has its commits fetched, on the
+        # default branch, falling back to main.
+        commit_calls = [t for t in text if "/commits" in t]
+        assert commit_calls == [t for t in commit_calls if "/repos/me/live/commits" in t]
+        assert len(commit_calls) == 1 and "sha=main" in commit_calls[0]
+        assert len(result["recent_commits"]) == 20
+        assert result["recent_commits"][0]["message"] == "m0"
+        assert result["recent_commits"][0]["sha"] == "0000000"
+        assert [r["repo"] for r in result["workflow_runs"]] == ["live", "stale", "never"]
+        assert result["workflow_runs"][0]["conclusion"] == "failure"
+        assert result["branches"][0] == {"repo": "live", "name": "main", "protected": True}
+        assert result["summary"]["archived_repos"] == 1
+        assert result["summary"]["failing_ci"] == 3
+
+    def test_a_failed_repo_view_is_a_fetch_error_and_asked_again(self):
+        repos = {"flaky": {"isArchived": False, "pushedAt": ""}}
+        seen = []
+        call = self._call(repos, seen, view_error=("flaky",))
+        first = self._fetch(["flaky"], call)
+        second = self._fetch(["flaky"], call)
+        views = [a for a in seen if a[:2] == ["repo", "view"]]
+        assert len(views) == 2
+        assert first["fetch_errors"] == second["fetch_errors"] == ["repo metadata for me/flaky"]
+        assert first["summary"]["repos_not_on_github"] == 0
+
+    def test_a_repo_that_turns_missing_recovers_on_the_next_refresh(self):
+        """Token scope loss: private repos turn 'not found'; nothing about it is remembered."""
+        repos = {"private": {"isArchived": False, "pushedAt": ""}}
+        seen = []
+        self._fetch(["private"], self._call(repos, seen))
+        lost = self._fetch(["private"], self._call(repos, seen, view_missing=("private",)))
+        back = self._fetch(["private"], self._call(repos, seen))
+        assert lost["summary"]["repos_not_on_github"] == 1
+        assert [r["name"] for r in back["repos"]] == ["private"]
+        assert len([a for a in seen if a[:2] == ["repo", "view"]]) == 3
+
+    def test_an_exception_in_a_worker_escapes_the_fetch(self):
+        repos = {"a": {"isArchived": False, "pushedAt": ""}, "b": {"isArchived": False, "pushedAt": ""}}
+        seen = []
+        with pytest.raises(RuntimeError, match="worker blew up"):
+            self._fetch(["a", "b"], self._call(repos, seen, boom="/repos/me/b/branches"))
+
+
+def test_only_an_expected_not_found_skips_the_warning(caplog):
+    """repo view passes missing_ok (half the tracked projects aren't on GitHub);
+    a 404 anywhere else is a real failure and still warns."""
+    import logging
+    from dashboard.app import GH_NOT_FOUND, _gh_call
+
+    missing = MagicMock(returncode=1, stdout="", stderr="GraphQL: Could not resolve to a Repository")
+    with caplog.at_level(logging.DEBUG):
+        with patch("dashboard.app.subprocess.run", return_value=missing):
+            assert _gh_call(["repo", "view", "me/local-only"], missing_ok=True)[1] == GH_NOT_FOUND
+            assert _gh_call(["api", "/repos/me/x/actions/runs"])[1] == GH_NOT_FOUND
+    warned = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert not any("me/local-only" in m for m in warned)
+    assert any("/repos/me/x/actions/runs" in m for m in warned)
+    assert any("me/local-only" in r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG)
+
+
+def test_the_repo_view_stage_marks_not_found_as_expected():
+    from dashboard.app import GH_OK, _fetch_github_data
+
+    kwargs_by_kind = {}
+
+    def call(args, timeout=30, **kw):
+        kwargs_by_kind.setdefault(" ".join(args[:2]), kw)
+        if args == ["api", "/user"]:
+            return ({"login": "me"}, GH_OK)
+        if args[:2] == ["repo", "view"]:
+            return ({"name": "r", "isArchived": False, "pushedAt": ""}, GH_OK)
+        return ([], GH_OK)
+
+    with patch("dashboard.app._gh_call", side_effect=call), \
+            patch("dashboard.app._get_tracked_repo_names", return_value=["r"]):
+        _fetch_github_data()
+    assert kwargs_by_kind["repo view"] == {"missing_ok": True}
+    assert all(kw == {} for kind, kw in kwargs_by_kind.items() if kind != "repo view")
+
+
+def test_missing_ok_still_warns_on_a_real_failure(caplog):
+    import logging
+    from dashboard.app import GH_ERROR, _gh_call
+
+    broken = MagicMock(returncode=1, stdout="", stderr="HTTP 502: Bad Gateway")
+    with caplog.at_level(logging.DEBUG):
+        with patch("dashboard.app.subprocess.run", return_value=broken):
+            assert _gh_call(["repo", "view", "me/flaky"], missing_ok=True)[1] == GH_ERROR
+    assert any("me/flaky" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+
+
+def test_each_refresh_logs_one_missing_count_line(caplog):
+    import logging
+    from dashboard.app import GH_NOT_FOUND, GH_OK, _fetch_github_data
+
+    def call(args, timeout=30, **_):
+        if args == ["api", "/user"]:
+            return ({"login": "me"}, GH_OK)
+        if args[:2] == ["repo", "view"]:
+            if args[2] in ("me/local-a", "me/local-b"):
+                return (None, GH_NOT_FOUND)
+            return ({"name": "here", "isArchived": False, "pushedAt": ""}, GH_OK)
+        return ([], GH_OK)
+
+    with caplog.at_level(logging.DEBUG):
+        with patch("dashboard.app._gh_call", side_effect=call), \
+                patch("dashboard.app._get_tracked_repo_names", return_value=["local-a", "here", "local-b"]):
+            _fetch_github_data()
+    info = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert info.count("GitHub: 2 of 3 tracked projects not on GitHub") == 1
+    per_repo = [r for r in caplog.records if "is not on GitHub" in r.getMessage()]
+    assert per_repo and all(r.levelno == logging.DEBUG for r in per_repo)

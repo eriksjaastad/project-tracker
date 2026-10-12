@@ -62,7 +62,6 @@ def test_pt_tasks_done_deletes_zero_rows(
 ) -> None:
     db = _setup_db()
     monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
-    monkeypatch.setattr(pt_cli, "_notify_inbox", lambda *a, **k: None)
 
     # Well past the old keep=75 portfolio cap and the new per-project cap.
     _add_done(db, "alpha", 80)
@@ -304,28 +303,3 @@ def test_archive_rejects_negative_cap(tmp_path: Path) -> None:
     db = _setup_db()
     with pytest.raises(ValueError):
         db.archive_done_tasks(keep_per_project=-1)
-
-
-# ---------------------------------------------------------------------
-# Destructive paths still see everything they are about to destroy
-# ---------------------------------------------------------------------
-
-
-def test_clear_done_counts_archived_cards(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    db = _setup_db()
-    monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
-    monkeypatch.setenv("SAFE_MODE", "0")
-    monkeypatch.setenv("ALLOW_BULK_DELETE", "1")
-    monkeypatch.setattr(pt_cli, "_notify_inbox", lambda *a, **k: None)
-
-    _add_done(db, "alpha", 30)
-    db.archive_done_tasks(keep_per_project=25)
-
-    result = CliRunner().invoke(
-        pt_cli.tasks_group, ["clear-done", "-p", "alpha"], input="n\n"
-    )
-    assert result.exit_code == 0, result.output
-    # 30, not 25 — clear-done deletes archived rows too.
-    assert "Delete 30 Done task(s)?" in result.output

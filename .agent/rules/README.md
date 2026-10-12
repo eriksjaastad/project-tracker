@@ -6,7 +6,6 @@ fails if a link stops resolving or a file goes unlisted.
 
 - [ARCHITECTURE](ARCHITECTURE.md): Project Tracker architecture
 - [CODE QUALITY STANDARDS](CODE_QUALITY_STANDARDS.md): Code quality standards
-- [CODE REVIEW PHASE4 TELEMETRY](CODE_REVIEW_PHASE4_TELEMETRY.md): Code review of the Phase 4 telemetry implementation
 - [CODE REVIEW STANDARD](code-review-standard.md): Code review standardization
 - [LEARNING LOOP PATTERN](learning-loop-pattern.md): Learning loop pattern
 - [LEARNINGS](LEARNINGS.md): Project Tracker learning loop

@@ -201,4 +201,13 @@ describe('MorningPage', () => {
     expect(screen.getByRole('button', { name: /People to contact/ })).toBeInTheDocument();
     expect(screen.getByLabelText('Name or email')).toBeInTheDocument();
   });
+
+  it('aborts its in-flight request on unmount', () => {
+    vi.mocked(fetch).mockReturnValue(new Promise(() => {}));
+    const view = render(<MorningPage />);
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    expect(init.signal?.aborted).toBe(false);
+    view.unmount();
+    expect(init.signal?.aborted).toBe(true);
+  });
 });

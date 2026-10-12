@@ -11,5 +11,5 @@ One command or one browser tab gives Erik (or any agent) full situational awaren
 
 ## Current Focus
 - **Dashboard enrichment** — wiring GitHub activity feed, project status management, and stale-project detection into the web UI.
-- **Performance / reliability** — async refresh (currently 7+ min synchronous scan), Doppler routing audit, Turso sync health.
+- **Performance / reliability** — async refresh (currently 7+ min synchronous scan), Doppler routing audit.
 - **Agent-facing ergonomics** — single-project sync, proposal flag for Card Factory, DIRECTION.md files for every project.

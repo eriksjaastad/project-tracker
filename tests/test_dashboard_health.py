@@ -31,7 +31,7 @@ def test_health_returns_200_when_db_is_reachable(tmp_path: Path, local_backend):
     assert body["database"]["task_count"] == 0
     assert isinstance(body["uptime_seconds"], int)
     assert "started_at" in body
-    assert "dashboard_cache_age_seconds" in body
+    assert "dashboard_cache_age_seconds" not in body
 
 
 def test_health_counts_real_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -83,8 +83,7 @@ def test_health_reports_unopenable_configured_database(tmp_path, monkeypatch):
     assert response.json()["database"]["error"]
 
 
-def test_health_does_not_require_retired_service(tmp_path, monkeypatch):
-    monkeypatch.setenv("DBMED_SOCKET", str(tmp_path / "absent.sock"))
+def test_health_does_not_require_retired_service():
     response = TestClient(dashboard_app.app).get("/api/health")
     assert response.status_code == 200, response.text
     assert response.json()["database"]["ok"] is True

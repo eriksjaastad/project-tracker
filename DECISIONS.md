@@ -30,7 +30,8 @@ never installed and nothing consumed the output. Its pipeline reused cached
 batches, atlas entries and clusters without checking they were current, and
 fixing that properly would mean redesigning the cache around what each stage
 consumes. #7973 had just moved it to OpenRouter. Retiring it is cheaper than
-that redesign. The older prompt-only `scripts/doc_audit.py` is not affected.
+that redesign. The older prompt-only `scripts/doc_audit.py` is not affected (it was cut
+later in #8093; last version at b1a138a).
 To bring document auditing back, start from git history (last version at the
 #7973 merge, 4d5f637) and design cache invalidation first.
 
@@ -44,7 +45,8 @@ service. Project Tracker returns to its existing in-process database operations.
 Backups use the SQLite backup API and the existing rclone destination; preserve
 backup history, destructive-operation confirmation, and SAFE_MODE. No replacement
 storage gate is planned. Root-owned installation retirement follows
-[the cutover runbook](docs/DBMED_RETIREMENT.md), after the code is deployed.
+the cutover runbook (`docs/DBMED_RETIREMENT.md`, removed in #8093 after the
+2026-09-22 cutover; see git history), after the code is deployed.
 
 ---
 
@@ -112,3 +114,30 @@ storage gate is planned. Root-owned installation retirement follows
 | CONTROL_PLANE | Not a sync coordination primitive; nothing depends on its replication |
 
 **Consequences:** Cross-machine resumption of unfinished work is not supported through `pt handoff`. To carry work across machines an agent must commit (even a WIP commit) and push the branch — at which point the work is no longer "unfinished local" and a Phase C PR-style record is appropriate instead.
+
+---
+
+## 2026-10-09 — Turso code removed (#8093)
+**Accepted 2026-10-09**
+
+**Context:** Turso has been off since 2026-04-05 (local SQLite; Turso added about 2.5s per query for no benefit), and `ProjectTrackerOps` already refused to run with it on, so the libsql path could not execute.
+
+**Decision:** Delete the libsql wrappers, connection pool, `_USE_TURSO` branches, `turso_to_local.py`, `TURSO_SETUP.md`, the `libsql` dependency and the `.turso-config.json` gate in the skills reader. The `pt` launcher no longer wraps in Doppler: its only skip condition was that config file, and nothing in `pt` needs a secret. This supersedes "Optional Cloud Database with Automatic Fallback".
+
+---
+
+## 2026-10-09 — sync stack removed (#8093)
+**Accepted 2026-10-09**
+
+**Context:** The cr-sqlite sync daemon (`sync_daemon`, `sync_http`, `sync_state`, `sync_checks`), `pt sync` and the `com.pt.sync-daemon` / `com.pt.tailscale-up` LaunchAgent templates were never installed; the daemon's exchange was a stub and the last sync was April 2026. The tailscale-up login job failed on every login.
+
+**Decision:** Delete the stack, `pt sync`, its tests, `scripts/log_rotation.py` (the daemon's only caller), `scripts/launchd/install.sh` and two uninstalled job templates (`complexity-scan.plist`, `com.user.ecosystem_maintenance.plist`). Migration `002_add_sync_ledgers` and the CRR manifest stay: cr-sqlite goes in its own PR.
+
+---
+
+## 2026-10-09 — cr-sqlite removed (#8093, D2)
+**Accepted 2026-10-09 (Erik, D2).**
+
+**Context:** With the sync stack gone, cr-sqlite only added cost: 30 triggers, 20 clock and pk tables (136,974 clock rows on 2026-10-09), a dylib loaded on every connection, and a `crsql_finalize()` workaround for leaked descriptors (#6482).
+
+**Decision:** Migration `018_drop_cr_sqlite` drops the triggers, `__crsql_clock` / `__crsql_pks` tables and the three `crsql_*` metadata tables, after writing the machine id the old code derived from `crsql_site_id()` into `_metadata['pt.machine_id']` so ID machine bits stay continuous. No connection loads the extension any more; `crr_manifest.py` and the runner's alter bracketing are deleted. A database still carrying `__crsql_` triggers (a restored pre-018 backup) can be read, but its writes fail with SQLite's own "no such function: crsql_internal_sync_bit" until `pt db migrate` runs; pt's pending-migrations notice names the fix. `pt db migrate` runs 018's cleanup first, as one transaction, whenever cr-sqlite objects remain, so any older backup upgrades cleanly. Run the migration right after merge, since code without the extension cannot write to a database with the triggers.

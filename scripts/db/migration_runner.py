@@ -1,48 +1,28 @@
 """
-Migration runner for project-tracker (Phase 2.1a + 2.2).
+Migration runner for project-tracker.
 
 Reads migration modules from ``scripts/db/migrations/``, applies any that
-aren't already recorded in the local ``schema_migrations`` ledger, wraps
-each apply in a SQL transaction, and — when cr-sqlite is loaded — brackets
-the alters to CRR tables with ``crsql_begin_alter`` / ``crsql_commit_alter``
-so CRR bookkeeping metadata unwinds together with the SQL state if anything
-raises.
-
-The runner is stand-alone in this PR. It is **not** wired into `pt`
-startup or exposed via CLI yet — that lands in Phase 2 PR #3 (the sync
-control surface), along with the boot-time ``assert_tables_classified``
-wiring. See MAC_MINI_SYNC_PLAN.md §2.1a, §2.2 for the contract.
+aren't already recorded in the local ``schema_migrations`` ledger, and wraps
+each apply in a SQL transaction together with its ledger row, so a failed
+migration leaves neither DDL nor a ledger entry behind.
 
 Migration file format
 ---------------------
 Files live in ``scripts/db/migrations/`` and match ``NNN_name.py`` where
 ``NNN`` is a 3-digit version number. Each module must expose:
 
-- ``CRR_TABLES: frozenset[str]`` — the CRR-classified tables this
-  migration alters. Empty for migrations that don't touch CRR tables.
-  Every name must appear in ``crr_manifest.CRR_TABLES``; a typo or an
-  unknown table stops the runner (refuse, not "run wrong at 2am" —
-  §2.2).
 - ``up(conn: sqlite3.Connection) -> None`` — applies the migration.
   Called inside an already-open transaction; must **not** issue
   ``BEGIN``, ``COMMIT``, or ``ROLLBACK``.
 
+Older modules also carry a ``CRR_TABLES`` frozenset left over from the
+cr-sqlite era (removed by migration 018). The runner ignores it.
+
 Files under ``migrations/`` whose basename doesn't match ``NNN_name.py``
 (``__init__.py``, dotfiles, editor backups) are ignored silently. Files
-that match the naming pattern but lack ``up()`` or ``CRR_TABLES`` — for
-example the legacy, deprecated ``001_add_review_status.py`` that
-pre-dates this runner — emit a stderr warning on discovery and are
-skipped. They will never be applied.
-
-cr-sqlite gating
-----------------
-The wrapper detects cr-sqlite by probing ``crsql_db_version()`` once per
-``apply_migration`` call. If the extension isn't loaded (the current
-state on both machines), the ``crsql_begin_alter`` / ``crsql_commit_alter``
-calls are skipped — the migration still runs inside a transaction, just
-without the CRR bracketing. This keeps the runner usable before Phase 2
-flips cr-sqlite on, and makes the flip a one-liner (load the extension)
-rather than a code change.
+that match the naming pattern but lack ``up()`` — for example the legacy,
+deprecated ``001_add_review_status.py`` that pre-dates this runner — emit a
+stderr warning on discovery and are skipped. They will never be applied.
 """
 
 from __future__ import annotations
@@ -57,14 +37,12 @@ from pathlib import Path
 from types import ModuleType
 from typing import Callable, Iterable, cast
 
-from db.crr_manifest import CRR_TABLES as MANIFEST_CRR_TABLES
-
 
 MIGRATION_FILENAME_RE = re.compile(r"^(\d{3})_([a-z0-9_]+)\.py$")
 
 
 class MigrationError(RuntimeError):
-    """Raised when a migration file is malformed or declares unknown CRR tables."""
+    """Raised when a migration file is malformed."""
 
 
 @dataclass(frozen=True)
@@ -74,7 +52,6 @@ class Migration:
     version: int
     name: str
     path: Path
-    crr_tables: frozenset[str]
     up: Callable[[sqlite3.Connection], None]
 
 
@@ -84,8 +61,7 @@ def discover_migrations(
     """Return every valid migration in ``migrations_dir``, ordered by version.
 
     Files that don't match ``NNN_name.py`` are ignored silently. Files
-    that match the pattern but fail validation (missing ``up`` or
-    ``CRR_TABLES``, or ``CRR_TABLES`` names a table not in the manifest)
+    that match the pattern but fail validation (missing ``up``)
     are skipped — never applied. This tolerates historical artifacts
     like the deprecated ``001_add_review_status.py`` without
     special-casing their names.
@@ -135,9 +111,8 @@ def discover_migrations(
 def _load_migration_module(version: int, name: str, path: Path) -> Migration:
     """Import one migration file and validate its exported contract.
 
-    Raises ``MigrationError`` for any contract violation — missing
-    symbols, wrong types, or CRR-table declarations that don't line up
-    with ``crr_manifest.CRR_TABLES``.
+    Raises ``MigrationError`` for any contract violation — a missing
+    or non-callable ``up``.
     """
     spec = importlib.util.spec_from_file_location(
         f"_pt_migration_{version:03d}", path
@@ -155,30 +130,10 @@ def _load_migration_module(version: int, name: str, path: Path) -> Migration:
     if not callable(up):
         raise MigrationError("missing or non-callable up(conn)")
 
-    crr_tables = getattr(module, "CRR_TABLES", None)
-    if not isinstance(crr_tables, frozenset):
-        raise MigrationError(
-            "missing or non-frozenset CRR_TABLES declaration"
-        )
-
-    for bad in (t for t in crr_tables if not isinstance(t, str) or not t):
-        raise MigrationError(
-            f"CRR_TABLES contains invalid table name: {bad!r}"
-        )
-
-    unknown = crr_tables - MANIFEST_CRR_TABLES
-    if unknown:
-        raise MigrationError(
-            "CRR_TABLES names tables not classified as CRR in "
-            f"crr_manifest.py: {sorted(unknown)}. Either fix the typo "
-            "or update the manifest — the runner refuses to guess."
-        )
-
     return Migration(
         version=version,
         name=name,
         path=path,
-        crr_tables=crr_tables,
         up=cast(Callable[[sqlite3.Connection], None], up),
     )
 
@@ -216,108 +171,19 @@ def unapplied_migrations(
     return [m for m in migrations if m.version not in applied]
 
 
-def _crsql_loaded(conn: sqlite3.Connection) -> bool:
-    """True if cr-sqlite is loaded on this connection.
-
-    Only "no such function" means not loaded. Any other OperationalError
-    (locked, corrupt) propagates rather than reading as "not loaded".
-    """
-    try:
-        conn.execute("SELECT crsql_db_version()")
-        return True
-    except sqlite3.OperationalError as err:  # governance: allow-silent SF002: only "no such function" returns False, the true answer for a connection without cr-sqlite; other errors re-raise
-        if "no such function" in str(err).lower():
-            return False
-        raise
-
-
-def _crr_ified_tables(
-    conn: sqlite3.Connection, tables: Iterable[str]
-) -> list[str]:
-    """Return the subset of ``tables`` that cr-sqlite has already claimed.
-
-    ``crsql_as_crr(<t>)`` creates ``<t>__crsql_clock`` and rewrites
-    ``<t>__crsql_{i,u,d}trig`` with the base table's column list spelled
-    out literally. Once that has happened, a bare ``ALTER TABLE <t> ADD
-    COLUMN`` leaves the triggers enumerating a stale column set: the new
-    column never reaches the clock table and never replicates.
-
-    Presence of the clock table is the on-disk proof that the table is
-    live CRR, independent of whether the extension happens to be loaded
-    on this connection.
-    """
-    claimed = []
-    for table in tables:
-        row = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
-            (f"{table}__crsql_clock",),
-        ).fetchone()
-        if row is not None:
-            claimed.append(table)
-    return sorted(claimed)
-
-
 def apply_migration(conn: sqlite3.Connection, migration: Migration) -> None:
-    """Apply one migration inside a transaction with the §2.2 CRR wrapper.
+    """Apply one migration inside a transaction.
 
-    The sequence is:
-
-    1. ``BEGIN``
-    2. For each ``t`` in ``migration.crr_tables`` that cr-sqlite has
-       actually claimed in this database: ``SELECT crsql_begin_alter(?)``.
-    3. ``migration.up(conn)`` — the migration's DDL.
-    4. For each of those same ``t``: ``SELECT crsql_commit_alter(?)``.
-    5. Insert the row into ``schema_migrations`` (inside the same
-       transaction so "applied" and "recorded" commit atomically).
-    6. ``COMMIT``.
-
-    On any exception we ``ROLLBACK``. SQLite's rollback unwinds the DDL
-    and the ledger insert. cr-sqlite's docs need verification that its
-    CRR metadata unwinds with the same rollback — that's the §2.2
-    pre-ship check, gated by the 2.4 trial. Until cr-sqlite is loaded,
-    the ``crsql_*`` calls are skipped, so the failure mode is the
-    standard SQL-only transaction rollback.
+    The sequence is ``BEGIN``, ``migration.up(conn)``, insert the row into
+    ``schema_migrations`` (inside the same transaction so "applied" and
+    "recorded" commit atomically), ``COMMIT``. On any exception the
+    transaction is rolled back, which unwinds the DDL and the ledger insert.
     """
-    crsql_on = _crsql_loaded(conn)
-
-    # Bracket only the declared tables cr-sqlite has actually claimed in
-    # THIS database. crsql_begin_alter on a table that was never through
-    # crsql_as_crr() fails at commit ("failed compacting tables post
-    # alteration"), which is exactly the fresh-database case `pt db
-    # migrate` hits before schema.py has created the table at all.
-    to_bracket = (
-        _crr_ified_tables(conn, migration.crr_tables)
-        if migration.crr_tables
-        else []
-    )
-
-    # Refuse an unbracketed alter against a table cr-sqlite has already
-    # claimed. Skipping the bracket is fine before a table is CRR-ified
-    # (the pre-Phase-2.2 path this runner shipped with); doing it after
-    # silently desyncs the column. Fail loudly instead — the fix is to
-    # load the extension on this connection, not to run the DDL anyway.
-    if to_bracket and not crsql_on:
-        raise MigrationError(
-            f"migration {migration.version:03d}_{migration.name} alters "
-            f"CRR table(s) {to_bracket}, which cr-sqlite has already claimed "
-            "in this database, but cr-sqlite is not loaded on this "
-            "connection. Running the DDL now would leave the "
-            "__crsql_*trig triggers on a stale column list. Load "
-            "crsqlite.dylib on the connection before applying."
-        )
-
     applied_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     conn.execute("BEGIN")
     try:
-        for t in to_bracket:
-            conn.execute("SELECT crsql_begin_alter(?)", (t,))
-
         migration.up(conn)
-
-        for t in to_bracket:
-            conn.execute("SELECT crsql_commit_alter(?)", (t,))
-
         conn.execute(
             "INSERT INTO schema_migrations (version, name, applied_at) "
             "VALUES (?, ?, ?)",
@@ -325,13 +191,10 @@ def apply_migration(conn: sqlite3.Connection, migration: Migration) -> None:
         )
         conn.execute("COMMIT")
     except Exception:
-        # cr-sqlite's alter helpers commit internally on some paths, so the
-        # transaction may already be gone. Don't let a failed ROLLBACK mask
-        # the error that actually caused it.
-        try:
+        # SQLite already rolled back on some errors (disk full, I/O); a second
+        # ROLLBACK would raise and hide the error that actually happened.
+        if conn.in_transaction:
             conn.execute("ROLLBACK")
-        except sqlite3.OperationalError:  # governance: allow-silent SF001: cr-sqlite may already have ended the transaction; the migration's own error is re-raised on the next line
-            pass
         raise
 
 

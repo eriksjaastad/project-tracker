@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { fetchNavigation, isAbortError } from '../api';
+import { fetchNavigation } from '../api';
+import { useRequest } from '../hooks/useRequest';
 import type { NavigationItem, NavigationResponse } from '../types';
 import './Navigation.css';
 
@@ -36,7 +37,9 @@ function activeChildIds(children: NavigationItem[], pathname: string) {
 
 export function Navigation() {
   const location = useLocation();
-  const [navigation, setNavigation] = useState<NavigationResponse>(() => getInitialNavigation());
+  const [initialNavigation] = useState<NavigationResponse>(() => getInitialNavigation());
+  const { data: fetchedNavigation, error: navigationError } = useRequest(fetchNavigation, []);
+  const navigation = fetchedNavigation ?? initialNavigation;
   // The open group is recorded together with the pathname it was opened on, so
   // a location change (SPA navigation, back/forward) closes any open menu
   // without a setState-in-effect. The menu is only visible when the recorded
@@ -58,26 +61,8 @@ export function Navigation() {
   const suppressFocusOpenRef = useRef(false);
 
   useEffect(() => {
-    const controller = new AbortController();
-
-    async function loadNavigation() {
-      try {
-        const data = await fetchNavigation(controller.signal);
-        setNavigation(data);
-      } catch (error) {
-        if (isAbortError(error)) {
-          return;
-        }
-        console.error('Failed to load navigation metadata:', error);
-      }
-    }
-
-    loadNavigation();
-
-    return () => {
-      controller.abort();
-    };
-  }, []);
+    if (navigationError) console.error('Failed to load navigation metadata:', navigationError);
+  }, [navigationError]);
 
   useEffect(() => {
     if (openGroupId === null) {

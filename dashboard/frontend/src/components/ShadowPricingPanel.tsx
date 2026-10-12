@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { isAbortError } from '../api';
+import { useRequest } from '../hooks/useRequest';
 import './ShadowPricingPanel.css';
 
 interface ModelEntry {
@@ -36,31 +35,12 @@ function formatTokens(tokens: number): string {
 }
 
 export function ShadowPricingPanel() {
-  const [data, setData] = useState<ShadowPricingData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch('/api/shadow-pricing', { signal: controller.signal })
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then(d => {
-        if (d.error) setError(d.error);
-        else setData(d);
-        setLoading(false);
-      })
-      .catch(err => {
-        if (isAbortError(err)) {
-          return;
-        }
-        setError(err.message);
-        setLoading(false);
-      });
-
-    return () => controller.abort();
+  const { data, error, loading } = useRequest<ShadowPricingData>(async signal => {
+    const r = await fetch('/api/shadow-pricing', { signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    return d;
   }, []);
 
   if (loading) {

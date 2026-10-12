@@ -54,19 +54,11 @@ const navigationFixture: NavigationResponse = {
       id: 'group-agents',
       label: 'Agents',
       href: '/agent-chat',
-      match_prefixes: ['/agent-chat', '/agentic', '/code-reviews', '/holoscape'],
+      match_prefixes: ['/agent-chat', '/agentic'],
       navigation_type: 'spa',
       children: [
         { id: 'agent-chat', label: 'Chat', href: '/agent-chat', match_prefixes: ['/agent-chat'], navigation_type: 'spa' },
         { id: 'agentic', label: 'Autonomy', href: '/agentic', match_prefixes: ['/agentic'], navigation_type: 'spa' },
-        { id: 'code-reviews', label: 'Code reviews', href: '/code-reviews', match_prefixes: ['/code-reviews'], navigation_type: 'spa' },
-        {
-          id: 'holoscape',
-          label: 'Holoscape progress (temporary)',
-          href: '/holoscape',
-          match_prefixes: ['/holoscape'],
-          navigation_type: 'spa',
-        },
       ],
     },
     {

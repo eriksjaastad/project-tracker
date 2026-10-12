@@ -23,8 +23,7 @@ Project Tracker is a centralized monitoring and reporting system designed to tra
 ├─────────────────────────────────────────────────────┤
 │              Discovery Engine (scripts/)             │
 │  - project_scanner.py     - graph_builder.py        │
-│  - git_scanner.py         - telemetry_reader.py     │
-│  - cron_health.py         - hygiene_detector.py     │
+│  - git_metadata.py                                  │
 ├─────────────────────────────────────────────────────┤
 │              Data Layer (SQLite)                     │
 │  - projects.db            - Schema in scripts/db/   │
@@ -46,8 +45,6 @@ The core intelligence of the system. It consists of multiple specialized scanner
 - `project_scanner.py`: Discovers project directories (via `.git` markers) and basic metadata.
 - `git_metadata.py`: Collects recent git activity and branch information.
 - `graph_builder.py`: Builds the ai-memory knowledge graph from project data.
-- `telemetry_reader.py`: (In progress) Reads AI Router telemetry for usage statistics.
-- `hygiene_detector.py`: Checks for project standard compliance (e.g., `DIRECTION.md` existence).
 
 ### Data Layer (`scripts/db/`)
 Uses SQLite for persistent storage of project metadata, cron job information, AI agent tracking, and service usage. The `DatabaseManager` in `manager.py` handles all database interactions using parameterized queries.

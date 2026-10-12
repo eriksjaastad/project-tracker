@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import { ProjectsProvider } from '../hooks/ProjectsProvider';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -74,7 +75,7 @@ describe('TaskDetailModal checklist toggle (#7821)', () => {
         onUpdate={vi.fn()}
         onNotesChanged={onNotesChanged}
       />
-    );
+    , { wrapper: ProjectsProvider });
     return onNotesChanged;
   };
 

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageShell } from './PageShell';
 import { Spinner } from './Spinner';
 import { OutreachPanel } from './OutreachPanel';
+import { useRequest } from '../hooks/useRequest';
 import './MorningPage.css';
 
 interface Segment {
@@ -81,36 +82,27 @@ function renderSegments(segments: Segment[], keyPrefix: string): ReactNode[] {
 }
 
 export function MorningPage() {
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<MorningData | null>(null);
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
+  const { data, error, loading } = useRequest<MorningData>(async (signal) => {
+    const response = await fetch('/api/morning', { signal });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      const detail =
+        payload && typeof payload.detail === 'string'
+          ? payload.detail
+          : `Failed to load morning plan (HTTP ${response.status})`;
+      throw new Error(detail);
+    }
+    return (await response.json()) as MorningData;
+  }, []);
+  // Ticks made on this page, keyed by the plan's date; until the first tick
+  // the stored checks for that date are shown.
+  const [ticked, setTicked] = useState<{ date: string; checked: Set<string> } | null>(null);
+  const storedChecks = useMemo(() => new Set(data ? readStoredChecks(data.date) : []), [data]);
+  const checked = data && ticked?.date === data.date ? ticked.checked : storedChecks;
 
   useEffect(() => {
-    loadMorning();
-  }, []);
-
-  async function loadMorning() {
-    try {
-      const response = await fetch('/api/morning');
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        const detail =
-          payload && typeof payload.detail === 'string'
-            ? payload.detail
-            : `Failed to load morning plan (HTTP ${response.status})`;
-        throw new Error(detail);
-      }
-      const morning = (await response.json()) as MorningData;
-      setData(morning);
-      setChecked(new Set(readStoredChecks(morning.date)));
-    } catch (error) {
-      console.error('Failed to load morning plan:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load morning plan');
-    } finally {
-      setLoading(false);
-    }
-  }
+    if (error) console.error('Failed to load morning plan:', error);
+  }, [error]);
 
   function toggleStep(number: string) {
     if (!data) return;
@@ -120,7 +112,7 @@ export function MorningPage() {
     } else {
       next.add(number);
     }
-    setChecked(next);
+    setTicked({ date: data.date, checked: next });
     writeStoredChecks(data.date, Array.from(next));
   }
 
@@ -153,7 +145,7 @@ export function MorningPage() {
         </div>
       ) : !data || !hasSteps ? (
         <div className="morning-error">
-          <p role="alert">{error ?? 'No morning plan to show right now.'}</p>
+          <p role="alert">{error?.message ?? 'No morning plan to show right now.'}</p>
         </div>
       ) : (
         <div className="morning-container">

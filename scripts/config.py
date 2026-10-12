@@ -76,13 +76,5 @@ EXTERNAL_RESOURCES_FILE = Path(
     )
 )
 
-# Project reindex script path
-REINDEX_SCRIPT_PATH = Path(
-    os.getenv(
-        "PT_REINDEX_SCRIPT",
-        PROJECT_ROOT / "scripts" / "reindex_projects.py"
-    )
-)
-
 # Ensure data directory exists
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)

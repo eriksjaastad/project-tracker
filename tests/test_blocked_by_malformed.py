@@ -9,10 +9,11 @@ visible reason, while the listings that render it keep working.
 
 from __future__ import annotations
 
-import asyncio
 import sqlite3
 import sys
 from pathlib import Path
+
+import asyncio
 
 import pytest
 from click.testing import CliRunner
@@ -50,12 +51,6 @@ def _force_blocked_by(db, task_id, value):
         conn.close()
 
 
-def _run(coro):
-    # Same loop handling as test_dashboard_blocked_resolution: asyncio.run()
-    # would close the loop other dashboard tests reuse.
-    return asyncio.get_event_loop_policy().get_event_loop().run_until_complete(coro)
-
-
 @pytest.fixture
 def malformed_card(board):
     task = board.add_task("Malformed dependency", PROJECT, status="To Do")
@@ -81,7 +76,7 @@ def test_readable_blocked_by_has_no_error(board):
 def test_pt_tasks_start_refuses_with_the_reason(board, malformed_card):
     display_id = board.get_task_display_id(malformed_card["id"])
     result = CliRunner().invoke(tasks_group, ["start", str(display_id)])
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output  # refused start fails (#8093)
     assert "Cannot start" in result.output
     assert "blocked_by unreadable" in result.output
     assert MALFORMED in result.output
@@ -123,12 +118,18 @@ def test_pt_tasks_tree_renders_the_reason(board):
     assert "READY NOW" not in result.output
 
 
+
+def _run(coro):
+    # asyncio.run() would clear the loop other dashboard tests reuse.
+    return asyncio.get_event_loop_policy().get_event_loop().run_until_complete(coro)
+
 def test_dashboard_start_refuses_with_400_and_the_reason(board, malformed_card, monkeypatch):
     import dashboard.app as dashboard_app
 
     monkeypatch.setattr(dashboard_app, "DatabaseManager", lambda *a, **k: board)
     request = dashboard_app.TaskUpdateRequest(status="In Progress")
     with pytest.raises(HTTPException) as excinfo:
+        # Write handlers are async wrappers that run on the single write thread.
         _run(dashboard_app.update_task(malformed_card["id"], request))
     assert excinfo.value.status_code == 400
     assert "blocked_by unreadable" in excinfo.value.detail
@@ -139,7 +140,7 @@ def test_dashboard_task_detail_shows_the_blocking_error(board, malformed_card, m
     import dashboard.app as dashboard_app
 
     monkeypatch.setattr(dashboard_app, "DatabaseManager", lambda *a, **k: board)
-    payload = _run(dashboard_app.get_task(malformed_card["id"]))
+    payload = dashboard_app.get_task(malformed_card["id"])
     assert payload["is_blocked"] is True
     assert payload["blocked_by_ids"] == []
     assert payload["incomplete_blocking_ids"] == []
@@ -151,7 +152,7 @@ def test_dashboard_board_listing_renders_the_card_blocked(board, malformed_card,
     import dashboard.app as dashboard_app
 
     monkeypatch.setattr(dashboard_app, "DatabaseManager", lambda *a, **k: board)
-    payload = _run(dashboard_app.list_tasks(project_id=PROJECT, status_filter=None))
+    payload = dashboard_app.list_tasks(project_id=PROJECT, status_filter=None)
     rows = payload["tasks"] if isinstance(payload, dict) else payload
     row = next(r for r in rows if r["id"] == str(malformed_card["id"]))
     assert row["is_blocked"] is True

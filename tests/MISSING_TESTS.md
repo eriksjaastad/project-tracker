@@ -27,12 +27,6 @@ These modules are responsible for discovering and extracting information about p
     - [ ] Tests for validating agent command output.
     - [ ] Tests for looking up agents in the registry based on different criteria.
     - [ ] Tests for handling cases where an agent is not found in the registry.
-- [ ] **telemetry_reader.py**:
-    - [ ] Tests for parsing JSONL telemetry logs with different formats.
-    - [ ] Tests for calculating costs based on telemetry data.
-    - [ ] Tests for handling missing or invalid telemetry data.
-    - [ ] Tests for aggregating telemetry data over different time periods.
-    - [ ] Tests for different telemetry sources.
 
 ## 2. Database Operations
 
@@ -58,8 +52,6 @@ These tests ensure the web dashboard functions correctly.
 
 - [ ] **FastAPI Endpoints**:
     - [ ] Tests for the `/` (home) endpoint.
-    - [ ] Tests for the `/project/{id}` (project details) endpoint.
-    - [ ] Tests for the `/api/create-index/{id}` (create index) endpoint.
     - [ ] Tests for different HTTP methods (e.g., GET, POST, PUT, DELETE).
     - [ ] Tests for authentication and authorization.
 - [ ] **Template Rendering**:

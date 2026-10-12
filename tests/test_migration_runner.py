@@ -1,13 +1,10 @@
-"""Tests for scripts/db/migration_runner.py — Phase 2.1a + 2.2.
+"""Tests for scripts/db/migration_runner.py.
 
-The runner is small but load-bearing: it owns the ``schema_migrations``
-ledger, and in §2.2 it becomes the one place the CRR-alter wrapper
-lives. These tests pin the contract so future changes can't silently
-drift away from the four-reviewer plan:
+The runner owns the ``schema_migrations`` ledger. These tests pin its
+contract:
 
 - discovery: tolerant of non-migration files, strict about malformed
-  migrations that *claim* to be migrations, strict about CRR-table
-  declarations that don't line up with ``crr_manifest.CRR_TABLES``;
+  migrations that *claim* to be migrations (no ``up``);
 - applied-versions: returns an empty set before the bootstrap
   migration runs (so the bootstrap isn't mistaken for already-applied);
 - apply_migration: runs inside a transaction, records the ledger row
@@ -52,13 +49,11 @@ def _write(path: Path, body: str) -> None:
 
 
 def _valid_migration(version: int, name: str) -> str:
-    """Minimal valid migration body — no CRR tables, trivial DDL."""
+    """Minimal valid migration body — trivial DDL."""
     return f"""
     from __future__ import annotations
 
     import sqlite3
-
-    CRR_TABLES = frozenset()
 
     def up(conn: sqlite3.Connection) -> None:
         conn.execute(
@@ -123,7 +118,6 @@ def test_discover_skips_file_without_up(tmp_path: Path, capsys) -> None:
     _write(
         tmp_path / "001_legacy.py",
         """
-        CRR_TABLES = frozenset()
         # No up() — this is the shape of the deprecated 001 script.
         """,
     )
@@ -137,82 +131,20 @@ def test_discover_skips_file_without_up(tmp_path: Path, capsys) -> None:
     assert "up" in err
 
 
-def test_discover_skips_file_without_crr_tables(tmp_path: Path, capsys) -> None:
+def test_discover_ignores_legacy_crr_tables_declaration(tmp_path: Path) -> None:
+    """Migrations 002-017 still carry a CRR_TABLES frozenset from the
+    cr-sqlite era; the runner neither requires nor validates it."""
     _write(
-        tmp_path / "001_no_decl.py",
+        tmp_path / "003_legacy_decl.py",
         """
-        def up(conn):
-            pass
-        """,
-    )
-    migrations = discover_migrations(tmp_path)
-    assert migrations == []
-    assert "CRR_TABLES" in capsys.readouterr().err
-
-
-def test_discover_skips_file_with_non_frozenset_crr_tables(
-    tmp_path: Path, capsys
-) -> None:
-    """A set (not frozenset) is a common accident — runner must catch it."""
-    _write(
-        tmp_path / "001_wrong_type.py",
-        """
-        CRR_TABLES = {"tasks"}  # set literal, not frozenset
+        CRR_TABLES = frozenset({"not_a_table_anywhere"})
 
         def up(conn):
             pass
         """,
     )
-    migrations = discover_migrations(tmp_path)
-    assert migrations == []
-    assert "frozenset" in capsys.readouterr().err
-
-
-def test_discover_skips_file_declaring_unknown_crr_table(
-    tmp_path: Path, capsys
-) -> None:
-    """CRR_TABLES entries must match crr_manifest.CRR_TABLES — prevents
-    typos silently altering the wrong table."""
-    _write(
-        tmp_path / "001_typo.py",
-        """
-        CRR_TABLES = frozenset({"taskz"})  # typo
-
-        def up(conn):
-            pass
-        """,
-    )
-    migrations = discover_migrations(tmp_path)
-    assert migrations == []
-    err = capsys.readouterr().err
-    assert "taskz" in err
-
-
-def test_discover_accepts_empty_crr_tables(tmp_path: Path) -> None:
-    """CREATE-only migrations legitimately have empty CRR_TABLES."""
-    _write(tmp_path / "001_create_only.py", _valid_migration(1, "create_only"))
-    migrations = discover_migrations(tmp_path)
-    assert len(migrations) == 1
-    assert migrations[0].crr_tables == frozenset()
-
-
-def test_discover_accepts_known_crr_table(tmp_path: Path) -> None:
-    """A migration that alters a real CRR-classified table should load."""
-    _write(
-        tmp_path / "003_alter_tasks.py",
-        """
-        from __future__ import annotations
-        import sqlite3
-
-        CRR_TABLES = frozenset({"tasks"})
-
-        def up(conn: sqlite3.Connection) -> None:
-            conn.execute("ALTER TABLE tasks ADD COLUMN new_col TEXT")
-        """,
-    )
-    migrations = discover_migrations(tmp_path)
-    assert [m.version for m in migrations] == [3]
-    assert migrations[0].crr_tables == frozenset({"tasks"})
+    _write(tmp_path / "004_no_decl.py", _valid_migration(4, "no_decl"))
+    assert [m.version for m in discover_migrations(tmp_path)] == [3, 4]
 
 
 # ---------------------------------------------------------------------
@@ -245,22 +177,6 @@ def test_applied_versions_reraises_non_missing_table_errors() -> None:
 
     # Sanity: the real conn still works.
     assert applied_versions(conn) == set()
-
-
-def test_crsql_probe_reraises_errors_other_than_missing_function() -> None:
-    """#6900: only "no such function" means cr-sqlite is not loaded. A
-    locked or corrupt database must not read as "not loaded", which would
-    let an unbracketed ALTER run against a CRR table."""
-    from db.migration_runner import _crsql_loaded
-
-    assert _crsql_loaded(sqlite3.connect(":memory:")) is False
-
-    class _Boom:
-        def execute(self, *_args, **_kwargs):
-            raise sqlite3.OperationalError("database is locked")
-
-    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
-        _crsql_loaded(_Boom())  # type: ignore[arg-type]
 
 
 def test_applied_versions_reflects_ledger_rows() -> None:
@@ -383,46 +299,6 @@ def test_apply_migration_rolls_back_ddl_and_ledger_on_failure(
     assert cur.fetchone() is None
 
 
-def test_apply_migration_is_noop_calls_crsql_when_extension_absent(
-    tmp_path: Path,
-) -> None:
-    """cr-sqlite isn't loaded in these tests (stock sqlite3). A migration
-    that declares CRR_TABLES must still apply cleanly — the runner just
-    skips the ``crsql_begin_alter`` / ``crsql_commit_alter`` calls. This
-    is the pre-Phase-2.2 behavior we rely on to ship the runner before
-    cr-sqlite lands."""
-    # Create a dummy 'tasks' table so the DDL the migration runs can
-    # target a real table. (In production this table is classified CRR
-    # in the manifest, so the declaration is valid.)
-    _write(
-        tmp_path / "003_add_column_to_tasks.py",
-        """
-        from __future__ import annotations
-        import sqlite3
-
-        CRR_TABLES = frozenset({"tasks"})
-
-        def up(conn: sqlite3.Connection) -> None:
-            conn.execute(
-                "ALTER TABLE tasks ADD COLUMN sync_trial_col TEXT"
-            )
-        """,
-    )
-    [migration] = discover_migrations(tmp_path)
-
-    conn = _ledger_conn()
-    conn.execute("CREATE TABLE tasks (id INTEGER PRIMARY KEY)")
-
-    # Should NOT raise even though crsql_begin_alter doesn't exist:
-    # the runner probes cr-sqlite once and skips the calls when absent.
-    apply_migration(conn, migration)
-    assert applied_versions(conn) == {3}
-
-    # The column was actually added.
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
-    assert "sync_trial_col" in cols
-
-
 # ---------------------------------------------------------------------
 # apply_all
 # ---------------------------------------------------------------------
@@ -499,7 +375,6 @@ def test_real_002_migration_creates_both_ledgers() -> None:
         m for m in discover_migrations(migrations_dir) if m.version == 2
     )
     assert real_002.name == "add_sync_ledgers"
-    assert real_002.crr_tables == frozenset()
 
     conn = sqlite3.connect(":memory:")  # no ledger yet — cold start
     apply_migration(conn, real_002)

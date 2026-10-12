@@ -12,7 +12,13 @@ import pytest
 REPO = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 
-from db.crr_manifest import CRR_TABLES  # noqa: E402
+# The ten tables migrations 003-008 prepared for cr-sqlite (the sync layer is
+# gone, but those migrations still run on restored backups).
+CRR_TABLES = frozenset({
+    "tasks", "ideas", "task_history", "task_attachments", "projects",
+    "project_info", "ai_agents", "service_dependencies", "calendar_events",
+    "calendar_event_tasks",
+})
 
 _MIGRATION_PATH = REPO / "scripts" / "db" / "migrations" / "005_crr_drop_fk_constraints.py"
 _spec = importlib.util.spec_from_file_location("_m005", _MIGRATION_PATH)

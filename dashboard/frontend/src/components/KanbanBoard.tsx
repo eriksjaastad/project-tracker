@@ -2,16 +2,16 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { DndContext, rectIntersection, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
-import type { Project, Task, TaskStatus, TaskPriority, TaskType } from '../types';
+import type { Task, TaskStatus, TaskPriority, TaskType } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS } from '../types';
-import { fetchProjects, fetchTasks, updateTask, createTask, deleteTask, isAbortError } from '../api';
+import { fetchTasks, updateTask, createTask, deleteTask, isAbortError } from '../api';
+import { useProjects } from '../hooks/useProjects';
 import { Column } from './Column';
 import { Notification } from './Notification';
 import { AddTaskButton } from './AddTaskButton';
 import { TaskForm } from './TaskForm';
 import { TaskDetailModal } from './TaskDetailModal';
 import { ProjectFilterModal } from './ProjectFilterModal';
-import { WarningBanner } from './WarningBanner';
 import { Spinner } from './Spinner';
 import { SkeletonCard } from './SkeletonCard';
 import { IdeasSection } from './IdeasSection';
@@ -24,24 +24,15 @@ interface NotificationState {
   visible: boolean;
 }
 
-interface SystemWarning {
-  id: string;
-  message: string;
-  type: 'error' | 'warning' | 'info';
-  actionLabel?: string;
-  actionUrl?: string;
-}
-
 export function KanbanBoard() {
   const { project } = useParams<{ project?: string }>();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const { projects } = useProjects();
   const [loading, setLoading] = useState(true);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [searchTaskId, setSearchTaskId] = useState('');
   const [showProjectFilter, setShowProjectFilter] = useState(false);
-  const [systemWarnings, setSystemWarnings] = useState<SystemWarning[]>([]);
   const [notification, setNotification] = useState<NotificationState>({
     message: '',
     type: 'success',
@@ -76,50 +67,6 @@ export function KanbanBoard() {
     loadTasks(controller.signal);
     return () => controller.abort();
   }, [loadTasks]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const loadProjects = async () => {
-      try {
-        const fetchedProjects = await fetchProjects(controller.signal);
-        setProjects(fetchedProjects);
-      } catch (error) {
-        if (isAbortError(error)) {
-          return;
-        }
-        // Optional for button state only.
-      }
-    };
-
-    loadProjects();
-    return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const loadWarnings = async () => {
-      try {
-        const response = await fetch('/api/system/warnings', { signal: controller.signal });
-        if (!response.ok) {
-          return;
-        }
-        const data = await response.json();
-        if (Array.isArray(data.warnings)) {
-          setSystemWarnings(data.warnings);
-        }
-      } catch (error) {
-        if (isAbortError(error)) {
-          return;
-        }
-        // Optional endpoint - ignore failures
-      }
-    };
-
-    loadWarnings();
-    return () => controller.abort();
-  }, []);
 
   const handleSearchTask = () => {
     // The search box takes the small display id (#6100) people actually
@@ -295,7 +242,7 @@ export function KanbanBoard() {
       },
     })
   );
-  const currentProject = project ? projects.find((entry) => entry.id === project) : undefined;
+  const currentProject = project ? projects?.find((entry) => entry.id === project) : undefined;
   const canCreateCards = !project || currentProject?.can_create_cards !== false;
 
   const headerActions = (
@@ -353,22 +300,6 @@ export function KanbanBoard() {
         </div>
       ) : (
         <div className="kanban-board">
-          {systemWarnings.map((warning) => (
-            <WarningBanner
-              key={warning.id}
-              message={warning.message}
-              type={warning.type}
-              onDismiss={() => setSystemWarnings(prev => prev.filter(w => w.id !== warning.id))}
-              actionLabel={warning.actionLabel}
-              onAction={
-                warning.actionUrl
-                  ? () => {
-                    window.location.href = warning.actionUrl!;
-                  }
-                  : undefined
-              }
-            />
-          ))}
           <DndContext
             sensors={sensors}
             collisionDetection={rectIntersection}

@@ -5,8 +5,8 @@ import type {
   AgenticSummaryResponse,
   Attachment,
   BashStatsResponse,
+  CodebaseSizeReport,
   Idea,
-  HoloscapeSeriesResponse,
   NavigationResponse,
   Project,
   Task,
@@ -19,10 +19,27 @@ import type {
 
 const API_BASE = '/api';
 
-export async function fetchHoloscapeSeries(signal?: AbortSignal): Promise<HoloscapeSeriesResponse> {
-  const response = await fetch(`${API_BASE}/holoscape/series`, { signal });
-  if (!response.ok) throw new Error(`Holoscape feed returned HTTP ${response.status}`);
+async function codebaseSizeRequest(path: string, init?: RequestInit): Promise<CodebaseSizeReport> {
+  const response = await fetch(`${API_BASE}${path}`, init);
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === 'string') detail = body.detail;
+    } catch {
+      // Body was not JSON; the status line below is the message.
+    }
+    throw new Error(detail || `Codebase size request returned HTTP ${response.status}`);
+  }
   return response.json();
+}
+
+export function fetchCodebaseSize(signal?: AbortSignal): Promise<CodebaseSizeReport> {
+  return codebaseSizeRequest('/codebase-size', { signal });
+}
+
+export function refreshCodebaseSize(signal?: AbortSignal): Promise<CodebaseSizeReport> {
+  return codebaseSizeRequest('/codebase-size/refresh', { method: 'POST', signal });
 }
 
 export interface TaskPolicyResponse {
@@ -254,31 +271,6 @@ export async function deleteTask(taskId: string): Promise<void> {
       throw error;
     }
     throw new Error('Failed to delete task');
-  }
-}
-
-export async function deleteDoneTasks(projectId?: string): Promise<{ deleted: number }> {
-  const params = new URLSearchParams();
-  if (projectId) params.append('project_id', projectId);
-
-  const url = `${API_BASE}/tasks/done${params.toString() ? '?' + params.toString() : ''}`;
-
-  try {
-    const response = await fetchWithErrorHandling(url, {
-      method: 'DELETE',
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || errorData.detail || `Failed to delete done tasks: ${response.statusText}`);
-    }
-
-    return response.json();
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('Failed to delete done tasks');
   }
 }
 
@@ -653,12 +645,6 @@ export async function fetchCalendarEvents(params: {
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Failed to fetch calendar events');
   const data = await response.json();
   return data.events || [];
-}
-
-export async function fetchCalendarEvent(id: string, signal?: AbortSignal): Promise<CalendarEvent> {
-  const response = await fetchWithErrorHandling(`${API_BASE}/calendar/events/${id}`, { signal });
-  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Not found');
-  return response.json();
 }
 
 export async function createCalendarEvent(payload: CreateCalendarEventPayload): Promise<{ id: string; title: string; event_date: string }> {

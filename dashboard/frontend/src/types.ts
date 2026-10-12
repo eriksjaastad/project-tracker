@@ -9,14 +9,6 @@ export type TaskStatus =
 
 export type TaskType = 'manual' | 'agent';
 
-export const TASK_STATUSES: TaskStatus[] = [
-  'Backlog',
-  'To Do',
-  'In Progress',
-  'Review',
-  'Done',
-];
-
 // UI display statuses (original five-column Kanban)
 export const KANBAN_STATUSES: TaskStatus[] = [
   'Backlog',
@@ -33,8 +25,6 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   Review: 'Review',
   Done: 'Done',
 };
-
-export const TASK_TYPES: TaskType[] = ['manual', 'agent'];
 
 export const TASK_TYPE_LABELS: Record<TaskType, string> = {
   manual: 'Manual',
@@ -133,62 +123,35 @@ export interface NavigationResponse {
   items: NavigationItem[];
 }
 
-export interface HoloscapeSeriesDay {
-  date: string;
-  task_created: number | null;
-  task_completed: number | null;
-  review_entries: number | null;
-  review_bounces: number | null;
-  commits: number | null;
-  github_reviews: number | null;
-  prs_opened: number | null;
-  prs_merged: number | null;
-  ci_success: number | null;
-  ci_failure: number | null;
-  ci_pending: number | null;
-  ci_other: number | null;
-  manager_sessions: number | null;
-  delegate_sessions: number | null;
-  deepseek_cli_sessions: number | null;
-  worktree_references: number | null;
-  manager_session_minutes: number | null;
-  delegate_session_minutes: number | null;
-  deepseek_cli_session_minutes: number | null;
-  manager_input_tokens: number | null;
-  manager_output_tokens: number | null;
-  delegate_input_tokens: number | null;
-  delegate_output_tokens: number | null;
-  deepseek_cli_input_tokens: number | null;
-  deepseek_cli_output_tokens: number | null;
-  deepseek_cli_cache_read_tokens: number | null;
+export interface CodebaseSizeRow {
+  project: string;
+  code: number;
+  tests: number;
+  doc_files: number;
+  doc_lines: number;
+  last_commit: string | null;
+  commits_90d: number | null;
+  error: string | null;
+  score: number | null;
+  baseline_lean: number | null;
+  change: number | null;
 }
 
-export interface HoloscapeSource {
-  status: 'ok' | 'stale' | 'loading' | 'unavailable';
-  fetched_at: string | null;
-  refreshing?: boolean;
-  refresh_error?: string | null;
-  coverage?: string | null;
+export interface CodebaseSizeTotal {
+  code: number;
+  tests: number;
+  doc_files: number;
+  doc_lines: number;
+  repos: number;
+  score: number | null;
 }
 
-export interface HoloscapeSeriesResponse {
-  window: { start: string; end: string; timezone: string };
-  series: HoloscapeSeriesDay[];
-  sources: Record<'board' | 'github' | 'hermes' | 'billing', HoloscapeSource>;
-  pr: {
-    url: string;
-    state: string;
-    merged: boolean;
-    head_sha: string;
-    created_at: string;
-    merged_at: string | null;
-    commits: number;
-    reviews: number;
-    cohort_pull_requests?: number;
-    workflow_names?: string[];
-  } | null;
-  models: Record<string, number> | null;
-  deepseek_cost_usd: number | null;
+export interface CodebaseSizeReport {
+  baseline_date: string | null;
+  latest_date: string | null;
+  formula: string;
+  rows: CodebaseSizeRow[];
+  total: CodebaseSizeTotal;
 }
 
 export interface TaskHistoryEntry {
@@ -235,7 +198,7 @@ export interface AgenticMarker {
   id: string;       // UUID generated on creation
   date: string;     // ISO YYYY-MM-DD
   label: string;    // Display text (max 120 chars)
-  source: 'manual' | 'auto';  // manual = user-created, auto = sync daemon
+  source: 'manual' | 'auto';  // manual = user-created, auto = written by tooling (no producer today)
   agent?: string;   // Which agent the marker is about (optional)
 }
 

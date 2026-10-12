@@ -429,7 +429,6 @@ def _rebuild_tasks_columns(cursor: Any, overrides: dict) -> tuple:
 def ensure_schema(cursor: Any) -> None:
     """Run all DDL migrations against the given cursor.
 
-    This is backend-agnostic — works with both sqlite3 and libsql (Turso).
     All statements are idempotent (CREATE IF NOT EXISTS, ALTER ADD COLUMN
     wrapped in try/except). Safe to run on every startup.
     """
@@ -445,7 +444,7 @@ def ensure_schema(cursor: Any) -> None:
         row = cursor.fetchone()
         if row and row[0] and row[0] >= CURRENT_SCHEMA_VERSION:
             return  # Schema is current, skip all migrations
-    except Exception:  # governance: allow-silent SF001: an unreadable version runs the idempotent migrations below, which raise on a genuinely broken database; the cursor may be sqlite3 or libsql
+    except Exception:  # governance: allow-silent SF001: an unreadable version runs the idempotent migrations below, which raise on a genuinely broken database
         pass  # Table might be empty or broken — run migrations
 
     # 1. Core projects table
@@ -604,13 +603,8 @@ def ensure_schema(cursor: Any) -> None:
         "ALTER TABLE tasks ADD COLUMN created_by TEXT",
         # #6870 — Done-column retention. Set on Done cards past the per-project
         # display cap so the board stays short WITHOUT deleting history.
-        # NOTE: this list only runs on databases below CURRENT_SCHEMA_VERSION,
-        # i.e. pre-CRR ones. Databases that have already been through
-        # crsql_as_crr('tasks') get the column from migration 012, which
-        # brackets the ALTER with crsql_begin_alter/crsql_commit_alter. A bare
-        # ALTER on a live CRR table leaves the crsql triggers enumerating a
-        # stale column list, so never bump CURRENT_SCHEMA_VERSION just to push
-        # a tasks column through here.
+        # NOTE: this list only runs on databases below CURRENT_SCHEMA_VERSION;
+        # newer databases get the column from migration 012.
         "ALTER TABLE tasks ADD COLUMN archived_at TEXT",
     ]:
         _migrate_add_column(cursor, sql)
@@ -1143,8 +1137,58 @@ def ensure_schema(cursor: Any) -> None:
         ON outreach_contacts(deleted_at, replied_at)
     """)
 
+    # Append-only codebase size runs for `pt size` (#8083). Same DDL as
+    # migration 017; tests/test_codebase_size.py asserts the two match.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS codebase_size_snapshots (
+            id            INTEGER PRIMARY KEY NOT NULL,
+            run_id        TEXT NOT NULL,
+            snapshot_date TEXT NOT NULL,
+            project       TEXT NOT NULL,
+            code_lines    INTEGER NOT NULL,
+            test_lines    INTEGER NOT NULL,
+            doc_files     INTEGER NOT NULL,
+            doc_lines     INTEGER NOT NULL,
+            last_commit   TEXT,
+            commits_90d   INTEGER,
+            scanned_at    TEXT NOT NULL,
+            UNIQUE(run_id, project)
+        )
+    """)
+    cursor.execute("""
+        CREATE TRIGGER IF NOT EXISTS codebase_size_snapshots_no_update
+        BEFORE UPDATE ON codebase_size_snapshots
+        BEGIN SELECT RAISE(ABORT, 'codebase_size_snapshots is append-only'); END
+    """)
+    cursor.execute("""
+        CREATE TRIGGER IF NOT EXISTS codebase_size_snapshots_no_delete
+        BEFORE DELETE ON codebase_size_snapshots
+        BEGIN SELECT RAISE(ABORT, 'codebase_size_snapshots is append-only'); END
+    """)
+
     # Update schema version
     cursor.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (?, ?)", (CURRENT_SCHEMA_VERSION, datetime.now().isoformat()))
+
+
+def has_legacy_crsql_triggers(db_path: Path) -> bool:
+    """True if the database still carries `__crsql_` triggers (pre-migration 018).
+
+    Such triggers call cr-sqlite functions, which no connection loads any more,
+    so every write to the affected tables fails with "no such function:
+    crsql_internal_sync_bit". Reads are unaffected. A missing file reports
+    False; any other error (unreadable or corrupt file) propagates.
+    """
+    from contextlib import closing
+
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return False
+    uri = db_path.resolve().as_uri() + "?mode=ro"
+    with closing(sqlite3.connect(uri, uri=True)) as conn:
+        return conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='trigger' "
+            "AND name LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' LIMIT 1"
+        ).fetchone() is not None
 
 
 def create_database(db_path: Optional[Path] = None) -> None:
@@ -1171,17 +1215,6 @@ def create_database(db_path: Optional[Path] = None) -> None:
 
     # Run all DDL migrations
     ensure_schema(cursor)
-
-    # Phase 2 boot-time manifest assertion — every live table must be in
-    # one of CRR_TABLES / LOCAL_ONLY_TABLES / CONTROL_PLANE_TABLES. An
-    # unclassified table means the sync layer (when cr-sqlite lands)
-    # would either silently exclude it or silently include it via a
-    # default. Both are unacceptable. Fail fast. See crr_manifest.py.
-    # Local import: avoids a circular-import risk during schema module
-    # load and keeps the manifest dependency out of the hot path at
-    # module import time.
-    from .crr_manifest import assert_tables_classified
-    assert_tables_classified(conn)
 
     # Local-only: store/validate fingerprint
     fingerprint = _get_or_create_fingerprint(db_path)

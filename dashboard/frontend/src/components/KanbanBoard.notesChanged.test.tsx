@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import { ProjectsProvider } from '../hooks/ProjectsProvider';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,7 +36,6 @@ vi.mock('./TaskDetailModal', () => ({
 vi.mock('./Notification', () => ({ Notification: () => null }));
 vi.mock('./TaskForm', () => ({ TaskForm: () => null }));
 vi.mock('./ProjectFilterModal', () => ({ ProjectFilterModal: () => null }));
-vi.mock('./WarningBanner', () => ({ WarningBanner: () => null }));
 vi.mock('./Spinner', () => ({ Spinner: () => <div>Loading</div> }));
 vi.mock('./SkeletonCard', () => ({ SkeletonCard: () => <div /> }));
 vi.mock('./IdeasSection', () => ({ IdeasSection: () => null }));
@@ -63,7 +63,7 @@ describe('KanbanBoard checklist notes propagation (#7821)', () => {
           <Route path="/kanban/:project" element={<KanbanBoard />} />
         </Routes>
       </MemoryRouter>
-    );
+    , { wrapper: ProjectsProvider });
 
     await user.click(await screen.findByText('row:98969975881101312:old:1'));
     await user.click(screen.getByText('fire-toggle'));

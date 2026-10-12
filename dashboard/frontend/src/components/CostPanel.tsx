@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { isAbortError } from '../api';
+import { useRequest } from '../hooks/useRequest';
 import './CostPanel.css';
 
 interface DailyEntry {
@@ -43,81 +42,64 @@ function formatTokens(tokens: number): string {
 }
 
 export function CostPanel() {
-  const [data, setData] = useState<CostData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
+  const { data, error, loading } = useRequest<CostData>(async signal => {
     const since = new Date();
     since.setDate(since.getDate() - 30);
     const sinceStr = since.toISOString().split('T')[0];
 
-    Promise.all([
-      fetch(`/api/costs/daily?days=30`, { signal: controller.signal }).then(r => r.json()),
-      fetch(`/api/costs/providers?since=${sinceStr}`, { signal: controller.signal }).then(r => r.json()),
-      fetch(`/api/costs/projects?since=${sinceStr}`, { signal: controller.signal }).then(r => r.json()),
-    ])
-      .then(([daily, providers, projects]) => {
-        // Handle both direct arrays and wrapped responses
-        const toArray = (value: unknown): UnknownRow[] => {
-          if (Array.isArray(value)) {
-            return value.filter((row): row is UnknownRow => typeof row === 'object' && row !== null);
-          }
-          if (typeof value === 'object' && value !== null && Array.isArray((value as { data?: unknown }).data)) {
-            return (value as { data: unknown[] }).data.filter(
-              (row): row is UnknownRow => typeof row === 'object' && row !== null
-            );
-          }
-          return [];
-        };
-        const toNumber = (value: unknown): number => {
-          if (typeof value === 'number') {
-            return Number.isFinite(value) ? value : 0;
-          }
-          if (typeof value === 'string') {
-            const parsed = Number(value);
-            return Number.isFinite(parsed) ? parsed : 0;
-          }
-          return 0;
-        };
-        const coerceDaily = (rows: UnknownRow[]): DailyEntry[] =>
-          rows.map((row) => ({
-            date: typeof row.date === 'string' ? row.date : '',
-            total_calls: toNumber(row.calls ?? row.total_calls),
-            total_tokens: toNumber(row.total_tokens),
-            total_cost: toNumber(row.total_cost),
-          }));
-        const coerceProviders = (rows: UnknownRow[]): ProviderEntry[] =>
-          rows.map((row) => ({
-            provider: typeof row.provider === 'string' ? row.provider : 'unknown',
-            total_calls: toNumber(row.calls ?? row.total_calls),
-            total_tokens: toNumber(row.total_tokens),
-            total_cost: toNumber(row.total_cost),
-          }));
-        const coerceProjects = (rows: UnknownRow[]): ProjectEntry[] =>
-          rows.map((row) => ({
-            project: typeof row.project === 'string' ? row.project : '',
-            total_calls: toNumber(row.calls ?? row.total_calls),
-            total_tokens: toNumber(row.total_tokens),
-            total_cost: toNumber(row.total_cost),
-          }));
-        setData({
-          daily: coerceDaily(toArray(daily)),
-          providers: coerceProviders(toArray(providers)),
-          projects: coerceProjects(toArray(projects)),
-        });
-        setLoading(false);
-      })
-      .catch(err => {
-        if (isAbortError(err)) {
-          return;
-        }
-        setError(err.message);
-        setLoading(false);
-      });
-
-    return () => controller.abort();
+    const [daily, providers, projects] = await Promise.all([
+      fetch(`/api/costs/daily?days=30`, { signal }).then(r => r.json()),
+      fetch(`/api/costs/providers?since=${sinceStr}`, { signal }).then(r => r.json()),
+      fetch(`/api/costs/projects?since=${sinceStr}`, { signal }).then(r => r.json()),
+    ]);
+    // Handle both direct arrays and wrapped responses
+    const toArray = (value: unknown): UnknownRow[] => {
+      if (Array.isArray(value)) {
+        return value.filter((row): row is UnknownRow => typeof row === 'object' && row !== null);
+      }
+      if (typeof value === 'object' && value !== null && Array.isArray((value as { data?: unknown }).data)) {
+        return (value as { data: unknown[] }).data.filter(
+          (row): row is UnknownRow => typeof row === 'object' && row !== null
+        );
+      }
+      return [];
+    };
+    const toNumber = (value: unknown): number => {
+      if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : 0;
+      }
+      if (typeof value === 'string') {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+      return 0;
+    };
+    const coerceDaily = (rows: UnknownRow[]): DailyEntry[] =>
+      rows.map((row) => ({
+        date: typeof row.date === 'string' ? row.date : '',
+        total_calls: toNumber(row.calls ?? row.total_calls),
+        total_tokens: toNumber(row.total_tokens),
+        total_cost: toNumber(row.total_cost),
+      }));
+    const coerceProviders = (rows: UnknownRow[]): ProviderEntry[] =>
+      rows.map((row) => ({
+        provider: typeof row.provider === 'string' ? row.provider : 'unknown',
+        total_calls: toNumber(row.calls ?? row.total_calls),
+        total_tokens: toNumber(row.total_tokens),
+        total_cost: toNumber(row.total_cost),
+      }));
+    const coerceProjects = (rows: UnknownRow[]): ProjectEntry[] =>
+      rows.map((row) => ({
+        project: typeof row.project === 'string' ? row.project : '',
+        total_calls: toNumber(row.calls ?? row.total_calls),
+        total_tokens: toNumber(row.total_tokens),
+        total_cost: toNumber(row.total_cost),
+      }));
+    return {
+      daily: coerceDaily(toArray(daily)),
+      providers: coerceProviders(toArray(providers)),
+      projects: coerceProjects(toArray(projects)),
+    };
   }, []);
 
   if (loading) {

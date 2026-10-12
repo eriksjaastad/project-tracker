@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import { Link } from 'react-router-dom';
 import './KanbanBreakdown.css';
 
@@ -63,48 +64,17 @@ function Column({ status, entries, expanded }: {
 }
 
 export function KanbanBreakdown() {
-  const [data, setData] = useState<BreakdownData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
   const toggle = useCallback(() => setExpanded(value => !value), []);
 
-  useEffect(() => {
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout>;
-    let controller: AbortController;
-
-    async function load() {
-      controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      try {
-        const response = await fetch('/api/kanban/breakdown', { signal: controller.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const next: BreakdownData = await response.json();
-        if (disposed) return;
-        setData(next);
-        setError(null);
-      } catch {
-        if (disposed) return;
-        // A failed fetch must not read as an empty board — the last good
-        // counts stay on screen and the failure is named.
-        setError('Board counts are unavailable. Retrying shortly.');
-      } finally {
-        clearTimeout(timeout);
-        if (!disposed) {
-          setLoading(false);
-          timer = setTimeout(load, POLL_MS);
-        }
-      }
-    }
-
-    void load();
-    return () => {
-      disposed = true;
-      clearTimeout(timer);
-      controller?.abort();
-    };
-  }, []);
+  // A failed fetch must not read as an empty board: the last good counts stay
+  // on screen and the failure is named.
+  const { data, error: failure, loading } = usePolling<BreakdownData>(async (signal) => {
+    const response = await fetch('/api/kanban/breakdown', { signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  }, POLL_MS, [], { timeoutMs: 10000 });
+  const error = failure ? 'Board counts are unavailable. Retrying shortly.' : null;
 
   const hasMore = BOARD_COLUMNS.some(status => (data?.columns?.[status]?.length || 0) > ROW_LIMIT);
   const openCards = data
@@ -119,7 +89,7 @@ export function KanbanBreakdown() {
       </h2>
       {error && <p className="breakdown-error" role="alert">{error}{data ? ' Showing the last counts.' : ''}</p>}
       {!data ? (
-        <p className="breakdown-empty">{loading ? 'Loading board counts…' : 'Board counts are unavailable.'}</p>
+        <p className="breakdown-empty">{loading && !failure ? 'Loading board counts…' : 'Board counts are unavailable.'}</p>
       ) : (
         <>
           <div className="breakdown-columns">

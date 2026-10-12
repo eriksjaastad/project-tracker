@@ -14,9 +14,10 @@ Common Commands:
 - pt scan      # Scan for new projects and rebuild graph
 - pt launch    # Start the web dashboard
 - pt list      # List all projects in terminal
-- pt help      # Show help
+- pt --help    # Show help
 """
 
+import copy
 import os
 import shutil
 import sqlite3
@@ -43,7 +44,8 @@ from scripts.config import PROJECTS_BASE_DIR
 from db.schema import (
     init_db, get_db_path, SafetyError, FreshDatabaseError, FingerprintMismatchError,
 )
-from db.manager import DatabaseManager, _USE_TURSO
+from db.manager import DatabaseManager
+from db.backend_calendar_manager import validate_event_date, validate_event_time
 from discovery.project_scanner import (
     PORTFOLIO_ROOTS,
     discover_projects,
@@ -60,7 +62,6 @@ from origin import resolve_created_by as _resolve_created_by
 from skill_invocations_reader import (
     iter_invocations as _iter_skill_invocations,
     SkillInvocationsTableMissing as _SkillInvocationsTableMissing,
-    TursoEnabledError as _SkillsTursoEnabledError,
 )
 from skills_registry import installed_skills as _installed_skills
 
@@ -148,70 +149,6 @@ def _print_banner() -> None:
     console.print(_PT_BANNER)
 
 
-def _notify_inbox(card_id: int, project_id: str, card_status: str, description: str) -> None:
-    """Write an inbox message after a task mutation (opt-in per project).
-
-    Only fires if ~/.claude/inbox/<project>/ exists.
-    Called from: tasks_create, tasks_update, tasks_move, tasks_done,
-    tasks_start, tasks_review, tasks_cancel, tasks_delete, tasks_clear_done.
-    """
-    import os, logging
-    _log = logging.getLogger(__name__)
-    # Sanitize project_id to prevent path traversal
-    safe_id = project_id.replace("/", "").replace("\\", "").replace("..", "")
-    if not safe_id or safe_id != project_id:
-        _log.warning(f"Skipping inbox notification: unsafe project_id '{project_id}'")
-        return
-    inbox_dir = Path(os.path.expanduser("~")) / ".claude" / "inbox" / safe_id
-    if not inbox_dir.is_dir():
-        return
-
-    from datetime import timezone
-    now = datetime.now(timezone.utc)
-    timestamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    filename_ts = now.strftime("%Y%m%dT%H%M%SZ")
-    filepath = inbox_dir / f"{filename_ts}-kanban.md"
-
-    # Determine action hint based on status
-    action_hints = {
-        "Backlog": "This task is in the backlog. No action needed yet.",
-        "To Do": f"Start this task when ready. Use `pt tasks start {card_id}` to begin.",
-        "In Progress": "This task is now in progress.",
-        "Review": "This task is ready for review.",
-        "Done": "This task has been completed.",
-        "Cancelled": "This task has been cancelled.",
-        "Deleted": "This task has been permanently deleted.",
-    }
-    action = action_hints.get(card_status, f"Status changed to {card_status}.")
-
-    content = f"""---
-from: kanban
-to: {project_id}
-timestamp: {timestamp}
-priority: normal
-type: card-notification
-card_id: {card_id}
-card_status: {card_status}
----
-
-Card #{card_id} — {card_status}
-
-**Description:** {description}
-
-**Status:** {card_status}
-**Action:** {action}
-"""
-    try:
-        import tempfile
-        # Atomic write: temp file then rename
-        fd, tmp_path = tempfile.mkstemp(dir=str(inbox_dir), suffix=".tmp")
-        with os.fdopen(fd, 'w') as f:
-            f.write(content)
-        os.rename(tmp_path, str(filepath))
-    except Exception as e:
-        _log.warning(f"Inbox notification failed for #{card_id}: {e}")
-
-
 @click.group(invoke_without_command=True)
 @click.version_option(PT_VERSION, "--version", prog_name="pt")
 @click.pass_context
@@ -245,12 +182,8 @@ def cli(ctx):
 def _warn_unapplied_migrations() -> None:
     """Print a stderr warning if the tracker DB has pending migrations.
 
-    Never raises — a warning failure must not take `pt` down. Turso
-    mode is skipped entirely: the migration runner operates on local
-    SQLite and isn't meaningful against a Turso-backed DB.
+    Never raises — a warning failure must not take `pt` down.
     """
-    if _USE_TURSO:
-        return
     try:
         pending = DatabaseManager().migrations_pending()
         if not pending:
@@ -467,14 +400,14 @@ def _blocked_label(blocking_ids, reason, display_map) -> str:
 def _display_tasks(task_list, project=None, json_output=False, db=None):
     import json as json_lib
     if json_output:
-        backend = "turso" if _USE_TURSO else "local"
+        backend = "local"
         print(json_lib.dumps({"tasks": task_list, "total": len(task_list), "backend": backend}, indent=2))
         return
     if not task_list:
         filter_msg = f" for project '{project}'" if project else ""
         print(f"No tasks found{filter_msg}.")
         return
-    backend_tag = "turso" if _USE_TURSO else "local"
+    backend_tag = "local"
     title = f"Tasks - {project}" if project else "Tasks - all projects"
     print(f"{title} [{backend_tag}]\n")
     # Include blocker ids in the display map so [B:…] stays four-digit friendly.
@@ -515,11 +448,25 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
 
 
 def _resolve_project_id(db, project):
+    """Resolve a project id or name (case-insensitive) to its id, or None.
+
+    An id match wins over a name match, so a project named after another
+    project's id can't capture it. add_project keeps names unique, but a
+    concurrent add can still leave two; a shared name is refused rather than
+    picked by row order.
+    """
     if not project: return None
+    wanted = project.lower()
     projects = db.get_all_projects()
-    for p in projects:
-        if p["name"].lower() == project.lower() or p["id"].lower() == project.lower():
-            return p["id"]
+    for field in ("id", "name"):
+        matches = [p["id"] for p in projects if p[field].lower() == wanted]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            raise click.UsageError(
+                f"Project {field} '{project}' matches {len(matches)} projects "
+                f"({', '.join(matches)}); use the exact id"
+            )
     return None
 
 
@@ -633,12 +580,26 @@ def _detect_project_from_cwd(db):
     import os
     cwd = os.environ.get("PT_CALLER_CWD", os.getcwd())
     dir_name = os.path.basename(cwd)
-    return _resolve_project_id(db, dir_name)
+    try:
+        return _resolve_project_id(db, dir_name)
+    except click.UsageError as e:
+        # The caller typed no project; say where the name came from and how to pick.
+        raise click.UsageError(
+            f"Can't tell the project from directory '{dir_name}': {e.message}. Pass -p <id>."
+        ) from e
 
 
 # =============================================================================
 # Top-level commands
 # =============================================================================
+
+def _hidden_alias(command: click.Command, name: str) -> click.Command:
+    """The same command (same callback and options) under a second, hidden name."""
+    alias = copy.copy(command)
+    alias.name = name
+    alias.hidden = True
+    return alias
+
 
 @cli.command()
 def init():
@@ -648,18 +609,23 @@ def init():
     console.print(f"✅ Database created at: {db_path}")
 
 
-def scan(no_graph, dry_run, force):
-    """Scan projects directory and update database."""
-    _scan_impl(no_graph=no_graph, dry_run=dry_run, force=force)
-
-
 @cli.command(name="scan")
 @click.option("--no-graph", is_flag=True, help="Skip rebuilding the project graph")
 @click.option("--dry-run", is_flag=True, help="Show what would change without writing")
 @click.option("--force", is_flag=True, help="Proceed even if scan results look unsafe")
 def scan_cli(no_graph, dry_run, force):
-    """Scan projects directory and update database."""
-    scan(no_graph=no_graph, dry_run=dry_run, force=force)
+    """Scan the projects directory and update the database.
+
+    Rescans every repo under PROJECTS_ROOT and rebuilds the project graph
+    (skip that with --no-graph). For a single project, `pt sync-project NAME`
+    is faster.
+    """
+    _scan_impl(no_graph=no_graph, dry_run=dry_run, force=force)
+
+
+# `pt refresh` is the old spelling of `pt scan`: the same command object under a
+# second, hidden name, so the two cannot drift apart.
+cli.add_command(_hidden_alias(scan_cli, "refresh"))
 
 
 @cli.command(name="list")
@@ -684,12 +650,8 @@ def list_projects():
 def status(name):
     """Show detailed status for a project."""
     db = DatabaseManager()
-    projects = db.get_all_projects()
-    project = None
-    for p in projects:
-        if p["name"].lower() == name.lower():
-            project = p
-            break
+    project_id = _resolve_project_id(db, name)
+    project = db.get_project(project_id) if project_id else None
     if not project:
         console.print(f"[red]Project '{name}' not found[/red]")
         return
@@ -720,54 +682,6 @@ def status(name):
     console.print()
 
 
-@cli.command()
-@click.option("-p", "--project", default=None, help="Filter by project name")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def orphans(project, json_output):
-    """List all orphan files (files with no connections)."""
-    import json
-    graph_path = Path(__file__).parent.parent / "data" / "graph.json"
-    if not graph_path.exists():
-        console.print("[red]Graph data not found. Run 'pt scan' first.[/red]")
-        return
-    with open(graph_path) as f:
-        graph_data = json.load(f)
-    orphan_nodes = [node for node in graph_data["nodes"] if node.get("is_orphan", False)]
-    if project:
-        orphan_nodes = [node for node in orphan_nodes if node["project"] == project]
-    if not orphan_nodes:
-        if project:
-            console.print(f"[green]✓ No orphan files found in project '{project}'[/green]")
-        else:
-            console.print("[green]✓ No orphan files found in the ecosystem[/green]")
-        return
-    if json_output:
-        output = {"total_orphans": len(orphan_nodes), "orphans": [{"path": n["id"], "name": n["name"], "project": n["project"], "type": n["type"]} for n in orphan_nodes]}
-        print(json.dumps(output, indent=2))
-        return
-    orphans_by_project = {}
-    for node in orphan_nodes:
-        proj = node["project"]
-        if proj not in orphans_by_project: orphans_by_project[proj] = []
-        orphans_by_project[proj].append(node)
-    console.print(f"\n[bold yellow]Found {len(orphan_nodes)} orphan files[/bold yellow]\n")
-    for proj, nodes in sorted(orphans_by_project.items()):
-        console.print(f"[cyan]{proj}[/cyan] ({len(nodes)} orphans):")
-        for node in sorted(nodes, key=lambda n: n["id"]):
-            console.print(f"  • {node['id']}")
-        console.print()
-    console.print(f"[dim]Total: {len(orphan_nodes)} orphans across {len(orphans_by_project)} projects[/dim]")
-    console.print(f"[dim]Tip: Use '--project <name>' to filter by project[/dim]")
-
-
-@cli.command()
-@click.option("--no-graph", is_flag=True, help="Skip rebuilding the project graph")
-def refresh(no_graph):
-    """Refresh all project metadata."""
-    console.print("[bold blue]Refreshing project data...[/bold blue]")
-    _scan_impl(no_graph=no_graph)
-
-
 @cli.command(name="sync-project")
 @click.argument("project_name")
 @click.option("--no-graph", is_flag=True, help="Skip rebuilding the project graph")
@@ -775,7 +689,6 @@ def sync_project(project_name, no_graph):
     """Sync one project to the database (fast alternative to full scan).
 
     PROJECT_NAME is the directory name under the projects root.
-    This is distinct from ``pt sync``, which manages replication state.
     """
     base_path = Path(PROJECTS_BASE_DIR)
     project_dir = _resolve_project_directory(project_name)
@@ -831,12 +744,33 @@ def sync_project(project_name, no_graph):
 @click.option("--project", "project_name", default=None, help="Inspect only one repo by name")
 @click.option("--quiet", is_flag=True, help="Only show repos with at least one finding")
 def hygiene(json_output: bool, project_name: Optional[str], quiet: bool) -> None:
-    """Check portfolio-wide git hygiene state.
+    """Check portfolio-wide git hygiene state. Read-only.
 
-    Detects: dirty working tree, local-only branches, branches ahead of remote,
-    stashes, open bot PRs older than 24h, and stale PROGRESS.md files.
+    \b
+    pt hygiene --json                        portfolio-wide scan, JSON
+    pt hygiene --json --project my-project   one repo
+    pt hygiene --quiet                       human output, findings only
 
-    Exit 0 = all repos clean; exit 6 = at least one finding.
+    Detects: dirty working tree (PROGRESS.md excluded), local-only branches,
+    branches ahead of remote, stashes, open bot PRs older than 24h, and a
+    stale PROGRESS.md (over 7 days old while the repo has uncommitted work).
+
+    Exit 0 = all repos clean; exit 6 = at least one finding (for cron
+    branching).
+
+    --json emits schema pt.hygiene.v1. Each entry under "results" has one of
+    two disjoint shapes:
+
+    \b
+    - scanned:  {project, path, clean, findings: {dirty_tree,
+                local_only_branches, branches_ahead_of_remote, stashes,
+                open_pr_drift, stale_progress_md}}  (all six keys present;
+                each finding has "present")
+    - failed:   {project, path, clean: false, error: {class, message}}
+                ("findings" is omitted, so a broken repo never reads as
+                checked-and-clean)
+
+    Consumers must check for "error" before reading "findings".
     """
     from datetime import timezone
 
@@ -1237,129 +1171,6 @@ def launch(port, no_scan, reload):
         console.print("\n\n[yellow]Dashboard stopped[/yellow]")
 
 
-@cli.command(name="add-agent")
-@click.argument("project")
-@click.argument("agent_name")
-@click.argument("role", default="")
-def add_agent(project, agent_name, role):
-    """Add an AI agent to a project."""
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    project_id = None
-    for p in projects:
-        if p["name"].lower() == project.lower(): project_id = p["id"]; break
-    if not project_id:
-        console.print(f"[red]Project '{project}' not found[/red]"); return
-    db.add_ai_agent(project_id, agent_name, role)
-    console.print(f"[green]✅ Added AI agent '{agent_name}' to {project}[/green]")
-
-
-@cli.command(name="add-cron")
-@click.argument("project")
-@click.argument("schedule")
-@click.argument("command")
-@click.argument("description", default="")
-def add_cron(project, schedule, command, description):
-    """Add a cron job to a project."""
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    project_id = None
-    for p in projects:
-        if p["name"].lower() == project.lower(): project_id = p["id"]; break
-    if not project_id:
-        console.print(f"[red]Project '{project}' not found[/red]"); return
-    db.add_cron_job(project_id, schedule, command, description)
-    console.print(f"[green]✅ Added cron job to {project}[/green]")
-
-
-@cli.command(name="add-service")
-@click.argument("project")
-@click.argument("service_name")
-@click.option("--cost", default=0.0, type=float, help="Monthly cost")
-@click.option("--purpose", default="", help="Purpose of the service")
-def add_service(project, service_name, cost, purpose):
-    """Add a service dependency to a project."""
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    project_id = None
-    for p in projects:
-        if p["name"].lower() == project.lower(): project_id = p["id"]; break
-    if not project_id:
-        console.print(f"[red]Project '{project}' not found[/red]"); return
-    db.add_service(project_id, service_name, purpose, cost)
-    console.print(f"[green]✅ Added service '{service_name}' to {project}[/green]")
-
-
-@cli.command(name="export-projects")
-@click.option("-o", "--output", default="data/projects_export.json", help="Output file path")
-def export_projects(output):
-    """Export all projects to JSON file for backup."""
-    import json as json_lib
-    from datetime import datetime, timezone
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    output_path = Path(output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        projects_dict = [dict(p) for p in projects]
-        export_data = {"exported_at": datetime.now(timezone.utc).isoformat(), "total_count": len(projects), "projects": projects_dict}
-        with open(output_path, 'w') as f:
-            json_lib.dump(export_data, f, indent=2)
-        console.print(f"[green]✅ Exported {len(projects)} projects to {output}[/green]")
-    except Exception as e:
-        console.print(f"[red]Failed to export projects: {e}[/red]")
-
-
-@cli.command(name="remove-project")
-@click.argument("project")
-def remove_project(project):
-    """Remove a single project from the database (not from disk).
-
-    ⚠️  REQUIRES DIRECT CONSENT FROM ERIK.
-    Do not run this command without explicit approval from Erik Sjaastad.
-    This removes the project entry and all associated data (tasks, cron jobs,
-    agents, services) from the tracker database. It does NOT delete any files
-    from disk.
-    """
-    db = DatabaseManager()
-    projects = db.get_all_projects()
-    target = None
-    for p in projects:
-        if p["name"].lower() == project.lower():
-            target = p
-            break
-    if not target:
-        console.print(f"[red]Project '{project}' not found in database.[/red]")
-        return
-
-    # Show what will be deleted — archived cards are deleted too, so count them
-    project_id = target["id"]
-    tasks = db.get_tasks(project_id=project_id, include_archived=True)
-    cron_jobs = db.get_cron_jobs(project_id)
-    agents = db.get_ai_agents(project_id)
-
-    console.print(f"\n[bold red]⚠️  DESTRUCTIVE OPERATION[/bold red]")
-    console.print(f"[bold]Project:[/bold] {target['name']}")
-    console.print(f"[bold]Path:[/bold] {target.get('path', 'unknown')}")
-    console.print(f"[bold]Tasks:[/bold] {len(tasks)}")
-    console.print(f"[bold]Cron jobs:[/bold] {len(cron_jobs)}")
-    console.print(f"[bold]AI agents:[/bold] {len(agents)}")
-    console.print(f"\nThis will remove the project and ALL associated data from the database.")
-    console.print(f"[dim]No files on disk will be affected. A backup is created automatically.[/dim]\n")
-
-    confirm = click.prompt(
-        "Type the project name to confirm deletion",
-        default="",
-        show_default=False,
-    )
-    if confirm.lower() != target["name"].lower():
-        console.print("[yellow]Cancelled. Project name did not match.[/yellow]")
-        return
-
-    db.delete_project(project_id)
-    console.print(f"[green]✅ Removed '{target['name']}' from the database.[/green]")
-
-
 @cli.group(name="project")
 def project_group():
     """Manage manually tracked project records."""
@@ -1495,12 +1306,8 @@ def retire_project(project, execute, keep_files, yes):
     from send2trash import send2trash
 
     db = DatabaseManager()
-    projects = db.get_all_projects()
-    target = None
-    for p in projects:
-        if p["id"].lower() == project.lower() or p["name"].lower() == project.lower():
-            target = p
-            break
+    project_id = _resolve_project_id(db, project)
+    target = db.get_project(project_id) if project_id else None
     if not target:
         console.print(f"[red]Project '{project}' not found in database.[/red]")
         sys.exit(1)
@@ -1598,11 +1405,18 @@ def retire_project(project, execute, keep_files, yes):
         console.print(f"[yellow]Remember: {len(refs)} stale reference(s) in {len({r[0] for r in refs})} file(s) still need manual review.[/yellow]")
 
 
-@cli.command()
+@cli.command(name="help", hidden=True)
+@click.argument("command", nargs=-1)
 @click.pass_context
-def help(ctx):
-    """Show this help message."""
-    click.echo(ctx.parent.get_help())
+def help_command(ctx, command):
+    """Show click's own --help for pt, or for `pt help COMMAND [SUBCOMMAND...]`."""
+    target = ctx.parent
+    for name in command:
+        sub = target.command.get_command(target, name) if isinstance(target.command, click.Group) else None
+        if sub is None:
+            raise click.UsageError(f"No such command '{name}'.", ctx=target)
+        target = click.Context(sub, info_name=name, parent=target)
+    click.echo(target.get_help())
 
 
 # =============================================================================
@@ -1788,31 +1602,25 @@ def backup_restore(backup_name: str, yes: bool):
 # Tasks group
 # =============================================================================
 
-@click.group(name="tasks", invoke_without_command=True)
-@click.pass_context
-@click.option("-p", "--project", default=None, help="Filter by project name or ID")
-@click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Review, Done)")
-@click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-@click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
-@click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)")
-@click.option("--proposals", is_flag=True, help="Show only proposal tasks")
-@click.option("--archived", is_flag=True, help="Show only archived Done cards (hidden from the board, never deleted)")
-def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready, proposals, archived):
-    """Manage Kanban board tasks.
+def _tasks_list_options(f):
+    """The one option set shared by `pt tasks` and `pt tasks list`."""
+    for option in reversed([
+        click.option("-p", "--project", default=None, help="Filter by project name or ID"),
+        click.option("-s", "--status", default=None, help="Filter by status (Backlog, To Do, In Progress, Review, Done)"),
+        click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks"),
+        click.option("--board", is_flag=True, help="Show columnar Kanban board view"),
+        click.option("--json", "json_output", is_flag=True, help="Output as JSON"),
+        click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts"),
+        click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts (ready to start)"),
+        click.option("--proposals", is_flag=True, help="Show only proposal tasks"),
+        click.option("--archived", is_flag=True, help="Show only archived Done cards (hidden from the board, never deleted)"),
+    ]):
+        f = option(f)
+    return f
 
-    \b
-    Examples:
-        pt tasks                       # Show open tasks (all projects)
-        pt tasks -p project-tracker    # Tasks for a specific project
-        pt tasks -s "In Progress"      # Filter by status
-        pt tasks --all                 # Include completed tasks
-        pt tasks --archived            # Show archived Done cards
-        pt tasks --proposals           # Show only proposals
-        pt tasks create "Fix bug" -p myproject -d "- [ ] pytest tests/test_foo.py passes"
 
-    """
-    if ctx.invoked_subcommand is not None: return
+def _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
+    """List tasks. Both `pt tasks` and `pt tasks list` run exactly this."""
     db = DatabaseManager()
     if project:
         project_id = _resolve_project_id(db, project)
@@ -1834,49 +1642,6 @@ def tasks_group(ctx, project, status, show_all, json_output, needs_prompt, ready
         task_list = [t for t in task_list if t.get("task_type") == "proposal"]
     else:
         # Hide proposals from default listing unless --all is used
-        if not show_all:
-            task_list = [t for t in task_list if t.get("task_type") != "proposal"]
-        if not show_all and not status:
-            task_list = [t for t in task_list if t["status"] not in ("Done", "Cancelled")]
-    if needs_prompt:
-        task_list = [t for t in task_list if not t.get("prompt")]
-    if ready:
-        task_list = [t for t in task_list if t["status"] == "To Do" and _has_complete_prompt(t.get("prompt"))]
-    _display_tasks(task_list, project_label, json_output=json_output, db=db)
-
-
-@tasks_group.command(name="list")
-@click.option("-p", "--project", default=None, help="Filter by project name or ID")
-@click.option("-s", "--status", default=None, help="Filter by status")
-@click.option("-a", "--all", "show_all", is_flag=True, help="Include completed tasks")
-@click.option("--board", is_flag=True, help="Show columnar Kanban board view")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-@click.option("--needs-prompt", is_flag=True, help="Show only tasks without prompts")
-@click.option("--ready", is_flag=True, help="Show To Do tasks with complete prompts")
-@click.option("--proposals", is_flag=True, help="Show only proposal tasks")
-@click.option("--archived", is_flag=True, help="Show only archived Done cards (hidden from the board, never deleted)")
-def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
-    """List tasks from the Kanban board."""
-    db = DatabaseManager()
-    if project:
-        project_id = _resolve_project_id(db, project)
-        project_label = project
-        if not project_id:
-            console.print(f"[red]Project '{project}' not found[/red]"); return
-    else:
-        project_id = _detect_project_from_cwd(db)
-        project_label = None
-        if project_id:
-            detected = db.get_project(project_id)
-            project_label = detected["name"] if detected else None
-    task_list = db.get_tasks(project_id=project_id, status=status, include_archived=archived)
-    if archived:
-        # --archived is a retention view: only the Done cards the per-project
-        # display cap has hidden. They still exist and are never deleted.
-        task_list = [t for t in task_list if t.get("archived_at")]
-    elif proposals:
-        task_list = [t for t in task_list if t.get("task_type") == "proposal"]
-    else:
         if not show_all:
             task_list = [t for t in task_list if t.get("task_type") != "proposal"]
         if not show_all and not status:
@@ -1909,6 +1674,38 @@ def tasks_list(project, status, show_all, board, json_output, needs_prompt, read
         console.print(table)
         return
     _display_tasks(task_list, project_label, json_output=json_output, db=db)
+
+
+@click.group(name="tasks", invoke_without_command=True)
+@click.pass_context
+@_tasks_list_options
+def tasks_group(ctx, project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
+    """Manage Kanban board tasks.
+
+    Bare `pt tasks` and `pt tasks list` are the same command with the same
+    options.
+
+    \b
+    Examples:
+        pt tasks                       # Show open tasks (all projects)
+        pt tasks -p project-tracker    # Tasks for a specific project
+        pt tasks -s "In Progress"      # Filter by status
+        pt tasks --all                 # Include completed tasks
+        pt tasks --archived            # Show archived Done cards
+        pt tasks --proposals           # Show only proposals
+        pt tasks --board               # Columnar Kanban view
+        pt tasks create "Fix bug" -p myproject -d "- [ ] pytest tests/test_foo.py passes"
+
+    """
+    if ctx.invoked_subcommand is not None: return
+    _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived)
+
+
+@tasks_group.command(name="list")
+@_tasks_list_options
+def tasks_list(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived):
+    """List tasks from the Kanban board (same as bare `pt tasks`)."""
+    _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt, ready, proposals, archived)
 
 
 @tasks_group.command(name="create")
@@ -1974,7 +1771,6 @@ def tasks_create(text, project, status, priority, prompt, category, description,
         if parent: msg += f" [dim](subtask of #{parent})[/dim]"
         if blocked_by: msg += f" [dim](blocked by {blocked_by})[/dim]"
         console.print(msg)
-        _notify_inbox(task["id"], project_id, status, text)
     except BlockedTaskProjectError:
         console.print(
             f"[yellow]Failed to create task: task creation is blocked for '{project_id}'.[/yellow]"
@@ -2063,10 +1859,6 @@ def tasks_update(task_id, status, text, priority, prompt, review_comment, notes,
         if key == "notes" and append_notes is not None:
             value = entry
         console.print(f"  {key}: {escape(str(value))}")
-    if "status" in updates:
-        task = db.get_task(task_id)
-        if task:
-            _notify_inbox(task_id, task["project_id"], updates["status"], task["text"])
 
 
 @tasks_group.command(name="notes-history")
@@ -2098,6 +1890,59 @@ def tasks_notes_history(task_id, json_output):
             console.print(f"  new: {escape(new)}")
 
 
+def _transition_cards(db, task_ids, *, verb, label, noun, step, suffix="", after=None) -> None:
+    """Run one per-card step over `task_ids` for the move/done/start/... commands.
+
+    Prints a line per card and keeps going, so one bad id never blocks the
+    rest; exits 1 if any requested card was not changed (not found, refused,
+    error). A skip is not a failure. `step(db, task_id, task)` does the
+    command's own work and returns True (changed), False (failed; it has
+    already printed why) or None (skipped). With more than one id it prints
+    "<label> N/M <noun><suffix>"; `after(changed)` then runs once, before exit.
+    """
+    changed = 0
+    failed = 0
+    for task_id in task_ids:
+        try:
+            task_id = _resolve_task_id(db, task_id)
+            task = db.get_task(task_id)
+            if not task:
+                print(f"Task #{task_id} not found"); failed += 1; continue
+            result = step(db, task_id, task)
+            if result:
+                changed += 1
+            elif result is not None:
+                failed += 1
+        except Exception as e:
+            print(f"Failed to {verb} task #{task_id}: {e}")
+            failed += 1
+    if len(task_ids) > 1: print(f"\n{label} {changed}/{len(task_ids)} {noun}{suffix}")
+    if after: after(changed)
+    if failed:
+        sys.exit(1)
+
+
+def _status_step(status, label):
+    """Step that sets a card's status and prints "<label>: #id - text"."""
+    def step(db, task_id, task):
+        db.update_task(task_id, status=status)
+        print(f"{label}: #{task_id} - {task['text'][:50]}")
+        return True
+    return step
+
+
+def _proposal_step(label, **updates):
+    """Step for approve/reject: refuses anything that is not a proposal."""
+    def step(db, task_id, task):
+        if task.get("task_type") != "proposal":
+            print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})")
+            return False
+        db.update_task(task_id, **updates)
+        print(f"{label}: #{task_id} - {task['text'][:50]}")
+        return True
+    return step
+
+
 @tasks_group.command(name="move")
 @click.argument("project", type=str)
 @click.argument("task_ids", type=int, nargs=-1, required=True)
@@ -2106,24 +1951,20 @@ def tasks_move(project, task_ids):
     db = DatabaseManager()
     target_project_id = _resolve_project_id(db, project)
     if not target_project_id:
-        console.print(f"[red]Project '{project}' not found[/red]"); return
+        console.print(f"[red]Project '{project}' not found[/red]"); sys.exit(1)
     target_project = db.get_project(target_project_id)
     target_name = target_project["name"] if target_project else target_project_id
-    success_count = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); continue
-            old_project = task["project_id"]
-            if old_project == target_project_id: print(f"Task #{task_id} already in project '{target_name}'"); continue
-            db.update_task(task_id, project_id=target_project_id)
-            print(f"Moved: #{task_id} from '{old_project}' to '{target_name}'")
-            _notify_inbox(task_id, target_project_id, task.get("status", "Backlog"), task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to move task #{task_id}: {e}")
-    if len(task_ids) > 1: print(f"\nMoved {success_count}/{len(task_ids)} tasks to '{target_name}'")
+
+    def step(db, task_id, task):
+        old_project = task["project_id"]
+        if old_project == target_project_id:
+            print(f"Task #{task_id} already in project '{target_name}'"); return None
+        db.update_task(task_id, project_id=target_project_id)
+        print(f"Moved: #{task_id} from '{old_project}' to '{target_name}'")
+        return True
+
+    _transition_cards(db, task_ids, verb="move", label="Moved", noun="tasks",
+                      suffix=f" to '{target_name}'", step=step)
 
 
 @tasks_group.command(name="done")
@@ -2131,27 +1972,19 @@ def tasks_move(project, task_ids):
 def tasks_done(task_ids):
     """Mark one or more tasks as Done."""
     db = DatabaseManager()
-    success_count = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); continue
-            db.update_task(task_id, status="Done")
-            print(f"Done: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], "Done", task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to complete task #{task_id}: {e}")
-    if len(task_ids) > 1: print(f"\nCompleted {success_count}/{len(task_ids)} tasks")
-    if success_count > 0:
-        # Keep the Done column short by HIDING older cards, never deleting them.
-        # Per-project so a burst of completions in one project can't evict
-        # another project's history (#6870).
-        archived = db.archive_done_tasks(keep_per_project=25)
-        if archived > 0:
-            print(f"Archived {archived} older Done card(s) (keeping 25 most recent per project)")
-        print("💡 Tip: Run /compound in Claude Code to journal what you learned")
+
+    def after(changed):
+        if changed > 0:
+            # Keep the Done column short by HIDING older cards, never deleting them.
+            # Per-project so a burst of completions in one project can't evict
+            # another project's history (#6870).
+            archived = db.archive_done_tasks(keep_per_project=25)
+            if archived > 0:
+                print(f"Archived {archived} older Done card(s) (keeping 25 most recent per project)")
+            print("💡 Tip: Run /compound in Claude Code to journal what you learned")
+
+    _transition_cards(db, task_ids, verb="complete", label="Completed", noun="tasks",
+                      step=_status_step("Done", "Done"), after=after)
 
 
 @tasks_group.command(name="start")
@@ -2159,121 +1992,57 @@ def tasks_done(task_ids):
 def tasks_start(task_ids):
     """Move one or more tasks to In Progress."""
     db = DatabaseManager()
-    success_count = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); continue
-            if task.get("task_type") == "agent" and not task.get("prompt"):
-                console.print(f"[yellow]Starting agent task #{task_id} without a prompt[/yellow]")
-            is_blocked, blocking_ids, reason = _blocked_state(db, task_id)
-            if is_blocked:
-                if reason:
-                    console.print(
-                        f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked: {escape(reason)}[/red]"
-                    )
-                    continue
-                blocking_str = _format_task_refs(blocking_ids, db=db)
+
+    def step(db, task_id, task):
+        if task.get("task_type") == "agent" and not task.get("prompt"):
+            console.print(f"[yellow]Starting agent task #{task_id} without a prompt[/yellow]")
+        is_blocked, blocking_ids, reason = _blocked_state(db, task_id)
+        if is_blocked:
+            if reason:
                 console.print(
-                    f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked by: {blocking_str}[/red]"
+                    f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked: {escape(reason)}[/red]"
                 )
-                continue
-            db.update_task(task_id, status="In Progress")
-            print(f"Started: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], "In Progress", task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to start task #{task_id}: {e}")
-    if len(task_ids) > 1: print(f"\nStarted {success_count}/{len(task_ids)} tasks")
+                return False
+            blocking_str = _format_task_refs(blocking_ids, db=db)
+            console.print(
+                f"[red]Cannot start {_format_task_ref(task_id, db=db)} - blocked by: {blocking_str}[/red]"
+            )
+            return False
+        return _status_step("In Progress", "Started")(db, task_id, task)
+
+    _transition_cards(db, task_ids, verb="start", label="Started", noun="tasks", step=step)
 
 
 @tasks_group.command(name="review")
 @click.argument("task_ids", type=int, nargs=-1, required=True)
 def tasks_review(task_ids):
     """Move one or more tasks to Review."""
-    db = DatabaseManager()
-    success_count = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); continue
-            db.update_task(task_id, status="Review")
-            print(f"Review: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], "Review", task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to review task #{task_id}: {e}")
-    if len(task_ids) > 1: print(f"\nReviewed {success_count}/{len(task_ids)} tasks")
+    _transition_cards(DatabaseManager(), task_ids, verb="review", label="Reviewed", noun="tasks",
+                      step=_status_step("Review", "Review"))
 
 
 @tasks_group.command(name="cancel")
 @click.argument("task_ids", type=int, nargs=-1, required=True)
 def tasks_cancel(task_ids):
     """Cancel one or more tasks (soft delete - keeps history)."""
-    db = DatabaseManager()
-    success_count = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task: print(f"Task #{task_id} not found"); continue
-            db.update_task(task_id, status="Cancelled")
-            print(f"Cancelled: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], "Cancelled", task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to cancel task #{task_id}: {e}")
-    if len(task_ids) > 1: print(f"\nCancelled {success_count}/{len(task_ids)} tasks")
+    _transition_cards(DatabaseManager(), task_ids, verb="cancel", label="Cancelled", noun="tasks",
+                      step=_status_step("Cancelled", "Cancelled"))
 
 
 @tasks_group.command(name="approve")
 @click.argument("task_ids", type=int, nargs=-1, required=True)
 def tasks_approve(task_ids):
     """Approve one or more proposals, converting them to regular backlog tasks."""
-    db = DatabaseManager()
-    success_count = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task:
-                print(f"Task #{task_id} not found"); continue
-            if task.get("task_type") != "proposal":
-                print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})"); continue
-            db.update_task(task_id, task_type="manual")
-            print(f"Approved: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], task["status"], task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to approve task #{task_id}: {e}")
-    if len(task_ids) > 1:
-        print(f"\nApproved {success_count}/{len(task_ids)} proposals")
+    _transition_cards(DatabaseManager(), task_ids, verb="approve", label="Approved", noun="proposals",
+                      step=_proposal_step("Approved", task_type="manual"))
 
 
 @tasks_group.command(name="reject")
 @click.argument("task_ids", type=int, nargs=-1, required=True)
 def tasks_reject(task_ids):
     """Reject one or more proposals (cancels them)."""
-    db = DatabaseManager()
-    success_count = 0
-    for task_id in task_ids:
-        try:
-            task_id = _resolve_task_id(db, task_id)
-            task = db.get_task(task_id)
-            if not task:
-                print(f"Task #{task_id} not found"); continue
-            if task.get("task_type") != "proposal":
-                print(f"Task #{task_id} is not a proposal (type: {task.get('task_type', 'unknown')})"); continue
-            db.update_task(task_id, status="Cancelled")
-            print(f"Rejected: #{task_id} - {task['text'][:50]}")
-            _notify_inbox(task_id, task["project_id"], "Cancelled", task["text"])
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to reject task #{task_id}: {e}")
-    if len(task_ids) > 1:
-        print(f"\nRejected {success_count}/{len(task_ids)} proposals")
+    _transition_cards(DatabaseManager(), task_ids, verb="reject", label="Rejected", noun="proposals",
+                      step=_proposal_step("Rejected", status="Cancelled"))
 
 
 @tasks_group.command(name="delete")
@@ -2284,7 +2053,7 @@ def tasks_delete(task_id, yes):
     db = DatabaseManager()
     task_id = _resolve_task_id(db, task_id)
     task = db.get_task(task_id)
-    if not task: print(f"Task #{task_id} not found"); return
+    if not task: print(f"Task #{task_id} not found"); sys.exit(1)
     print(f"  #{task['id']} | {task['status']} | {task['text'][:60]}")
     if not yes:
         confirm = click.confirm(f"\nPermanently delete task #{task_id}?", default=False)
@@ -2292,9 +2061,9 @@ def tasks_delete(task_id, yes):
     try:
         db.delete_task(task_id)
         print(f"Deleted: #{task_id}")
-        _notify_inbox(task_id, task.get("project_id", "unknown"), "Deleted", task["text"])
     except Exception as e:
         print(f"Failed to delete task #{task_id}: {e}")
+        sys.exit(1)
 
 
 @tasks_group.command(name="show")
@@ -2345,27 +2114,6 @@ def tasks_show(task_ids, json_output):
         import json as json_lib
         if len(tasks) == 1: print(json_lib.dumps(tasks[0], indent=2))
         else: print(json_lib.dumps(tasks, indent=2))
-
-
-@tasks_group.command(name="prompt-validate")
-@click.argument("task_id", type=int)
-def tasks_prompt_validate(task_id):
-    """Check task prompt for required sections."""
-    db = DatabaseManager()
-    task = db.get_task(task_id)
-    if not task: print(f"Task #{task_id} not found"); sys.exit(1)
-    prompt = (task.get("prompt") or "").strip()
-    prompt_lower = prompt.lower()
-    has_overview = "## overview" in prompt_lower
-    has_execution = "## execution" in prompt_lower
-    has_done = "## done criteria" in prompt_lower or "## acceptance criteria" in prompt_lower
-    print(f"Task #{task_id} prompt validation:")
-    print(f"{'✓' if has_overview else '✗'} Overview section {'found' if has_overview else 'MISSING'}")
-    print(f"{'✓' if has_execution else '✗'} Execution section {'found' if has_execution else 'MISSING'}")
-    print(f"{'✓' if has_done else '✗'} Done Criteria section {'found' if has_done else 'MISSING'}")
-    missing = sum([not has_overview, not has_execution, not has_done])
-    if missing: print(f"\nStatus: INCOMPLETE ({missing} section{'s' if missing != 1 else ''} missing)"); sys.exit(1)
-    print("\nStatus: COMPLETE"); sys.exit(0)
 
 
 @tasks_group.command(name="next")
@@ -2444,134 +2192,6 @@ def tasks_export(output):
         console.print(f"[red]Failed to export tasks: {e}[/red]")
 
 
-@tasks_group.command(name="import")
-@click.argument("file", type=click.Path(exists=True))
-def tasks_import(file):
-    """Import tasks from JSON backup."""
-    import json as json_lib
-    db = DatabaseManager()
-    try:
-        with open(file, 'r') as f:
-            data = json_lib.load(f)
-        tasks = data.get("tasks", [])
-        if not tasks: console.print("[yellow]No tasks found in import file[/yellow]"); return
-        console.print(f"Importing {len(tasks)} tasks...")
-        success_count = db.raw_import_tasks(tasks)
-        console.print(f"[green]✅ Successfully imported {success_count}/{len(tasks)} tasks[/green]")
-    except Exception as e:
-        console.print(f"[red]Failed to import tasks: {e}[/red]")
-
-
-@tasks_group.command(name="clear-done")
-@click.option("-p", "--project", default=None, help="Filter by project")
-@click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
-def tasks_clear_done(project, yes):
-    """Delete all tasks in Done status."""
-    db = DatabaseManager()
-    project_id = _resolve_project_id(db, project) if project else None
-    if project and not project_id:
-        console.print(f"[red]Project '{project}' not found[/red]"); return
-    # delete_done_tasks() deletes every Done row, archived included — so the
-    # count shown in the confirmation prompt has to include them too.
-    done_tasks = db.get_tasks(project_id=project_id, status="Done", include_archived=True)
-    count = len(done_tasks)
-    if count == 0: console.print("[dim]No Done tasks to delete[/dim]"); return
-    if not yes:
-        scope_label = f"project {project}" if project else "all projects"
-        console.print(f"[dim]Scope: {scope_label}[/dim]")
-        confirm = click.confirm(f"Delete {count} Done task(s)?", default=False)
-        if not confirm: console.print("[dim]Cancelled[/dim]"); return
-    try:
-        # Capture task info before deletion for notifications
-        for t in done_tasks:
-            _notify_inbox(t["id"], t.get("project_id", "unknown"), "Deleted", t["text"])
-        # A hard delete of every Done row. The local operation takes and verifies a
-        # full timestamped recovery snapshot first.
-        deleted_count = db.authorize(
-            "delete_done_tasks",
-            reason=f"pt tasks delete-done for {project_id or 'all projects'}",
-            project_id=project_id,
-        )
-        console.print(f"[green]Deleted {deleted_count} Done task(s)[/green]")
-    except Exception as e:
-        console.print(f"[red]Failed to delete tasks: {e}[/red]")
-
-
-# =============================================================================
-# Inbox group
-# =============================================================================
-
-INBOX_FILE = Path(__file__).parent.parent / "data" / "inbox.json"
-
-def _load_inbox():
-    if not INBOX_FILE.exists(): return {"notes": [], "next_id": 1}
-    import json
-    with open(INBOX_FILE, "r") as f: return json.load(f)
-
-def _save_inbox(data):
-    import json
-    INBOX_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(INBOX_FILE, "w") as f: json.dump(data, f, indent=2)
-
-
-@click.group(name="inbox", invoke_without_command=True)
-@click.pass_context
-def inbox_group(ctx):
-    """Quick capture notes not attached to any project."""
-    if ctx.invoked_subcommand is not None: return
-    ctx.invoke(inbox_list, as_json=False)
-
-
-@inbox_group.command(name="list")
-@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def inbox_list(as_json):
-    """List all inbox notes."""
-    import json as json_mod
-    data = _load_inbox()
-    notes = data.get("notes", [])
-    if as_json:
-        print(json_mod.dumps(notes, indent=2, default=str)); return
-    if not notes: print("Inbox is empty"); return
-    print(f"Inbox ({len(notes)} notes)\n")
-    for note in notes:
-        print(f"  #{note['id']} {note['text']}")
-
-
-@inbox_group.command(name="add")
-@click.argument("text")
-def inbox_add(text):
-    """Add a note to the inbox."""
-    from datetime import datetime, timezone
-    data = _load_inbox()
-    note_id = data.get("next_id", 1)
-    note = {"id": note_id, "text": text, "created_at": datetime.now(timezone.utc).isoformat()}
-    data["notes"].append(note)
-    data["next_id"] = note_id + 1
-    _save_inbox(data)
-    console.print(f"[green]Added note #{note_id}:[/green] {text}")
-
-
-@inbox_group.command(name="remove")
-@click.argument("note_id", type=int)
-def inbox_remove(note_id):
-    """Remove a note by ID."""
-    data = _load_inbox()
-    original_count = len(data["notes"])
-    data["notes"] = [n for n in data["notes"] if n["id"] != note_id]
-    if len(data["notes"]) == original_count:
-        console.print(f"[red]Note #{note_id} not found[/red]"); return
-    _save_inbox(data)
-    console.print(f"[green]Removed note #{note_id}[/green]")
-
-
-@inbox_group.command(name="clear")
-@click.confirmation_option(prompt="Clear all inbox notes?")
-def inbox_clear():
-    """Clear all inbox notes."""
-    _save_inbox({"notes": [], "next_id": 1})
-    console.print("[green]Inbox cleared[/green]")
-
-
 # =============================================================================
 # Calendar group
 # =============================================================================
@@ -2609,6 +2229,26 @@ def _display_events(events, json_output=False, cron_jobs=None):
         print(f"\nCron jobs: {len(cron_jobs)}")
 
 
+def _calendar_option_callback(validator, allow_empty=False):
+    """Click callback that runs a calendar validator, turning its ValueError into BadParameter.
+
+    With ``allow_empty``, an empty string passes through unvalidated: ``--time ""``
+    means "no time" (on update, it clears the stored time).
+    """
+    def callback(ctx, param, value):
+        if value is None or (allow_empty and value == ""):
+            return value
+        try:
+            return validator(value)
+        except ValueError as exc:
+            raise click.BadParameter(str(exc))
+    return callback
+
+
+_date_option = _calendar_option_callback(validate_event_date)
+_time_option = _calendar_option_callback(validate_event_time, allow_empty=True)
+
+
 @click.group(name="calendar", invoke_without_command=True)
 @click.pass_context
 @click.option("--days", default=7, type=int, help="Days ahead to show (default: 7)")
@@ -2619,6 +2259,11 @@ def _display_events(events, json_output=False, cron_jobs=None):
 def calendar_group(ctx, days, project, event_type, show_all, json_output):
     """Manage the AI-first calendar.
 
+    Bare `pt calendar` lists upcoming events and cron jobs (--days, -p, -t,
+    --all, --json). Subcommands: add, show, update, done, cancel (events);
+    crons, add-cron (cron jobs). Dates are YYYY-MM-DD, times are 24-hour HH:MM.
+    Deadlines also reach the 7am digest email (scripts/alert_digest.py).
+
     \b
     Examples:
         pt calendar                        # Upcoming 7 days
@@ -2626,7 +2271,7 @@ def calendar_group(ctx, days, project, event_type, show_all, json_output):
         pt calendar -p ai-memory-replay    # Filter by project
         pt calendar add "Sprint review" --date 2026-03-28
         pt calendar show 1
-        pt calendar remind --json          # For cron agent polling
+        pt calendar done 1
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -2638,25 +2283,6 @@ def calendar_group(ctx, days, project, event_type, show_all, json_output):
         project_id=project_id,
         event_type=event_type,
         include_all=show_all,
-    )
-    cron_jobs = cm.get_cron_jobs(project_id=project_id)
-    _display_events(events, json_output=json_output, cron_jobs=cron_jobs)
-
-
-@calendar_group.command(name="list")
-@click.option("--days", default=7, type=int, help="Days ahead to show (default: 7)")
-@click.option("-p", "--project", default=None, help="Filter by project")
-@click.option("-t", "--type", "event_type", default=None, help="Filter by event type")
-@click.option("--all", "show_all", is_flag=True, help="Show all events ignoring date window")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def calendar_list(days, project, event_type, show_all, json_output):
-    """List upcoming calendar events and active cron jobs."""
-    db = DatabaseManager()
-    project_id = _resolve_project_id(db, project) if project else None
-    cm = _get_calendar_manager()
-    events = cm.get_events(
-        days=days, project_id=project_id,
-        event_type=event_type, include_all=show_all,
     )
     cron_jobs = cm.get_cron_jobs(project_id=project_id)
     _display_events(events, json_output=json_output, cron_jobs=cron_jobs)
@@ -2706,8 +2332,8 @@ def calendar_add_cron(project, schedule, command, description):
 
     \b
     Examples:
-        pt calendar add-cron project-tracker "*/15 * * * *" "pt calendar remind --json" \\
-            --description "Agent reminder poller"
+        pt calendar add-cron project-tracker "0 7 * * *" "scripts/alert-digest.sh" \\
+            --description "Daily digest"
         pt calendar add-cron ai-memory-replay "0 9 * * 1" "bash scripts/render_replay.sh" \\
             --description "Weekly brain replay render"
     """
@@ -2726,8 +2352,8 @@ def calendar_add_cron(project, schedule, command, description):
 
 @calendar_group.command(name="add")
 @click.argument("title")
-@click.option("--date", "event_date", required=True, help="Date: YYYY-MM-DD")
-@click.option("--time", "event_time", default=None, help="Time: HH:MM (optional)")
+@click.option("--date", "event_date", required=True, callback=_date_option, help="Date: YYYY-MM-DD")
+@click.option("--time", "event_time", default=None, callback=_time_option, help="Time: HH:MM, 24-hour (optional)")
 @click.option("-t", "--type", "event_type", default="reminder",
               type=click.Choice(["reminder", "deadline", "milestone", "meeting", "recurring"]),
               help="Event type (default: reminder)")
@@ -2808,31 +2434,6 @@ def calendar_show(event_id, json_output):
     console.print()
 
 
-@calendar_group.command(name="link")
-@click.argument("event_id", type=int)
-@click.argument("task_id", type=int)
-@click.option("--type", "link_type", default="related",
-              type=click.Choice(["related", "deadline-for", "blocks"]),
-              help="Link type (default: related)")
-def calendar_link(event_id, task_id, link_type):
-    """Link a task to a calendar event."""
-    cm = _get_calendar_manager()
-    if not cm.get_event(event_id):
-        console.print(f"[red]Event #{event_id} not found[/red]"); return
-    cm.link_task(event_id, task_id, link_type)
-    console.print(f"[green]Linked task #{task_id} to event #{event_id} ({link_type})[/green]")
-
-
-@calendar_group.command(name="unlink")
-@click.argument("event_id", type=int)
-@click.argument("task_id", type=int)
-def calendar_unlink(event_id, task_id):
-    """Remove a task-event link."""
-    cm = _get_calendar_manager()
-    cm.unlink_task(event_id, task_id)
-    console.print(f"[green]Unlinked task #{task_id} from event #{event_id}[/green]")
-
-
 @calendar_group.command(name="done")
 @click.argument("event_id", type=int)
 def calendar_done(event_id):
@@ -2858,8 +2459,8 @@ def calendar_cancel(event_id):
 @calendar_group.command(name="update")
 @click.argument("event_id", type=int)
 @click.option("--title", default=None)
-@click.option("--date", "event_date", default=None)
-@click.option("--time", "event_time", default=None)
+@click.option("--date", "event_date", default=None, callback=_date_option, help="New date: YYYY-MM-DD")
+@click.option("--time", "event_time", default=None, callback=_time_option, help='New time: HH:MM, 24-hour; --time "" clears it')
 @click.option("-t", "--type", "event_type", default=None)
 @click.option("-p", "--project", default=None)
 @click.option("--prompt", default=None)
@@ -2894,152 +2495,6 @@ def calendar_update(event_id, title, event_date, event_time, event_type, project
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
 
-
-@calendar_group.command(name="remind")
-@click.option("--within", "within_minutes", default=60, type=int,
-              help="Alert window in minutes (default: 60)")
-@click.option("--dry-run", is_flag=True, help="Print what would fire without marking as notified")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON (for cron/agent polling)")
-def calendar_remind(within_minutes, dry_run, json_output):
-    """Show events firing soon — designed for cron/agent polling.
-
-    \b
-    Run every 15 min:
-        */15 * * * * cd ~/projects/project-tracker && \\
-          pt calendar remind --json
-    """
-    import json as json_lib
-    cm = _get_calendar_manager()
-    events = cm.get_upcoming_reminders(within_minutes=within_minutes)
-    if json_output:
-        print(json_lib.dumps({"events": events, "total": len(events), "within_minutes": within_minutes}, indent=2))
-    else:
-        if not events:
-            print(f"No events firing in next {within_minutes} minutes.")
-        else:
-            print(f"🔔 {len(events)} event(s) firing soon:\n")
-            _display_events(events)
-    if not dry_run:
-        for ev in events:
-            cm.mark_notified(ev["id"])
-
-
-@calendar_group.command(name="export")
-@click.option("-o", "--output", default=None, help="Output file path (default: stdout)")
-@click.option("-p", "--project", default=None, help="Filter by project")
-@click.option("--json", "as_json", is_flag=True, help="Export as JSON")
-def calendar_export(output, project, as_json):
-    """Export calendar events as iCal (.ics) format.
-
-    \b
-    Examples:
-        pt calendar export -o ~/Desktop/pt-calendar.ics
-        pt calendar export --json
-    """
-    db = DatabaseManager()
-    project_id = _resolve_project_id(db, project) if project else None
-    cm = _get_calendar_manager()
-
-    if as_json:
-        import json as json_mod
-        events = cm.get_events(project_id=project_id, include_all=True)
-        content = json_mod.dumps(events, indent=2, default=str)
-    else:
-        content = cm.export_ical(project_id=project_id, include_all=True)
-
-    if output:
-        Path(output).write_text(content)
-        console.print(f"[green]Exported to {output}[/green]")
-    else:
-        print(content)
-
-
-
-
-@calendar_group.command(name="poll")
-@click.option("--within", "within_minutes", default=60, type=int,
-              help="Notify events firing within this many minutes (default: 60)")
-@click.option("--dry-run", is_flag=True, help="Show what would fire without marking as notified or writing to brain")
-@click.option("--quiet", is_flag=True, help="Suppress human-readable output")
-@click.option("--json", "as_json", is_flag=True, help="Output results as JSON")
-def calendar_poll(within_minutes, dry_run, quiet, as_json):
-    """Run one calendar poll cycle — fire events, write to brain, run agent prompts.
-
-    \b
-    Designed to be run every 5-15 minutes via cron. Use install-poll-cron to
-    set that up automatically.
-
-    \b
-    Examples:
-        pt calendar poll                          # 60 min window
-        pt calendar poll --within 15 --dry-run    # preview without side effects
-        pt calendar poll --json                   # structured output for agents
-    """
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).parent.parent))
-    from scripts.hooks.calendar_poller import poll as _poll
-    results = _poll(
-        within_minutes=within_minutes,
-        dry_run=dry_run,
-        quiet=quiet,
-        as_json=as_json,
-    )
-    if results.get("errors"):
-        raise SystemExit(1)
-
-
-@calendar_group.command(name="install-poll-cron")
-@click.option("--interval", default=10, type=int, help="Run every N minutes (default: 10)")
-@click.option("--within", "within_minutes", default=60, type=int,
-              help="Notify events firing within N minutes (default: 60)")
-@click.option("--remove", is_flag=True, help="Remove the poller cron job instead of installing")
-@click.option("--dry-run", is_flag=True, help="Print the crontab line without installing it")
-def calendar_install_poll_cron(interval, within_minutes, remove, dry_run):
-    """Install (or remove) the calendar_poller cron job in the current user's crontab.
-
-    \b
-    Installs a sentinel-tagged crontab line that runs the calendar poller every
-    N minutes using uv run. Output appended to data/logs/poller.log.
-
-    \b
-    Examples:
-        pt calendar install-poll-cron                          # every 10 min
-        pt calendar install-poll-cron --interval 5 --within 15
-        pt calendar install-poll-cron --remove                 # uninstall
-        pt calendar install-poll-cron --dry-run                # preview
-    """
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).parent.parent))
-    from scripts.hooks.cron_installer import install as _install
-
-    result = _install(
-        interval=interval,
-        within=within_minutes,
-        dry_run=dry_run,
-        remove=remove,
-    )
-
-    if remove:
-        removed = result["previous_lines_removed"]
-        if dry_run:
-            console.print(f"[yellow]Dry run - would remove {removed} line(s)[/yellow]")
-        else:
-            console.print(f"[green]Removed {removed} poller line(s) from crontab[/green]")
-        return
-
-    if dry_run:
-        console.print("[yellow]Dry run - crontab line would be:[/yellow]")
-        console.print(f"  [blue]{result['line']}[/blue]")
-        return
-
-    console.print(f"[green]Calendar poller installed[/green]")
-    console.print(f"   Interval : every {result['interval_minutes']} min")
-    console.print(f"   Window   : {result['within_minutes']} min lookahead")
-    console.print(f"   Log      : {result['log_path']}")
-    if result["previous_lines_removed"]:
-        console.print(f"   Replaced : {result['previous_lines_removed']} old poller line(s)")
-    console.print(f"\n   Crontab entry:")
-    console.print(f"   [dim]{result['line']}[/dim]")
 
 # =============================================================================
 # Memory group — wraps ai-memory/brain.py for cross-agent semantic memory
@@ -3129,7 +2584,7 @@ def _open_memory_db_readonly() -> sqlite3.Connection:
             f"memory database not found at {db_path}",
             EXIT_BACKEND_UNAVAILABLE,
         )
-    # ai-memory owns this read-only source; the dbmed rollout was cancelled.
+    # ai-memory owns this read-only source.
     try:
         uri = f"file:{db_path}?mode=ro"
         conn = sqlite3.connect(uri, uri=True)
@@ -3259,10 +2714,10 @@ def _memory_payload(command: str, rows: list[dict], total: int, db_path: str,
 
 
 def _run_brain(*args: str) -> None:
-    """Call brain.py via doppler + uv run, ensuring Turso credentials are available.
+    """Call brain.py via doppler + uv run.
 
-    Uses ``doppler run --project ai-memory --config dev`` so that
-    TURSO_BRAIN_URL / TURSO_BRAIN_TOKEN are always injected.
+    Uses ``doppler run --project ai-memory --config dev`` so brain.py gets
+    its own secrets; ``pt`` itself runs without Doppler.
     """
     if not BRAIN_PY_PATH.exists():
         raise click.ClickException(
@@ -3279,7 +2734,11 @@ def _run_brain(*args: str) -> None:
         "--",
         *uv_cmd,
     ]
-    subprocess.run(cmd, check=False, cwd=str(BRAIN_PY_PATH.parent))
+    # No timeout on purpose: `graph build` legitimately runs for most of an hour.
+    result = subprocess.run(cmd, check=False, cwd=str(BRAIN_PY_PATH.parent))
+    if result.returncode != 0:
+        # brain.py already printed its own error; pass its failure on.
+        sys.exit(result.returncode)
 
 
 @click.group(name="memory", invoke_without_command=True)
@@ -3292,7 +2751,7 @@ def memory_group(ctx: click.Context) -> None:
 
     \b
     Quick start:
-      pt memory search "what did we decide about Turso?"
+      pt memory search "what did we decide about backups?"
       pt memory write "Decision: use Haiku for routine tasks" --type decision
       pt memory stats
     """
@@ -3323,7 +2782,7 @@ def memory_search(query_arg: str | None, query_opt: str | None, top: int, agent_
 
     \b
     Examples:
-      pt memory search "what was the Turso decision?"
+      pt memory search "what was the backup decision?"
       pt memory search "MCP firewall" --top 10
       pt memory search "calendar" --agent-family claude
     """
@@ -3552,10 +3011,8 @@ def graph_group(ctx: click.Context) -> None:
     Quick start:
       pt graph stats                          # Node/edge/confidence counts
       pt graph query project-tracker          # What's connected to a project
-      pt graph find "Turso migration"         # Semantic search over nodes
+      pt graph find "backup strategy"         # Semantic search over nodes
       pt graph path ai-memory project-tracker # Shortest path between nodes
-      pt graph communities                    # Leiden community detection
-      pt graph wiki ai-memory                 # On-demand wiki article
       pt graph build                          # Rebuild from all memories
     """
     if ctx.invoked_subcommand is None:
@@ -3631,7 +3088,7 @@ def graph_find(query: str, top: int, hops: int, as_json: bool) -> None:
     \b
     Examples:
       pt graph find "authentication"              # What's related to auth?
-      pt graph find "Turso migration" --top 5     # Focused search
+      pt graph find "backup strategy" --top 5     # Focused search
       pt graph find "LoRA training" --hops 0      # Exact matches only
       pt graph find "deployment" --json            # JSON for agents
     """
@@ -3658,7 +3115,7 @@ def graph_path(source: str, target: str, max_depth: int, as_json: bool) -> None:
     Examples:
       pt graph path flo-fi project-tracker        # How are they connected?
       pt graph path ai-memory antigravity-ide     # Cross-project links
-      pt graph path Erik Turso --json             # JSON for agents
+      pt graph path Erik Doppler --json             # JSON for agents
     """
     args = ["graph", "path", source, target, "--max-depth", str(max_depth)]
     if as_json:
@@ -3698,71 +3155,6 @@ def graph_build(force: bool) -> None:
     args = ["graph", "build"]
     if force:
         args.append("--force")
-    _run_brain(*args)
-
-
-@graph_group.command(name="extract-upgrade")
-@click.option("--dry-run", is_flag=True, help="Preview without modifying the graph")
-@click.option("--full", is_flag=True, help="Re-scan all thoughts (default: only unprocessed)")
-def graph_extract_upgrade(dry_run: bool, full: bool) -> None:
-    """Re-extract entities from thought content using text-based extractors.
-
-    By default, only processes new thoughts not yet text-extracted (incremental).
-    Use --full to re-scan everything.
-
-    \b
-    Examples:
-      pt graph extract-upgrade --dry-run   # Preview what would be added
-      pt graph extract-upgrade             # Incremental (new thoughts only)
-      pt graph extract-upgrade --full      # Re-scan everything
-    """
-    args = ["graph", "extract-upgrade"]
-    if dry_run:
-        args.append("--dry-run")
-    if full:
-        args.append("--full")
-    _run_brain(*args)
-
-
-@graph_group.command(name="wiki")
-@click.argument("project", required=False, default="")
-def graph_wiki(project: str) -> None:
-    """Generate a Wikipedia-style article for a project's graph community.
-
-    Synthesizes nodes and edges into a readable summary using Haiku.
-    Generated on-demand — never stored. Project auto-detected from cwd.
-
-    \b
-    Examples:
-      pt graph wiki                    # Auto-detect from cwd
-      pt graph wiki ai-memory          # Specific project
-      pt graph wiki project-tracker    # Another project
-    """
-    if not project:
-        project = os.path.basename(os.getcwd())
-    _run_brain("graph", "wiki", project)
-
-
-@graph_group.command(name="communities")
-@click.option("--resolution", "-r", default=1.0, type=float,
-              help="Leiden resolution (default: 1.0, lower = fewer/larger communities)")
-@click.option("--json", "as_json", is_flag=True,
-              help="Output as JSON")
-def graph_communities(resolution: float, as_json: bool) -> None:
-    """Run Leiden community detection on the knowledge graph.
-
-    Groups related nodes into communities automatically. Writes community_id
-    to each node. Higher resolution = more/smaller communities.
-
-    \b
-    Examples:
-      pt graph communities                    # Default resolution
-      pt graph communities --resolution 0.5   # Fewer, larger communities
-      pt graph communities --json             # JSON output
-    """
-    args = ["graph", "communities", "--resolution", str(resolution)]
-    if as_json:
-        args.append("--json")
     _run_brain(*args)
 
 
@@ -3998,12 +3390,11 @@ def info_group(ctx, project, json_output):
     Global keys (pt info):
       semantic_search      grep/rg setup (grepai config, ollama model)
       projects_root        Path to ~/projects
-      db_backend           Database backend (local SQLite or Turso)
+      db_backend           Database backend (local SQLite)
       default_doppler_config  Default doppler config (dev)
       mac_mini_ssh         SSH connection string for Mac Mini
       git_identity         gha vs git vs gh conventions (personal identity)
       pr_merge_policy      PR review/merge procedure (mirrors agent-runtime-config)
-      pr_sizing_policy     ~500-line PR target for reviewability (with fallback)
 
     \b
     Per-project keys (pt info -p <project>):
@@ -4011,11 +3402,6 @@ def info_group(ctx, project, json_output):
       deploy_target        Where it runs (Vercel, Railway, Docker, local)
       doppler              Doppler project/config (e.g. project-tracker/dev)
       infrastructure       Databases, services, cron jobs, external deps
-
-    \b
-    Repopulate after DB rebuild:
-      uv run scripts/populate_info.py          # Auto-detect and set all
-      uv run scripts/populate_info.py --dry-run  # Preview first
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -4048,7 +3434,7 @@ def info_set(key, value, project):
     \b
     Examples:
       pt info set domain synthinsightlabs.com
-      pt info set tech_stack "Python, Flask, Turso" -p project-tracker
+      pt info set tech_stack "Python, Flask, SQLite" -p project-tracker
     """
     db = DatabaseManager()
     db.set_info(key, value, project_id=project)
@@ -4072,21 +3458,6 @@ def info_get(key, project, json_output):
     db = DatabaseManager()
     entries = db.get_info(project_id=project, key=key)
     if not entries:
-        # Fallback: check populate_info.py GLOBAL_KEYS for pr_sizing_policy only
-        # (limiting to pr_sizing_policy prevents undoing intentional key deletes)
-        if not project and key == "pr_sizing_policy":
-            try:
-                from scripts.populate_info import GLOBAL_KEYS
-                if key in GLOBAL_KEYS:
-                    value = GLOBAL_KEYS[key]
-                    if json_output:
-                        click.echo(json_mod.dumps({"key": key, "value": value, "source": "fallback"}, indent=2))
-                    else:
-                        click.echo(value)
-                    return
-            except ImportError as e:
-                # Surface import failure instead of silently looking like "No entry found"
-                click.echo(f"Warning: Could not load fallback for '{key}': {e}", err=True)
         scope = f" for project '{project}'" if project else " (global)"
         click.echo(f"No entry found for '{key}'{scope}")
         return
@@ -4163,12 +3534,11 @@ def _effective_config_payload() -> dict:
         "projects_root": str(PROJECTS_BASE_DIR),
         "tracker_db_path": str(get_db_path()),
         "memory_db_path": str(_memory_db_path()),
-        "backend": "turso" if _USE_TURSO else "local",
+        "backend": "local",
         "env": {
             "PT_DB_PATH": os.environ.get("PT_DB_PATH"),
             "PT_MEMORY_DB_PATH": os.environ.get("PT_MEMORY_DB_PATH"),
             "PROJECTS_ROOT": os.environ.get("PROJECTS_ROOT"),
-            "PT_SKIP_DOPPLER": os.environ.get("PT_SKIP_DOPPLER"),
             "PT_NO_BANNER": os.environ.get("PT_NO_BANNER"),
         },
     }
@@ -4249,7 +3619,7 @@ def doctor(json_output: bool) -> None:
         "checks": checks,
         "cron_setup": {
             "recommended_path": f"{project_root / 'pt'}",
-            "example": f"cd {project_root} && PT_SKIP_DOPPLER=1 pt memory recent --since 7d --json",
+            "example": f"cd {project_root} && pt memory recent --since 7d --json",
         },
     }
     if json_output:
@@ -4665,8 +4035,6 @@ def _collect_invocations(**filters):
 
     try:
         rows = list(_iter_skill_invocations(since=since, **filters))
-    except _SkillsTursoEnabledError as exc:
-        raise click.ClickException(str(exc)) from exc
     except _SkillInvocationsTableMissing as exc:
         raise click.ClickException(str(exc)) from exc
     except FileNotFoundError as exc:
@@ -4847,9 +4215,7 @@ def db_group(ctx):
 
     The migration runner applies any pending migrations from
     `scripts/db/migrations/` to the local tracker.db. Each migration
-    runs inside a transaction; CRR-table alters are bracketed with
-    `crsql_begin_alter` / `crsql_commit_alter` when cr-sqlite is loaded
-    (skipped otherwise). See MAC_MINI_SYNC_PLAN.md §2.1a and §2.2.
+    runs inside a transaction, after a verified backup.
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -4857,28 +4223,12 @@ def db_group(ctx):
 
 @db_group.command(name="migrate")
 def db_migrate():
-    """Apply every pending migration in order.
-
-    Refuses to run against Turso — the runner targets local SQLite
-    only. Future work (PR #3b) will refuse if data-plane sync is
-    currently running. Today sync isn't on, so that check is a no-op.
-    """
-    if _USE_TURSO:
-        console.print(
-            "[red]pt db migrate: Turso backend is active — this runner "
-            "targets local SQLite only.[/red]"
-        )
-        console.print(
-            "[dim]Disable Turso in ~/projects/.turso-config.json to use "
-            "the local runner.[/dim]"
-        )
-        sys.exit(2)
-
+    """Apply every pending migration in order."""
     db = DatabaseManager()
 
-    # Schema migration is a destructive operation: it runs ALTERs, and for CRR
-    # tables the runner brackets them with crsql_begin_alter/crsql_commit_alter.
-    # `authorize` takes and verifies a full timestamped backup first.
+    # Schema migration is a destructive operation (ALTERs, and migration 018
+    # drops the cr-sqlite tables and triggers). `authorize` takes and verifies
+    # a full timestamped backup first.
     result = db.authorize(
         "migrations_apply", reason="pt db migrate: apply pending schema migrations"
     )
@@ -4895,201 +4245,6 @@ def db_migrate():
     for m in applied:
         console.print(f"  • {m['version']:03d}_{m['name']}")
 
-
-# =============================================================================
-# pt sync — data-plane pause/resume + status (Phase 2.1b)
-# =============================================================================
-#
-# The underlying sync daemon (cr-sqlite replication over Tailscale) isn't
-# built yet — this CLI is the operator-facing surface the migration
-# policy (§2.3 `pt db migrate`) depends on. Today `pt sync status`
-# reports "sync engine disabled" because cr-sqlite isn't loaded; pause
-# and resume still work (they persist intent to _metadata) so when the
-# daemon lands in PR #3c it reads the same state.
-
-
-@click.group(name="sync", invoke_without_command=True)
-@click.pass_context
-def sync_group(ctx):
-    """Data-plane sync control (cr-sqlite replication, Phase 2).
-
-    \b
-    Commands:
-        pt sync status     — show pause state + last sync + engine state
-        pt sync check      — verify local sync readiness before broader rollout
-        pt sync pause      — halt data-plane replication (control plane keeps running)
-        pt sync pause --all — halt everything (rare; stops migration announcements too)
-        pt sync resume     — resume data-plane replication
-        pt sync set-machine-id <id> — persist _metadata['pt.machine_id']
-    """
-    if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
-
-
-def _sync_conn() -> DatabaseManager:
-    """Return local operations for sync control commands."""
-    return DatabaseManager()
-
-
-def _handle_sync_db_error(cmd: str, err: Exception) -> None:
-    """Print a uniform error and exit 2 for sync DB failures.
-
-    Called by sync_status / sync_pause / sync_resume so a broken DB
-    path produces a clean message, not a traceback.
-    """
-    console.print(f"[red]pt sync {cmd}: {err}[/red]")
-    sys.exit(2)
-
-@sync_group.command(name="status")
-def sync_status():
-    """Show pause state, last successful sync, and engine availability."""
-    if _USE_TURSO:
-        console.print("[yellow]sync engine: Turso (replication handled upstream)[/yellow]")
-        return
-    try:
-        state = _sync_conn().sync_status()
-    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
-        _handle_sync_db_error("status", err)
-        return  # pragma: no cover — _handle_sync_db_error raises SystemExit
-    paused = state["paused"]
-    scope = state["scope"]
-    last = state["last_sync"]
-    engine_on = state["engine_active"]
-
-    engine_line = (
-        "[green]engine: cr-sqlite loaded[/green]"
-        if engine_on
-        else "[dim]engine: cr-sqlite NOT loaded (sync not yet active)[/dim]"
-    )
-    if paused:
-        state = f"[yellow]paused ({scope})[/yellow]"
-    else:
-        state = "[green]running[/green]" if engine_on else "[dim]idle[/dim]"
-    last_line = last or "[dim]never[/dim]"
-
-    console.print(f"state:         {state}")
-    console.print(f"last sync:     {last_line}")
-    console.print(engine_line)
-
-
-@sync_group.command(name="check")
-def sync_check():
-    """Verify local sync-readiness prerequisites against the live DB."""
-    if _USE_TURSO:
-        console.print("[yellow]pt sync check: Turso mode — local SQLite readiness does not apply.[/yellow]")
-        return
-    try:
-        checks = _sync_conn().sync_check()
-    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
-        _handle_sync_db_error("check", err)
-        return  # pragma: no cover
-
-    all_ok = True
-    for check in checks:
-        label = "[green]ok[/green]" if check["ok"] else "[red]fail[/red]"
-        if not check["ok"]:
-            all_ok = False
-        console.print(f"{label} {check['name']}: {check['detail']}")
-
-    if not all_ok:
-        sys.exit(3)
-
-
-@sync_group.command(name="set-machine-id")
-@click.argument("machine_id", type=int)
-def sync_set_machine_id(machine_id: int):
-    """Persist _metadata['pt.machine_id'] for this machine."""
-    if _USE_TURSO:
-        console.print("[red]pt sync set-machine-id: Turso mode — local SQLite metadata is not active.[/red]")
-        sys.exit(2)
-
-    try:
-        _sync_conn().sync_set_machine_id(machine_id=machine_id)
-    except ValueError as err:
-        # An out-of-range id is an operator error, not a traceback.
-        console.print(f"[red]pt sync set-machine-id: {err}[/red]")
-        sys.exit(2)
-    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
-        _handle_sync_db_error("set-machine-id", err)
-        return  # pragma: no cover
-
-    console.print(f"[green]✓ pt.machine_id set to {machine_id}.[/green]")
-
-
-@sync_group.command(name="pause")
-@click.option(
-    "--all", "all_scope", is_flag=True,
-    help="Halt control plane too (stops migration announcements). Rare.",
-)
-def sync_pause(all_scope: bool):
-    """Halt data-plane replication. Control plane keeps running unless --all."""
-    if _USE_TURSO:
-        console.print("[red]pt sync pause: Turso mode — nothing to pause locally.[/red]")
-        sys.exit(2)
-    scope = "all" if all_scope else "data_plane"
-    try:
-        _sync_conn().sync_pause(scope=scope)
-    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
-        _handle_sync_db_error("pause", err)
-        return  # pragma: no cover
-    console.print(f"[yellow]✓ sync paused ({scope}).[/yellow]")
-    if scope == "all":
-        console.print(
-            "[dim]Control plane is ALSO halted — migration announcements "
-            "won't cross machines until resume.[/dim]"
-        )
-
-
-@sync_group.command(name="resume")
-@click.option(
-    "--force", is_flag=True,
-    help="Resume even if the peer hasn't acknowledged a recently-applied migration.",
-)
-def sync_resume(force: bool):
-    """Resume data-plane replication.
-
-    Implements the §2.3 step-6 gate: refuses to clear the pause state
-    when this machine has applied a migration that the peer hasn't
-    announced yet (determined from ``schema_migration_announcements``
-    — which is CRR-classified, so peer's rows replicate in via the
-    always-on control plane once cr-sqlite lands).
-
-    The gate only activates once ``schema_migration_announcements`` is
-    flipped to CRR (§2.5) AND this machine has a local ``site_id``
-    (cr-sqlite loaded). Before then it's a no-op — otherwise a
-    daemon-less install could never resume, since no peer rows can
-    replicate in.
-    """
-    if _USE_TURSO:
-        console.print("[red]pt sync resume: Turso mode — nothing to resume locally.[/red]")
-        sys.exit(2)
-    db = _sync_conn()
-    try:
-        if not force:
-            blocked = db.sync_resume_blocked_versions()
-            if blocked:
-                versions = ", ".join(f"{v:03d}" for v in blocked)
-                console.print(
-                    f"[yellow]pt sync resume: waiting for peer to apply "
-                    f"migration(s) {versions}.[/yellow]"
-                )
-                console.print(
-                    "On the peer machine, run:\n"
-                    "    cd ~/projects/project-tracker && git pull\n"
-                    "    pt db migrate\n"
-                    "Resume will proceed automatically once the peer's "
-                    "announcement arrives. "
-                    "Use [cyan]--force[/cyan] to override this gate."
-                )
-                sys.exit(3)
-        was_paused = db.sync_resume()["was_paused"]
-    except _LOCAL_DB_ERRORS as err:  # governance: allow-silent SF002: unreachable return; _handle_sync_db_error prints the error and exits 2
-        _handle_sync_db_error("resume", err)
-        return  # pragma: no cover
-    if was_paused:
-        console.print("[green]✓ sync resumed.[/green]")
-    else:
-        console.print("[dim]sync was not paused.[/dim]")
 
 # =============================================================================
 # Handoff group — structured unfinished-work / non-PR records (Phase D)
@@ -5532,8 +4687,9 @@ def handoff_resolve(handoff_id: int, note: Optional[str], json_output: bool) -> 
 # `pt migration start <name>` captures a baseline (git HEAD + porcelain
 # status) into a state file at PT_MIGRATION_DIR/<name>.json (default
 # ~/.project-tracker/migrations/). `pt migration finish` diffs the current
-# working tree against the baseline and writes a manifest section into
-# MIGRATIONS.md at the repo root (appended, never overwritten).
+# working tree against the baseline and PRINTS a manifest (new/modified paths
+# plus the header fields). It writes nothing into the repo: an appended
+# MIGRATIONS.md made multi-repo sweeps conflict after review had passed.
 #
 # Optional flags:
 #   --commit  marks the session as committed (files left in place)
@@ -5927,8 +5083,7 @@ def migration_start(name: str, force: bool, json_output: bool) -> None:
         click.echo(f"  baseline: {len(baseline)} dirty/untracked path(s)")
 
 
-def _append_manifest(
-    repo_dir: Path,
+def _build_manifest(
     name: str,
     state: dict,
     finished_at: str,
@@ -5936,51 +5091,44 @@ def _append_manifest(
     modified: list[dict],
     action: str,
     head_drift_warning: Optional[str],
-) -> Path:
-    """Append a timestamped migration section to MIGRATIONS.md at repo root.
+) -> dict:
+    """The manifest of a finished migration session, as structured data."""
+    return {
+        "name": name,
+        "started_at": state.get("started_at"),
+        "finished_at": finished_at,
+        "baseline_head": state.get("baseline_head"),
+        "action": action,
+        "head_drift_warning": head_drift_warning,
+        "added": added,
+        "modified": modified,
+    }
 
-    Returns the manifest path. Never overwrites existing content.
-    """
-    manifest_path = repo_dir / "MIGRATIONS.md"
-    lines: list[str] = []
-    if not manifest_path.exists():
-        lines.append("# Migration Manifests\n")
-        lines.append("")
-        lines.append(
-            "Append-only log of `pt migration` sessions. Each section "
-            "records the paths touched between `start` and `finish` for "
-            "a named bulk operation.\n"
-        )
-        lines.append("")
-    lines.append(f"## {name} — {finished_at}")
-    lines.append("")
-    lines.append(f"- started_at:  `{state.get('started_at')}`")
-    lines.append(f"- finished_at: `{finished_at}`")
-    lines.append(f"- baseline_head: `{state.get('baseline_head') or '(none)'}`")
-    lines.append(f"- action: `{action}`")
-    if head_drift_warning:
-        lines.append(f"- WARNING: {head_drift_warning}")
-    lines.append("")
-    lines.append("### New paths (introduced during session)")
-    if added:
-        for entry in added:
-            lines.append(f"- `[{entry['classification']}]` `{entry['path']}`")
-    else:
-        lines.append("- _(none)_")
-    lines.append("")
-    lines.append("### Modified paths (status changed during session)")
-    if modified:
-        for entry in modified:
-            lines.append(f"- `[{entry['classification']}]` `{entry['path']}`")
-    else:
-        lines.append("- _(none)_")
-    lines.append("")
-    lines.append("---")
-    lines.append("")
 
-    with manifest_path.open("a", encoding="utf-8") as fh:
-        fh.write("\n".join(lines) + "\n")
-    return manifest_path
+def _render_manifest(manifest: dict) -> str:
+    """Render a `_build_manifest` dict as a markdown section."""
+    lines: list[str] = [
+        f"## {manifest['name']} — {manifest['finished_at']}",
+        "",
+        f"- started_at:  `{manifest['started_at']}`",
+        f"- finished_at: `{manifest['finished_at']}`",
+        f"- baseline_head: `{manifest['baseline_head'] or '(none)'}`",
+        f"- action: `{manifest['action']}`",
+    ]
+    if manifest["head_drift_warning"]:
+        lines.append(f"- WARNING: {manifest['head_drift_warning']}")
+    for title, entries in (
+        ("New paths (introduced during session)", manifest["added"]),
+        ("Modified paths (status changed during session)", manifest["modified"]),
+    ):
+        lines.append("")
+        lines.append(f"### {title}")
+        if entries:
+            for entry in entries:
+                lines.append(f"- `[{entry['classification']}]` `{entry['path']}`")
+        else:
+            lines.append("- _(none)_")
+    return "\n".join(lines)
 
 
 class PathEscapesRepoError(ValueError):
@@ -6174,10 +5322,11 @@ def _revert_paths(
 def migration_finish(
     name: str, commit_flag: bool, revert_flag: bool, json_output: bool
 ) -> None:
-    """Close migration NAME and write a manifest section to MIGRATIONS.md.
+    """Close migration NAME and print its manifest of touched paths.
 
-    Without --commit or --revert, only writes the manifest (files left
-    in place). --commit and --revert are mutually exclusive.
+    The manifest is printed (or, with --json, returned under "manifest");
+    nothing is written into the repo. Without --commit or --revert, files
+    are left in place. --commit and --revert are mutually exclusive.
     """
     try:
         _validate_migration_name(name)
@@ -6279,8 +5428,8 @@ def migration_finish(
             "errors": [{"path": p, "reason": r} for p, r in errors],
         }
 
-    manifest_path = _append_manifest(
-        repo_dir, name, state, finished_at, added, modified, action, head_drift_warning
+    manifest = _build_manifest(
+        name, state, finished_at, added, modified, action, head_drift_warning
     )
 
     # Update DB row if present.
@@ -6294,7 +5443,6 @@ def migration_finish(
             name=name,
             finished_at=finished_at,
             status=status_value,
-            manifest_path=str(manifest_path),
         )
         if not outcome["ok"]:
             # Best-effort, but not silent — see migration start.
@@ -6309,7 +5457,7 @@ def migration_finish(
     try:
         state_path.unlink()
     except OSError as exc:
-        # The session is finished and in the manifest, but a leftover state
+        # The session is finished and its manifest printed, but a leftover state
         # file would let a second `finish` replay the stale baseline. Say so.
         click.echo(f"⚠ could not remove migration state file {state_path}: {exc}", err=True)
 
@@ -6322,7 +5470,7 @@ def migration_finish(
                 "name": name,
                 "finished_at": finished_at,
                 "action": action,
-                "manifest_path": str(manifest_path),
+                "manifest": manifest,
                 "added": added,
                 "modified": modified,
                 "head_drift_warning": head_drift_warning,
@@ -6333,7 +5481,6 @@ def migration_finish(
 
     click.echo(f"✓ Migration {name!r} finished at {finished_at}")
     click.echo(f"  action:   {action}")
-    click.echo(f"  manifest: {manifest_path}")
     click.echo(f"  added:    {len(added)}  modified: {len(modified)}")
     if head_drift_warning:
         click.echo(f"  WARNING: {head_drift_warning}")
@@ -6344,6 +5491,8 @@ def migration_finish(
             click.echo(f"  errors:   {len(revert_summary['errors'])}")
             for e in revert_summary["errors"]:
                 click.echo(f"    - {e['path']}: {e['reason']}")
+    click.echo("")
+    click.echo(_render_manifest(manifest))
 
 
 @migration_group.command(name="list")
@@ -6384,6 +5533,114 @@ def migration_list(json_output: bool) -> None:
 
 
 # =============================================================================
+# pt size: codebase size, snapshots, optimization score (#8083)
+# =============================================================================
+
+
+def _size_db() -> "DatabaseManager":
+    """DatabaseManager with migration 017 confirmed, checked before any scan."""
+    db = DatabaseManager()
+    try:
+        db.codebase_baseline()
+    except Exception as exc:  # governance: allow-silent SF001: only "no such table" is mapped; anything else is re-raised
+        if "no such table" in str(exc):
+            raise click.ClickException(
+                "table codebase_size_snapshots is missing; run `pt db migrate`"
+            ) from exc
+        raise
+    return db
+
+
+def _size_score_text(score: Optional[float]) -> str:
+    # Adding 0.0 turns a rounded -0.0 into 0.0, so a change too small to show
+    # never reads as a regression.
+    return "-" if score is None else f"{round(score, 1) + 0.0:+.1f}"
+
+
+@click.command(name="size")
+@click.option("--json", "json_output", is_flag=True, help="Emit JSON")
+@click.option("--snapshot", is_flag=True, help="Append this scan as a new run (stored only if every repo scanned)")
+@click.pass_context
+def size_command(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
+    """Codebase size per project and optimization score vs the baseline.
+
+    score = (baseline_lean - current_lean) / baseline_lean * 100, where
+    lean = non-test code lines + markdown doc lines and the baseline is the
+    repo's row in the earliest `pt size --snapshot` run. Positive = leaner.
+    Each repo's checked-out working tree is measured, best effort.
+    """
+    from scripts import codebase_size as cs
+    from scripts.config import projects_root
+
+    db = _size_db()
+    root = projects_root()
+    try:
+        rows = cs.scan_portfolio(root)
+    except cs.ProjectsRootMissing as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not rows:
+        raise click.ClickException(f"no git repos found under {root}")
+    good = [r for r in rows if not r.error]
+    failed = [r for r in rows if r.error]
+
+    today = datetime.now().date().isoformat()
+    # A snapshot run is all-or-nothing: a run with a repo missing would not be
+    # one complete measurement (and the first run becomes the baseline).
+    stored = bool(snapshot and not failed)
+    if stored:
+        db.save_codebase_scan(good, today)
+    # Read after saving, so the very first snapshot is its own baseline.
+    base_date, base, _, _ = db.codebase_runs()
+
+    report = cs.build_report(good, base, base_date)
+    scored = report["rows"]
+    total = report["total"]
+    total_score = total["score"]
+
+    if json_output:
+        click.echo(json.dumps({
+            "baseline_date": base_date,
+            "snapshot_stored": stored,
+            "rows": scored,
+            "total": total,
+            "formula": report["formula"],
+            "errors": [{"project": r.project, "error": r.error} for r in failed],
+        }, indent=2))
+    else:
+        click.echo(
+            f"baseline: {base_date}" if base_date
+            else "baseline: none yet (the first `pt size --snapshot` run becomes it)"
+        )
+        click.echo(
+            f"{'code':>7} {'tests':>7} {'docs':>5} {'doclines':>8} {'last':>10} "
+            f"{'c90':>4} {'score':>7}  project"
+        )
+        for d in scored:
+            click.echo(
+                f"{d['code']:>7} {d['tests']:>7} {d['doc_files']:>5} {d['doc_lines']:>8} "
+                f"{d['last_commit'] or '-':>10} {d['commits_90d'] if d['commits_90d'] is not None else '-':>4} "
+                f"{_size_score_text(d['score']):>7}  {d['project']}"
+            )
+        click.echo(
+            f"TOTAL code {total['code']} tests {total['tests']} docs {total['doc_files']} "
+            f"doclines {total['doc_lines']} repos {total['repos']} "
+            f"score {_size_score_text(total_score)}"
+        )
+        if stored:
+            click.echo(f"Stored {len(good)} scan rows for {today}.")
+    for r in failed:
+        click.echo(f"ERROR {r.project}: {r.error}", err=True)
+    if snapshot and not stored:
+        click.echo(
+            f"Snapshot NOT stored: {len(failed)} repo(s) failed to scan. "
+            "Fix them and re-run `pt size --snapshot`.",
+            err=True,
+        )
+    if failed:
+        ctx.exit(1)
+
+
+# =============================================================================
 # Register subgroups and run
 # =============================================================================
 
@@ -6392,7 +5649,6 @@ from scripts.pr_settle import pr_group
 cli.add_command(pr_group)
 cli.add_command(backup_group)
 cli.add_command(tasks_group)
-cli.add_command(inbox_group)
 cli.add_command(calendar_group)
 cli.add_command(memory_group)
 cli.add_command(graph_group)
@@ -6402,9 +5658,9 @@ cli.add_command(config_group)
 cli.add_command(message_group)
 cli.add_command(skills_group)
 cli.add_command(db_group)
-cli.add_command(sync_group)
 cli.add_command(handoff_group)
 cli.add_command(jobs_group)
+cli.add_command(size_command)
 cli.add_command(migration_group)
 
 def main() -> NoReturn:

@@ -1,6 +1,7 @@
 """Regression tests for config and cron fallback behavior."""
 
 import importlib
+import importlib.util
 import logging
 import sqlite3
 import sys
@@ -81,14 +82,28 @@ def test_config_runtime_defaults_are_project_tracker_local(monkeypatch):
     import scripts.config as config
 
     monkeypatch.delenv("PT_RESOURCES_FILE", raising=False)
-    monkeypatch.delenv("PT_REINDEX_SCRIPT", raising=False)
 
     reloaded = importlib.reload(config)
 
     assert reloaded.EXTERNAL_RESOURCES_FILE == reloaded.PROJECT_ROOT / "EXTERNAL_RESOURCES.yaml"
-    assert reloaded.REINDEX_SCRIPT_PATH == reloaded.PROJECT_ROOT / "scripts" / "reindex_projects.py"
     assert "project-scaffolding" not in str(reloaded.EXTERNAL_RESOURCES_FILE)
-    assert "project-scaffolding" not in str(reloaded.REINDEX_SCRIPT_PATH)
+
+
+@pytest.mark.parametrize("form", ["absolute", "relative"])
+def test_resources_file_honors_pt_resources_file_override(monkeypatch, tmp_path, form):
+    import scripts.config as config
+
+    registry = tmp_path / "custom registry's $NAME.yaml"
+    monkeypatch.chdir(tmp_path)
+    configured = registry.name if form == "relative" else str(registry)
+    monkeypatch.setenv("PT_RESOURCES_FILE", configured)
+
+    spec = importlib.util.spec_from_file_location("synthetic_config", config.__file__)
+    synthetic = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(synthetic)
+
+    assert synthetic.EXTERNAL_RESOURCES_FILE == Path(configured)
+    assert synthetic.EXTERNAL_RESOURCES_FILE.resolve() == registry.resolve()
 
 
 def test_graph_builder_uses_bundled_scan_config_without_warning(caplog):

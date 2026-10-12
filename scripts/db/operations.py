@@ -8,30 +8,36 @@ from typing import Any
 from types import SimpleNamespace
 from functools import wraps
 
+
+# Migration 018 removes cr-sqlite; see _migrations_apply.
+_CR_SQLITE_CLEANUP_VERSION = 18
+
+
+def _crsql_objects_remain(conn: sqlite3.Connection) -> bool:
+    """True while any cr-sqlite trigger or table is left in the database."""
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'trigger') "
+        "AND (name LIKE '%\\_\\_crsql\\_%' ESCAPE '\\' OR name LIKE 'crsql\\_%' ESCAPE '\\')"
+    ).fetchone() is not None
+
+
 class ProjectTrackerOps:
     _DESTRUCTIVE_BACKEND_OPS = frozenset({
         "delete_project", "delete_done_tasks", "trim_done_tasks", "raw_import_tasks",
     })
 
     def __init__(self, db_path=None):
-        from .backend_manager import DatabaseManager, _USE_TURSO
-        if _USE_TURSO:
-            raise RuntimeError(
-                "Project Tracker local operations require Turso to be disabled in "
-                "~/projects/.turso-config.json; refusing mixed local/remote writes"
-            )
+        from .backend_manager import DatabaseManager
         from .backend_calendar_manager import CalendarManager
         from .schema import get_db_path
-        from .pt_id import _find_crsqlite_dylib
         from scripts.backup_config import external_backup_dir
         self.db_path = Path(db_path) if db_path is not None else get_db_path()
         self.entry = SimpleNamespace(
             backup_dir=self.db_path.parent / "backups",
             external_backup_dir=external_backup_dir(),
-            crsqlite_path=_find_crsqlite_dylib(),
         )
         self._db = DatabaseManager(self.db_path)
-        self._cal = CalendarManager(self.db_path, crsqlite_path=self.entry.crsqlite_path)
+        self._cal = CalendarManager(self.db_path)
         self._cal.ensure_tables()
         self._db.migrate_attachments_table()
 
@@ -151,96 +157,6 @@ class ProjectTrackerOps:
                 return {"ok": False, "project_id": project["id"], "error": str(exc)}
         return {"ok": True, "project_id": project["id"], "error": None}
 
-    # -- sync control plane ------------------------------------------------
-
-    def _sync_conn(self) -> sqlite3.Connection:
-        """isolation_level=None so sync_state's implicit commits stand alone.
-
-        Same rationale as the CLI helper this replaces: without it Python's
-        sqlite3 auto-inserts a BEGIN before DML and the module's own
-        INSERT OR REPLACE / DELETE end up nested in a second transaction.
-        """
-        return sqlite3.connect(self.db_path, isolation_level=None)
-
-    def sync_status(self) -> dict:
-        from .sync_state import is_paused, last_sync, pause_scope
-
-        conn = self._sync_conn()
-        try:
-            return {
-                "paused": is_paused(conn),
-                "scope": pause_scope(conn),
-                "last_sync": last_sync(conn),
-                "engine_active": self._engine_active(conn),
-            }
-        finally:
-            conn.close()
-
-    def sync_check(self) -> list:
-        from .sync_checks import local_sync_readiness
-
-        conn = self._sync_conn()
-        try:
-            return [
-                {"name": c.name, "ok": c.ok, "detail": c.detail}
-                for c in local_sync_readiness(conn)
-            ]
-        finally:
-            conn.close()
-
-    def sync_pause(self, scope: str = "data_plane") -> dict:
-        from .sync_state import set_paused
-
-        if scope not in ("data_plane", "all"):
-            raise ValueError(f"unknown pause scope {scope!r}")
-        conn = self._sync_conn()
-        try:
-            set_paused(conn, scope=scope)  # type: ignore[arg-type]
-        finally:
-            conn.close()
-        return {"paused": True, "scope": scope}
-
-    def sync_resume(self) -> dict:
-        from .sync_state import clear_paused, is_paused
-
-        conn = self._sync_conn()
-        try:
-            was_paused = is_paused(conn)
-            clear_paused(conn)
-        finally:
-            conn.close()
-        return {"was_paused": was_paused}
-
-    def sync_resume_blocked_versions(self) -> list:
-        from .sync_state import resume_blocked_versions
-
-        conn = self._sync_conn()
-        try:
-            return list(resume_blocked_versions(conn))
-        finally:
-            conn.close()
-
-    def sync_set_machine_id(self, machine_id: int) -> dict:
-        from .sync_checks import set_explicit_machine_id
-
-        conn = self._sync_conn()
-        try:
-            set_explicit_machine_id(conn, machine_id)
-        finally:
-            conn.close()
-        return {"machine_id": machine_id}
-
-    @staticmethod
-    def _engine_active(conn: sqlite3.Connection) -> bool:
-        """True if cr-sqlite is loaded; only "no such function" means it is not."""
-        try:
-            conn.execute("SELECT crsql_db_version()").fetchone()
-            return True
-        except sqlite3.OperationalError as err:  # governance: allow-silent SF002: only "no such function" returns False, the true answer without cr-sqlite; locked or corrupt databases re-raise
-            if "no such function" in str(err).lower():
-                return False
-            raise
-
     # -- schema migrations --------------------------------------------------
 
     def _migrations_dir(self) -> Path:
@@ -266,7 +182,7 @@ class ProjectTrackerOps:
         return self._migrations_apply()
 
     def _migrations_apply(self) -> dict:
-        from .migration_runner import MigrationError, apply_all
+        from .migration_runner import MigrationError, apply_all, discover_migrations
 
         directory = self._migrations_dir()
         if not directory.is_dir():
@@ -274,7 +190,30 @@ class ProjectTrackerOps:
 
         conn = sqlite3.connect(self.db_path, isolation_level=None)
         try:
-            self._load_crsqlite(conn)
+            # A restored pre-018 backup still carries cr-sqlite triggers, which
+            # break every row write an older pending migration makes. Run 018's
+            # cleanup first, as one transaction: the DB ends up either untouched
+            # or fully cr-sqlite-free with its machine id kept, never between.
+            # 018 is idempotent, so its turn in the normal order is a no-op that
+            # records it. This also clears anything old code recreated later.
+            if _crsql_objects_remain(conn):
+                cleanup = next(
+                    (m for m in discover_migrations(directory, verbose=False)
+                     if m.version == _CR_SQLITE_CLEANUP_VERSION),
+                    None,
+                )
+                if cleanup is None:
+                    raise FileNotFoundError(
+                        f"migration {_CR_SQLITE_CLEANUP_VERSION:03d} is missing from {directory}"
+                    )
+                conn.execute("BEGIN")
+                try:
+                    cleanup.up(conn)
+                    conn.execute("COMMIT")
+                except BaseException:
+                    if conn.in_transaction:  # SQLite may have rolled back already
+                        conn.execute("ROLLBACK")
+                    raise
             try:
                 applied = apply_all(conn, directory)
             except MigrationError as err:
@@ -286,17 +225,6 @@ class ProjectTrackerOps:
             "error": None,
             "applied": [{"version": m.version, "name": m.name} for m in applied],
         }
-
-    def _load_crsqlite(self, conn: sqlite3.Connection) -> None:
-        """Load the locally installed cr-sqlite extension for migrations."""
-        dylib = self.entry.crsqlite_path
-        if dylib is None or not Path(dylib).is_file():
-            raise FileNotFoundError("cr-sqlite is required for migrations; install the local extension")
-        conn.enable_load_extension(True)
-        try:
-            conn.load_extension(str(dylib), entrypoint="sqlite3_crsqlite_init")
-        finally:
-            conn.enable_load_extension(False)
 
     # -- handoff records ---------------------------------------------------
 
@@ -495,7 +423,8 @@ class ProjectTrackerOps:
             conn.close()
 
     def migration_session_finish(
-        self, name: str, finished_at: str, status: str, manifest_path: str
+        self, name: str, finished_at: str, status: str,
+        manifest_path: str | None = None,
     ) -> dict:
         """Close a recording session. Best-effort, but never silent — see above."""
         if status not in ("finished", "committed", "reverted"):

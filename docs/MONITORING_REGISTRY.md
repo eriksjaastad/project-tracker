@@ -11,22 +11,33 @@ There is one registry file, not several:
 ~/projects/project-tracker/EXTERNAL_RESOURCES.yaml
 ```
 
-This is the default-layout example. The seeded alias uses the configured
-`EXTERNAL_RESOURCES_FILE` (including `PT_RESOURCES_FILE`); generate these laptop
-paths on the laptop. The remote invocation uses the actual tracker checkout,
-the configured `PROJECTS_ROOT`, and explicit resource configuration, with shell
-quoting for each path. Saga executes that invocation from the Mini rather than
-regenerating it from the Mini's settings. SSH examples below show the default
-layout; use the seeded invocation when the laptop's paths differ.
+This is the default-layout example; the laptop's configured
+`EXTERNAL_RESOURCES_FILE` (`PT_RESOURCES_FILE` overrides it) is the real path.
+SSH examples below show the default layout; when the laptop's paths differ,
+use the `remote_pt_invocation` row rather than regenerating paths from the
+Mini's settings.
 
 Its `projects:` block (pre-existing) is the authority on **which third-party
 services each project uses**, account ownership and cost. Its `monitoring:`
 block (added 2026-09-22) adds only what a monitor needs: production URL, repo,
 provider, health check, scheduled jobs, backup destination, owner.
 
-`pt info get external_resources_doc` points at this file. Both this alias and
-`remote_pt_invocation` are seeded by `scripts/populate_info.py` during info-store
-population; an unpopulated store must be initialized before these lookups work.
+`pt info get external_resources_doc` points at this file, and
+`pt info get remote_pt_invocation` gives Saga the SSH command for the live
+board. Both are curated rows in the info store. If the store is rebuilt, set
+them again on the laptop with absolute laptop paths, and shell-quote any path
+that has spaces:
+
+```bash
+pt info set external_resources_doc "<absolute EXTERNAL_RESOURCES_FILE>"
+pt info set remote_pt_invocation "ssh macbook-pro 'cd <PROJECTS_ROOT> && <tracker checkout>/pt tasks -p <project>'"
+```
+
+The invocation names the launcher by absolute path because `pt` is a shell
+alias on the laptop and is not on `PATH` over non-interactive SSH. `cd` does
+not set the projects root: `pt` reads `PROJECTS_ROOT` from the environment and
+otherwise falls back to `~/projects`. When the laptop overrides either path,
+prefix the launcher with `env PROJECTS_ROOT=<path> PT_RESOURCES_FILE=<path>`.
 Nothing else is a source of truth for external connections, and no second copy
 may be created — including on the Mini.
 
@@ -73,7 +84,7 @@ Verify the tailnet before diagnosing anything else: `tailscale status`.
 This is the single biggest limitation on "nothing slips through the cracks,"
 and it must be designed around rather than discovered during an incident.
 
-The registry, the Kanban board, dbmed, and every local SQLite database live on
+The registry, the Kanban board, and every local SQLite database live on
 the **laptop**. The laptop is a MacBook that sleeps when the lid closes. Sleep
 is currently held off only by `caffeinate`, which is not permanent.
 
@@ -259,8 +270,7 @@ Four of the five blockers Saga reported are already resolved or were misread:
    Cloud SQL Postgres behind Cloud Run. The deployment Makefile attaches
    `synth-insight-labs:us-central1:synth-insight-labs-pg`; the registry records
    that instance without inferring its backup policy.
-   Everything else is local SQLite (project-tracker's behind dbmed; the rest
-   plain files).
+   Everything else is local SQLite (project-tracker's is a plain file like the rest).
 5. **"Need the live project list"** — the only genuine blocker, and the
    `monitoring:` block now answers it.
 
@@ -331,7 +341,7 @@ card would not exist. That failure is silent and would hollow out the entire
 
 ```bash
 # Correct — writes the live board:
-ssh macbook-pro 'cd ~/projects && PT_SKIP_DOPPLER=1 ~/projects/project-tracker/pt tasks create "..." -p <project>'
+ssh macbook-pro 'cd ~/projects && ~/projects/project-tracker/pt tasks create "..." -p <project>'
 
 # WRONG — writes the Mini's dead 2026-08-03 copy (and bare `pt` over ssh
 # fails anyway: on the laptop it is an alias, see section 3):
@@ -363,7 +373,7 @@ Two independent faults, both now understood:
 The working invocation, verified end to end from the Mini:
 
 ```bash
-ssh macbook-pro 'cd ~/projects && PT_SKIP_DOPPLER=1 ~/projects/project-tracker/pt tasks -p <project>'
+ssh macbook-pro 'cd ~/projects && ~/projects/project-tracker/pt tasks -p <project>'
 ```
 
 Also recorded as `pt info get remote_pt_invocation`.
