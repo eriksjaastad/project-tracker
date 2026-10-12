@@ -173,4 +173,18 @@ describe('TaskDetailModal edit Save', () => {
     expect(updateTask).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Edit Task' })).toBeInTheDocument();
   });
+
+  it('shows a proposal\'s type read-only, so an edit cannot turn it into a normal card', async () => {
+    const user = userEvent.setup();
+    vi.mocked(updateTask).mockResolvedValue(makeTask({ task_type: 'proposal', title: 'Short' }));
+    renderModal(makeTask({ task_type: 'proposal' }));
+
+    await user.click(screen.getByRole('button', { name: 'Edit Task' }));
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.getByText('Proposal')).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText('Optional short title...'), 'Short');
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => expect(updateTask).toHaveBeenCalledWith('98969975881101312', { title: 'Short' }));
+  });
 });

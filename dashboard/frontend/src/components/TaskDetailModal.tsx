@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Task, TaskStatus, TaskPriority, TaskType, Attachment } from '../types';
-import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
+import { KANBAN_STATUSES, TASK_PRIORITIES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
 import { updateTask, fetchTask, toggleChecklistItem, NotesConflictError, fetchAttachments, uploadAttachment, deleteAttachment, isAbortError } from '../api';
 import { useProjects } from '../hooks/useProjects';
 import { parseNotesLines } from '../utils/checklist';
@@ -76,8 +76,6 @@ export function TaskDetailModal({
     setDragOver(false);
     handleFiles(Array.from(e.dataTransfer.files));
   }, [handleFiles]);
-
-  const PRIORITIES: TaskPriority[] = ['Critical', 'High', 'Medium', 'Low'];
 
   useEffect(() => {
     if (task) {
@@ -444,7 +442,7 @@ export function TaskDetailModal({
                     disabled={loading}
                   >
                     <option value="">None</option>
-                    {PRIORITIES.map((p) => (
+                    {TASK_PRIORITIES.map((p) => (
                       <option key={p} value={p}>
                         {p}
                       </option>
@@ -467,18 +465,24 @@ export function TaskDetailModal({
 
               <div className="task-detail-field">
                 <label className="task-detail-label">Task Type</label>
-                <label className="task-type-toggle">
-                  <input
-                    type="checkbox"
-                    checked={editedTaskType === 'agent'}
-                    onChange={(e) => setEditedTaskType(e.target.checked ? 'agent' : 'manual')}
-                    disabled={loading}
-                  />
-                  <span className="task-type-slider" aria-hidden="true" />
-                  <span className="task-type-text">
-                    {TASK_TYPE_LABELS[editedTaskType]}
-                  </span>
-                </label>
+                {editedTaskType === 'proposal' ? (
+                  <div className="task-detail-value">
+                    <span className="task-detail-type-badge">{TASK_TYPE_LABELS.proposal}</span>
+                  </div>
+                ) : (
+                  <label className="task-type-toggle">
+                    <input
+                      type="checkbox"
+                      checked={editedTaskType === 'agent'}
+                      onChange={(e) => setEditedTaskType(e.target.checked ? 'agent' : 'manual')}
+                      disabled={loading}
+                    />
+                    <span className="task-type-slider" aria-hidden="true" />
+                    <span className="task-type-text">
+                      {TASK_TYPE_LABELS[editedTaskType]}
+                    </span>
+                  </label>
+                )}
               </div>
             </>
           ) : (
