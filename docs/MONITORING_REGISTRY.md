@@ -206,7 +206,7 @@ With provenance, compare the deployed and expected **effective build inputs**,
 using the build system's upload/context/ignore semantics at each revision.
 Compare included paths, contents and file modes, plus the Dockerfile and relevant
 ignore/build configuration. Whole `agent-chat/` Git tree
-hashes are insufficient: `.dockerignore` excludes `IDEAS.md` and
+hashes are insufficient: `.dockerignore` excludes
 `install-hooks.sh`, while `COPY . .` still includes nonignored client, hooks and
 identity files. Do not substitute a server-only list or a handwritten ignore
 approximation. Use verified build manifests/digests or the actual build-system

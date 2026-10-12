@@ -15,6 +15,5 @@ venv/
 .env
 .DS_Store
 
-# Client-side and docs: the image only needs server/ and its requirements.
-IDEAS.md
+# Client-side: the image only needs server/ and its requirements.
 install-hooks.sh
