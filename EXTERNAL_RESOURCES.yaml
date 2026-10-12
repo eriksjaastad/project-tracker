@@ -1912,7 +1912,7 @@ monitoring:
       never derive it from convention or replace an explicit UNKNOWN. The
       ai-memory destination is encrypted and canonical; do not flatten or move it.
     locked: 2026-09-19
-    how_to: project-tracker/docs/PORTFOLIO_OFFSITE_DB_BACKUPS.md
+    how_to: project-tracker/DECISIONS.md ("Retire dbmed; use consistent snapshots and rclone")
     status: >-
       Backups are the chosen control (portfolio DB lockdown cancelled
       2026-09-20; its per-project dbmed adoption cards were cancelled with it).

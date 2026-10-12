@@ -1529,7 +1529,10 @@ def backup_create():
 def backup_offsite(backup_name):
     """Copy a verified snapshot off-machine using rclone.
 
-    Destination is PT_BACKUP_RCLONE_DEST. Uses the existing user rclone config.
+    Settings come from the environment, else from the backup LaunchAgent's
+    EnvironmentVariables: PT_BACKUP_RCLONE_DEST is the destination (required),
+    and RCLONE_CONFIG (alias RCLONE_CONFIG_PATH) names the rclone config file,
+    default ~/.config/rclone/rclone.conf, which must exist.
     """
     try:
         db = DatabaseManager()

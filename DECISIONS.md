@@ -75,9 +75,16 @@ Erik cancelled the rollout and explicitly requested removal of the installed
 service. Project Tracker returns to its existing in-process database operations.
 Backups use the SQLite backup API and the existing rclone destination; preserve
 backup history, destructive-operation confirmation, and SAFE_MODE. No replacement
-storage gate is planned. Root-owned installation retirement follows
-the cutover runbook (`docs/DBMED_RETIREMENT.md`, removed in #8093 after the
-2026-09-22 cutover; see git history), after the code is deployed.
+storage gate is planned. The root-owned installation was retired the same day
+(runbook `docs/DBMED_RETIREMENT.md`, removed in #8093; see git history).
+
+Snapshot with SQLite's backup API (copying a live file without its WAL is not a
+backup), then rclone the snapshot to `gbackup:db-backups/<project>/`; rclone
+credentials stay in the user's rclone config. An upload is not proof of
+recovery: restore a downloaded copy into an isolated directory, never over
+production. ai-memory keeps its encrypted `gbackup:ai-memory-encrypted`
+destination, and its thoughts export is not a full-database recovery path.
+(Folded from `docs/PORTFOLIO_OFFSITE_DB_BACKUPS.md`, removed in #8093.)
 
 ---
 
@@ -86,7 +93,7 @@ the cutover runbook (`docs/DBMED_RETIREMENT.md`, removed in #8093 after the
 
 **Context:** Agents need parseable output they can pipe and grep. Humans need a visual Kanban board. A single interface cannot serve both.
 
-**Decision:** The CLI (`pt`, Click) outputs strict plain-text format (`#<id> | <status> | <priority> | <text>`) for agent parsing. A separate React/FastAPI web dashboard provides visual UX. Both share the same data layer. The CLI output format is a contract — changing it is a breaking change for all agent workflows.
+**Decision:** The CLI (`pt`, Click) outputs strict plain-text format (`#<id> [markers] | [<project> |] <status> | <priority> | <text>`, where the markers are `[!P]`/`[~P]` for a missing or incomplete prompt and `[B:…]` for blockers, and the project column appears without `-p`) for agent parsing. A separate React/FastAPI web dashboard provides visual UX. Both share the same data layer. The CLI output format is a contract — changing it is a breaking change for all agent workflows.
 
 | Alternative | Why rejected |
 |-------------|-------------|
@@ -99,7 +106,7 @@ the cutover runbook (`docs/DBMED_RETIREMENT.md`, removed in #8093 after the
 ---
 
 ## Optional Cloud Database with Automatic Fallback (Turso + Local SQLite)
-**Accepted 2026-04-04**
+**Accepted 2026-04-04. Superseded 2026-10-09 by "Turso code removed (#8093)".**
 
 **Context:** Production use requires cross-machine sync. But agents and developers must work offline without friction — no config, no errors, no mode flags.
 
@@ -120,7 +127,7 @@ the cutover runbook (`docs/DBMED_RETIREMENT.md`, removed in #8093 after the
 
 **Context:** On 2026-01-27, an auto-migration dropped 94 tasks. The database is critical state. One backup location is not enough if the project directory itself is deleted.
 
-**Decision:** Three rules, no exceptions: (1) No destructive SQL (DROP TABLE, DELETE FROM) without explicit user approval. (2) Migrations must be additive only — add columns, add tables, never drop. (3) Automatic backups to TWO locations — `data/backups/` (inside project) and `~/.project-tracker/backups/` (outside project).
+**Decision:** Three rules, no exceptions: (1) No destructive SQL (DROP TABLE, DELETE FROM) without explicit user approval. (2) Schema changes are numbered migrations applied only by `pt db migrate`, which takes and verifies a backup first; one that rebuilds or drops a table also needs the DB gate in CLAUDE.md. (3) Automatic backups to TWO locations — `data/backups/` (inside project) and `~/.project-tracker/backups/` (outside project).
 
 | Alternative | Why rejected |
 |-------------|-------------|
@@ -128,12 +135,12 @@ the cutover runbook (`docs/DBMED_RETIREMENT.md`, removed in #8093 after the
 | Allow destructive migrations with backups | Backups can fail silently |
 | No backups (trust version control) | Database is not in git; binary files don't diff well |
 
-**Consequences:** Schema changes are slower (additive only). Disk usage increases from dual backups. But task data is protected — recovery from any single point of failure is guaranteed.
+**Consequences:** Schema changes are slower. Disk usage increases from dual backups. But task data is protected — recovery from any single point of failure is guaranteed.
 
 ---
 
 ## Handoffs are LOCAL_ONLY by design
-**Accepted 2026-05-06**
+**Accepted 2026-05-06. Moot since migration 018 (2026-10-09): no table replicates.**
 
 **Context:** Phase D of the locked-project hygiene workflow introduces a `handoffs` table that records structured "unfinished work" / non-PR exit records. Reviewer asked whether this table should replicate cross-machine via CRR.
 
@@ -145,6 +152,15 @@ the cutover runbook (`docs/DBMED_RETIREMENT.md`, removed in #8093 after the
 | CONTROL_PLANE | Not a sync coordination primitive; nothing depends on its replication |
 
 **Consequences:** Cross-machine resumption of unfinished work is not supported through `pt handoff`. To carry work across machines an agent must commit (even a WIP commit) and push the branch — at which point the work is no longer "unfinished local" and a Phase C PR-style record is appropriate instead.
+
+---
+
+## 2026-04-20 — what the cr-sqlite prep migrations left behind
+**Recorded 2026-10-12 (#8093), from `PHASE2_DAMAGE_REPORT.md`, removed in #8093; see git history.**
+
+**Context:** Migrations 003–008 rebuilt tables to satisfy `crsql_as_crr()`, finding its rejections one at a time. Migration 005 ran on the live database before its PR was reviewed, and its UNIQUE-constraint rejection was found only after it had merged.
+
+**Decision:** None of this is rolled back now that cr-sqlite is gone (018). `projects.name` and `project_info(project_id, key)` still carry no UNIQUE constraint in `schema.sql`; restoring one is a table rebuild and needs the DB gate. Lesson: collect every requirement of a storage dependency against a scratch copy of the real schema before writing migrations, and never apply a migration to the live database before its PR is reviewed.
 
 ---
 

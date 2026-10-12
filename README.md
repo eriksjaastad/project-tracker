@@ -32,7 +32,7 @@ project-tracker/
 ├── scripts/
 │   ├── pt.py               # Click CLI (tasks, info, memory, calendar, worktrees)
 │   ├── db/
-│   │   ├── schema.py       # Database schema (v7)
+│   │   ├── schema.py       # Creates a new DB from the generated schema.sql
 │   │   └── manager.py      # DatabaseManager operations
 │   └── discovery/
 │       └── graph_builder.py
@@ -50,7 +50,7 @@ project-tracker/
 ## Development
 
 ```bash
-uv run pytest tests/                    # Run tests
+make test                               # Run tests
 cd dashboard/frontend && npm run build  # Rebuild React frontend
 pt sync-project project-tracker       # Refresh one project only
 ```
@@ -68,7 +68,7 @@ dashboard/frontend/node_modules/.bin/eslint --no-config-lookup \
 
 ## CI
 
-CI runs the test suite (`.github/workflows/tests.yml`) and no longer enforces type labels. Local preflight precedes publication; review by a separate local Codex reviewer process on the exact committed HEAD (the implementer never reviews its own work) and the CI gates are defined by `pt info get pr_merge_policy`. Follow the current PR procedure for authoring requirements until its separate label-rule update lands.
+The GitHub workflow (`.github/workflows/tests.yml`) is disabled. Its pytest and frontend lint, test and build jobs run locally instead: the shared pre-push hook runs `scripts/local-checks.sh` on every push, in a fresh worktree. Review by a separate local Codex reviewer process on the exact committed HEAD (the implementer never reviews its own work) and the merge gates are defined by `pt info get pr_merge_policy`.
 
 After opening or updating a PR, start `pt pr settle` and keep the owning agent
 attached to its event stream. Follow the [PR settle runbook](docs/PR_SETTLE.md)

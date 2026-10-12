@@ -11,7 +11,8 @@ SAFETY POLICY - READ BEFORE MODIFYING:
 --------------------------------------
 1. NEVER use DROP TABLE on tables that may contain data
 2. NEVER use DELETE FROM without explicit user confirmation
-3. All migrations must be ADDITIVE ONLY (ALTER TABLE ADD COLUMN)
+3. Schema changes are numbered migrations applied by `pt db migrate` after a
+   verified backup; rebuilding or dropping a table needs the DB gate
 4. If schema is incompatible, REFUSE and print instructions - don't auto-fix
 5. Any destructive operation requires:
    - Explicit backup first
