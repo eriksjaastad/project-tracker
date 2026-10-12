@@ -301,3 +301,76 @@ def test_endpoint_handles_snowflake_ids(db, client, monkeypatch):
     resp = _post(client, str(big), 1, "first", True)
     assert resp.status_code == 200, resp.text
     assert resp.json()["id"] == str(big)
+
+
+# --- edit Save: PATCH with base_notes ------------------------------------
+
+
+def test_patch_with_current_base_notes_saves(db, client):
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
+    resp = client.patch(
+        f"/api/tasks/{task['id']}", json={"notes": "mine", "base_notes": NOTES}
+    )
+    assert resp.status_code == 200, resp.text
+    assert db.get_task(task["id"])["notes"] == "mine"
+
+
+def test_patch_with_stale_base_notes_is_409_and_writes_nothing(db, client):
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES, priority="Low")
+    resp = client.patch(
+        f"/api/tasks/{task['id']}",
+        json={"notes": "mine", "base_notes": "what the edit started from", "priority": "High"},
+    )
+    assert resp.status_code == 409
+    stored = db.get_task(task["id"])
+    assert stored["notes"] == NOTES and stored["priority"] == "Low"
+    assert _history(db, task["id"]) == []
+
+
+@pytest.mark.parametrize("case", ["cancelled", "blocked"])
+def test_stale_base_notes_is_409_before_any_status_validation(db, client, case):
+    # Another writer changed the notes and either cancelled the task (Done is
+    # invalid from Cancelled) or left it blocked (the start gate refuses In
+    # Progress). The edit was built on stale notes, so 409 is the answer.
+    if case == "cancelled":
+        task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
+        db.update_task(task["id"], status="Cancelled")
+        move = "Done"
+    else:
+        blocker = db.add_task(text="blocker", project_id=PROJECT_ID)
+        task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES, blocked_by=[blocker["id"]])
+        move = "In Progress"
+    before = db.get_task(task["id"])["status"]
+    resp = client.patch(
+        f"/api/tasks/{task['id']}",
+        json={"notes": "mine", "base_notes": "what the edit started from", "status": move},
+    )
+    assert resp.status_code == 409, resp.text
+    assert db.get_task(task["id"])["status"] == before
+
+
+def test_patch_writer_between_precondition_and_write_wins(db, client, monkeypatch):
+    # The handler's early check passed; another writer lands before the
+    # UPDATE. The SQL CAS must still refuse the edit.
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
+    real = DatabaseManager.update_task
+    late = NOTES + "\n- [ ] late"
+
+    def racing(self, task_id, *a, **kw):
+        real(self, task_id, notes=late, notes_source="cli")
+        return real(self, task_id, *a, **kw)
+
+    monkeypatch.setattr(DatabaseManager, "update_task", racing)
+    resp = client.patch(f"/api/tasks/{task['id']}", json={"notes": "mine", "base_notes": NOTES})
+    assert resp.status_code == 409, resp.text
+    assert db.get_task(task["id"])["notes"] == late
+
+
+def test_patch_with_null_base_notes_conflicts_with_existing_notes(db, client):
+    # The edit started from a task with no notes; an agent has since added some.
+    task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
+    resp = client.patch(
+        f"/api/tasks/{task['id']}", json={"notes": "mine", "base_notes": None}
+    )
+    assert resp.status_code == 409
+    assert db.get_task(task["id"])["notes"] == NOTES

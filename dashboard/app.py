@@ -1821,6 +1821,9 @@ class TaskUpdateRequest(BaseModel):
     task_type: Optional[str] = None
     parent_id: Optional[int] = None  # Task #4645
     blocked_by: Optional[List[int]] = None  # Task #4579
+    # The notes the edit started from. When sent with `notes`, the write only
+    # applies if the stored notes still equal it; otherwise 409 (#7821).
+    base_notes: Optional[str] = None
 
 
 # --- Error Handling Middleware ---
@@ -2265,7 +2268,8 @@ def update_task(task_id: int, task_data: TaskUpdateRequest):
         Updated task object
         
     Raises:
-        HTTPException: 400 if validation fails, 404 if task not found
+        HTTPException: 400 if validation fails, 404 if task not found, 409 if
+            base_notes is sent with notes and no longer matches the stored notes
         
     Note:
         Status changes are automatically recorded in task_history. Notes
@@ -2305,6 +2309,19 @@ def update_task(task_id: int, task_data: TaskUpdateRequest):
                 json.dumps(task_data.blocked_by) if task_data.blocked_by is not None else None
             )
         
+        # If-Match: a stale base is answered before any validation, since the
+        # edit's other values were chosen against notes that no longer hold.
+        # update_task's `notes IS ?` still guards a write landing after this read.
+        stale_notes = HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The notes changed since this edit started; nothing was saved.",
+        )
+        if "notes" in updates and "base_notes" in provided_fields:
+            current = db.get_task(task_id)
+            if current and current.get("notes") != task_data.base_notes:
+                raise stale_notes
+            updates["expected_notes"] = task_data.base_notes
+
         # Prompt check for In Progress — warn but don't block
         if updates.get("status") == "In Progress":
             current = db.get_task(task_id)
@@ -2345,7 +2362,10 @@ def update_task(task_id: int, task_data: TaskUpdateRequest):
             return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
         
         # update_task handles history recording for status and notes changes
-        task = db.update_task(task_id, notes_source="api", **updates)
+        try:
+            task = db.update_task(task_id, notes_source="api", **updates)
+        except NotesConflictError:
+            raise stale_notes
         return _enrich_task_payloads_with_display_ids([dict(task)], db)[0]
     except ValueError:
         # Re-raise to be caught by error handler

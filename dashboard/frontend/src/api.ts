@@ -129,10 +129,14 @@ export async function updateTask(
     task_type?: TaskType;
     parent_id?: string | null;
     blocked_by?: string[] | null;
+    /** The notes the edit started from; with `notes`, a stale base is a 409. */
+    base_notes?: string | null;
   }
 ): Promise<Task> {
   try {
-    const response = await fetchWithErrorHandling(`${API_BASE}/tasks/${taskId}`, {
+    // Not fetchWithErrorHandling: it retries 5xx, and a retried write that had
+    // landed would come back as a conflict (or a second status change).
+    const response = await fetch(`${API_BASE}/tasks/${taskId}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -142,7 +146,11 @@ export async function updateTask(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || errorData.detail || `Failed to update task: ${response.statusText}`);
+      const message = errorData.message || errorData.detail || `Failed to update task: ${response.statusText}`;
+      if (response.status === 409) {
+        throw new NotesConflictError(message);
+      }
+      throw new Error(message);
     }
 
     return response.json();
@@ -163,11 +171,15 @@ export async function fetchTask(taskId: string): Promise<Task> {
   return response.json();
 }
 
-/** Thrown by toggleChecklistItem when the server answers 409: the line moved or changed. */
-export class ChecklistConflictError extends Error {
+/**
+ * Thrown when the server answers 409 because a task's notes changed since the
+ * client read them: a checklist toggle whose line moved, or an edit Save
+ * whose base notes are stale.
+ */
+export class NotesConflictError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'ChecklistConflictError';
+    this.name = 'NotesConflictError';
   }
 }
 
@@ -203,7 +215,7 @@ export async function toggleChecklistItem(
     const message =
       errorData.message || errorData.detail || `Failed to toggle checklist item: ${response.statusText}`;
     if (response.status === 409) {
-      throw new ChecklistConflictError(message);
+      throw new NotesConflictError(message);
     }
     throw new Error(message);
   }

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ChecklistConflictError, toggleChecklistItem } from './api';
+import { NotesConflictError, toggleChecklistItem, updateTask } from './api';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -25,18 +25,37 @@ describe('toggleChecklistItem (#7821)', () => {
     });
   });
 
-  it('maps 409 to ChecklistConflictError and does not retry a 500', async () => {
+  it('maps 409 to NotesConflictError and does not retry a 500', async () => {
     const conflict = vi.fn(() =>
       Promise.resolve({ ok: false, status: 409, statusText: 'Conflict', json: () => Promise.resolve({ detail: 'moved' }) } as Response)
     );
     vi.stubGlobal('fetch', conflict);
-    await expect(toggleChecklistItem('1', 0, 'x', true, null)).rejects.toBeInstanceOf(ChecklistConflictError);
+    await expect(toggleChecklistItem('1', 0, 'x', true, null)).rejects.toBeInstanceOf(NotesConflictError);
 
     const boom = vi.fn(() =>
       Promise.resolve({ ok: false, status: 500, statusText: 'Err', json: () => Promise.resolve({ detail: 'boom' }) } as Response)
     );
     vi.stubGlobal('fetch', boom);
     await expect(toggleChecklistItem('1', 0, 'x', true, null)).rejects.toThrow('boom');
+    expect(boom).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('updateTask', () => {
+  it('maps 409 to NotesConflictError and does not retry a 500', async () => {
+    const conflict = vi.fn(() =>
+      Promise.resolve({ ok: false, status: 409, statusText: 'Conflict', json: () => Promise.resolve({ detail: 'changed' }) } as Response)
+    );
+    vi.stubGlobal('fetch', conflict);
+    await expect(updateTask('1', { notes: 'mine', base_notes: 'old' })).rejects.toBeInstanceOf(NotesConflictError);
+
+    const boom = vi.fn(() =>
+      Promise.resolve({ ok: false, status: 500, statusText: 'Err', json: () => Promise.resolve({ detail: 'boom' }) } as Response)
+    );
+    vi.stubGlobal('fetch', boom);
+    const failure = updateTask('1', { status: 'Done' });
+    await expect(failure).rejects.toThrow('boom');
+    await expect(failure).rejects.not.toBeInstanceOf(NotesConflictError);
     expect(boom).toHaveBeenCalledTimes(1);
   });
 });
