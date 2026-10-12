@@ -180,17 +180,19 @@ export function TaskDetailModal({
 
     // Send only what the user changed: an untouched field keeps whatever the
     // server has now, including changes an agent made while this edit was open.
-    const optional = (value: string) => value.trim() || null;
+    // Both sides are trimmed alike, so stored edge whitespace (common in notes)
+    // never counts as an edit.
+    const optional = (value: string | null | undefined) => value?.trim() || null;
     const changes: Parameters<typeof updateTask>[1] = {};
-    if (editedText.trim() !== task.text) changes.text = editedText.trim();
-    if (optional(editedTitle) !== (task.title || null)) changes.title = optional(editedTitle);
-    if (optional(editedReviewComment) !== (task.review_comment || null)) changes.review_comment = optional(editedReviewComment);
-    if (optional(editedCommitSha) !== (task.commit_sha || null)) changes.commit_sha = optional(editedCommitSha);
-    if (optional(editedCategory) !== (task.category || null)) changes.category = optional(editedCategory);
+    if (editedText.trim() !== task.text.trim()) changes.text = editedText.trim();
+    if (optional(editedTitle) !== optional(task.title)) changes.title = optional(editedTitle);
+    if (optional(editedReviewComment) !== optional(task.review_comment)) changes.review_comment = optional(editedReviewComment);
+    if (optional(editedCommitSha) !== optional(task.commit_sha)) changes.commit_sha = optional(editedCommitSha);
+    if (optional(editedCategory) !== optional(task.category)) changes.category = optional(editedCategory);
     if (editedStatus !== task.status) changes.status = editedStatus;
     if (editedPriority !== task.priority) changes.priority = editedPriority;
     if (editedTaskType !== (task.task_type || 'manual')) changes.task_type = editedTaskType;
-    if (optional(editedNotes) !== (editBaseNotes || null)) {
+    if (optional(editedNotes) !== optional(editBaseNotes)) {
       changes.notes = optional(editedNotes);
       changes.base_notes = editBaseNotes;
     }

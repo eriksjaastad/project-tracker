@@ -88,6 +88,20 @@ describe('TaskDetailModal edit Save', () => {
     }));
   });
 
+  it('does not send notes whose only difference is edge whitespace', async () => {
+    const user = userEvent.setup();
+    vi.mocked(updateTask).mockResolvedValue(makeTask());
+    renderModal(makeTask({ notes: `${NOTES}\n` }));
+
+    await user.click(screen.getByRole('button', { name: 'Edit Task' }));
+    await user.type(screen.getByPlaceholderText('Optional short title...'), 'Short');
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    // Sending the trimmed notes would 409 this title-only edit whenever an
+    // agent had touched the notes meanwhile.
+    await waitFor(() => expect(updateTask).toHaveBeenCalledWith('98969975881101312', { title: 'Short' }));
+  });
+
   it('makes no request when nothing changed', async () => {
     const user = userEvent.setup();
     renderModal();
