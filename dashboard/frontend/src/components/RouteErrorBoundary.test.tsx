@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -28,6 +28,11 @@ function renderApp(path: string) {
   );
 }
 
+function Board() {
+  const [clicks, setClicks] = useState(0);
+  return <button onClick={() => setClicks(clicks + 1)}>clicks {clicks}</button>;
+}
+
 describe('PageBoundary', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -55,5 +60,23 @@ describe('PageBoundary', () => {
     await user.click(screen.getByRole('link', { name: 'Kanban' }));
     expect(screen.getByText('Kanban board')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps a page and its state across a path change within the same page', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/kanban']}>
+        <Link to="/kanban/alpha">alpha</Link>
+        <PageBoundary>
+          <Routes>
+            <Route path="/kanban" element={<Board />} />
+            <Route path="/kanban/:project" element={<Board />} />
+          </Routes>
+        </PageBoundary>
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'clicks 0' }));
+    await user.click(screen.getByRole('link', { name: 'alpha' }));
+    expect(screen.getByRole('button')).toHaveTextContent('clicks 1');
   });
 });

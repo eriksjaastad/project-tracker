@@ -5,8 +5,13 @@ interface Props {
   children: ReactNode;
 }
 
+interface BoundaryProps extends Props {
+  pathname: string;
+}
+
 interface State {
   failed: boolean;
+  pathname: string;
 }
 
 /**
@@ -16,11 +21,18 @@ interface State {
  * chunks. A tab opened before a redeploy (or offline) can't fetch them; without
  * this the whole app, navigation included, would unmount to a blank page.
  */
-class RouteErrorBoundary extends Component<Props, State> {
-  state: State = { failed: false };
+class RouteErrorBoundary extends Component<BoundaryProps, State> {
+  state: State = { failed: false, pathname: this.props.pathname };
 
-  static getDerivedStateFromError(): State {
+  static getDerivedStateFromError(): Partial<State> {
     return { failed: true };
+  }
+
+  // Moving to another page clears a failure. The boundary is not keyed by
+  // path: that would remount the page on /kanban -> /kanban/:project and lose
+  // its state, which the router itself keeps.
+  static getDerivedStateFromProps(props: BoundaryProps, state: State): Partial<State> | null {
+    return props.pathname === state.pathname ? null : { failed: false, pathname: props.pathname };
   }
 
   componentDidCatch(error: unknown) {
@@ -33,7 +45,7 @@ class RouteErrorBoundary extends Component<Props, State> {
     }
     return (
       <div className="route-error" role="alert">
-        <p>This page couldn't load. The dashboard may have been updated since this tab was opened.</p>
+        <p>This page couldn't load. If the dashboard was updated since this tab was opened, reloading fixes it.</p>
         <button type="button" onClick={() => window.location.reload()}>
           Reload
         </button>
@@ -42,8 +54,8 @@ class RouteErrorBoundary extends Component<Props, State> {
   }
 }
 
-/** One boundary per path, so moving to another page clears a failure. */
+/** The pages' boundary; a failure clears when the path changes. */
 export function PageBoundary({ children }: Props) {
-  const location = useLocation();
-  return <RouteErrorBoundary key={location.pathname}>{children}</RouteErrorBoundary>;
+  const { pathname } = useLocation();
+  return <RouteErrorBoundary pathname={pathname}>{children}</RouteErrorBoundary>;
 }
