@@ -149,6 +149,21 @@ def test_019_creates_task_attachments_where_it_is_missing(tmp_path):
         assert "idx_attachments_task_id" in {row[1] for row in conn.execute("PRAGMA index_list(task_attachments)")}
 
 
+def test_020_restores_the_project_delete_audit_that_006_dropped(tmp_path):
+    """The live database lost audit_project_delete when 006 rebuilt projects."""
+    db_path = tmp_path / "tracker.db"
+    schema.create_database(db_path)
+    with closing(sqlite3.connect(db_path, isolation_level=None)) as conn:
+        conn.execute("DROP TRIGGER audit_project_delete")
+        conn.execute("DELETE FROM schema_migrations WHERE version = 20")
+        assert [m.version for m in apply_all(conn, schema.MIGRATIONS_DIR)] == [20]
+        conn.execute("INSERT INTO projects (id, name, path, status) VALUES ('p', 'P', '/p', 'active')")
+        conn.execute("DELETE FROM projects WHERE id = 'p'")
+        assert conn.execute(
+            "SELECT table_name, deleted_id, source FROM delete_audit_log"
+        ).fetchall() == [("projects", "p", "trigger")]
+
+
 def test_calendar_entry_points_create_a_fresh_database(tmp_path, monkeypatch):
     """The calendar no longer creates its own tables; its managers must reach create_database."""
     from fastapi.testclient import TestClient
