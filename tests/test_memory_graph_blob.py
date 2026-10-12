@@ -34,7 +34,11 @@ def test_memory_graph_decodes_blobs_and_drops_malformed_ones(tmp_path, monkeypat
     monkeypatch.setenv("PROJECTS_ROOT", str(tmp_path))
     monkeypatch.setitem(dashboard_app._graph_cache, "data", None)
 
-    response = TestClient(dashboard_app.app).get("/api/memory-graph", params={"min_similarity": 0.5})
+    # The torn row is the newest; with room for two nodes the two valid rows
+    # must still be the ones selected.
+    response = TestClient(dashboard_app.app).get(
+        "/api/memory-graph", params={"min_similarity": 0.5, "max_nodes": 2}
+    )
 
     assert response.status_code == 200, response.text
     data = response.json()
