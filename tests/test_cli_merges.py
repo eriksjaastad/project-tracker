@@ -136,7 +136,7 @@ def test_hygiene_and_scan_help_carry_their_usage_contract() -> None:
         assert needle in hygiene_help, needle
     # Click rewraps help to the terminal width, so match on collapsed whitespace.
     memory_help = " ".join(CliRunner().invoke(pt.cli, ["memory", "--help"]).output.split())
-    for needle in ("schema_version", "read_only", "NDJSON", "exits 2", "no stable code"):
+    for needle in ("schema_version", "read_only", "NDJSON", "exit 2", "Option parsing errors"):
         assert needle in memory_help, needle
     assert "sync-project" in CliRunner().invoke(pt.cli, ["scan", "--help"]).output
 
