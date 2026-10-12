@@ -875,7 +875,7 @@ class DatabaseManager:
                 explicit_category=category,
             )
             
-            # Insert task with sanitized text
+            # Text is stored as typed; HTML renderers escape it (#8246).
             cursor.execute("""
                 INSERT INTO tasks (
                     id,
