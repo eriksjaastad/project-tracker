@@ -69,7 +69,7 @@ FRONTEND ?= dashboard/frontend
 
 .PHONY: help test test-fast dashboard dashboard-restart dashboard-stop \
         dashboard-health digest digest-dry backup backup-status \
-        doppler-check \
+        doppler-check schema \
         deploy-chat deploy-chat-status \
         frontend-deps test-frontend lint-frontend build-frontend
 
@@ -116,6 +116,9 @@ test:  ## Full pytest suite (no secrets needed — tests run offline).
 
 test-fast:  ## Same suite, stop at the first failure.
 	$(PYTEST_CMD) tests/ -q -x --no-header
+
+schema:  ## Regenerate scripts/db/schema.sql after adding a migration (tests fail until you do).
+	$(PYTHON) scripts/db/schema_dump.py --write
 
 dashboard:  ## Launch the dashboard in the foreground (doppler-wrapped by the script).
 	./scripts/launch-dashboard.sh

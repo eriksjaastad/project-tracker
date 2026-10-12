@@ -192,6 +192,44 @@ HEAD. This block contains the essential
 checks for in-repository review without requiring workstation files. Additional
 local detail: [full protocol](https://github.com/eriksjaastad/agent-runtime-config/blob/main/docs/code-review-protocol.md).
 
+### Better code
+
+**Main standard:** Google's code review guide, "What to look for":
+https://google.github.io/eng-practices/review/reviewer/looking-for.html
+- Design: the pieces fit together, and the change belongs here and now.
+- Functionality: it does what was meant, is good for its users, and has no bugs you can see by reading.
+- Complexity: readable quickly; nothing built for a future that hasn't arrived.
+- Tests: right kind of tests, correct, and they fail when the code breaks.
+- Naming: names say clearly what a thing is or does.
+- Comments: explain why, not what; if the code needs a "what", simplify the code.
+- Style / Consistency: follow the style guide; otherwise match the code around it.
+- Documentation: update docs when how people build, run or use the code changes.
+- Every line, Context: read every line, and check the change makes the whole system healthier.
+Python style is PEP 8, enforced by ruff.
+
+**Our rules on top** (agent-specific; a finding names the one it breaks, e.g. `Breaks: 6 Tested`):
+0. **One purpose.** One change per PR. Refactors and moves go in their own PR.
+1. **Reuse.** Use what exists: the standard library, the standard tool, or the rule the code already
+   has. Never add a second copy of a rule. No repeated reads or calls inside loops.
+2. **Nothing extra.** No mechanism nobody asked for: undo files, retries, caches, fallbacks, options.
+3. **Split only to simplify.** Split a function only when that makes the code simpler, never to hit
+   a size or count. Line, argument and file counts are signals, not rules.
+4. **Honest.** No swallowed errors, no "success" after a failure, no secrets in output or logs.
+5. **Docs in the code.** Docstrings, `--help`, comments for why. No separate doc that can drift.
+6. **Tested, no more.** Test only the new paths this change adds, one test each, not one per
+   variation. Where existing tests already cover a path, point to them instead. Each new test must
+   fail when its bug is put back: check that once. A test that can't fail for a real reason is cost.
+7. **Smaller.** Delete before adding.
+
+**Before you commit:**
+- Read your diff against the guide and this list. If any point is bent, fix the code; don't just
+  note it. Keep a bend only with a reason a reviewer would accept, stated in the PR body.
+- If test lines added are more than about 2x the app lines changed, cut back to one test per new path.
+- If the card's checklist conflicts with this section, this section wins. Note the conflict in the PR body.
+
+**Reviewers:** mark each finding blocking (it makes the code worse) or nit. Approve once the change
+clearly makes the code better, even if it isn't perfect.
+
 ### Mechanical checks
 
 A failure prevents PASS, but finish independent checks and report findings

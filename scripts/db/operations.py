@@ -38,8 +38,6 @@ class ProjectTrackerOps:
         )
         self._db = DatabaseManager(self.db_path)
         self._cal = CalendarManager(self.db_path)
-        self._cal.ensure_tables()
-        self._db.migrate_attachments_table()
 
     def __getattr__(self, name):
         method = getattr(self._db, name)

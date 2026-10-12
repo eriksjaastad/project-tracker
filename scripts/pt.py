@@ -2198,9 +2198,7 @@ def tasks_export(output):
 
 def _get_calendar_manager():
     from db.calendar_manager import CalendarManager
-    cm = CalendarManager()
-    cm.ensure_tables()
-    return cm
+    return CalendarManager()
 
 
 def _display_events(events, json_output=False, cron_jobs=None):

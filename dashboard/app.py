@@ -1077,9 +1077,7 @@ def _stringify_pt_ids(record: dict, keys: tuple = ("id",)) -> dict:
 
 def _get_cal_manager():
     from db.calendar_manager import CalendarManager
-    cm = CalendarManager()
-    cm.ensure_tables()
-    return cm
+    return CalendarManager()
 
 
 @app.get("/api/calendar/events")

@@ -184,26 +184,6 @@ class DatabaseManager:
 
         delete_attachment_files(list(attachments or []))
 
-    def migrate_attachments_table(self) -> None:
-        """Idempotent migration — create task_attachments table if not present."""
-        with self._get_conn() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS task_attachments (
-                    id           INTEGER PRIMARY KEY NOT NULL,
-                    task_id      INTEGER NOT NULL,
-                    filename     TEXT NOT NULL,
-                    stored_name  TEXT NOT NULL,
-                    mime_type    TEXT,
-                    size_bytes   INTEGER,
-                    uploaded_at  TEXT DEFAULT (datetime('now')),
-                    uploaded_by  TEXT DEFAULT 'user'
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_attachments_task_id ON task_attachments(task_id)"
-            )
-            conn.commit()
-
     def add_attachment(
         self,
         task_id: int,
@@ -214,7 +194,6 @@ class DatabaseManager:
         uploaded_by: str = "user",
     ) -> Dict[str, Any]:
         """Insert an attachment record and return it."""
-        self.migrate_attachments_table()
         attachment_id = pt_next_id(self.db_path)
         with self._get_conn() as conn:
             cursor = conn.cursor()
@@ -234,7 +213,6 @@ class DatabaseManager:
 
     def get_attachments(self, task_id: int) -> List[Dict[str, Any]]:
         """Return all attachments for a task, newest first."""
-        self.migrate_attachments_table()
         with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM task_attachments WHERE task_id = ? ORDER BY uploaded_at DESC",
@@ -244,7 +222,6 @@ class DatabaseManager:
 
     def get_attachment(self, task_id: int, stored_name: str) -> Optional[Dict[str, Any]]:
         """Return a single attachment for a task by stored filename."""
-        self.migrate_attachments_table()
         with self._get_conn() as conn:
             row = conn.execute(
                 """
@@ -260,7 +237,6 @@ class DatabaseManager:
 
         Verifies task ownership — only deletes if the attachment belongs to task_id.
         """
-        self.migrate_attachments_table()
         with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM task_attachments WHERE id = ? AND task_id = ?",

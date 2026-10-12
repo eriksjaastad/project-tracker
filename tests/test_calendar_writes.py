@@ -26,7 +26,6 @@ def test_calendar_writes_create_done_and_link(tmp_path: Path) -> None:
     db_path = tmp_path / "tracker.db"
     create_database(db_path)
     cm = CalendarManager(db_path)
-    cm.ensure_tables()
 
     event_id = cm.add_event(title="Review", event_date="2030-01-01")
     assert cm.mark_done(event_id) is True

@@ -60,21 +60,6 @@ _TEST_DB_ROOT = Path(tempfile.mkdtemp(prefix="pt-test-db-"))
 os.environ["PT_DB_PATH"] = str(_TEST_DB_ROOT / "collection.db")
 
 @pytest.fixture(scope="session")
-def _base_template(tmp_path_factory) -> Path:
-    """Base schema only, with the numbered migrations deliberately NOT applied.
-
-    `pt db migrate` and the pending-migration warning can only be tested
-    against a database that actually has something pending. Opt in with
-    `@pytest.mark.unmigrated_db`.
-    """
-    from db.schema import create_database
-
-    template = tmp_path_factory.mktemp("local-base-template") / "tracker.db"
-    create_database(template)
-    return template
-
-
-@pytest.fixture(scope="session")
 def _template(tmp_path_factory) -> Path:
     """A schema-only database, built once and copied per test.
 
@@ -108,11 +93,10 @@ def _template(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def isolated_database(request, tmp_path, monkeypatch, _template, _base_template):
-    template = _base_template if request.node.get_closest_marker("unmigrated_db") else _template
+def isolated_database(tmp_path, monkeypatch, _template):
     target = tmp_path / "_local" / "tracker.db"
     target.parent.mkdir()
-    shutil.copy(template, target)
+    shutil.copy(_template, target)
     monkeypatch.setenv("PT_DB_PATH", str(target))
     monkeypatch.setenv("PT_EXTERNAL_BACKUP_DIR", str(tmp_path / "external-backups"))
     from db import attachment_paths
@@ -132,6 +116,3 @@ def db(isolated_database):
 def local_backend(isolated_database):
     from db.backend_manager import DatabaseManager
     return DatabaseManager(isolated_database)
-
-def pytest_configure(config):
-    config.addinivalue_line("markers", "unmigrated_db: exercise pending migrations")

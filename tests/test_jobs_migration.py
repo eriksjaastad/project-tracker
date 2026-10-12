@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.migration_runner import discover_migrations  # noqa: E402
-from db.schema import ensure_schema  # noqa: E402
+from db.schema import schema_statements  # noqa: E402
 
 
 MIGRATIONS_DIR = Path(__file__).parent.parent / "scripts" / "db" / "migrations"
@@ -91,9 +91,10 @@ def test_jobs_constraints_and_repeat_submissions(tmp_path: Path) -> None:
     conn.close()
 
 
-def test_fresh_schema_matches_migration_and_manifest() -> None:
+def test_fresh_schema_matches_migration() -> None:
     conn = sqlite3.connect(":memory:")
-    ensure_schema(conn.cursor())
+    for statement in schema_statements():
+        conn.execute(statement)
     _migration_up(conn)
     _migration_up(conn, 16)  # a fresh schema already has kind: ALTERs skip
     migrated = sqlite3.connect(":memory:")
@@ -103,8 +104,9 @@ def test_fresh_schema_matches_migration_and_manifest() -> None:
         assert conn.execute(f"PRAGMA table_info({table})").fetchall() == (
             migrated.execute(f"PRAGMA table_info({table})").fetchall()
         )
-        assert conn.execute(f"PRAGMA index_list({table})").fetchall() == (
-            migrated.execute(f"PRAGMA index_list({table})").fetchall()
+        # index_list follows creation order, which differs between the paths.
+        assert sorted(r[1:] for r in conn.execute(f"PRAGMA index_list({table})")) == (
+            sorted(r[1:] for r in migrated.execute(f"PRAGMA index_list({table})"))
         )
     conn.close()
     migrated.close()
@@ -154,23 +156,4 @@ def test_kind_migration_backfills_volunteer_rows_and_is_idempotent(tmp_path: Pat
         conn.execute(
             "INSERT INTO jobs (company, title, url, kind) VALUES ('X', 'Y', 'https://example.test/x', 'gig')"
         )
-    conn.close()
-
-
-def test_ensure_schema_over_legacy_jobs_table_then_016_adds_kind(tmp_path: Path) -> None:
-    """Startup DDL must not touch kind on a 013-shape table; 016 adds it afterwards."""
-    conn = _legacy_jobs_db(tmp_path / "legacy.db")
-    ensure_schema(conn.cursor())
-    conn.commit()
-    columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
-    assert "kind" not in columns and "volunteering_since" not in columns
-    assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 7
-
-    _migration_up(conn, 16)
-    columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
-    assert {"kind", "volunteering_since"} <= columns
-    assert "idx_jobs_kind" in {row[1] for row in conn.execute("PRAGMA index_list(jobs)")}
-    assert conn.execute(
-        "SELECT kind, COUNT(*) FROM jobs GROUP BY kind ORDER BY kind"
-    ).fetchall() == [("job", 2), ("volunteer", 5)]
     conn.close()

@@ -20,9 +20,11 @@ cr-sqlite era (removed by migration 018). The runner ignores it.
 
 Files under ``migrations/`` whose basename doesn't match ``NNN_name.py``
 (``__init__.py``, dotfiles, editor backups) are ignored silently. Files
-that match the naming pattern but lack ``up()`` — for example the legacy,
-deprecated ``001_add_review_status.py`` that pre-dates this runner — emit a
-stderr warning on discovery and are skipped. They will never be applied.
+that match the naming pattern but lack ``up()`` emit a stderr warning on
+discovery and are skipped. They will never be applied.
+
+A fresh database does not replay these: it is created from schema.sql and
+marked for every migration that file contains (see schema.create_database).
 """
 
 from __future__ import annotations
@@ -62,9 +64,7 @@ def discover_migrations(
 
     Files that don't match ``NNN_name.py`` are ignored silently. Files
     that match the pattern but fail validation (missing ``up``)
-    are skipped — never applied. This tolerates historical artifacts
-    like the deprecated ``001_add_review_status.py`` without
-    special-casing their names.
+    are skipped — never applied.
 
     With ``verbose=True`` (default, used from ``pt db migrate``) a
     stderr warning is printed for each skipped file so the operator
