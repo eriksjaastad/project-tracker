@@ -283,27 +283,28 @@ def create_database(db_path: Path | None = None) -> None:
         missing = sorted(set(range(2, version + 1)) - {m.version for m in contained})
         if missing:
             raise RuntimeError(f"schema.sql contains migrations {missing} that are not in {MIGRATIONS_DIR}")
-        applied_at = datetime.now(UTC).isoformat(timespec="seconds")
+        # Local-only fingerprint, settled before anything is written so that
+        # schema, ledger and fingerprint commit together: any failure leaves
+        # an empty database, which the next call simply builds again.
+        fingerprint = _get_or_create_fingerprint(db_path)
+        now = datetime.now(UTC)
         conn.execute("BEGIN")
         try:
             for statement in statements:
                 conn.execute(statement)
             conn.executemany(
                 "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
-                [(m.version, m.name, applied_at) for m in contained],
+                [(m.version, m.name, now.isoformat(timespec="seconds")) for m in contained],
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO _metadata (key, value, created_at) VALUES ('fingerprint', ?, ?)",
+                (fingerprint, now.isoformat()),
             )
             conn.execute("COMMIT")
         except BaseException:
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
             raise
-
-        # Local-only: store/validate fingerprint
-        fingerprint = _get_or_create_fingerprint(db_path)
-        conn.execute(
-            "INSERT OR REPLACE INTO _metadata (key, value, created_at) VALUES ('fingerprint', ?, ?)",
-            (fingerprint, datetime.now(UTC).isoformat()),
-        )
     finally:
         conn.close()
 

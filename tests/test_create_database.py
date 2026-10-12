@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from scripts.db import schema
-from scripts.db.migration_runner import discover_migrations, unapplied_migrations
+from scripts.db.migration_runner import (
+    apply_all,
+    discover_migrations,
+    unapplied_migrations,
+)
 from scripts.db.schema_dump import main as schema_dump
 
 
@@ -84,6 +88,50 @@ def test_a_failing_statement_leaves_the_new_database_empty(tmp_path, monkeypatch
         schema.create_database(db_path)
     with closing(sqlite3.connect(db_path)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0] == 0
+
+
+def test_a_failed_fingerprint_leaves_the_database_buildable(tmp_path, monkeypatch):
+    """Schema, ledger and fingerprint commit together, so a retry rebuilds."""
+    db_path = tmp_path / "tracker.db"
+    real = schema._get_or_create_fingerprint
+
+    def unwritable(path):
+        raise OSError("fingerprint file not writable")
+
+    monkeypatch.setattr(schema, "_get_or_create_fingerprint", unwritable)
+    with pytest.raises(OSError, match="not writable"):
+        schema.create_database(db_path)
+    monkeypatch.setattr(schema, "_get_or_create_fingerprint", real)
+    schema.create_database(db_path)
+    with closing(sqlite3.connect(db_path)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM _metadata WHERE key = 'fingerprint'").fetchone()[0] == 1
+
+
+def test_019_creates_task_attachments_where_it_is_missing(tmp_path):
+    """A database whose attachments table was never created gets it from 019."""
+    db_path = tmp_path / "tracker.db"
+    schema.create_database(db_path)
+    with closing(sqlite3.connect(db_path, isolation_level=None)) as conn:
+        conn.execute("DROP TABLE task_attachments")
+        conn.execute("DELETE FROM schema_migrations WHERE version = 19")
+        assert [m.version for m in apply_all(conn, schema.MIGRATIONS_DIR)] == [19]
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(task_attachments)")]
+        assert columns == ["id", "task_id", "filename", "stored_name", "mime_type",
+                           "size_bytes", "uploaded_at", "uploaded_by"]
+        assert "idx_attachments_task_id" in {row[1] for row in conn.execute("PRAGMA index_list(task_attachments)")}
+
+
+def test_calendar_entry_points_create_a_fresh_database(tmp_path, monkeypatch):
+    """The calendar no longer creates its own tables; its managers must reach create_database."""
+    from fastapi.testclient import TestClient
+
+    from dashboard.app import app
+
+    monkeypatch.setenv("PT_DB_PATH", str(tmp_path / "fresh" / "tracker.db"))
+    (tmp_path / "fresh").mkdir()
+    response = TestClient(app).get("/api/calendar/events")
+    assert response.status_code == 200, response.text
+    assert response.json()["events"] == []
 
 
 def test_fingerprint_read_failure_raises_instead_of_skipping_mismatch_check(tmp_path, monkeypatch):
