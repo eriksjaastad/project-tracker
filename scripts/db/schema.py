@@ -288,8 +288,12 @@ def create_database(db_path: Path | None = None) -> None:
         # an empty database, which the next call simply builds again.
         fingerprint = _get_or_create_fingerprint(db_path)
         now = datetime.now(UTC)
-        conn.execute("BEGIN")
+        conn.execute("BEGIN IMMEDIATE")
         try:
+            if _user_tables(conn):
+                # Another process built it while we waited for the write lock.
+                conn.execute("ROLLBACK")
+                return
             for statement in statements:
                 conn.execute(statement)
             conn.executemany(

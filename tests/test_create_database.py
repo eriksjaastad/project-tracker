@@ -90,6 +90,23 @@ def test_a_failing_statement_leaves_the_new_database_empty(tmp_path, monkeypatch
         assert conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0] == 0
 
 
+def test_two_processes_creating_the_same_new_database_both_succeed(tmp_path, monkeypatch):
+    """The second creator finds the tables under the write lock and stands down."""
+    monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
+    db_path = tmp_path / "tracker.db"
+    real = schema._get_or_create_fingerprint
+
+    def other_process_builds_first(path):
+        monkeypatch.setattr(schema, "_get_or_create_fingerprint", real)
+        schema.create_database(path)  # wins the race between our check and our lock
+        return real(path)
+
+    monkeypatch.setattr(schema, "_get_or_create_fingerprint", other_process_builds_first)
+    schema.create_database(db_path)
+    with closing(sqlite3.connect(db_path)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] > 0
+
+
 def test_a_failed_fingerprint_leaves_the_database_buildable(tmp_path, monkeypatch):
     """Schema, ledger and fingerprint commit together, so a retry rebuilds."""
     db_path = tmp_path / "tracker.db"
