@@ -2752,6 +2752,12 @@ def memory_group(ctx: click.Context) -> None:
       pt memory search "what did we decide about backups?"
       pt memory write "Decision: use Haiku for routine tasks" --type decision
       pt memory stats
+
+    The read-only --json modes (search, recent, stats) print one JSON object
+    with schema_version, ok and read_only beside the rows, and no prose; export
+    prints NDJSON. They are safe for cron and BatchMode SSH. Failures exit 2
+    for invalid input, 3 when the memory backend is unavailable and 4 when the
+    query itself fails.
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())

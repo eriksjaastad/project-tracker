@@ -28,6 +28,15 @@ class GitHubCache:
         self._label = label
 
     def read(self, fetch):
+        """Return at once: the last snapshot (if any) plus refresh state.
+
+        Starts a background refresh when none is running and the retry delay
+        has passed. Beside the snapshot's own keys the result carries
+        ``cached``, ``refreshing``, ``stale`` (past its TTL), ``refresh_error``
+        (generic, or None) and ``retry_after_seconds`` (2 while collecting, else
+        until the next attempt), which the dashboard uses to pace its polling.
+        The cache is in memory, so a restarted server starts empty.
+        """
         with self._lock:
             now = self._clock()
             if not self._refreshing and now >= self._next_attempt:
