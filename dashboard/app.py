@@ -1271,10 +1271,12 @@ async def get_memory_graph_data(
             rows = conn.execute(
                 # ai-memory stores embeddings only as little-endian float32
                 # blobs (its #8035); the JSON `embedding` column is empty. A
-                # blob that is not a whole float32 vector is skipped here,
-                # before LIMIT, as ai-memory's unpack_embedding drops it.
+                # value that is not a BLOB holding a whole float32 vector is
+                # skipped here, before LIMIT, as ai-memory's unpack_embedding
+                # drops it.
                 "SELECT id, content, embedding_blob, metadata, created_at, source_machine FROM thoughts"
-                " WHERE length(embedding_blob) > 0 AND length(embedding_blob) % 4 = 0"
+                " WHERE typeof(embedding_blob) = 'blob'"
+                " AND length(embedding_blob) > 0 AND length(embedding_blob) % 4 = 0"
                 " ORDER BY created_at DESC LIMIT ?",
                 (max_nodes,)
             ).fetchall()

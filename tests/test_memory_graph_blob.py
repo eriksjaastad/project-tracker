@@ -23,6 +23,7 @@ def test_memory_graph_decodes_blobs_and_drops_malformed_ones(tmp_path, monkeypat
         (1, "a", vector, "2026-10-12T00:00:01"),
         (2, "b", vector, "2026-10-12T00:00:02"),
         (3, "torn", vector[:5], "2026-10-12T00:00:03"),  # not whole float32s
+        (4, "text", "abcd", "2026-10-12T00:00:04"),  # TEXT, not a BLOB
     ]
     conn.executemany(
         "INSERT INTO thoughts (id, content, embedding_blob, metadata, created_at, source_machine)"
@@ -34,8 +35,8 @@ def test_memory_graph_decodes_blobs_and_drops_malformed_ones(tmp_path, monkeypat
     monkeypatch.setenv("PROJECTS_ROOT", str(tmp_path))
     monkeypatch.setitem(dashboard_app._graph_cache, "data", None)
 
-    # The torn row is the newest; with room for two nodes the two valid rows
-    # must still be the ones selected.
+    # The invalid rows are the newest; with room for two nodes the two valid
+    # rows must still be the ones selected.
     response = TestClient(dashboard_app.app).get(
         "/api/memory-graph", params={"min_similarity": 0.5, "max_nodes": 2}
     )
