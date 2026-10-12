@@ -2,6 +2,8 @@
 
 The central nervous system for Erik's multi-project portfolio. A CLI (`pt`) and FastAPI-backed dashboard that track tasks, projects, and cross-project relationships.
 
+The aim: one command or one browser tab gives Erik, or any agent, full situational awareness across all projects. It is evergreen infrastructure that every other project depends on for its work queue and shared memory, so reliability comes before new surfaces.
+
 ## Quick Start
 
 ```bash

@@ -2752,6 +2752,13 @@ def memory_group(ctx: click.Context) -> None:
       pt memory search "what did we decide about backups?"
       pt memory write "Decision: use Haiku for routine tasks" --type decision
       pt memory stats
+
+    On success the read-only --json modes (search, recent, stats) print one
+    JSON object carrying schema_version, ok and read_only beside its data;
+    export prints NDJSON. When those modes or export fail their own checks they exit 2
+    (invalid input), 3 (memory backend unavailable) or 4 (query failed).
+    Option parsing errors, such as a non-integer --limit, are Click's plain
+    usage message with exit 2.
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
