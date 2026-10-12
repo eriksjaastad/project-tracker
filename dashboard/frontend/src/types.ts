@@ -7,7 +7,8 @@ export type TaskStatus =
   | 'Review'
   | 'Done';
 
-export type TaskType = 'manual' | 'agent';
+// 'proposal' cards change type only through `pt tasks approve` / `reject`.
+export type TaskType = 'manual' | 'agent' | 'proposal';
 
 // UI display statuses (original five-column Kanban)
 export const KANBAN_STATUSES: TaskStatus[] = [
@@ -29,8 +30,11 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
 export const TASK_TYPE_LABELS: Record<TaskType, string> = {
   manual: 'Manual',
   agent: 'Agent',
+  proposal: 'Proposal',
 };
 export type TaskPriority = 'Critical' | 'High' | 'Medium' | 'Low';
+
+export const TASK_PRIORITIES: TaskPriority[] = ['Critical', 'High', 'Medium', 'Low'];
 
 export interface Task {
   // Snowflake-scale pt_id (#6044): a decimal string, never a JS number.

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { TaskStatus, TaskPriority, Project, Task, TaskType } from '../types';
-import { KANBAN_STATUSES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
+import { KANBAN_STATUSES, TASK_PRIORITIES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
 import { fetchProjects, fetchTaskPolicy, fetchTasks, isAbortError } from '../api';
 import { Spinner } from './Spinner';
 import { ACCEPTANCE_CRITERIA_HINT, ACCEPTANCE_CRITERIA_TEMPLATE, hasAcceptanceCriteria } from '../utils/checklist';
@@ -42,7 +42,6 @@ export function TaskForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const PRIORITIES: TaskPriority[] = ['Critical', 'High', 'Medium', 'Low'];
   const eligibleProjects = [...projects]
     .filter((project) => project.can_create_cards !== false)
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
@@ -110,28 +109,25 @@ export function TaskForm({
       return;
     }
 
-    // Parse blocked_by. `rawId` (the trimmed, '#'-stripped text the user
-    // typed) is kept as a string throughout -- task ids can exceed
-    // Number.MAX_SAFE_INTEGER (#7824), so parseInt is only safe for
-    // matching against the small, sequential display_id, never as the
-    // value we actually send.
+    // Parse blocked_by: each entry is a card number (#6100 or 6100) or a
+    // task id, and must name a loaded task. The server stores ids unchecked,
+    // so an entry that resolves to nothing is refused here rather than
+    // dropped or sent as a dangling id. Ids stay strings: they can exceed
+    // Number.MAX_SAFE_INTEGER (#7824).
     let blockedBy: string[] | null = null;
-    if (blockedByInput.trim()) {
-      try {
-        blockedBy = blockedByInput
-          .split(',')
-          .map((entry) => entry.trim().replace('#', ''))
-          .filter((rawId) => rawId !== '' && !isNaN(Number(rawId)))
-          .map((rawId) => {
-            const enteredDisplayId = parseInt(rawId, 10);
-            const matchedTask = tasks.find(
-              (task) => task.display_id === enteredDisplayId || task.id === rawId
-            );
-            return matchedTask ? matchedTask.id : rawId;
-          });
-        if (blockedBy.length === 0) blockedBy = null;
-      } catch {
-        setError('Invalid task IDs in blocked-by field');
+    const entries = blockedByInput.split(',').map((entry) => entry.trim()).filter(Boolean);
+    if (entries.length > 0) {
+      const unknown: string[] = [];
+      blockedBy = entries.map((entry) => {
+        const rawId = entry.replace(/^#/, '');
+        const matchedTask = /^\d+$/.test(rawId)
+          ? tasks.find((task) => String(task.display_id) === rawId || task.id === rawId)
+          : undefined;
+        if (!matchedTask) unknown.push(entry);
+        return matchedTask?.id ?? '';
+      });
+      if (unknown.length > 0) {
+        setError(`Blocked By: ${unknown.join(', ')} doesn't match any task the board has loaded. Use the number shown on the card.`);
         return;
       }
     }
@@ -306,7 +302,7 @@ export function TaskForm({
             disabled={loading}
           >
             <option value="">None</option>
-            {PRIORITIES.map((p) => (
+            {TASK_PRIORITIES.map((p) => (
               <option key={p} value={p}>
                 {p}
               </option>
