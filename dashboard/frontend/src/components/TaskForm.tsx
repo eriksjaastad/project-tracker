@@ -116,8 +116,12 @@ export function TaskForm({
     // Number.MAX_SAFE_INTEGER (#7824); only the small display_id is compared
     // as a number.
     let blockedBy: string[] | null = null;
-    const entries = blockedByInput.split(',').map((entry) => entry.trim()).filter(Boolean);
-    if (entries.length > 0) {
+    if (blockedByInput.trim()) {
+      const entries = blockedByInput.split(',').map((entry) => entry.trim());
+      if (entries.includes('')) {
+        setError('Blocked By has an empty entry: remove the extra comma.');
+        return;
+      }
       const unknown: string[] = [];
       const ids = entries.map((entry) => {
         const rawId = entry.replace(/^#/, '');

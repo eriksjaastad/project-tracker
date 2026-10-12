@@ -239,10 +239,15 @@ describe('TaskForm', () => {
 
     await userEvent.type(screen.getByLabelText(/task description/i), 'A blocked task');
     await userEvent.type(screen.getByLabelText(/acceptance criteria/i), 'pytest tests/test_foo.py passes');
-    await userEvent.type(screen.getByLabelText(/blocked by/i), '#6100, abc, 99999');
+    const blockedBy = screen.getByLabelText(/blocked by/i);
+    await userEvent.type(blockedBy, '#6100, abc, 99999');
     await userEvent.click(screen.getByRole('button', { name: /create task/i }));
-
     expect(await screen.findByRole('alert')).toHaveTextContent("Blocked By: abc, 99999 doesn't match any task the board has loaded");
+
+    await userEvent.clear(blockedBy);
+    await userEvent.type(blockedBy, '6100,,');
+    await userEvent.click(screen.getByRole('button', { name: /create task/i }));
+    expect(await screen.findByText('Blocked By has an empty entry: remove the extra comma.')).toBeInTheDocument();
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });
