@@ -2,3 +2,8 @@
   color: var(--muted);
   margin: 0;
 }
+
+.volunteer-error {
+  color: var(--danger);
+  margin: 0 0 12px;
+}

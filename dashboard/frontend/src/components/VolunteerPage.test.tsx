@@ -188,7 +188,7 @@ describe('VolunteerPage', () => {
     await waitFor(() => expect(section('Applied').getByText('Role 10')).toBeInTheDocument());
   });
 
-  it('says the list may be stale when the reload after a write fails, and unlocks the role', async () => {
+  it('says the list may be out of date when the reload after a write fails, and unlocks it', async () => {
     const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValueOnce(respond({
       current: [], applied: [], possible: [role(11)], possible_stale: [],
@@ -201,9 +201,66 @@ describe('VolunteerPage', () => {
       .mockResolvedValueOnce(respond({}, false));
     await user.click(screen.getByLabelText('Started volunteering at Org 11'));
 
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Failed to load volunteer roles'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(
+      'Could not refresh volunteer roles; this list may be out of date.'));
     expect(section('Possible').getByText('Role 11')).toBeInTheDocument();
     expect(screen.getByLabelText('Started volunteering at Org 11')).toBeEnabled();
+
+    // An action's own error is never hidden behind the load failure.
+    vi.mocked(fetch).mockResolvedValueOnce(
+      { ok: false, status: 409, json: async () => ({ detail: 'volunteer roles need migration 016; run `pt db migrate`' }) } as Response);
+    await user.click(screen.getByLabelText('Started volunteering at Org 11'));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('run `pt db migrate`'));
+    expect(screen.getByRole('status')).toHaveTextContent('may be out of date');
+  });
+
+  it('claims nothing about the sections when the first load fails', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond({}, false));
+    render(<VolunteerPage />);
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Could not load volunteer roles.'));
+    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not volunteering anywhere yet')).not.toBeInTheDocument();
+    expect(screen.queryByText('No applications yet')).not.toBeInTheDocument();
+    expect(screen.queryByText('No open volunteer listings')).not.toBeInTheDocument();
+  });
+
+  it("keeps a role locked through its own reload even when another role's reload lands first", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce(respond({
+      current: [], applied: [], possible: [role(20), role(21)], possible_stale: [],
+    }));
+    render(<VolunteerPage />);
+    await waitFor(() => expect(screen.getByText('Role 20')).toBeInTheDocument());
+
+    let finishWriteA: (value: Response) => void = () => {};
+    let finishReloadA: (value: Response) => void = () => {};
+    const afterB = { current: [], applied: [role(21)], possible: [role(20)], possible_stale: [] };
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = (init as RequestInit | undefined)?.method;
+      if (url === '/api/jobs/20/submissions') return new Promise<Response>(r => { finishWriteA = r; });
+      if (url === '/api/jobs/21/submissions') return respond({ submission: { id: 7, job_id: 21 } });
+      if (url === '/api/volunteer' && method === undefined) {
+        // The first reload (after B) lands at once; the one after A waits.
+        if (vi.mocked(fetch).mock.calls.filter(([u]) => u === '/api/volunteer').length <= 2) return respond(afterB);
+        return new Promise<Response>(r => { finishReloadA = r; });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+
+    await user.click(screen.getByLabelText('Mark Role 20 as submitted'));   // A: write pending
+    await user.click(screen.getByLabelText('Mark Role 21 as submitted'));   // B: write + reload land
+    await waitFor(() => expect(section('Applied').getByText('Role 21')).toBeInTheDocument());
+
+    finishWriteA(respond({ submission: { id: 8, job_id: 20 } }));           // A's reload now pending
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Marked as applied'));
+    await waitFor(() => expect(screen.getByLabelText('Mark Role 20 as submitted')).toBeDisabled());
+    await user.click(screen.getByLabelText('Mark Role 20 as submitted'));
+    expect(vi.mocked(fetch).mock.calls.filter(([u]) => u === '/api/jobs/20/submissions')).toHaveLength(1);
+
+    finishReloadA(respond({ current: [], applied: [role(20), role(21)], possible: [], possible_stale: [] }));
+    await waitFor(() => expect(section('Applied').getByText('Role 20')).toBeInTheDocument());
   });
 
   it('aborts its load on unmount', () => {

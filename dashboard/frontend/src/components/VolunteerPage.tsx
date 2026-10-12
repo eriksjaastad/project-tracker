@@ -35,12 +35,6 @@ function dateOnly(iso: string | null | undefined): string {
   return iso ? iso.slice(0, 10) : '';
 }
 
-// Identity of the latest load outcome: a new payload or a new error is a new
-// object, so comparing these tells whether a load has landed since a write.
-function loadVersion(data: unknown, error: unknown): unknown {
-  return error ?? data;
-}
-
 function RoleLink({ role }: { role: Role }) {
   return (
     <a href={role.url} target="_blank" rel="noopener noreferrer" className="job-title">
@@ -55,7 +49,7 @@ export function VolunteerPage() {
   // another tab already changed shows where the server keeps it, with the
   // server's dates. reload() aborts an older load, so a late response can
   // never overwrite a newer one.
-  const { data: loaded, error: loadError, reload } = useRequest<VolunteerData>(async (signal) => {
+  const { data: loaded, error: loadError, loading, reload } = useRequest<VolunteerData>(async (signal) => {
     const response = await fetch('/api/volunteer', { signal });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -63,22 +57,18 @@ export function VolunteerPage() {
     return { ...EMPTY, ...(await response.json()) };
   }, []);
   const data = loaded ?? EMPTY;
-  // A role is locked while its request is in flight, and after a successful
-  // write until the next load lands (new data or an error), so a second click
-  // cannot post a duplicate submission while the row still shows.
+  // A role is locked while its own request is in flight, and every role is
+  // locked while the list reloads: a successful write calls reload(), and
+  // `loading` stays true until the newest load lands (older ones are
+  // aborted), so a second click cannot post a duplicate submission while the
+  // row still shows where it was.
   const [busy, setBusy] = useState<Set<number>>(new Set());
-  const [awaitingLoad, setAwaitingLoad] = useState<Map<number, unknown>>(new Map());
-  const locked = (roleId: number) => busy.has(roleId)
-    || (awaitingLoad.has(roleId) && awaitingLoad.get(roleId) === loadVersion(loaded, loadError));
+  const locked = (roleId: number) => busy.has(roleId) || loading;
   const [showStale, setShowStale] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  // Action results only. A load failure is shown inline and stays until a
+  // load succeeds, because the notification closes itself.
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  // A failed load outranks an action's success message: the list on screen
-  // may then be out of date, and the page says so until dismissed.
-  const [dismissedError, setDismissedError] = useState<Error | null>(null);
-  const notice = loadError && loadError !== dismissedError
-    ? { message: 'Failed to load volunteer roles', type: 'error' as const }
-    : notification;
 
   useEffect(() => {
     if (loadError) console.error('Failed to load volunteer roles:', loadError);
@@ -100,7 +90,6 @@ export function VolunteerPage() {
         setNotification({ message: detail ? `${failure}: ${detail}` : failure, type: 'error' });
         return;
       }
-      setAwaitingLoad(prev => new Map(prev).set(roleId, loadVersion(loaded, loadError)));
       setNotification({ message: success, type: 'success' });
       reload();
     } catch (error) {
@@ -182,21 +171,28 @@ export function VolunteerPage() {
 
   return (
     <PageShell title="Volunteer" subtitle="Where you volunteer, where you applied, and what to look at next">
-      {notice && (
+      {notification && (
         <Notification
-          message={notice.message}
-          type={notice.type}
-          onClose={() => {
-            setNotification(null);
-            setDismissedError(loadError);
-          }}
+          message={notification.message}
+          type={notification.type}
+          onClose={() => setNotification(null)}
         />
       )}
 
-      {loaded === null && loadError === null ? (
-        <div className="jobs-loading">
-          <Spinner size="large" />
-        </div>
+      {loadError && (
+        <p className="volunteer-error" role="status">
+          {loaded === null
+            ? 'Could not load volunteer roles.'
+            : 'Could not refresh volunteer roles; this list may be out of date.'}
+        </p>
+      )}
+
+      {loaded === null ? (
+        loadError === null && (
+          <div className="jobs-loading">
+            <Spinner size="large" />
+          </div>
+        )
       ) : (
         <div className="jobs-container">
           {data.migration_pending && (
