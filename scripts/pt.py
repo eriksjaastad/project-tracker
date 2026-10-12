@@ -4868,8 +4868,8 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
     job-search's exporters (tools/ats_sweep.py and market-monitor/hn_jobs.py,
     each with --export-jsonl) write one JSON object per line; this command
     upserts them into the local database. A bad line rejects only itself:
-    the other lines still import, the bad ones are reported, and the command
-    exits 1.
+    the other lines still import and the bad ones are reported. The command
+    then exits 1; with --json it exits 0 and the envelope says "ok": false.
 
     \b
     Required (non-empty strings; null, empty or whitespace counts as missing):

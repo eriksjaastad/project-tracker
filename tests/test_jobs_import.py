@@ -396,6 +396,8 @@ def test_kind_and_null_rules_documented_in_import_help() -> None:
     assert "kind job (default for a new row) | volunteer" in contract
     assert "an explicit null" in contract
     assert "/jobs/volunteer" in contract
+    # Matches _run_import_json (exit 0) and the exit-1 tests for plain mode.
+    assert 'The command then exits 1; with --json it exits 0 and the envelope says "ok": false.' in contract
 
 
 _GOOD = {"company": "Acme", "title": "Engineer", "source": "manual"}
