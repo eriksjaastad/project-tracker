@@ -45,7 +45,6 @@ def backend_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManag
         path="/tmp/project-tracker",
         status="active",
     )
-    # Attach backend for direct history-row access in helpers.
     return manager
 
 

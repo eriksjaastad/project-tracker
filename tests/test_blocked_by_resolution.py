@@ -43,7 +43,6 @@ def backend_db(local_backend, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         path="/tmp/project-tracker",
         status="active",
     )
-    # Attach backend for _get_conn access in helpers
     return manager
 
 
