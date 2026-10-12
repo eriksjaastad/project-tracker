@@ -52,7 +52,6 @@ BROWSER_UA = "Mozilla/5.0 (portfolio-alert-digest)"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 IGNORE_FILE = REPO_ROOT / "scripts" / "alert_digest_ignore.json"
 MINI_SCAN_SCRIPT = REPO_ROOT / "scripts" / "mini_scan.py"
-LOG_FILE = REPO_ROOT / "logs" / "alert_digest.log"
 
 # Mac Mini reachability. The scanner (mini_scan.py) is piped over SSH and run
 # with the Mini's own python3 — stateless, no deployment. If the Mini is off or
@@ -112,16 +111,13 @@ SEVERITY_DOT = {"critical": "🔴", "warning": "🟡", "info": "🔵"}
 # --- Small helpers ----------------------------------------------------------
 
 def log(msg: str) -> None:
-    """Append a timestamped line to the digest log. Best-effort; never raises."""
+    """Print a timestamped line to stderr.
+
+    The launchd job sends stderr to logs/alert_digest.stderr.log, so this is
+    the digest's one log; it used to append every line to a second file too.
+    """
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    line = f"{stamp} {msg}"
-    print(line, file=sys.stderr)
-    try:
-        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with LOG_FILE.open("a") as fh:
-            fh.write(line + "\n")
-    except OSError:  # governance: allow-silent SF001: the line already went to stderr above, which the launchd job captures; the log file is a secondary copy
-        pass  # file logging is best-effort; stderr above always fired
+    print(f"{stamp} {msg}", file=sys.stderr)
 
 
 def load_ignore_list(machine: str) -> set:
