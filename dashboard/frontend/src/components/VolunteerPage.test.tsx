@@ -188,30 +188,36 @@ describe('VolunteerPage', () => {
     await waitFor(() => expect(section('Applied').getByText('Role 10')).toBeInTheDocument());
   });
 
-  it('says the list may be out of date when the reload after a write fails, and unlocks it', async () => {
+  it('locks the rows while a failed reload leaves them possibly stale, until Retry succeeds', async () => {
     const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValueOnce(respond({
-      current: [], applied: [], possible: [role(11)], possible_stale: [],
+      current: [], applied: [], possible: [role(11), role(12)], possible_stale: [],
     }));
     render(<VolunteerPage />);
     await waitFor(() => expect(screen.getByText('Role 11')).toBeInTheDocument());
 
     vi.mocked(fetch)
-      .mockResolvedValueOnce(respond({ job: { id: 11 } }))
+      .mockResolvedValueOnce(respond({ submission: { id: 9, job_id: 11 } }))
       .mockResolvedValueOnce(respond({}, false));
-    await user.click(screen.getByLabelText('Started volunteering at Org 11'));
+    await user.click(screen.getByLabelText('Mark Role 11 as submitted'));
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(
       'Could not refresh volunteer roles; this list may be out of date.'));
+    // Role 11 is already submitted on the server but still shows here: no
+    // second click may post a duplicate, and no other row acts on stale data.
     expect(section('Possible').getByText('Role 11')).toBeInTheDocument();
-    expect(screen.getByLabelText('Started volunteering at Org 11')).toBeEnabled();
+    expect(screen.getByLabelText('Mark Role 11 as submitted')).toBeDisabled();
+    expect(screen.getByLabelText('Dismiss Role 12')).toBeDisabled();
+    await user.click(screen.getByLabelText('Mark Role 11 as submitted'));
+    expect(vi.mocked(fetch).mock.calls.filter(([u]) => u === '/api/jobs/11/submissions')).toHaveLength(1);
 
-    // An action's own error is never hidden behind the load failure.
-    vi.mocked(fetch).mockResolvedValueOnce(
-      { ok: false, status: 409, json: async () => ({ detail: 'volunteer roles need migration 016; run `pt db migrate`' }) } as Response);
-    await user.click(screen.getByLabelText('Started volunteering at Org 11'));
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('run `pt db migrate`'));
-    expect(screen.getByRole('status')).toHaveTextContent('may be out of date');
+    vi.mocked(fetch).mockResolvedValueOnce(respond({
+      current: [], applied: [role(11)], possible: [role(12)], possible_stale: [],
+    }));
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(section('Applied').getByText('Role 11')).toBeInTheDocument());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Dismiss Role 12')).toBeEnabled();
   });
 
   it('claims nothing about the sections when the first load fails', async () => {
@@ -223,6 +229,13 @@ describe('VolunteerPage', () => {
     expect(screen.queryByText('Not volunteering anywhere yet')).not.toBeInTheDocument();
     expect(screen.queryByText('No applications yet')).not.toBeInTheDocument();
     expect(screen.queryByText('No open volunteer listings')).not.toBeInTheDocument();
+
+    vi.mocked(fetch).mockResolvedValueOnce(respond({
+      current: [], applied: [], possible: [role(13)], possible_stale: [],
+    }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(section('Possible').getByText('Role 13')).toBeInTheDocument());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it("keeps a role locked through its own reload even when another role's reload lands first", async () => {

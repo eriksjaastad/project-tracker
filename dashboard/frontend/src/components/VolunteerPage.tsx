@@ -58,13 +58,14 @@ export function VolunteerPage() {
   // A hung load would keep every role locked; after 15s it fails instead.
   }, [], { timeoutMs: 15000 });
   const data = loaded ?? EMPTY;
-  // A role is locked while its own request is in flight, and every role is
-  // locked while the list reloads: a successful write calls reload(), and
-  // `loading` stays true until the newest load lands (older ones are
-  // aborted), so a second click cannot post a duplicate submission while the
-  // row still shows where it was.
+  // A role is locked while its own request is in flight. Every role is
+  // locked while the list reloads (a successful write calls reload(), and
+  // `loading` stays true until the newest load lands; older ones are
+  // aborted) and while a load error stands, because the rows may then be
+  // stale: a row a write already moved must not take a second click. Retry
+  // is the way out of an error.
   const [busy, setBusy] = useState<Set<number>>(new Set());
-  const locked = (roleId: number) => busy.has(roleId) || loading;
+  const locked = (roleId: number) => busy.has(roleId) || loading || loadError !== null;
   const [showStale, setShowStale] = useState(false);
   const [showAll, setShowAll] = useState(false);
   // Action results only. A load failure is shown inline and stays until a
@@ -185,6 +186,10 @@ export function VolunteerPage() {
           {loaded === null
             ? 'Could not load volunteer roles.'
             : 'Could not refresh volunteer roles; this list may be out of date.'}
+          {' '}
+          <button type="button" className="volunteer-retry" onClick={reload} disabled={loading}>
+            Retry
+          </button>
         </p>
       )}
 
