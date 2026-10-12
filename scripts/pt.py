@@ -1512,12 +1512,7 @@ def backup_list(json_output: bool):
 
 @backup_group.command(name="create")
 def backup_create():
-    """Take a verified timestamped snapshot to both backup locations.
-
-    Then moves older backups to the Trash: in each location every kind keeps
-    its newest 10 (snapshots) or 5 (every other kind, such as the
-    pre-destructive copies). The scheduled backup job runs this.
-    """
+    """Take a verified timestamped snapshot to both backup locations."""
     try:
         result = DatabaseManager().backup_create()
     except _LOCAL_DB_ERRORS as err:
@@ -1525,18 +1520,35 @@ def backup_create():
         raise SystemExit(2)
     size_mb = result["size_bytes"] / (1024 * 1024)
     console.print(f"[green]✓ backup {Path(result['path']).name} ({size_mb:.1f} MB), verified[/green]")
-    if result["pruned"]:
-        click.echo(
-            f"Moved {len(result['pruned'])} old backup file(s) to the Trash "
-            "(each kind keeps its newest: 10 snapshots, 5 of every other kind)."
-        )
-    if result["prune_errors"]:
-        # On stdout, so the scheduled job's backup log records it; the snapshot
-        # above still succeeded, so the exit status stays 0.
-        click.echo(
-            f"PRUNE FAILED for {len(result['prune_errors'])} file(s), left in place; "
-            f"first: {result['prune_errors'][0]}"
-        )
+
+
+@backup_group.command(name="prune")
+@click.option("--dry-run", is_flag=True, help="List what would move; move nothing.")
+def backup_prune(dry_run):
+    """Move old backups to the Trash.
+
+    In each backup location every kind of backup (its name before the first
+    timestamp) keeps its newest 10 (scheduled snapshots) or 5 (every other
+    kind, such as the pre-destructive copies). The scheduled backup job runs
+    this after the snapshot and the offsite copy. Exits 1 if anything could
+    not be moved or listed.
+    """
+    try:
+        result = DatabaseManager().backup_prune(dry_run=dry_run)
+    except _LOCAL_DB_ERRORS as err:
+        console.print(f"[red]pt backup prune: {err}[/red]")
+        raise SystemExit(2)
+    size_mb = result["size_bytes"] / (1024 * 1024)
+    if dry_run:
+        for name in result["pruned"]:
+            click.echo(name)
+    # One summary line: the scheduled job logs it as the prune entry's detail.
+    summary = f"{'would move' if dry_run else 'moved'} {len(result['pruned'])} file(s), {size_mb:.1f} MB"
+    if result["errors"]:
+        summary += f"; failed for {len(result['errors'])}, left in place: {result['errors'][0]}"
+    click.echo(summary)
+    if result["errors"]:
+        raise SystemExit(1)
 
 
 @backup_group.command(name="offsite")

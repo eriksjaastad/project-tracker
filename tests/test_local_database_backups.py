@@ -87,7 +87,7 @@ def test_local_board_calendar_and_restore_work_without_service(db, monkeypatch, 
     first = db.add_task('Preserve this card', 'recovery')
     calendar = CalendarManager(db.db_path)
     event = calendar.add_event('Recovery drill', '2026-09-22', project_id='recovery')
-    created = db.backup_create(prune=False)
+    created = db.backup_create()
     assert created['verified'] is True
     backup_name = Path(created['path']).name
     assert {row['name'] for row in db.backup_list()} == {backup_name}
@@ -109,7 +109,7 @@ def test_local_board_calendar_and_restore_work_without_service(db, monkeypatch, 
 def test_rclone_uploads_snapshot_and_preserves_local_copy_on_failure(db, monkeypatch, tmp_path):
     db.add_project('offsite', 'Offsite', str(tmp_path), 'active')
     db.add_task('Offsite card', 'offsite')
-    created = db.backup_create(prune=False)
+    created = db.backup_create()
     config = tmp_path / 'rclone.conf'
     config.write_text('[synthetic]\ntype = local\n')
     monkeypatch.setenv('RCLONE_CONFIG', str(config))
@@ -156,7 +156,7 @@ def test_scheduled_settings_match_manual_upload_and_status(db, monkeypatch, tmp_
         monkeypatch.delenv(key, raising=False)
     local = DatabaseManager(db.db_path)
     assert local.entry.external_backup_dir == external
-    created = local.backup_create(prune=False)
+    created = local.backup_create()
     monkeypatch.setattr('shutil.which', lambda name: '/synthetic/rclone')
     calls = []
     def upload(command, **kwargs):
@@ -231,7 +231,7 @@ def test_backup_cli_reports_verification_failure(db, monkeypatch, tmp_path, comm
 def test_offsite_cli_reports_timeout_and_keeps_snapshot(db, monkeypatch, tmp_path):
     from click.testing import CliRunner
     import pt
-    created = db.backup_create(prune=False)
+    created = db.backup_create()
     config = tmp_path / 'rclone.conf'
     config.write_text('[synthetic]\ntype = local\n')
     monkeypatch.setenv('PT_BACKUP_LOG_PATH', str(tmp_path / 'backup.log'))
@@ -318,7 +318,7 @@ def test_prune_keeps_the_newest_of_each_kind_and_trashes_the_rest(db, monkeypatc
     for i in range(6):  # timestamped, but not a .db/.json backup: untouched
         make(f"notes_2026100{i + 1}_000000.txt", age=50 + i)
 
-    db._prune_backups()
+    db.backup_prune()
 
     assert sorted(trashed) == sorted([
         "tracker_20261020_000000.db",
@@ -332,26 +332,40 @@ def test_prune_keeps_the_newest_of_each_kind_and_trashes_the_rest(db, monkeypatc
     ])
 
 
-def test_prune_failure_is_reported_and_the_snapshot_still_succeeds(db, monkeypatch, capsys):
-    """A Trash failure must not undo a verified snapshot or stop the offsite step."""
+@pytest.mark.parametrize("failing", ["trash", "listing"])
+def test_prune_reports_every_failure_and_leaves_files(db, monkeypatch, failing):
+    """A Trash or listing failure is one reported line and exit 1, never a traceback."""
     import os
     import send2trash
-    from pt import backup_create as backup_create_cmd
     from click.testing import CliRunner
+    from pt import backup_prune as backup_prune_cmd
 
-    def refuse(path):
-        raise PermissionError(1, "Operation not permitted", path)
+    def refuse(*_args):
+        raise PermissionError(1, "Operation not permitted")
 
-    monkeypatch.setattr(send2trash, "send2trash", refuse)
     directory = db.entry.backup_dir
     directory.mkdir(parents=True, exist_ok=True)
-    for i in range(11):
+    for i in range(12):
         path = directory / f"tracker_202609{i + 10:02d}_000000.db"
         path.write_text("x")
         os.utime(path, (1_000_000 - i, 1_000_000 - i))
+    import pt
 
-    result = CliRunner().invoke(backup_create_cmd, [])
+    def must_not_trash(path):
+        pytest.fail(f"listing failed, yet {path} was sent to the Trash")
 
-    assert result.exit_code == 0, result.output
-    assert "verified" in result.output
-    assert "PRUNE FAILED for " in result.output and "Operation not permitted" in result.output
+    # Every case stubs send2trash, so no test can reach the real Trash. The
+    # listing case patches the class the CLI builds (pt may import it under
+    # scripts.db rather than db).
+    if failing == "trash":
+        monkeypatch.setattr(send2trash, "send2trash", refuse)
+    else:
+        monkeypatch.setattr(send2trash, "send2trash", must_not_trash)
+        monkeypatch.setattr(pt.DatabaseManager, "_backups_to_prune", refuse)
+
+    result = CliRunner().invoke(backup_prune_cmd, [])
+
+    assert result.exit_code == 1, result.output
+    assert result.output.count("\n") == 1
+    assert "left in place" in result.output and "Operation not permitted" in result.output
+    assert len(list(directory.glob("tracker_*.db"))) == 12

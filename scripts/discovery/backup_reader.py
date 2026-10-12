@@ -214,6 +214,9 @@ def _parse_backup_log() -> dict[str, Any]:
         "last_cloud_success_at": None,
         "last_cloud_failure_at": None,
         "last_cloud_failure_detail": None,
+        "last_prune_failed": False,
+        "last_prune_at": None,
+        "last_prune_detail": None,
     }
     if not log_path.exists():
         return summary
@@ -235,6 +238,12 @@ def _parse_backup_log() -> dict[str, Any]:
         kind = parts[1]
         if kind == "backup":
             summary["last_local_success_at"] = _dt_to_iso(ts)
+            continue
+
+        if kind == "prune" and len(parts) >= 3:
+            summary["last_prune_at"] = _dt_to_iso(ts)
+            summary["last_prune_failed"] = parts[2] == "failed"
+            summary["last_prune_detail"] = (parts[3] if len(parts) > 3 else "") or None
             continue
 
         if kind != "cloud_copy" or len(parts) < 3:
@@ -319,6 +328,9 @@ def get_backup_status() -> dict[str, Any]:
     elif cloud_status != "healthy":
         status = "warning"
         message = f"{local_message} {cloud_message}"
+    elif log["last_prune_failed"]:
+        status = "warning"
+        message = f"Pruning old backups failed: {log['last_prune_detail']}"
     else:
         status = "healthy"
         message = "Local and off-machine backups look healthy."

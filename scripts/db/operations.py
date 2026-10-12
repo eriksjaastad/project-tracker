@@ -577,8 +577,11 @@ class ProjectTrackerOps(BackendDatabaseManager):
         """Both DECISIONS.md backup locations, primary first."""
         return [self.entry.backup_dir, self.entry.external_backup_dir]
 
-    def backup_create(self, prune: bool = True) -> dict:
-        """Timestamped snapshot to both locations, then prune old ones.
+    def backup_create(self) -> dict:
+        """Timestamped, verified snapshot to both locations.
+
+        Pruning old backups is a separate step (backup_prune), so a failure
+        there can never undo or hide a snapshot that succeeded.
 
         Replaces `scripts/backup-db.sh`, which shelled out to the `sqlite3`
         binary and built its dot-command by interpolating an environment
@@ -590,13 +593,10 @@ class ProjectTrackerOps(BackendDatabaseManager):
         if not self.verify_backup(str(primary)):
             raise RuntimeError(f"backup at {primary} failed verification")
 
-        pruned, prune_errors = self._prune_backups() if prune else ([], [])
         return {
             "path": str(primary),
             "size_bytes": primary.stat().st_size,
             "verified": True,
-            "pruned": pruned,
-            "prune_errors": prune_errors,
         }
 
 
@@ -690,29 +690,37 @@ class ProjectTrackerOps(BackendDatabaseManager):
                         dropped.extend(paths)
         return sorted(dropped)
 
-    def _prune_backups(self) -> tuple[list[str], list[str]]:
+    def backup_prune(self, dry_run: bool = False) -> dict:
         """Move every file _backups_to_prune names to the Trash.
 
         These are real database contents, so they go to the Trash rather than
-        being deleted: recoverable if the retention rule turns out wrong.
-        Returns (trashed names, "name: error" for each file that could not be
-        moved). A failure is reported, not raised, so it cannot undo the
-        snapshot that has already succeeded; a file already gone is skipped.
+        being deleted: recoverable if the retention rule turns out wrong. Any
+        OS error, listing the directories or moving one file, is collected in
+        ``errors`` rather than raised; a file already gone is skipped. With
+        ``dry_run`` nothing moves and ``pruned`` lists what would.
         """
         from send2trash import send2trash
 
         pruned: list[str] = []
         errors: list[str] = []
-        for path in self._backups_to_prune():
+        size = 0
+        try:
+            candidates = self._backups_to_prune()
+        except OSError as err:
+            return {"pruned": [], "size_bytes": 0, "errors": [f"listing backups: {err}"]}
+        for path in candidates:
             try:
-                send2trash(str(path))
+                file_size = path.stat().st_size
+                if not dry_run:
+                    send2trash(str(path))
             except FileNotFoundError:
                 continue
             except OSError as err:
                 errors.append(f"{path.name}: {err}")
                 continue
             pruned.append(path.name)
-        return pruned, errors
+            size += file_size
+        return {"pruned": pruned, "size_bytes": size, "errors": errors}
 
     def backup_list(self) -> list:
         """Every restorable snapshot, newest first, named not pathed.
