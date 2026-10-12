@@ -60,9 +60,8 @@ repo. When it finds drift — a new Vercel project, a job that stopped running, 
 service in Doppler that the registry does not list, an `UNKNOWN` it can now
 answer — it opens a Kanban card against the owning project and stops there.
 
-This is the same shape as Hermes, and it is deliberate. Two machines writing one
-tracked YAML is what killed the cross-machine Kanban sync in September 2026.
-One writer, one file, no merge conflicts.
+This is the same shape as Hermes, and it is deliberate. One writer, one file, no
+merge conflicts.
 
 ## SSH, both directions
 
@@ -377,15 +376,3 @@ ssh macbook-pro 'cd ~/projects && ~/projects/project-tracker/pt tasks -p <projec
 ```
 
 Also recorded as `pt info get remote_pt_invocation`.
-
-**There is queued work sitting in the fallback.**
-`~/projects/holoscape-agent/.scratch/pending-board-updates.md` on the Mini
-(last written 2026-09-22 11:37) holds four intended board moves with commit
-SHAs and test counts — `#5888` → Done, `#6030` → In Progress plus three
-progress notes. On the live board `#6030` still reads **To Do**. That gap is
-not a Hermes bug; it is the SSH fault above, and it is exactly the class of
-silent loss Saga exists to catch.
-
-The Mini's local fallback was doubly blocked: its own `pt tasks` fails on a
-pending migration (`012_add_tasks_archived_at` / `no such column: archived_at`),
-so no local board mutation was safe either.
