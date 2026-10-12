@@ -40,6 +40,11 @@ async function fetchRows(url: string, signal: AbortSignal): Promise<UnknownRow[]
     throw new Error(`${url}: HTTP ${response.status}`);
   }
   const body: unknown = await response.json();
+  // The proxy passes the tracker's status through; an error body is an error
+  // whatever the status (ShadowPricingPanel does the same).
+  if (typeof body === 'object' && body !== null && 'error' in body && (body as { error?: unknown }).error) {
+    throw new Error(`${url}: ${String((body as { error: unknown }).error)}`);
+  }
   const rows = Array.isArray(body)
     ? body
     : typeof body === 'object' && body !== null && Array.isArray((body as { data?: unknown }).data)

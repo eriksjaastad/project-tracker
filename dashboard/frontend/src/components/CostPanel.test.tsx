@@ -24,10 +24,11 @@ describe('CostPanel', () => {
     vi.resetAllMocks();
   });
 
-  it('says the tracker is unavailable when the proxy reports it down, not $0.00 or "no data"', async () => {
-    // What dashboard/app.py's proxy returns when the cost tracker is unreachable.
+  it.each([502, 200])('says the tracker is unavailable on an error body (HTTP %i), not $0.00 or "no data"', async status => {
+    // What dashboard/app.py's proxy returns when the cost tracker is unreachable;
+    // the proxy passes the tracker's own status through, so a 200 is possible.
     const down = { error: 'Cost tracker unavailable', data: [] };
-    serve({ daily: down, providers: down, projects: down }, 502);
+    serve({ daily: down, providers: down, projects: down }, status);
     render(<CostPanel />);
 
     expect(await screen.findByText('Cost tracker unavailable')).toBeInTheDocument();
