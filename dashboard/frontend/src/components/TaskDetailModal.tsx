@@ -77,7 +77,6 @@ export function TaskDetailModal({
     handleFiles(Array.from(e.dataTransfer.files));
   }, [handleFiles]);
 
-
   useEffect(() => {
     if (task) {
       setEditedText(task.text);

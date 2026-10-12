@@ -113,19 +113,21 @@ export function TaskForm({
     // task id, and must name a loaded task. The server stores ids unchecked,
     // so an entry that resolves to nothing is refused here rather than
     // dropped or sent as a dangling id. Ids stay strings: they can exceed
-    // Number.MAX_SAFE_INTEGER (#7824).
+    // Number.MAX_SAFE_INTEGER (#7824); only the small display_id is compared
+    // as a number.
     let blockedBy: string[] | null = null;
     const entries = blockedByInput.split(',').map((entry) => entry.trim()).filter(Boolean);
     if (entries.length > 0) {
       const unknown: string[] = [];
-      blockedBy = entries.map((entry) => {
+      const ids = entries.map((entry) => {
         const rawId = entry.replace(/^#/, '');
         const matchedTask = /^\d+$/.test(rawId)
-          ? tasks.find((task) => String(task.display_id) === rawId || task.id === rawId)
+          ? tasks.find((task) => task.display_id === Number(rawId) || task.id === rawId)
           : undefined;
         if (!matchedTask) unknown.push(entry);
         return matchedTask?.id ?? '';
       });
+      blockedBy = [...new Set(ids)];
       if (unknown.length > 0) {
         setError(`Blocked By: ${unknown.join(', ')} doesn't match any task the board has loaded. Use the number shown on the card.`);
         return;
