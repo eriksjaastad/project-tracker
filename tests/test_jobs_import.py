@@ -118,20 +118,27 @@ def test_import_validates_required_fields(tmp_path: Path) -> None:
         )
 
 
-def test_hn_multi_role_contract_documented_in_import_contract() -> None:
+def _import_help() -> str:
+    """`pt jobs import --help`: the import contract job-search's exporters follow."""
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.pt", "jobs", "import", "--help"],
+        capture_output=True, text=True, cwd=Path(__file__).parent.parent, timeout=60,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    # Click re-wraps paragraphs; compare on single spaces.
+    return " ".join(result.stdout.split())
+
+
+def test_hn_multi_role_contract_documented_in_import_help() -> None:
     """HN comments guarantee one #post row; #role-N rows are best-effort.
 
     Free-text HN headers can't be parsed completely, so the contract
     guarantees one {comment_url}#post row per comment carrying the full
     comment text (no role is lost), and treats #role-N rows as extras.
-    The job-search export side lives in that repo; the contract is
-    documented in docs/JOB_IMPORT_CONTRACT.md.
+    The job-search export side lives in that repo; the contract is the
+    `pt jobs import --help` text.
     """
-    contract_path = Path(__file__).parent.parent / "docs" / "JOB_IMPORT_CONTRACT.md"
-    assert contract_path.exists(), "JOB_IMPORT_CONTRACT.md must exist"
-
-    contract = contract_path.read_text()
-    assert "HN Multi-Role Handling" in contract
+    contract = _import_help()
     assert "{comment_url}#post" in contract
     assert "full comment text" in contract.lower()
     assert "#role-{N}" in contract
@@ -140,7 +147,7 @@ def test_hn_multi_role_contract_documented_in_import_contract() -> None:
     assert "Full HN post (read for every role)" in contract
     assert '"Unknown"' not in contract  # retired label (job-search PR #20)
     assert '"See raw text"' not in contract
-    assert "Contract violation" in contract
+    assert "Omitting it, or cutting its raw text, breaks the contract" in contract
     assert "Every advertised position must produce one JSONL line" not in contract
 
 
@@ -384,9 +391,11 @@ def test_cli_import_kind_and_rejects_unknown_kind(db, tmp_path: Path) -> None:
     }
 
 
-def test_kind_documented_in_import_contract() -> None:
-    contract = (Path(__file__).parent.parent / "docs" / "JOB_IMPORT_CONTRACT.md").read_text()
-    assert "`kind`" in contract and "`volunteer`" in contract
+def test_kind_and_null_rules_documented_in_import_help() -> None:
+    contract = _import_help()
+    assert "kind job (default for a new row) | volunteer" in contract
+    assert "an explicit null" in contract
+    assert "/jobs/volunteer" in contract
 
 
 _GOOD = {"company": "Acme", "title": "Engineer", "source": "manual"}

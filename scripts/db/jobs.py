@@ -54,7 +54,7 @@ def validate_import_record(record: Any) -> dict[str, Any]:
             f"invalid category: {category!r}; must be one of {sorted(JOB_CATEGORIES)}"
         )
     # Omitted kind means "default / keep the row's kind"; an explicit value,
-    # null included, must be one of JOB_KINDS (JOB_IMPORT_CONTRACT.md).
+    # null included, must be one of JOB_KINDS (`pt jobs import --help`).
     kind = record.get("kind")
     if "kind" in record and (not isinstance(kind, str) or kind not in JOB_KINDS):
         raise ValueError(f"invalid kind: {kind!r}; must be one of {sorted(JOB_KINDS)}")
