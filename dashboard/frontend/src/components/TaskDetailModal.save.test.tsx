@@ -127,7 +127,7 @@ describe('TaskDetailModal edit Save', () => {
     await user.type(notes, '\nmine');
     await user.click(screen.getByRole('button', { name: 'Save Changes' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('changed elsewhere while you were editing, so nothing was saved');
+    expect(await screen.findByRole('alert')).toHaveTextContent('The current notes are loaded: Save again to replace them');
     expect(notes).toHaveValue(`${NOTES}\nmine`);
 
     await user.click(screen.getByRole('button', { name: 'Save Changes' }));
@@ -137,10 +137,11 @@ describe('TaskDetailModal edit Save', () => {
     }));
   });
 
-  it('keeps the draft and says to reopen when the reload after a conflict fails', async () => {
+  it('keeps the draft when the reload after a conflict fails, and the next Save reloads again', async () => {
     const user = userEvent.setup();
-    vi.mocked(updateTask).mockRejectedValueOnce(new NotesConflictError('changed'));
-    vi.mocked(fetchTask).mockRejectedValueOnce(new Error('offline'));
+    const theirs = `${NOTES}\n- [x] done elsewhere`;
+    vi.mocked(updateTask).mockRejectedValue(new NotesConflictError('changed'));
+    vi.mocked(fetchTask).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(makeTask({ notes: theirs }));
     renderModal();
 
     await user.click(screen.getByRole('button', { name: 'Edit Task' }));
@@ -148,7 +149,28 @@ describe('TaskDetailModal edit Save', () => {
     await user.type(notes, '\nmine');
     await user.click(screen.getByRole('button', { name: 'Save Changes' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('reloading failed (offline). Close and reopen the task before saving.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('loading the current notes failed (offline). Your draft is kept: Save again to retry.');
     expect(notes).toHaveValue(`${NOTES}\nmine`);
+
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+    expect(await screen.findByText(/The current notes are loaded/)).toBeInTheDocument();
+    expect(notes).toHaveValue(`${NOTES}\nmine`);
+  });
+
+  it('on a conflict with notes already equal to the draft, does not rewrite them', async () => {
+    // A Save whose answer was lost: the server already holds this draft's notes.
+    const user = userEvent.setup();
+    vi.mocked(updateTask).mockRejectedValueOnce(new NotesConflictError('changed'));
+    vi.mocked(fetchTask).mockResolvedValue(makeTask({ notes: `${NOTES}\nmine` }));
+    renderModal();
+
+    await user.click(screen.getByRole('button', { name: 'Edit Task' }));
+    await user.type(screen.getByPlaceholderText('Optional notes, context, or comments...'), '\nmine');
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The saved notes already match your version');
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+    expect(updateTask).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Edit Task' })).toBeInTheDocument();
   });
 });

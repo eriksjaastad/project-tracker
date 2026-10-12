@@ -214,20 +214,26 @@ export function TaskDetailModal({
         setError(err instanceof Error ? err.message : 'Failed to update task');
         return;
       }
-      // Keep the draft. The latest notes become the base, so the user decides:
-      // save again to replace them, or cancel to keep them.
+      // Keep the draft. The current notes become the base, so the user decides:
+      // save again to replace them, or cancel to keep them. A failed reload
+      // leaves the old base, so the next Save conflicts and reloads again.
+      const stale = 'The notes no longer match what this edit started from, so this Save wrote nothing';
       try {
         const fresh = await fetchTask(taskId);
         applyServerNotes(taskId, fresh.notes ?? null, fresh.updated_at);
         if (currentTaskIdRef.current === taskId) {
           setEditBaseNotes(fresh.notes ?? null);
-          setError('The notes were changed elsewhere while you were editing, so nothing was saved. Save again to replace them with your version, or Cancel to keep theirs.');
+          // An earlier Save can land with its answer lost, so the "other"
+          // writer may have been this draft: then its notes need no write.
+          setError(optional(fresh.notes) === optional(editedNotes)
+            ? 'The saved notes already match your version, so they need no change. Save again to apply any other changes, or Cancel.'
+            : `${stale}. The current notes are loaded: Save again to replace them with your version, or Cancel to keep them.`);
         }
       } catch (refetchErr) {
         if (currentTaskIdRef.current === taskId) {
-          setError(`The notes were changed elsewhere, so nothing was saved, and reloading failed (${
+          setError(`${stale}, and loading the current notes failed (${
             refetchErr instanceof Error ? refetchErr.message : 'unknown error'
-          }). Close and reopen the task before saving.`);
+          }). Your draft is kept: Save again to retry.`);
         }
       }
     } finally {
