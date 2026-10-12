@@ -49,12 +49,12 @@ def runner() -> CliRunner:
 # contains), so pending migrations only exist on a database that is behind.
 # These are the newest ones; each is idempotent, so re-applying is real work.
 BEHIND = ["016_add_jobs_kind_and_volunteering", "017_add_codebase_size_snapshots",
-          "018_drop_cr_sqlite", "019_add_task_attachments"]
+          "018_drop_cr_sqlite", "019_add_task_attachments", "020_restore_audit_project_delete"]
 
 
 @pytest.fixture
 def fresh_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A database four migrations behind, pointed at via PT_DB_PATH.
+    """A database five migrations behind, pointed at via PT_DB_PATH.
 
     Stays out of the real ``data/tracker.db`` and bypasses the
     fresh-DB safety check via PT_ALLOW_FRESH_DB=1 (the same escape

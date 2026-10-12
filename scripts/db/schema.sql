@@ -1,6 +1,6 @@
 -- Maintained by scripts/db/schema_dump.py (make schema). Never edit by hand: add a migration.
--- Migrations: through 019
--- Body sha256: 741824f495b998a32fa6e7083627c56e8897a56329bd647d64efc498f9704f89
+-- Migrations: through 020
+-- Body sha256: 74a5ba629af5450a8faaba8364f43d1b0a01f14a33ed39a2ca45bb79e485a12c
 
 CREATE TABLE _delete_permissions (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -371,6 +371,26 @@ CREATE INDEX idx_tasks_parent ON tasks(parent_id);
 CREATE INDEX idx_tasks_project ON tasks(project_id);
 
 CREATE INDEX idx_tasks_status ON tasks(status);
+
+CREATE TRIGGER audit_project_delete
+    BEFORE DELETE ON projects
+    FOR EACH ROW
+    BEGIN
+        INSERT INTO delete_audit_log (table_name, deleted_id, deleted_data, deleted_at, source)
+        VALUES (
+            'projects',
+            OLD.id,
+            json_object(
+                'id', OLD.id,
+                'name', OLD.name,
+                'path', OLD.path,
+                'status', OLD.status,
+                'description', OLD.description
+            ),
+            datetime('now'),
+            'trigger'
+        );
+    END;
 
 CREATE TRIGGER audit_task_delete
             BEFORE DELETE ON tasks
