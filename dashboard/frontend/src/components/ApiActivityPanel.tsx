@@ -4,10 +4,10 @@ import './ApiActivityPanel.css';
 import { summarizeActivity } from '../utils/apiActivity';
 import type { Usage, Activity } from '../utils/apiActivity';
 
-// /api/costs/usage takes only a lower date bound and a limit, so the panel
-// asks for up to LIMIT rows since the chosen day and filters that day locally,
-// warning when the cap is hit (newer calls may crowd out a historical day).
-// The rows are observed telemetry, not a billing statement.
+// The panel asks /api/costs/usage for up to LIMIT rows since the chosen day,
+// with no upper bound, and filters that day locally; when the cap is hit it
+// warns, because newer calls may crowd out a historical day. The rows are
+// observed telemetry, not a billing statement.
 const LIMIT = 5000;
 
 function localDate() {

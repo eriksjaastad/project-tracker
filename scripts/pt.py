@@ -2755,9 +2755,10 @@ def memory_group(ctx: click.Context) -> None:
 
     The read-only --json modes (search, recent, stats) print one JSON object
     with schema_version, ok and read_only beside the rows, and no prose; export
-    prints NDJSON. They are safe for cron and BatchMode SSH. Failures exit 2
-    for invalid input, 3 when the memory backend is unavailable and 4 when the
-    query itself fails.
+    prints NDJSON. They are safe for cron and BatchMode SSH. In those modes a
+    failure exits 2 for invalid input, 3 when the memory backend is unavailable
+    and 4 when the query itself fails. Without --json a failure exits
+    non-zero with no stable code (search and write pass on brain.py's).
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
