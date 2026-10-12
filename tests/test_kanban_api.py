@@ -13,7 +13,6 @@ import sqlite3
 import tempfile
 import time
 import threading
-import html
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -299,9 +298,8 @@ def test_property_8_task_edit_persistence(initial_text, new_text, project_id, st
         updated_task = update_response.json()
         
         # Verify text was updated
-        # Text is sanitized (HTML-escaped) before storage, so compare against escaped version
-        assert updated_task["text"] == html.escape(new_text, quote=True), \
-            f"Task text not updated. Expected '{html.escape(new_text, quote=True)}', got '{updated_task['text']}'"
+        assert updated_task["text"] == new_text, \
+            f"Task text not updated. Expected '{new_text}', got '{updated_task['text']}'"
         
         # Verify updated_at timestamp changed
         assert updated_task["updated_at"] != original_updated_at, \
@@ -323,9 +321,8 @@ def test_property_8_task_edit_persistence(initial_text, new_text, project_id, st
         reloaded_task = get_response.json()
         
         # Verify changes persisted
-        # Text is sanitized (HTML-escaped) before storage, so compare against escaped version
-        assert reloaded_task["text"] == html.escape(new_text, quote=True), \
-            f"Task text changes did not persist across reload. Expected '{html.escape(new_text, quote=True)}', got '{reloaded_task['text']}'"
+        assert reloaded_task["text"] == new_text, \
+            f"Task text changes did not persist across reload. Expected '{new_text}', got '{reloaded_task['text']}'"
         assert reloaded_task["updated_at"] == updated_task["updated_at"], \
             "updated_at timestamp did not persist"
     finally:
@@ -475,9 +472,8 @@ def test_property_18_transaction_rollback_on_api_error(text, project_id, status,
         assert task_response.status_code == 200
         task = task_response.json()
         
-        # Text is sanitized (HTML-escaped) before storage, so compare against escaped version
-        assert task["text"] == html.escape(text, quote=True), \
-            f"Task text was modified despite transaction rollback. Expected '{html.escape(text, quote=True)}', got '{task['text']}'"
+        assert task["text"] == text, \
+            f"Task text was modified despite transaction rollback. Expected '{text}', got '{task['text']}'"
     finally:
         # Cleanup
         db_path.unlink()
@@ -593,8 +589,7 @@ def test_property_19_database_lock_retry(text, project_id, status, priority):
             task_response = client.get(f"/api/tasks/{task_id}")
             assert task_response.status_code == 200
             task = task_response.json()
-            # Text is sanitized (HTML-escaped) before storage, so compare against escaped version
-            assert task["text"] == html.escape("Updated with retry", quote=True)
+            assert task["text"] == "Updated with retry"
             
         finally:
             db_manager._get_conn = original_get_conn

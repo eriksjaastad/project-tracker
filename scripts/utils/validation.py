@@ -2,11 +2,10 @@
 
 This module provides validation functions for task creation and updates,
 including secret detection, text length validation, project existence checks,
-enum validation for status and priority fields, and XSS sanitization.
+enum validation for status and priority fields.
 """
 
 import re
-import html
 from typing import Optional, Tuple, Any
 
 
@@ -311,27 +310,6 @@ def validate_acceptance_criteria(notes: Optional[str]) -> Tuple[bool, Optional[s
 
 
 
-def sanitize_task_text(text: str) -> str:
-    """Sanitize task text to prevent XSS attacks.
-    
-    Escapes HTML special characters to prevent script injection.
-    This function should be called on all task text before storage and display.
-    
-    Args:
-        text: The task text to sanitize.
-        
-    Returns:
-        Sanitized text with HTML entities escaped.
-        
-    Examples:
-        >>> sanitize_task_text("<script>alert('xss')</script>")
-        "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"
-        >>> sanitize_task_text("Normal task text")
-        "Normal task text"
-    """
-    return html.escape(text, quote=True)
-
-
 def validate_task_input(
     text: str,
     project_id: str,
@@ -348,9 +326,6 @@ def validate_task_input(
     - Project existence
     - Status enum
     - Priority enum
-    
-    Note: XSS sanitization is handled separately via sanitize_task_text()
-    before storing in the database.
     
     Args:
         text: Task text description.

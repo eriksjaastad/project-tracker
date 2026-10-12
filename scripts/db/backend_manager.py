@@ -32,7 +32,6 @@ from scripts.utils.validation import (
     validate_status,
     validate_priority,
     contains_secret,
-    sanitize_task_text
 )
 from scripts.logger import get_logger
 
@@ -855,9 +854,6 @@ class DatabaseManager:
                 raise BlockedTaskProjectError(error_message)
             raise ValueError(error_message)
         
-        # Sanitize text to prevent XSS attacks
-        sanitized_text = sanitize_task_text(text)
-        
         blocked_by_value = None
         if blocked_by is not None:
             if isinstance(blocked_by, str):
@@ -879,7 +875,7 @@ class DatabaseManager:
                 explicit_category=category,
             )
             
-            # Insert task with sanitized text
+            # Text is stored as typed; HTML renderers escape it (#8246).
             cursor.execute("""
                 INSERT INTO tasks (
                     id,
@@ -903,7 +899,7 @@ class DatabaseManager:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 task_id,
-                sanitized_text,
+                text,
                 status,
                 project_id,
                 priority,
@@ -1219,7 +1215,8 @@ class DatabaseManager:
             if isinstance(prompt_value, str) and prompt_value.strip():
                 updates["task_type"] = "agent"
         
-        # Validate and sanitize text if provided (includes secret detection)
+        # Validate text if provided (includes secret detection). Text is stored
+        # as typed; whatever renders it as HTML escapes it there (#8246).
         if "text" in updates:
             text = updates["text"]
             # Validate text length
@@ -1230,8 +1227,6 @@ class DatabaseManager:
             is_secret, pattern = contains_secret(text)
             if is_secret:
                 raise ValueError(f"Task text contains potential secret pattern: {pattern}")
-            # Sanitize text to prevent XSS attacks
-            updates["text"] = sanitize_task_text(text)
         
         # Normalize blocked_by if provided
         if "blocked_by" in updates and isinstance(updates["blocked_by"], list):
