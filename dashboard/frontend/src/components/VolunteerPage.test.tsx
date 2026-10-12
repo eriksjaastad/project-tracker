@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 
@@ -261,6 +261,18 @@ describe('VolunteerPage', () => {
 
     finishReloadA(respond({ current: [], applied: [role(20), role(21)], possible: [], possible_stale: [] }));
     await waitFor(() => expect(section('Applied').getByText('Role 20')).toBeInTheDocument());
+  });
+
+  it('gives up on a hung load after 15 seconds so nothing stays locked', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(fetch).mockReturnValue(new Promise(() => {}));
+      render(<VolunteerPage />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+      expect(screen.getByRole('status')).toHaveTextContent('Could not load volunteer roles.');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('aborts its load on unmount', () => {

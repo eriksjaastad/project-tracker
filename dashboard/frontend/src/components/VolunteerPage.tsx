@@ -55,7 +55,8 @@ export function VolunteerPage() {
       throw new Error(`HTTP ${response.status}`);
     }
     return { ...EMPTY, ...(await response.json()) };
-  }, []);
+  // A hung load would keep every role locked; after 15s it fails instead.
+  }, [], { timeoutMs: 15000 });
   const data = loaded ?? EMPTY;
   // A role is locked while its own request is in flight, and every role is
   // locked while the list reloads: a successful write calls reload(), and
