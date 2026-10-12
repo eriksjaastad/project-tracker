@@ -3,6 +3,37 @@
 Deliberate architectural choices. Read before changing anything structural.
 To revisit a decision, don't edit — add a new entry that supersedes it.
 
+## One schema path: generated schema.sql plus migrations, one ledger
+**Accepted 2026-10-12 (Erik's plan mark on #8093, item 4.5).**
+
+A fresh database is built from `scripts/db/schema.sql` and its
+`schema_migrations` ledger is marked for every migration that file contains;
+every change after that is a numbered migration. The file is generated
+(`make schema`) from create_database plus all migrations, never hand-written,
+and a test fails until it is regenerated, so the two can't drift. This
+replaced `ensure_schema` (742 lines that recreated, ALTERed and rebuilt
+tables), the runtime DDL in the calendar and attachment managers, and the
+`schema_version` ledger, which had been frozen at 9 since April and only gated
+whether ensure_schema ran.
+
+Trade-off, accepted: a database that has tables but no `schema_migrations`
+ledger (anything older than April 2026) is refused instead of upgraded in
+place, because upgrading it would replay table rebuilds over real data.
+Restore a newer backup instead.
+
+The `.db-fingerprint` sidecar is now only a marker: its existence tells the
+fresh-database guard that a database with data lived here, which survives the
+file being replaced. Its uuid was also matched against a copy in `_metadata`,
+but that check could only run at creation on an empty database, so it never
+fired; keeping two copies in sync was the only source of creation races, so
+the copy and the check are gone.
+
+The dead `schema_version` and
+`schema_migration_announcements` tables are left in existing databases;
+dropping them would need the DB gate for no benefit.
+
+---
+
 ## Retire card_factory_grok instead of fixing its dependency path
 **Accepted 2026-10-08 (Erik, #8050).**
 

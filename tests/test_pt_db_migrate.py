@@ -8,9 +8,6 @@ Phase 2 PR #2 runner:
 2. ``_warn_unapplied_migrations`` — stderr warning on ``pt`` startup
    when migrations are pending, silent after they're applied, never
    raises.
-3. ``scripts/db/schema.create_database`` — calls
-   ``assert_tables_classified`` after ``ensure_schema``, so an
-   unclassified table causes a hard stop at DB init.
 
 Unit-level coverage of the runner itself lives in
 ``tests/test_migration_runner.py``. This file is the wiring layer.
@@ -25,12 +22,6 @@ from pathlib import Path
 import pytest
 
 from click.testing import CliRunner
-
-# Every test in this file is about the migration runner, so they all need a
-# database with migrations still pending. The default test template applies
-# them, because that is what production looks like.
-pytestmark = pytest.mark.unmigrated_db
-
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
@@ -54,16 +45,29 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+# A fresh database starts current (schema.sql marks every migration it
+# contains), so pending migrations only exist on a database that is behind.
+# These are the newest ones; each is idempotent, so re-applying is real work.
+BEHIND = ["016_add_jobs_kind_and_volunteering", "017_add_codebase_size_snapshots",
+          "018_drop_cr_sqlite", "019_add_task_attachments"]
+
+
 @pytest.fixture
 def fresh_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An empty sqlite file at a tmp path, pointed at via PT_DB_PATH.
+    """A database four migrations behind, pointed at via PT_DB_PATH.
 
     Stays out of the real ``data/tracker.db`` and bypasses the
     fresh-DB safety check via PT_ALLOW_FRESH_DB=1 (the same escape
     hatch Mini uses in its ~/.zshrc).
     """
+    from db.schema import create_database
+
     db_path = tmp_path / "tracker.db"
-    db_path.touch()
+    create_database(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute("DELETE FROM schema_migrations WHERE version >= 16")
+    conn.commit()
+    conn.close()
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
     monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
     monkeypatch.setenv("PT_NO_BANNER", "1")
@@ -81,24 +85,9 @@ def test_pt_db_migrate_applies_pending_and_reports(
 ) -> None:
     result = runner.invoke(cli, ["db", "migrate"])
     assert result.exit_code == 0, result.output
-    assert "002_add_sync_ledgers" in result.output
-    assert "003_crr_pk_not_null" in result.output
-    assert "004_crr_notnull_defaults" in result.output
-    assert "005_crr_drop_fk_constraints" in result.output
-    assert "006_crr_drop_unique_constraints" in result.output
-    assert "007_crr_fix_missing_defaults" in result.output
-    assert "008_crr_fix_calendar_events_title_date" in result.output
-    assert "009_task_display_ids" in result.output
-    assert "010_add_handoffs_table" in result.output
-    assert "011_add_migrations_table" in result.output
-    assert "012_add_tasks_archived_at" in result.output
-    assert "013_add_jobs_tables" in result.output
-    assert "014_add_task_notes_history" in result.output
-    assert "015_add_outreach_contacts" in result.output
-    assert "016_add_jobs_kind_and_volunteering" in result.output
-    assert "017_add_codebase_size_snapshots" in result.output
-    assert "018_drop_cr_sqlite" in result.output
-    assert "applied 17 migration" in result.output
+    for name in BEHIND:
+        assert name in result.output
+    assert f"applied {len(BEHIND)} migration" in result.output
 
     # The tables the migrations create are proven present by counting rows in
     # them through the sanctioned interface, and by nothing being pending
@@ -172,7 +161,7 @@ def test_warn_unapplied_fires_when_pending(
     _warn_unapplied_migrations()
     err = capsys.readouterr().err
     assert "pending migration" in err
-    assert "002_add_sync_ledgers" in err
+    assert BEHIND[0] in err
     assert "pt db migrate" in err
 
 

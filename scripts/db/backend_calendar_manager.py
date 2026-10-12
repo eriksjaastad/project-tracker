@@ -120,44 +120,6 @@ class CalendarManager:
         finally:
             conn.close()
 
-    def ensure_tables(self) -> None:
-        """Create calendar tables if they don't exist. Safe to call repeatedly."""
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS calendar_events (
-                    id                    INTEGER PRIMARY KEY NOT NULL,
-                    title                 TEXT    NOT NULL,
-                    description           TEXT,
-                    event_date            TEXT    NOT NULL,
-                    event_time            TEXT,
-                    event_type            TEXT    NOT NULL DEFAULT 'reminder',
-                    recurrence            TEXT,
-                    project_id            TEXT,
-                    machine               TEXT,
-                    prompt                TEXT,
-                    notify_before_minutes INTEGER NOT NULL DEFAULT 60,
-                    notified_at           TEXT,
-                    status                TEXT    NOT NULL DEFAULT 'active',
-                    created_by            TEXT,
-                    metadata              TEXT    DEFAULT '{}',
-                    created_at            TEXT    NOT NULL,
-                    updated_at            TEXT    NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS calendar_event_tasks (
-                    event_id  INTEGER NOT NULL,
-                    task_id   INTEGER NOT NULL,
-                    link_type TEXT    NOT NULL DEFAULT 'related',
-                    PRIMARY KEY (event_id, task_id)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_cal_date       ON calendar_events(event_date);
-                CREATE INDEX IF NOT EXISTS idx_cal_project    ON calendar_events(project_id);
-                CREATE INDEX IF NOT EXISTS idx_cal_status     ON calendar_events(status);
-                CREATE INDEX IF NOT EXISTS idx_cal_machine    ON calendar_events(machine);
-            """)
-            conn.commit()
-
     # ------------------------------------------------------------------
     # Write — events
     # ------------------------------------------------------------------

@@ -43,6 +43,16 @@ def _m018():
     return m
 
 
+def _unmark_018(conn: sqlite3.Connection) -> None:
+    """A database created from schema.sql is marked through the newest
+    migration; for these tests 018 is the pending one."""
+    conn.execute("DELETE FROM schema_migrations WHERE version = 18")
+    conn.commit()
+
+
+NEWEST = discover_migrations(MIGRATIONS_DIR, verbose=False)[-1].version
+
+
 def _apply_below_018(conn: sqlite3.Connection) -> None:
     """Apply every migration before 018 (the state a CRR database is in)."""
     pending = [m for m in discover_migrations(MIGRATIONS_DIR, verbose=False) if m.version < 18]
@@ -86,8 +96,8 @@ def _build_crr_db(path: Path) -> int:
     """A CRR-ified database with data in every table. Returns the machine id
     the pre-018 code derived from its site id."""
     create_database(path)
-    BackendManager(path).migrate_attachments_table()  # task_attachments is created lazily
     conn = sqlite3.connect(path, isolation_level=None)
+    _unmark_018(conn)
     conn.enable_load_extension(True)
     conn.load_extension(str(DYLIB), entrypoint="sqlite3_crsqlite_init")
     conn.enable_load_extension(False)
@@ -228,6 +238,7 @@ def _legacy_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "legacy.db"
     create_database(db_path)
     conn = sqlite3.connect(db_path)
+    _unmark_018(conn)
     conn.execute(FAKE_TRIGGER)
     conn.commit()
     conn.close()
@@ -251,25 +262,19 @@ def test_legacy_database_reads_work_and_writes_fail_until_migrated(tmp_path: Pat
             )
 
 
-def test_legacy_database_is_not_schema_ensured_and_migrate_fixes_it(tmp_path: Path) -> None:
+def test_legacy_database_is_left_alone_and_migrate_fixes_it(tmp_path: Path) -> None:
     db_path = _legacy_db(tmp_path)
-    conn = sqlite3.connect(db_path)
-    conn.execute("DELETE FROM schema_version")  # not current: ensure_schema would run
-    conn.commit()
-    conn.close()
+    before = _crsql_objects(sqlite3.connect(db_path))
 
     db = DatabaseManager(db_path)  # constructing must not touch or fail on it
-    conn = sqlite3.connect(db_path)
-    assert conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 0
-    conn.close()
+    assert _crsql_objects(sqlite3.connect(db_path)) == before
 
     result = db.migrations_apply()  # `pt db migrate` itself is not blocked
     assert result["ok"], result
     assert 18 in [m["version"] for m in result["applied"]]
 
-    db2 = DatabaseManager(db_path)  # re-checks, now ensures the schema
+    db2 = DatabaseManager(db_path)
     conn = sqlite3.connect(db_path)
-    assert conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] > 0
     assert _crsql_objects(conn) == []
     conn.close()
     db2.add_project(project_id="p", name="P", path=str(tmp_path / "p"), status="active")
@@ -313,7 +318,7 @@ def test_migrate_drops_legacy_triggers_first_so_old_row_writing_migrations_run(t
     result = DatabaseManager(db_path).migrations_apply()
     assert result["ok"], result
     versions = [m["version"] for m in result["applied"]]
-    assert 9 in versions and versions[-1] == 18
+    assert 9 in versions and versions[-1] == NEWEST
 
     conn = sqlite3.connect(db_path)
     assert conn.execute("SELECT display_id FROM task_display_ids WHERE task_id=7").fetchone() == (7,)
@@ -334,8 +339,9 @@ def test_018_creates_metadata_when_only_the_site_id_exists() -> None:
     assert conn.execute("SELECT key, value FROM _metadata").fetchall() == [("pt.machine_id", "710")]
     cols = [(r[1], r[2], r[3], r[5]) for r in conn.execute("PRAGMA table_info(_metadata)")]
     ref = sqlite3.connect(":memory:")
-    from db.schema import ensure_schema
-    ensure_schema(ref.cursor())
+    from db.schema import schema_statements
+    for statement in schema_statements():
+        ref.execute(statement)
     assert cols == [(r[1], r[2], r[3], r[5]) for r in ref.execute("PRAGMA table_info(_metadata)")]
 
 
@@ -530,6 +536,7 @@ def test_pt_names_the_pending_018_for_a_restored_pre_018_backup(tmp_path: Path, 
         "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
     )
     _apply_below_018(conn)
+    _unmark_018(conn)
     conn.execute(FAKE_TRIGGER)
     conn.close()
 

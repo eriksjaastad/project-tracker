@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.migration_runner import discover_migrations  # noqa: E402
 from db.outreach import ContactStateConflictError  # noqa: E402
-from db.schema import ensure_schema  # noqa: E402
+from db.schema import schema_statements  # noqa: E402
 from dashboard.app import app  # noqa: E402
 
 
@@ -104,9 +104,10 @@ def test_outreach_columns_and_index(tmp_path: Path) -> None:
     conn.close()
 
 
-def test_fresh_schema_matches_migration_and_manifest() -> None:
+def test_fresh_schema_matches_migration() -> None:
     conn = sqlite3.connect(":memory:")
-    ensure_schema(conn.cursor())
+    for statement in schema_statements():
+        conn.execute(statement)
     _migration_up(conn)
 
     migrated = sqlite3.connect(":memory:")
@@ -115,8 +116,9 @@ def test_fresh_schema_matches_migration_and_manifest() -> None:
         assert conn.execute(f"PRAGMA table_info({table})").fetchall() == (
             migrated.execute(f"PRAGMA table_info({table})").fetchall()
         )
-        assert conn.execute(f"PRAGMA index_list({table})").fetchall() == (
-            migrated.execute(f"PRAGMA index_list({table})").fetchall()
+        # index_list follows creation order, which differs between the paths.
+        assert sorted(r[1:] for r in conn.execute(f"PRAGMA index_list({table})")) == (
+            sorted(r[1:] for r in migrated.execute(f"PRAGMA index_list({table})"))
         )
     conn.close()
     migrated.close()

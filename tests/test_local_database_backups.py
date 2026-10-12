@@ -249,7 +249,7 @@ def test_offsite_cli_reports_timeout_and_keeps_snapshot(db, monkeypatch, tmp_pat
     assert db.verify_backup(created['path'])
 
 
-@pytest.mark.parametrize('error_name', ['SafetyError', 'FreshDatabaseError', 'FingerprintMismatchError'])
+@pytest.mark.parametrize('error_name', ['SafetyError', 'FreshDatabaseError'])
 def test_handoff_json_preserves_database_safety_errors(monkeypatch, error_name):
     import json
     from click.testing import CliRunner

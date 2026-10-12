@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from scripts.config import PROJECTS_BASE_DIR
 from db.schema import (
-    init_db, get_db_path, SafetyError, FreshDatabaseError, FingerprintMismatchError,
+    init_db, get_db_path, SafetyError, FreshDatabaseError,
 )
 from db.manager import DatabaseManager
 from db.backend_calendar_manager import validate_event_date, validate_event_time
@@ -68,7 +68,7 @@ from skills_registry import installed_skills as _installed_skills
 # Local operations expose validation and safety errors directly, without RPC wrapping.
 _LOCAL_DB_ERRORS = (
     sqlite3.Error, OSError, RuntimeError, ValueError,
-    SafetyError, FreshDatabaseError, FingerprintMismatchError,
+    SafetyError, FreshDatabaseError,
 )
 
 console = Console()
@@ -2198,9 +2198,7 @@ def tasks_export(output):
 
 def _get_calendar_manager():
     from db.calendar_manager import CalendarManager
-    cm = CalendarManager()
-    cm.ensure_tables()
-    return cm
+    return CalendarManager()
 
 
 def _display_events(events, json_output=False, cron_jobs=None):

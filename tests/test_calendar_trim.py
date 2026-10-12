@@ -131,7 +131,6 @@ def test_cli_done_and_cancel_kept(tracker):
     from db.calendar_manager import CalendarManager
 
     cm = CalendarManager()
-    cm.ensure_tables()
     a = cm.add_event("A", "2030-01-01")
     b = cm.add_event("B", "2030-01-02")
     runner = CliRunner()
@@ -179,7 +178,6 @@ def test_cli_update_rejects_bad_date_and_time(tracker, args):
     from db.calendar_manager import CalendarManager
 
     cm = CalendarManager()
-    cm.ensure_tables()
     event_id = cm.add_event("A", "2030-01-01", event_time="08:00")
     result = CliRunner().invoke(tracker["cli"], ["calendar", "update", str(event_id), *args])
     assert result.exit_code == 2, result.output
@@ -190,7 +188,6 @@ def test_cli_update_accepts_good_date_and_time(tracker):
     from db.calendar_manager import CalendarManager
 
     cm = CalendarManager()
-    cm.ensure_tables()
     event_id = cm.add_event("A", "2030-01-01")
     result = CliRunner().invoke(
         tracker["cli"],
@@ -237,7 +234,6 @@ def test_manager_update_rejects_bad_values_for_any_caller(tracker):
     from db.calendar_manager import CalendarManager
 
     cm = CalendarManager()
-    cm.ensure_tables()
     event_id = cm.add_event("A", "2030-01-01")
     with pytest.raises(ValueError):
         cm.update_event(event_id, event_date="2026-02-30")
@@ -251,7 +247,6 @@ def test_cli_update_empty_time_clears_it(tracker):
     from db.calendar_manager import CalendarManager
 
     cm = CalendarManager()
-    cm.ensure_tables()
     event_id = cm.add_event("A", "2030-01-01", event_time="08:00")
     result = CliRunner().invoke(tracker["cli"], ["calendar", "update", str(event_id), "--time", ""])
     assert result.exit_code == 0, result.output

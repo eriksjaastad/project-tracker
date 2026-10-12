@@ -83,7 +83,6 @@ def test_idea_ids_are_quoted_strings_and_patch_delete_hit_exact_row(env):
 
 def _add_event(title: str, date: str) -> int:
     cm = CalendarManager()
-    cm.ensure_tables()
     return cm.add_event(title=title, event_date=date)
 
 
