@@ -94,34 +94,17 @@ def test_two_processes_creating_the_same_new_database_both_succeed(tmp_path, mon
     """The second creator finds the tables under the write lock and stands down."""
     monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
     db_path = tmp_path / "tracker.db"
-    real = schema._get_or_create_fingerprint
+    real = schema._mark_data_location
 
     def other_process_builds_first(path):
-        monkeypatch.setattr(schema, "_get_or_create_fingerprint", real)
+        monkeypatch.setattr(schema, "_mark_data_location", real)
         schema.create_database(path)  # wins the race between our check and our lock
-        return real(path)
+        real(path)
 
-    monkeypatch.setattr(schema, "_get_or_create_fingerprint", other_process_builds_first)
+    monkeypatch.setattr(schema, "_mark_data_location", other_process_builds_first)
     schema.create_database(db_path)
     with closing(sqlite3.connect(db_path)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] > 0
-
-
-def test_a_failed_fingerprint_leaves_the_database_buildable(tmp_path, monkeypatch):
-    """Schema, ledger and fingerprint commit together, so a retry rebuilds."""
-    db_path = tmp_path / "tracker.db"
-    real = schema._get_or_create_fingerprint
-
-    def unwritable(path):
-        raise OSError("fingerprint file not writable")
-
-    monkeypatch.setattr(schema, "_get_or_create_fingerprint", unwritable)
-    with pytest.raises(OSError, match="not writable"):
-        schema.create_database(db_path)
-    monkeypatch.setattr(schema, "_get_or_create_fingerprint", real)
-    schema.create_database(db_path)
-    with closing(sqlite3.connect(db_path)) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM _metadata WHERE key = 'fingerprint'").fetchone()[0] == 1
 
 
 def test_019_creates_task_attachments_where_it_is_missing(tmp_path):
@@ -151,19 +134,14 @@ def test_calendar_entry_points_create_a_fresh_database(tmp_path, monkeypatch):
     assert response.json()["events"] == []
 
 
-def test_fingerprint_read_failure_raises_instead_of_skipping_mismatch_check(tmp_path, monkeypatch):
-    """#6900: an unreadable DB fingerprint must not read as "no fingerprint".
-
-    That path skipped the mismatch guard and returned the file fingerprint,
-    which create_database then wrote over the database's own.
-    """
+def test_creation_leaves_the_marker_the_fresh_database_guard_needs(tmp_path, monkeypatch):
+    """The marker outlives a replaced database file; an existing one is kept."""
+    monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
     db_path = tmp_path / "tracker.db"
-    sqlite3.connect(db_path).close()
-    (tmp_path / ".db-fingerprint").write_text("file-fingerprint")
-
-    def locked(*_args, **_kwargs):
-        raise sqlite3.OperationalError("database is locked")
-
-    monkeypatch.setattr(schema.sqlite3, "connect", locked)
-    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
-        schema._get_or_create_fingerprint(db_path)
+    marker = tmp_path / ".db-fingerprint"
+    schema.create_database(db_path)
+    first = marker.read_text()
+    assert first
+    db_path.rename(tmp_path / "replaced.db")  # the database goes; the marker stays
+    schema.create_database(db_path)
+    assert marker.read_text() == first

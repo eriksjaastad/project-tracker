@@ -57,9 +57,6 @@ if _db_path_override:
 else:
     DATABASE_PATH = _CANONICAL_DB_PATH
 
-# Database fingerprint file - used to detect database replacement
-DB_FINGERPRINT_PATH = DATABASE_PATH.parent / ".db-fingerprint"
-
 # External backup directory - survives project directory accidents
 # Can be overridden for sandboxed environments (like Codex)
 _external_backup_env = os.getenv("PT_EXTERNAL_BACKUP_DIR")

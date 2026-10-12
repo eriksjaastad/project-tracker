@@ -19,7 +19,16 @@ whether ensure_schema ran.
 Trade-off, accepted: a database that has tables but no `schema_migrations`
 ledger (anything older than April 2026) is refused instead of upgraded in
 place, because upgrading it would replay table rebuilds over real data.
-Restore a newer backup instead. The dead `schema_version` and
+Restore a newer backup instead.
+
+The `.db-fingerprint` sidecar is now only a marker: its existence tells the
+fresh-database guard that a database with data lived here, which survives the
+file being replaced. Its uuid was also matched against a copy in `_metadata`,
+but that check could only run at creation on an empty database, so it never
+fired; keeping two copies in sync was the only source of creation races, so
+the copy and the check are gone.
+
+The dead `schema_version` and
 `schema_migration_announcements` tables are left in existing databases;
 dropping them would need the DB gate for no benefit.
 

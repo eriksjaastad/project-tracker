@@ -55,68 +55,16 @@ class FreshDatabaseError(Exception):
     """Raised when we detect a fresh database where we expected data."""
 
 
-class FingerprintMismatchError(Exception):
-    """Raised when the database fingerprint doesn't match the expected value."""
+def _mark_data_location(db_path: Path) -> None:
+    """Leave the marker _check_fresh_database looks for: a database lives here.
 
-
-def _get_or_create_fingerprint(db_path: Path) -> str:
-    """Get or create a unique fingerprint for this database.
-    
-    The fingerprint is stored in both:
-    1. A file: data/.db-fingerprint
-    2. A _metadata table in the database
-    
-    If both exist and don't match, we have a problem (database was replaced).
+    It sits outside the database on purpose. If the file is later replaced by
+    an empty one, the marker remains and the guard refuses to treat the empty
+    file as new. Only its existence matters; an existing marker is kept.
     """
-    fingerprint_path = db_path.parent / ".db-fingerprint"
-    
-    # Check if fingerprint file exists
-    file_fingerprint = None
-    if fingerprint_path.exists():
-        file_fingerprint = fingerprint_path.read_text().strip()
-    
-    # Check if database has fingerprint in _metadata table. A read failure
-    # raises: treating it as "no DB fingerprint" would skip the mismatch
-    # check and overwrite the database's fingerprint with the file's.
-    db_fingerprint = None
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_metadata'")
-        if cursor.fetchone():
-            cursor.execute("SELECT value FROM _metadata WHERE key='fingerprint'")
-            row = cursor.fetchone()
-            if row:
-                db_fingerprint = row[0]
-    
-    # If both exist and don't match - ERROR!
-    if file_fingerprint and db_fingerprint and file_fingerprint != db_fingerprint:
-        raise FingerprintMismatchError(
-            f"⛔ DATABASE FINGERPRINT MISMATCH!\n"
-            f"   File fingerprint:     {file_fingerprint}\n"
-            f"   Database fingerprint: {db_fingerprint}\n"
-            f"   This means the database file was replaced with a different database.\n"
-            f"   To fix:\n"
-            f"   - If the current DB is correct: delete {fingerprint_path} and restart\n"
-            f"   - If wrong DB: restore from backup in data/backups/ or ~/.project-tracker/backups/"
-        )
-    
-    # If we have a file fingerprint but no DB fingerprint, write it to DB
-    if file_fingerprint and not db_fingerprint:
-        return file_fingerprint
-    
-    # If we have a DB fingerprint but no file, write it to file
-    if db_fingerprint and not file_fingerprint:
-        fingerprint_path.write_text(db_fingerprint)
-        return db_fingerprint
-    
-    # If neither exists, create new fingerprint
-    if not file_fingerprint and not db_fingerprint:
-        new_fingerprint = str(uuid.uuid4())
-        fingerprint_path.write_text(new_fingerprint)
-        return new_fingerprint
-    
-    # Both exist and match
-    return file_fingerprint
+    marker = db_path.parent / ".db-fingerprint"
+    if not marker.exists():
+        marker.write_text(str(uuid.uuid4()))
 
 
 def _check_fresh_database(db_path: Path) -> None:
@@ -283,10 +231,7 @@ def create_database(db_path: Path | None = None) -> None:
         missing = sorted(set(range(2, version + 1)) - {m.version for m in contained})
         if missing:
             raise RuntimeError(f"schema.sql contains migrations {missing} that are not in {MIGRATIONS_DIR}")
-        # Local-only fingerprint, settled before anything is written so that
-        # schema, ledger and fingerprint commit together: any failure leaves
-        # an empty database, which the next call simply builds again.
-        fingerprint = _get_or_create_fingerprint(db_path)
+        _mark_data_location(db_path)
         now = datetime.now(UTC)
         conn.execute("BEGIN IMMEDIATE")
         try:
@@ -299,10 +244,6 @@ def create_database(db_path: Path | None = None) -> None:
             conn.executemany(
                 "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
                 [(m.version, m.name, now.isoformat(timespec="seconds")) for m in contained],
-            )
-            conn.execute(
-                "INSERT OR REPLACE INTO _metadata (key, value, created_at) VALUES ('fingerprint', ?, ?)",
-                (fingerprint, now.isoformat()),
             )
             conn.execute("COMMIT")
         except BaseException:
