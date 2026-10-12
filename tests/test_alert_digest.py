@@ -26,15 +26,25 @@ from scripts import alert_digest as ad
 # --- Fixtures ---------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def _no_sleep_no_logfile(monkeypatch, tmp_path):
-    """Neutralize the two things that make this file slow or dirty.
-
-    RETRY_BACKOFF_SECONDS is 3 and there are four retry loops of 3 attempts —
-    unpatched, this file would take 20+ seconds. And log() appends to
-    <repo>/logs/alert_digest.log, which tests have no business writing to.
-    """
+def _no_sleep(monkeypatch):
+    """RETRY_BACKOFF_SECONDS is 3 and there are four retry loops of 3 attempts;
+    unpatched, this file would take 20+ seconds."""
     monkeypatch.setattr(ad.time, "sleep", lambda _s: None)
-    monkeypatch.setattr(ad, "LOG_FILE", tmp_path / "logs" / "alert_digest.log")
+
+
+def test_log_writes_one_stderr_line_and_no_file(monkeypatch, capsys):
+    # launchd already captures stderr; a second copy in a log file was 6.6's
+    # double log. AssertionError, not OSError: the old copy swallowed OSError.
+    def no_file(*_a, **_k):
+        raise AssertionError("log() must not write a file")
+    monkeypatch.setattr("builtins.open", no_file)
+    monkeypatch.setattr(ad.Path, "open", no_file)
+
+    ad.log("hello")
+
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err.count("\n") == 1 and err.rstrip().endswith(" hello")
 
 
 _REAL_FETCH_PAUSED_LOOPS = ad.fetch_paused_review_loops
