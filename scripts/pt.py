@@ -1530,6 +1530,13 @@ def backup_create():
             f"Moved {len(result['pruned'])} old backup file(s) to the Trash "
             "(each kind keeps its newest: 10 snapshots, 5 of every other kind)."
         )
+    if result["prune_errors"]:
+        # On stdout, so the scheduled job's backup log records it; the snapshot
+        # above still succeeded, so the exit status stays 0.
+        click.echo(
+            f"PRUNE FAILED for {len(result['prune_errors'])} file(s), left in place; "
+            f"first: {result['prune_errors'][0]}"
+        )
 
 
 @backup_group.command(name="offsite")

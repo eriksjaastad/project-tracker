@@ -304,6 +304,7 @@ def test_prune_keeps_the_newest_of_each_kind_and_trashes_the_rest(db, monkeypatc
 
     for i in range(12):  # snapshots, newest first; the oldest has sidecars
         make(f"tracker_202610{i + 10:02d}_000000.db", age=i)
+    make("tracker_20261010_000000.db-wal", age=0)  # a kept snapshot's sidecar stays
     make("tracker_20261021_000000.db-wal", age=11)
     make("tracker_20261021_000000.db-shm", age=11)
     for i in range(7):
@@ -329,3 +330,28 @@ def test_prune_keeps_the_newest_of_each_kind_and_trashes_the_rest(db, monkeypatc
         "tasks_delete_backup_20260106_000000.json",
         "before_destructive_20261009T000000_9.db-wal",
     ])
+
+
+def test_prune_failure_is_reported_and_the_snapshot_still_succeeds(db, monkeypatch, capsys):
+    """A Trash failure must not undo a verified snapshot or stop the offsite step."""
+    import os
+    import send2trash
+    from pt import backup_create as backup_create_cmd
+    from click.testing import CliRunner
+
+    def refuse(path):
+        raise PermissionError(1, "Operation not permitted", path)
+
+    monkeypatch.setattr(send2trash, "send2trash", refuse)
+    directory = db.entry.backup_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    for i in range(11):
+        path = directory / f"tracker_202609{i + 10:02d}_000000.db"
+        path.write_text("x")
+        os.utime(path, (1_000_000 - i, 1_000_000 - i))
+
+    result = CliRunner().invoke(backup_create_cmd, [])
+
+    assert result.exit_code == 0, result.output
+    assert "verified" in result.output
+    assert "PRUNE FAILED for " in result.output and "Operation not permitted" in result.output

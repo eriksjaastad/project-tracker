@@ -590,12 +590,13 @@ class ProjectTrackerOps(BackendDatabaseManager):
         if not self.verify_backup(str(primary)):
             raise RuntimeError(f"backup at {primary} failed verification")
 
-        pruned = self._prune_backups() if prune else []
+        pruned, prune_errors = self._prune_backups() if prune else ([], [])
         return {
             "path": str(primary),
             "size_bytes": primary.stat().st_size,
             "verified": True,
             "pruned": pruned,
+            "prune_errors": prune_errors,
         }
 
 
@@ -689,19 +690,29 @@ class ProjectTrackerOps(BackendDatabaseManager):
                         dropped.extend(paths)
         return sorted(dropped)
 
-    def _prune_backups(self) -> list[str]:
+    def _prune_backups(self) -> tuple[list[str], list[str]]:
         """Move every file _backups_to_prune names to the Trash.
 
         These are real database contents, so they go to the Trash rather than
         being deleted: recoverable if the retention rule turns out wrong.
+        Returns (trashed names, "name: error" for each file that could not be
+        moved). A failure is reported, not raised, so it cannot undo the
+        snapshot that has already succeeded; a file already gone is skipped.
         """
         from send2trash import send2trash
 
         pruned: list[str] = []
+        errors: list[str] = []
         for path in self._backups_to_prune():
-            send2trash(str(path))
+            try:
+                send2trash(str(path))
+            except FileNotFoundError:
+                continue
+            except OSError as err:
+                errors.append(f"{path.name}: {err}")
+                continue
             pruned.append(path.name)
-        return pruned
+        return pruned, errors
 
     def backup_list(self) -> list:
         """Every restorable snapshot, newest first, named not pathed.
