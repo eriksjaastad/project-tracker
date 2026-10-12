@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { browser } from '../utils/browser';
 import { PageBoundary } from './RouteErrorBoundary';
 
 // What a tab opened before a redeploy gets: the old chunk is gone.
@@ -40,8 +41,7 @@ describe('PageBoundary', () => {
 
   it('keeps the app and offers a reload when a page chunk fails to load', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const reload = vi.fn();
-    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, reload });
+    const reload = vi.spyOn(browser, 'reload').mockImplementation(() => {});
     const user = userEvent.setup();
     renderApp('/jobs');
 

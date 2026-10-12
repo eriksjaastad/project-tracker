@@ -1,6 +1,8 @@
 import { Component, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 
+import { browser } from '../utils/browser';
+
 interface Props {
   children: ReactNode;
 }
@@ -46,7 +48,7 @@ class RouteErrorBoundary extends Component<BoundaryProps, State> {
     return (
       <div className="route-error" role="alert">
         <p>This page couldn't load. If the dashboard was updated since this tab was opened, reloading fixes it.</p>
-        <button type="button" onClick={() => window.location.reload()}>
+        <button type="button" onClick={() => browser.reload()}>
           Reload
         </button>
       </div>
