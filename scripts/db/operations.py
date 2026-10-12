@@ -28,7 +28,6 @@ class ProjectTrackerOps:
 
     def __init__(self, db_path=None):
         from .backend_manager import DatabaseManager
-        from .backend_calendar_manager import CalendarManager
         from .schema import get_db_path
         from scripts.backup_config import external_backup_dir
         self.db_path = Path(db_path) if db_path is not None else get_db_path()
@@ -37,7 +36,6 @@ class ProjectTrackerOps:
             external_backup_dir=external_backup_dir(),
         )
         self._db = DatabaseManager(self.db_path)
-        self._cal = CalendarManager(self.db_path)
 
     def __getattr__(self, name):
         method = getattr(self._db, name)
@@ -557,24 +555,6 @@ class ProjectTrackerOps:
         conn = self._tracker_conn()
         try:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
-        finally:
-            conn.close()
-
-    def task_history_events(self, start_iso: str, project_id: str) -> list[dict]:
-        """Read dated status events for one project's progress charts.
-
-        Keep the original timestamps: the dashboard converts them to one
-        display timezone alongside GitHub and Hermes events.
-        """
-        conn = self._tracker_conn()
-        try:
-            rows = conn.execute(
-                "SELECT timestamp, event_type, old_status, new_status "
-                "FROM task_history WHERE project_id = ? AND timestamp >= ? "
-                "ORDER BY timestamp",
-                (project_id, start_iso),
-            ).fetchall()
-            return [dict(row) for row in rows]
         finally:
             conn.close()
 
