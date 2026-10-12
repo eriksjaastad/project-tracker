@@ -1,13 +1,12 @@
 """In-process project operations shared by the CLI and dashboard."""
 from __future__ import annotations
-import os
+
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any
 from types import SimpleNamespace
-from functools import wraps
 
+from .backend_manager import DatabaseManager as BackendDatabaseManager
 
 # Migration 018 removes cr-sqlite; see _migrations_apply.
 _CR_SQLITE_CLEANUP_VERSION = 18
@@ -21,33 +20,39 @@ def _crsql_objects_remain(conn: sqlite3.Connection) -> bool:
     ).fetchone() is not None
 
 
-class ProjectTrackerOps:
+class ProjectTrackerOps(BackendDatabaseManager):
+    """Operations that span tables or need a recovery snapshot, on top of the SQL core."""
+
     _DESTRUCTIVE_BACKEND_OPS = frozenset({
         "delete_project", "delete_done_tasks", "trim_done_tasks", "raw_import_tasks",
     })
 
     def __init__(self, db_path=None):
-        from .backend_manager import DatabaseManager
-        from .schema import get_db_path
         from scripts.backup_config import external_backup_dir
-        self.db_path = Path(db_path) if db_path is not None else get_db_path()
+        super().__init__(db_path)
         self.entry = SimpleNamespace(
             backup_dir=self.db_path.parent / "backups",
             external_backup_dir=external_backup_dir(),
         )
-        self._db = DatabaseManager(self.db_path)
 
-    def __getattr__(self, name):
-        method = getattr(self._db, name)
-        if name not in self._DESTRUCTIVE_BACKEND_OPS:
-            return method
+    # The four destructive SQL operations take a verified recovery snapshot
+    # first. prepare_operation() calls the core methods directly, so a
+    # prepared call still takes exactly one snapshot.
+    def delete_project(self, *args, **params):
+        self.prepare_destructive(reason="Direct database operation: delete_project")
+        return super().delete_project(*args, **params)
 
-        @wraps(method)
-        def with_snapshot(*args, **params):
-            self.prepare_destructive(reason=f"Direct database operation: {name}")
-            return method(*args, **params)
+    def delete_done_tasks(self, *args, **params):
+        self.prepare_destructive(reason="Direct database operation: delete_done_tasks")
+        return super().delete_done_tasks(*args, **params)
 
-        return with_snapshot
+    def trim_done_tasks(self, *args, **params):
+        self.prepare_destructive(reason="Direct database operation: trim_done_tasks")
+        return super().trim_done_tasks(*args, **params)
+
+    def raw_import_tasks(self, *args, **params):
+        self.prepare_destructive(reason="Direct database operation: raw_import_tasks")
+        return super().raw_import_tasks(*args, **params)
 
     def prepare_destructive(self, *, reason):
         """Verify a fresh recovery snapshot before a confirmed operation."""
@@ -71,7 +76,7 @@ class ProjectTrackerOps:
             raise ValueError(f"Not a destructive operation: {op}")
         self.prepare_destructive(reason=reason)
         if op in self._DESTRUCTIVE_BACKEND_OPS:
-            operation = getattr(self._db, op)
+            operation = getattr(super(), op)
         else:
             operation = getattr(self, f"_{op}")
         used = False
@@ -107,7 +112,7 @@ class ProjectTrackerOps:
         is returned, never swallowed — a caller that ignores it is the bug, and
         both callers check it.
         """
-        db = self._db
+        db = self
         with db._get_conn() as conn:
             cursor = conn.cursor()
             try:
@@ -464,7 +469,7 @@ class ProjectTrackerOps:
         to the `_sync_*_with_cursor` helpers, which replace rather than merge,
         and silently wipe data the dashboard never intended to touch.
         """
-        db = self._db
+        db = self
         with db._get_conn() as conn:
             cursor = conn.cursor()
             try:

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from db.backend_manager import DatabaseManager as CoreDatabaseManager
 from db.manager import DatabaseManager
 from db.calendar_manager import CalendarManager
 
@@ -15,7 +16,7 @@ def test_destructive_backend_calls_verify_snapshot_before_mutation(db, monkeypat
     events = []
     monkeypatch.setattr(db, 'create_recovery_snapshot', lambda **kw: events.append('snapshot') or Path('synthetic.db'))
     monkeypatch.setattr(db, 'verify_backup', lambda path: events.append('verified') or True)
-    monkeypatch.setattr(db._db, op, lambda **kw: events.append(('mutation', kw)) or 7)
+    monkeypatch.setattr(CoreDatabaseManager, op, lambda self, **kw: events.append(('mutation', kw)) or 7)
     if explicit:
         result = db.authorize(op, reason='Synthetic explicit operation', marker='preserved')
     else:
@@ -28,7 +29,7 @@ def test_destructive_backend_calls_verify_snapshot_before_mutation(db, monkeypat
 def test_direct_destructive_call_stops_on_invalid_backup(db, monkeypatch, op):
     called = []
     monkeypatch.setattr(db, 'verify_backup', lambda path: False)
-    target, name = (db._db, op) if op in db._DESTRUCTIVE_BACKEND_OPS else (db, f'_{op}')
+    target, name = (CoreDatabaseManager, op) if op in db._DESTRUCTIVE_BACKEND_OPS else (db, f'_{op}')
     monkeypatch.setattr(target, name, lambda *a, **kw: called.append(op))
     with pytest.raises(RuntimeError, match='Recovery snapshot failed verification'):
         getattr(db, op)(*(() if op == 'migrations_apply' else ('synthetic',)))

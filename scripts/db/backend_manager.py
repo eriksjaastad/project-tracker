@@ -72,7 +72,7 @@ class DatabaseManager:
 
     def __init__(self, db_path: Optional[Path] = None):
         """Initialize the local manager."""
-        self.db_path = db_path or get_db_path()
+        self.db_path = Path(db_path) if db_path is not None else get_db_path()
         # Run safety checks + schema migrations once per DB path.
         db_key = str(self.db_path.resolve())
         if db_key not in _local_schema_ensured_paths:

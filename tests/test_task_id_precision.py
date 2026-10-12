@@ -42,8 +42,8 @@ def _setup_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManage
         status="active",
     )
     monkeypatch.setenv("PT_DB_PATH", str(db_path))
-    # add_task() delegates through ProjectTrackerOps to backend_manager's
-    # DatabaseManager, which calls pt_next_id from db.backend_manager --
+    # add_task() is the SQL core's method (backend_manager.DatabaseManager),
+    # which calls pt_next_id from db.backend_manager --
     # patch it there, not db.pt_id, or the real generator still runs.
     #
     # A constant return value collides: creating one task also inserts a

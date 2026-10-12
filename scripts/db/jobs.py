@@ -143,7 +143,7 @@ class JobsMixin:
         if kind is not None and (not isinstance(kind, str) or kind not in JOB_KINDS):
             raise ValueError("invalid job kind")
         first_seen = datetime.now(timezone.utc).date().isoformat()
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             migrated = _has_kind_columns(conn)
             if not migrated and kind == "volunteer":
                 raise JobsMigrationPendingError()
@@ -178,12 +178,12 @@ class JobsMixin:
 
     def volunteer_kind_supported(self) -> bool:
         """False until migration 016 adds jobs.kind (see _has_kind_columns)."""
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             return _has_kind_columns(conn)
 
     def get_open_jobs(self, kind: str = "job") -> list[dict[str, Any]]:
         """Listings of one kind neither dismissed nor submitted, newest first."""
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             return _open_rows(conn, kind)
 
     def get_ranked_open_jobs(self, kind: str = "job") -> dict[str, list[dict[str, Any]]]:
@@ -199,7 +199,7 @@ class JobsMixin:
         from one read transaction, so a write from another tab can never land
         between them and leave a role in no section (or two).
         """
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             conn.execute("BEGIN")  # one WAL snapshot for every query below
             try:
                 return self._volunteer_sections(conn)
@@ -237,7 +237,7 @@ class JobsMixin:
 
         Raises JobsMigrationPendingError before migration 016.
         """
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             if not _has_kind_columns(conn):
                 raise JobsMigrationPendingError()
             conn.execute(
@@ -256,7 +256,7 @@ class JobsMixin:
 
     def soft_delete_job(self, job_id: int) -> dict[str, Any] | None:
         """Dismiss a listing while keeping its row and submission history."""
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             cursor = conn.execute(
                 """UPDATE jobs SET deleted_at = ?
                    WHERE id = ? AND deleted_at IS NULL""",
@@ -282,7 +282,7 @@ class JobsMixin:
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         timestamp = parsed.astimezone(timezone.utc).isoformat()
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             job = conn.execute(
                 "SELECT id FROM jobs WHERE id = ? AND deleted_at IS NULL", (job_id,)
             ).fetchone()
@@ -302,7 +302,7 @@ class JobsMixin:
 
     def get_submitted_jobs(self) -> list[dict[str, Any]]:
         """Group every submission under its listing, latest activity first."""
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             kind_sql, _ = _kind_sql(conn)
             rows = conn.execute(
                 f"""SELECT j.*, s.id AS submission_id, s.submitted_at,
@@ -334,7 +334,7 @@ class JobsMixin:
 
     def get_job_stats(self) -> dict[str, list[dict[str, Any]]]:
         """Discovery/submission history and current open category counts."""
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             kind_sql, _ = _kind_sql(conn)
             jobs = conn.execute(
                 f"""SELECT j.first_seen AS date, COUNT(*) AS count FROM jobs AS j

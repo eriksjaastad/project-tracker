@@ -38,7 +38,6 @@ def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManager:
     manager.add_project(
         project_id=PROJECT_ID, name="PT", path="/tmp/project-tracker", status="active"
     )
-    manager._backend = manager._db
     return manager
 
 
@@ -48,7 +47,7 @@ def client(db) -> TestClient:
 
 
 def _history(db, task_id):
-    with db._backend._get_conn() as conn:
+    with db._get_conn() as conn:
         rows = conn.execute(
             "SELECT old_notes, new_notes, source FROM task_notes_history "
             "WHERE task_id = ? ORDER BY id",
@@ -201,7 +200,7 @@ def test_writer_between_read_and_write_is_never_overwritten(db, client, monkeypa
     CAS fails, the re-read no longer matches the client's base, and the
     toggle answers 409 without touching the other writer's notes."""
     task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
-    backend = DatabaseManager()._db
+    backend = DatabaseManager()
     real = type(backend).update_task
     late = NOTES + "\n- [ ] late"
 
@@ -247,7 +246,7 @@ def test_null_and_empty_base_match_empty_notes_only(db, client):
 def test_deleted_during_final_attempt_is_404(db, client, monkeypatch):
     monkeypatch.setenv("SAFE_MODE", "0")
     task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
-    backend = DatabaseManager()._db
+    backend = DatabaseManager()
     calls = {"n": 0}
 
     def conflict_then_delete(self, task_id, *a, **kw):
@@ -266,7 +265,7 @@ def test_endpoint_404_when_task_deleted_during_request(db, client, monkeypatch, 
     """A concurrent delete between our read and the write is a 404, not a 500."""
     monkeypatch.setenv("SAFE_MODE", "0")  # let the simulated client delete
     task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
-    backend = DatabaseManager()._db
+    backend = DatabaseManager()
     real = type(backend).update_task
 
     def deleting(self, task_id, *a, **kw):
@@ -284,7 +283,7 @@ def test_endpoint_404_when_task_deleted_during_request(db, client, monkeypatch, 
 
 def test_endpoint_409_when_cas_keeps_conflicting(db, client, monkeypatch):
     task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
-    backend = DatabaseManager()._db
+    backend = DatabaseManager()
 
     def always(self, *a, **kw):
         raise NotesConflictError("nope")
@@ -296,7 +295,7 @@ def test_endpoint_409_when_cas_keeps_conflicting(db, client, monkeypatch):
 def test_endpoint_handles_snowflake_ids(db, client, monkeypatch):
     big = 98969975881101312
     task = db.add_task(text="t", project_id=PROJECT_ID, notes=NOTES)
-    with db._backend._get_conn() as conn:
+    with db._get_conn() as conn:
         conn.execute("UPDATE tasks SET id = ? WHERE id = ?", (big, task["id"]))
         conn.commit()
     resp = _post(client, str(big), 1, "first", True)

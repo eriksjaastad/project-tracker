@@ -43,8 +43,6 @@ def backend_db(local_backend, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         path="/tmp/project-tracker",
         status="active",
     )
-    # Attach backend for _get_conn access in helpers
-    manager._backend = manager._db
     return manager
 
 
@@ -187,7 +185,7 @@ def test_update_can_still_clear_blocked_by(backend_db, runner):
 
 def _force_blocked_by(db: DatabaseManager, task_id: int, value: str) -> None:
     """Write blocked_by past the CLI, simulating pre-fix rows in the DB."""
-    with db._backend._get_conn() as conn:
+    with db._get_conn() as conn:
         conn.execute(
             "UPDATE tasks SET blocked_by = ? WHERE id = ?", (value, task_id)
         )

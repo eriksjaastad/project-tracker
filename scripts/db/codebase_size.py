@@ -73,7 +73,7 @@ class CodebaseSizeMixin:
         _check_rows(rows)
         run_id = uuid.uuid4().hex
         stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             for r in rows:
                 conn.execute(_INSERT, (
                     run_id, snapshot_date, r.project, r.code, r.tests, r.doc_files,
@@ -90,7 +90,7 @@ class CodebaseSizeMixin:
         concurrent refresh can never show up as the latest run while the
         baseline read missed it. Each side is (None, {}) when no run exists.
         """
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             conn.execute("BEGIN")
             try:
                 base_date, base = _read_run(conn, newest=False)
