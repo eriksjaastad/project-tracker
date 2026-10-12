@@ -3,6 +3,7 @@ import { PageShell } from './PageShell';
 import { Spinner } from './Spinner';
 import { Notification } from './Notification';
 import { RankedListControls, TOP_LISTINGS } from './RankedListControls';
+import { useRequest } from '../hooks/useRequest';
 import './JobsPage.css';
 import './VolunteerPage.css';
 
@@ -34,6 +35,12 @@ function dateOnly(iso: string | null | undefined): string {
   return iso ? iso.slice(0, 10) : '';
 }
 
+// Identity of the latest load outcome: a new payload or a new error is a new
+// object, so comparing these tells whether a load has landed since a write.
+function loadVersion(data: unknown, error: unknown): unknown {
+  return error ?? data;
+}
+
 function RoleLink({ role }: { role: Role }) {
   return (
     <a href={role.url} target="_blank" rel="noopener noreferrer" className="job-title">
@@ -43,40 +50,42 @@ function RoleLink({ role }: { role: Role }) {
 }
 
 export function VolunteerPage() {
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<VolunteerData>(EMPTY);
+  // The server's payload is the only source of the three sections: after a
+  // write the page reloads it rather than moving rows itself, so a role
+  // another tab already changed shows where the server keeps it, with the
+  // server's dates. reload() aborts an older load, so a late response can
+  // never overwrite a newer one.
+  const { data: loaded, error: loadError, reload } = useRequest<VolunteerData>(async (signal) => {
+    const response = await fetch('/api/volunteer', { signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return { ...EMPTY, ...(await response.json()) };
+  }, []);
+  const data = loaded ?? EMPTY;
+  // A role is locked while its request is in flight, and after a successful
+  // write until the next load lands (new data or an error), so a second click
+  // cannot post a duplicate submission while the row still shows.
   const [busy, setBusy] = useState<Set<number>>(new Set());
+  const [awaitingLoad, setAwaitingLoad] = useState<Map<number, unknown>>(new Map());
+  const locked = (roleId: number) => busy.has(roleId)
+    || (awaitingLoad.has(roleId) && awaitingLoad.get(roleId) === loadVersion(loaded, loadError));
   const [showStale, setShowStale] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  // A failed load outranks an action's success message: the list on screen
+  // may then be out of date, and the page says so until dismissed.
+  const [dismissedError, setDismissedError] = useState<Error | null>(null);
+  const notice = loadError && loadError !== dismissedError
+    ? { message: 'Failed to load volunteer roles', type: 'error' as const }
+    : notification;
 
   useEffect(() => {
-    loadRoles();
-  }, []);
+    if (loadError) console.error('Failed to load volunteer roles:', loadError);
+  }, [loadError]);
 
-  async function loadRoles() {
-    try {
-      const response = await fetch('/api/volunteer');
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const body = await response.json();
-      setData({ ...EMPTY, ...body });
-    } catch (error) {
-      console.error('Failed to load volunteer roles:', error);
-      setNotification({ message: 'Failed to load volunteer roles', type: 'error' });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // One request per role at a time; the row moves between sections only
-  // after the server confirms, using the latest state rather than a snapshot.
-  // `update` gets the response body, so dates shown are the server's: the
-  // volunteering endpoint is idempotent and keeps an earlier start date.
-  async function act(roleId: number, request: () => Promise<Response>,
-    update: (prev: VolunteerData, body: unknown) => VolunteerData, success: string, failure: string) {
-    if (busy.has(roleId)) {
+  async function act(roleId: number, request: () => Promise<Response>, success: string, failure: string) {
+    if (locked(roleId)) {
       return;
     }
     setBusy(prev => new Set(prev).add(roleId));
@@ -91,10 +100,9 @@ export function VolunteerPage() {
         setNotification({ message: detail ? `${failure}: ${detail}` : failure, type: 'error' });
         return;
       }
-      // The write succeeded; an unreadable body only means no date to show.
-      const body: unknown = await response.json().catch(() => null);
-      setData(prev => update(prev, body));
+      setAwaitingLoad(prev => new Map(prev).set(roleId, loadVersion(loaded, loadError)));
       setNotification({ message: success, type: 'success' });
+      reload();
     } catch (error) {
       console.error(failure, error);
       setNotification({ message: failure, type: 'error' });
@@ -107,17 +115,8 @@ export function VolunteerPage() {
     }
   }
 
-  function withoutPossible(prev: VolunteerData, roleId: number): VolunteerData {
-    return {
-      ...prev,
-      possible: prev.possible.filter(role => role.id !== roleId),
-      possible_stale: prev.possible_stale.filter(role => role.id !== roleId),
-    };
-  }
-
   function handleDelete(role: Role) {
     act(role.id, () => fetch(`/api/jobs/${role.id}`, { method: 'DELETE' }),
-      prev => withoutPossible(prev, role.id),
       'Listing dismissed', 'Failed to dismiss listing');
   }
 
@@ -126,29 +125,13 @@ export function VolunteerPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
-    }),
-    (prev, body) => ({
-      ...withoutPossible(prev, role.id),
-      applied: [
-        { ...role, last_submitted_at: (body as { submission?: { submitted_at?: string } } | null)?.submission?.submitted_at ?? null },
-        ...prev.applied,
-      ],
-    }),
-    'Marked as applied', 'Failed to mark as applied');
+    }), 'Marked as applied', 'Failed to mark as applied');
   }
 
+  // From Applied or straight from Possible: a role Erik already volunteers
+  // at needs no fictitious application first.
   function handleStarted(role: Role) {
     act(role.id, () => fetch(`/api/jobs/${role.id}/volunteering`, { method: 'POST' }),
-      // From Applied or straight from Possible: a role Erik already
-      // volunteers at needs no fictitious application first.
-      (prev, body) => ({
-        ...withoutPossible(prev, role.id),
-        applied: prev.applied.filter(item => item.id !== role.id),
-        current: [
-          { ...role, volunteering_since: (body as { job?: { volunteering_since?: string | null } } | null)?.job?.volunteering_since ?? null },
-          ...prev.current,
-        ],
-      }),
       'Marked as volunteering', 'Failed to mark as volunteering');
   }
 
@@ -169,25 +152,25 @@ export function VolunteerPage() {
           <button
             className="job-submit-btn"
             onClick={() => handleStarted(role)}
-            disabled={busy.has(role.id)}
+            disabled={locked(role.id)}
             aria-label={`Started volunteering at ${role.company}`}
             title="Record that you already volunteer here"
           >
-            {busy.has(role.id) ? '...' : 'Started volunteering'}
+            {locked(role.id) ? '...' : 'Started volunteering'}
           </button>
           <button
             className="job-submit-btn"
             onClick={() => handleSubmitted(role)}
-            disabled={busy.has(role.id)}
+            disabled={locked(role.id)}
             aria-label={`Mark ${role.title} as submitted`}
             title="Record that you applied"
           >
-            {busy.has(role.id) ? '...' : 'Submitted'}
+            {locked(role.id) ? '...' : 'Submitted'}
           </button>
           <button
             className="job-delete-btn"
             onClick={() => handleDelete(role)}
-            disabled={busy.has(role.id)}
+            disabled={locked(role.id)}
             aria-label={`Dismiss ${role.title}`}
           >
             ×
@@ -199,15 +182,18 @@ export function VolunteerPage() {
 
   return (
     <PageShell title="Volunteer" subtitle="Where you volunteer, where you applied, and what to look at next">
-      {notification && (
+      {notice && (
         <Notification
-          message={notification.message}
-          type={notification.type}
-          onClose={() => setNotification(null)}
+          message={notice.message}
+          type={notice.type}
+          onClose={() => {
+            setNotification(null);
+            setDismissedError(loadError);
+          }}
         />
       )}
 
-      {loading ? (
+      {loaded === null && loadError === null ? (
         <div className="jobs-loading">
           <Spinner size="large" />
         </div>
@@ -258,10 +244,10 @@ export function VolunteerPage() {
                       <button
                         className="job-submit-btn"
                         onClick={() => handleStarted(role)}
-                        disabled={busy.has(role.id)}
+                        disabled={locked(role.id)}
                         aria-label={`Started volunteering at ${role.company}`}
                       >
-                        {busy.has(role.id) ? '...' : 'Started volunteering'}
+                        {locked(role.id) ? '...' : 'Started volunteering'}
                       </button>
                     </div>
                   </div>

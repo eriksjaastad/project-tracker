@@ -63,7 +63,7 @@ describe('VolunteerPage', () => {
     await waitFor(() => {
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
     });
-    expect(fetch).toHaveBeenCalledWith('/api/volunteer');
+    expect(fetch).toHaveBeenCalledWith('/api/volunteer', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(section('Currently volunteering').getByText('Role 1')).toBeInTheDocument();
     expect(section('Currently volunteering').getByText('since 2026-09-01')).toBeInTheDocument();
     expect(section('Applied').getByText('applied 2026-10-02')).toBeInTheDocument();
@@ -81,12 +81,15 @@ describe('VolunteerPage', () => {
     render(<VolunteerPage />);
     await waitFor(() => expect(screen.getByText('Role 3')).toBeInTheDocument());
 
-    vi.mocked(fetch).mockResolvedValueOnce(respond({ job: { id: 3 } }));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond({ job: { id: 3 } }))
+      .mockResolvedValueOnce(respond({ current: [], applied: [], possible: [role(4)], possible_stale: [] }));
     await user.click(screen.getByLabelText('Dismiss Role 3'));
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/jobs/3', { method: 'DELETE' });
+    expect(fetch).toHaveBeenCalledWith('/api/jobs/3', { method: 'DELETE' });
     await waitFor(() => expect(screen.queryByText('Role 3')).not.toBeInTheDocument());
     expect(screen.getByText('Role 4')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Listing dismissed');
   });
 
   it('keeps the listing when the dismiss fails', async () => {
@@ -104,7 +107,7 @@ describe('VolunteerPage', () => {
     expect(screen.getByText('Role 3')).toBeInTheDocument();
   });
 
-  it('moves a possible role to Applied, then to Currently volunteering', async () => {
+  it('moves a possible role to Applied, then to Currently volunteering, as the server reports', async () => {
     const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValueOnce(respond({
       current: [], applied: [], possible: [role(5)], possible_stale: [],
@@ -112,50 +115,52 @@ describe('VolunteerPage', () => {
     render(<VolunteerPage />);
     await waitFor(() => expect(screen.getByText('Role 5')).toBeInTheDocument());
 
-    vi.mocked(fetch).mockResolvedValueOnce(respond({ submission: { id: 1 } }));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond({ submission: { id: 1, job_id: 5 } }, true))
+      .mockResolvedValueOnce(respond({
+        current: [], applied: [role(5, { last_submitted_at: '2026-10-05T09:00:00+00:00' })],
+        possible: [], possible_stale: [],
+      }));
     await user.click(screen.getByLabelText('Mark Role 5 as submitted'));
-    expect(fetch).toHaveBeenLastCalledWith('/api/jobs/5/submissions', expect.objectContaining({ method: 'POST' }));
-    await waitFor(() => expect(section('Applied').getByText('Role 5')).toBeInTheDocument());
+    expect(fetch).toHaveBeenCalledWith('/api/jobs/5/submissions', expect.objectContaining({ method: 'POST' }));
+    await waitFor(() => expect(section('Applied').getByText('applied 2026-10-05')).toBeInTheDocument());
     expect(section('Possible').queryByText('Role 5')).not.toBeInTheDocument();
 
-    vi.mocked(fetch).mockResolvedValueOnce(respond({ job: { id: 5 } }));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond({ job: { id: 5 } }))
+      .mockResolvedValueOnce(respond({
+        current: [role(5, { volunteering_since: '2026-10-06T10:00:00+00:00' })],
+        applied: [], possible: [], possible_stale: [],
+      }));
     await user.click(screen.getByLabelText('Started volunteering at Org 5'));
-    expect(fetch).toHaveBeenLastCalledWith('/api/jobs/5/volunteering', { method: 'POST' });
-    await waitFor(() => expect(section('Currently volunteering').getByText('Role 5')).toBeInTheDocument());
+    expect(fetch).toHaveBeenCalledWith('/api/jobs/5/volunteering', { method: 'POST' });
+    await waitFor(() => expect(section('Currently volunteering').getByText('since 2026-10-06')).toBeInTheDocument());
     expect(section('Applied').queryByText('Role 5')).not.toBeInTheDocument();
   });
 
-  it('shows the dates the server recorded, not the browser clock', async () => {
+  it('shows a role where the server keeps it, not where this page would guess', async () => {
     const user = userEvent.setup();
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-12-31T12:00:00Z'));
-    try {
-      vi.mocked(fetch).mockResolvedValueOnce(respond({
-        current: [], applied: [], possible: [role(8), role(9)], possible_stale: [],
-      }));
-      render(<VolunteerPage />);
-      await waitFor(() => expect(screen.getByText('Role 8')).toBeInTheDocument());
+    vi.mocked(fetch).mockResolvedValueOnce(respond({
+      current: [], applied: [], possible: [role(9)], possible_stale: [],
+    }));
+    render(<VolunteerPage />);
+    await waitFor(() => expect(screen.getByText('Role 9')).toBeInTheDocument());
 
-      vi.mocked(fetch).mockResolvedValueOnce(respond({
-        submission: { id: 3, job_id: 8, submitted_at: '2026-10-05T09:00:00+00:00' },
+    // Another tab already started this role on 2026-09-15. Submitting here
+    // records an application, but the server still lists the role as current.
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond({ submission: { id: 4, job_id: 9 } }))
+      .mockResolvedValueOnce(respond({
+        current: [role(9, { volunteering_since: '2026-09-15T08:00:00+00:00' })],
+        applied: [], possible: [], possible_stale: [],
       }));
-      await user.click(screen.getByLabelText('Mark Role 8 as submitted'));
-      await waitFor(() => expect(section('Applied').getByText('applied 2026-10-05')).toBeInTheDocument());
+    await user.click(screen.getByLabelText('Mark Role 9 as submitted'));
 
-      // Another tab already started this role: the idempotent endpoint keeps
-      // the original date, and that is the date shown.
-      vi.mocked(fetch).mockResolvedValueOnce(respond({
-        job: { id: 9, volunteering_since: '2026-09-15T08:00:00+00:00' },
-      }));
-      await user.click(section('Possible').getByLabelText('Started volunteering at Org 9'));
-      await waitFor(() => expect(section('Currently volunteering').getByText('since 2026-09-15')).toBeInTheDocument());
-      expect(screen.queryByText(/2026-12-31/)).not.toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
+    await waitFor(() => expect(section('Currently volunteering').getByText('since 2026-09-15')).toBeInTheDocument());
+    expect(section('Applied').queryByText('Role 9')).not.toBeInTheDocument();
   });
 
-  it('still moves the row when a successful response has no readable body', async () => {
+  it('keeps a role locked until the reload after its write lands', async () => {
     const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValueOnce(respond({
       current: [], applied: [], possible: [role(10)], possible_stale: [],
@@ -163,13 +168,51 @@ describe('VolunteerPage', () => {
     render(<VolunteerPage />);
     await waitFor(() => expect(screen.getByText('Role 10')).toBeInTheDocument());
 
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true, status: 200, json: async () => { throw new SyntaxError('bad json'); },
-    } as unknown as Response);
-    await user.click(section('Possible').getByLabelText('Started volunteering at Org 10'));
-    await waitFor(() => expect(section('Currently volunteering').getByText('Role 10')).toBeInTheDocument());
-    expect(screen.getByRole('alert')).toHaveTextContent('Marked as volunteering');
-    expect(section('Currently volunteering').queryByText(/since/)).not.toBeInTheDocument();
+    let finishReload: (value: Response) => void = () => {};
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond({ submission: { id: 5, job_id: 10 } }))
+      .mockReturnValueOnce(new Promise<Response>(resolve => { finishReload = resolve; }));
+    await user.click(screen.getByLabelText('Mark Role 10 as submitted'));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Marked as applied'));
+
+    // The write is done and the row still shows, but a second click must
+    // not post a duplicate submission.
+    expect(screen.getByLabelText('Mark Role 10 as submitted')).toBeDisabled();
+    await user.click(screen.getByLabelText('Mark Role 10 as submitted'));
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === '/api/jobs/10/submissions')).toHaveLength(1);
+
+    finishReload(respond({
+      current: [], applied: [role(10, { last_submitted_at: '2026-10-07T00:00:00+00:00' })],
+      possible: [], possible_stale: [],
+    }));
+    await waitFor(() => expect(section('Applied').getByText('Role 10')).toBeInTheDocument());
+  });
+
+  it('says the list may be stale when the reload after a write fails, and unlocks the role', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce(respond({
+      current: [], applied: [], possible: [role(11)], possible_stale: [],
+    }));
+    render(<VolunteerPage />);
+    await waitFor(() => expect(screen.getByText('Role 11')).toBeInTheDocument());
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond({ job: { id: 11 } }))
+      .mockResolvedValueOnce(respond({}, false));
+    await user.click(screen.getByLabelText('Started volunteering at Org 11'));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Failed to load volunteer roles'));
+    expect(section('Possible').getByText('Role 11')).toBeInTheDocument();
+    expect(screen.getByLabelText('Started volunteering at Org 11')).toBeEnabled();
+  });
+
+  it('aborts its load on unmount', () => {
+    vi.mocked(fetch).mockReturnValue(new Promise(() => {}));
+    const view = render(<VolunteerPage />);
+    const [[, init]] = vi.mocked(fetch).mock.calls;
+    const signal = (init as RequestInit).signal as AbortSignal;
+    view.unmount();
+    expect(signal.aborted).toBe(true);
   });
 
   it('limits Possible to the top 25 and hides stale listings behind a count', async () => {
@@ -203,10 +246,15 @@ describe('VolunteerPage', () => {
     render(<VolunteerPage />);
     await waitFor(() => expect(screen.getByText('Role 7')).toBeInTheDocument());
 
-    vi.mocked(fetch).mockResolvedValueOnce(respond({ job: { id: 7 } }));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond({ job: { id: 7 } }))
+      .mockResolvedValueOnce(respond({
+        current: [role(7, { volunteering_since: '2026-10-08T00:00:00+00:00' })],
+        applied: [], possible: [], possible_stale: [],
+      }));
     await user.click(section('Possible').getByLabelText('Started volunteering at Org 7'));
 
-    expect(fetch).toHaveBeenLastCalledWith('/api/jobs/7/volunteering', { method: 'POST' });
+    expect(fetch).toHaveBeenCalledWith('/api/jobs/7/volunteering', { method: 'POST' });
     await waitFor(() => expect(section('Currently volunteering').getByText('Role 7')).toBeInTheDocument());
     expect(section('Possible').queryByText('Role 7')).not.toBeInTheDocument();
     expect(section('Applied').queryByText('Role 7')).not.toBeInTheDocument();
@@ -255,4 +303,5 @@ describe('VolunteerPage', () => {
     render(<VolunteerPage />);
     await waitFor(() => expect(screen.getByText('pt db migrate')).toBeInTheDocument());
   });
+
 });
