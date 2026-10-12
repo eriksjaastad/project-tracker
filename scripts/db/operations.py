@@ -1,6 +1,7 @@
 """In-process project operations shared by the CLI and dashboard."""
 from __future__ import annotations
 
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -565,13 +566,18 @@ class ProjectTrackerOps(BackendDatabaseManager):
 
     # -- backup and restore -------------------------------------------------
 
-    _BACKUP_RETENTION_DAYS = 30
+    # Retention (Erik, #8093 D3, 2026-10-09): in each backup directory keep the
+    # newest 10 scheduled snapshots and the newest 5 of every other kind.
+    _KEEP_SNAPSHOTS = 10
+    _KEEP_OTHER = 5
+    # A backup's kind is its name before the first timestamp.
+    _BACKUP_KIND = re.compile(r"^(?P<kind>.+?)_\d{8}[T_]\d{6}")
 
     def _backup_dirs(self) -> list[Path]:
         """Both DECISIONS.md backup locations, primary first."""
         return [self.entry.backup_dir, self.entry.external_backup_dir]
 
-    def backup_create(self, retention_days: int | None = None) -> dict:
+    def backup_create(self, prune: bool = True) -> dict:
         """Timestamped snapshot to both locations, then prune old ones.
 
         Replaces `scripts/backup-db.sh`, which shelled out to the `sqlite3`
@@ -584,9 +590,7 @@ class ProjectTrackerOps(BackendDatabaseManager):
         if not self.verify_backup(str(primary)):
             raise RuntimeError(f"backup at {primary} failed verification")
 
-        pruned = self._prune_backups(
-            self._BACKUP_RETENTION_DAYS if retention_days is None else retention_days
-        )
+        pruned = self._prune_backups() if prune else []
         return {
             "path": str(primary),
             "size_bytes": primary.stat().st_size,
@@ -652,26 +656,51 @@ class ProjectTrackerOps(BackendDatabaseManager):
             "verified": True,
         }
 
-    def _prune_backups(self, retention_days: int) -> list:
-        """Trash snapshots older than the retention window.
+    def _backups_to_prune(self) -> list[Path]:
+        """Every backup file the retention rule drops, read-only.
 
-        The shell version used `find -delete`. These are real database
-        contents, so they go to the Trash: recoverable if the retention window
-        turns out to have been wrong.
+        In each backup directory a kind (``tracker``, ``before_destructive``,
+        ``tasks_delete_backup``, ...) keeps its newest backups by modification
+        time: _KEEP_SNAPSHOTS for ``tracker``, _KEEP_OTHER for every other
+        kind. A ``-wal`` or ``-shm`` sidecar goes with its database, and one
+        whose database is gone is dropped. Files whose names carry no kind and
+        timestamp, or that are not .db/.json backups, are never touched.
         """
-        from send2trash import send2trash
-
-        if retention_days <= 0:
-            return []
-        cutoff = time.time() - retention_days * 86400
-        pruned: list[str] = []
+        dropped: list[Path] = []
         for directory in self._backup_dirs():
             if not directory.is_dir():
                 continue
-            for candidate in sorted(directory.glob("tracker_*.db")):
-                if candidate.stat().st_mtime < cutoff:
-                    send2trash(str(candidate))
-                    pruned.append(candidate.name)
+            kinds: dict[str, dict[str, list[Path]]] = {}
+            for path in directory.iterdir():
+                if not path.is_file() or path.is_symlink():
+                    continue
+                base = path.name.removesuffix("-wal").removesuffix("-shm")
+                match = self._BACKUP_KIND.match(base)
+                if not match or not base.endswith((".db", ".json")):
+                    continue
+                kinds.setdefault(match["kind"], {}).setdefault(base, []).append(path)
+            for kind, backups in kinds.items():
+                keep = self._KEEP_SNAPSHOTS if kind == "tracker" else self._KEEP_OTHER
+                present = [base for base in backups if (directory / base).is_file()]
+                present.sort(key=lambda base: (directory / base).stat().st_mtime, reverse=True)
+                kept = set(present[:keep])
+                for base, paths in backups.items():
+                    if base not in kept:
+                        dropped.extend(paths)
+        return sorted(dropped)
+
+    def _prune_backups(self) -> list[str]:
+        """Move every file _backups_to_prune names to the Trash.
+
+        These are real database contents, so they go to the Trash rather than
+        being deleted: recoverable if the retention rule turns out wrong.
+        """
+        from send2trash import send2trash
+
+        pruned: list[str] = []
+        for path in self._backups_to_prune():
+            send2trash(str(path))
+            pruned.append(path.name)
         return pruned
 
     def backup_list(self) -> list:

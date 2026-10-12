@@ -1512,7 +1512,12 @@ def backup_list(json_output: bool):
 
 @backup_group.command(name="create")
 def backup_create():
-    """Take a verified timestamped snapshot to both backup locations."""
+    """Take a verified timestamped snapshot to both backup locations.
+
+    Then moves older backups to the Trash: in each location every kind keeps
+    its newest 10 (snapshots) or 5 (every other kind, such as the
+    pre-destructive copies). The scheduled backup job runs this.
+    """
     try:
         result = DatabaseManager().backup_create()
     except _LOCAL_DB_ERRORS as err:
@@ -1521,7 +1526,10 @@ def backup_create():
     size_mb = result["size_bytes"] / (1024 * 1024)
     console.print(f"[green]✓ backup {Path(result['path']).name} ({size_mb:.1f} MB), verified[/green]")
     if result["pruned"]:
-        click.echo(f"Pruned {len(result['pruned'])} snapshot(s) past the retention window.")
+        click.echo(
+            f"Moved {len(result['pruned'])} old backup file(s) to the Trash "
+            "(each kind keeps its newest: 10 snapshots, 5 of every other kind)."
+        )
 
 
 @backup_group.command(name="offsite")

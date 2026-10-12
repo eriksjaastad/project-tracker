@@ -87,7 +87,7 @@ def test_local_board_calendar_and_restore_work_without_service(db, monkeypatch, 
     first = db.add_task('Preserve this card', 'recovery')
     calendar = CalendarManager(db.db_path)
     event = calendar.add_event('Recovery drill', '2026-09-22', project_id='recovery')
-    created = db.backup_create(retention_days=0)
+    created = db.backup_create(prune=False)
     assert created['verified'] is True
     backup_name = Path(created['path']).name
     assert {row['name'] for row in db.backup_list()} == {backup_name}
@@ -109,7 +109,7 @@ def test_local_board_calendar_and_restore_work_without_service(db, monkeypatch, 
 def test_rclone_uploads_snapshot_and_preserves_local_copy_on_failure(db, monkeypatch, tmp_path):
     db.add_project('offsite', 'Offsite', str(tmp_path), 'active')
     db.add_task('Offsite card', 'offsite')
-    created = db.backup_create(retention_days=0)
+    created = db.backup_create(prune=False)
     config = tmp_path / 'rclone.conf'
     config.write_text('[synthetic]\ntype = local\n')
     monkeypatch.setenv('RCLONE_CONFIG', str(config))
@@ -156,7 +156,7 @@ def test_scheduled_settings_match_manual_upload_and_status(db, monkeypatch, tmp_
         monkeypatch.delenv(key, raising=False)
     local = DatabaseManager(db.db_path)
     assert local.entry.external_backup_dir == external
-    created = local.backup_create(retention_days=0)
+    created = local.backup_create(prune=False)
     monkeypatch.setattr('shutil.which', lambda name: '/synthetic/rclone')
     calls = []
     def upload(command, **kwargs):
@@ -231,7 +231,7 @@ def test_backup_cli_reports_verification_failure(db, monkeypatch, tmp_path, comm
 def test_offsite_cli_reports_timeout_and_keeps_snapshot(db, monkeypatch, tmp_path):
     from click.testing import CliRunner
     import pt
-    created = db.backup_create(retention_days=0)
+    created = db.backup_create(prune=False)
     config = tmp_path / 'rclone.conf'
     config.write_text('[synthetic]\ntype = local\n')
     monkeypatch.setenv('PT_BACKUP_LOG_PATH', str(tmp_path / 'backup.log'))
@@ -285,3 +285,47 @@ def test_fresh_database_guard_outside_pytest_returns_json(db, tmp_path):
     assert payload['error']['class'] == 'backend_unavailable'
     assert 'UNEXPECTED FRESH DATABASE' in payload['error']['message']
     assert 'Traceback' not in result.stderr
+
+
+def test_prune_keeps_the_newest_of_each_kind_and_trashes_the_rest(db, monkeypatch):
+    """#8093 D3: newest 10 snapshots and newest 5 of every other kind, per directory."""
+    import os
+    import send2trash
+
+    trashed = []
+    monkeypatch.setattr(send2trash, "send2trash", lambda path: trashed.append(Path(path).name))
+    directory = db.entry.backup_dir
+    directory.mkdir(parents=True, exist_ok=True)
+
+    def make(name, age):
+        path = directory / name
+        path.write_text("x")
+        os.utime(path, (1_000_000 - age, 1_000_000 - age))
+
+    for i in range(12):  # snapshots, newest first; the oldest has sidecars
+        make(f"tracker_202610{i + 10:02d}_000000.db", age=i)
+    make("tracker_20261021_000000.db-wal", age=11)
+    make("tracker_20261021_000000.db-shm", age=11)
+    for i in range(7):
+        make(f"before_destructive_2026100{i + 1}T000000_1.db", age=i)
+    for i in range(3):
+        make(f"pre_018_crr_removal_2026100{i + 1}_000000.db", age=i)
+    for i in range(6):
+        make(f"tasks_delete_backup_2026010{i + 1}_000000.json", age=i)
+    make("before_destructive_20261009T000000_9.db-wal", age=0)  # its database is gone
+    make("crontab_before_poller_removal_20261009.txt", age=99)  # no kind: untouched
+    for i in range(6):  # timestamped, but not a .db/.json backup: untouched
+        make(f"notes_2026100{i + 1}_000000.txt", age=50 + i)
+
+    db._prune_backups()
+
+    assert sorted(trashed) == sorted([
+        "tracker_20261020_000000.db",
+        "tracker_20261021_000000.db",
+        "tracker_20261021_000000.db-wal",
+        "tracker_20261021_000000.db-shm",
+        "before_destructive_20261006T000000_1.db",
+        "before_destructive_20261007T000000_1.db",
+        "tasks_delete_backup_20260106_000000.json",
+        "before_destructive_20261009T000000_9.db-wal",
+    ])
