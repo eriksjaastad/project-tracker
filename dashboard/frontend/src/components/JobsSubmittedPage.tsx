@@ -4,21 +4,8 @@ import { PageShell } from './PageShell';
 import { Spinner } from './Spinner';
 import { Notification } from './Notification';
 import { useRequest } from '../hooks/useRequest';
+import type { Job } from '../types';
 import './JobsSubmittedPage.css';
-
-interface Job {
-  id: number;
-  company: string;
-  title: string;
-  url: string;
-  location: string | null;
-  posted_date: string | null;
-  first_seen: string;
-  category: string;
-  source: string;
-  deleted_at: string | null;
-  raw: string | null;
-}
 
 interface Submission {
   id: number;
