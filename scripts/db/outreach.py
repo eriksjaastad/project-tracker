@@ -31,7 +31,7 @@ class OutreachMixin:
         Uncontacted rows come first ordered by created_at/id, then contacted
         rows ordered by contacted_at/id.
         """
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM outreach_contacts
@@ -50,7 +50,7 @@ class OutreachMixin:
         if not cleaned:
             raise ValueError("name is required")
         now = _utc_now()
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO outreach_contacts
@@ -70,7 +70,7 @@ class OutreachMixin:
         cleaned = name.strip()
         if not cleaned:
             raise ValueError("name is required")
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM outreach_contacts WHERE id = ?", (contact_id,)
             ).fetchone()
@@ -90,7 +90,7 @@ class OutreachMixin:
 
     def mark_contacted(self, contact_id: int) -> dict[str, Any] | None:
         """Move an uncontacted contact into the contacted state."""
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM outreach_contacts WHERE id = ?", (contact_id,)
             ).fetchone()
@@ -112,7 +112,7 @@ class OutreachMixin:
 
     def mark_replied(self, contact_id: int) -> dict[str, Any] | None:
         """Finish a contacted contact's life cycle; the row is kept."""
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM outreach_contacts WHERE id = ?", (contact_id,)
             ).fetchone()
@@ -136,7 +136,7 @@ class OutreachMixin:
 
     def soft_delete_contact(self, contact_id: int) -> dict[str, Any] | None:
         """Soft-delete a contact; the row is never hard-deleted."""
-        with self._db._get_conn() as conn:
+        with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM outreach_contacts WHERE id = ?", (contact_id,)
             ).fetchone()

@@ -46,7 +46,6 @@ def backend_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DatabaseManag
         status="active",
     )
     # Attach backend for direct history-row access in helpers.
-    manager._backend = manager._db
     return manager
 
 
@@ -56,7 +55,7 @@ def runner() -> CliRunner:
 
 
 def _history(db: DatabaseManager, task_id: int) -> list[dict]:
-    with db._backend._get_conn() as conn:
+    with db._get_conn() as conn:
         rows = conn.execute(
             "SELECT id, task_id, project_id, old_notes, new_notes, source, timestamp "
             "FROM task_notes_history WHERE task_id = ? "

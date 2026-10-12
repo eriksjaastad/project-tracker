@@ -5,6 +5,11 @@ from .operations import ProjectTrackerOps
 from .outreach import OutreachMixin
 
 class DatabaseManager(JobsMixin, OutreachMixin, CodebaseSizeMixin, ProjectTrackerOps):
-    """The shared CLI/dashboard interface for the local database."""
+    """The shared CLI/dashboard interface for the local database: one class.
+
+    The SQL core (backend_manager), cross-table operations and recovery
+    snapshots (operations), and the jobs, outreach and codebase-size domains
+    (mixins) are all methods of this object.
+    """
 
 __all__ = ["DatabaseManager"]

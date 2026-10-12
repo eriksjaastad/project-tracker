@@ -42,7 +42,7 @@ def test_open_jobs_excludes_submitted_and_dismissed_without_erasing_rows(db):
     assert [s["submitted_at"] for s in submitted_groups[0]["submissions"]] == [
         "2026-09-22T15:00:00+00:00"
     ]
-    with db._db._get_conn() as conn:
+    with db._get_conn() as conn:
         ids = {row[0] for row in conn.execute("SELECT id FROM jobs")}
     assert ids == {open_job["id"], submitted["id"], dismissed["id"]}
 
@@ -111,7 +111,7 @@ def test_submissions_order_by_instant_across_different_utc_offsets(db):
 
 def test_upsert_preserves_first_seen_and_rejects_unbounded_categories(db):
     first = _job(db, "same", "Other")
-    with db._db._get_conn() as conn:
+    with db._get_conn() as conn:
         conn.execute("UPDATE jobs SET first_seen = ? WHERE id = ?", ("2026-09-01", first["id"]))
         conn.commit()
     revised = db.upsert_job(

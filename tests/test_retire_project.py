@@ -179,13 +179,14 @@ def test_retire_uses_preflight_snapshot_after_moving_directory(fabricated_projec
 def test_prepared_operation_is_bound_and_single_use(db, monkeypatch, backend_fails):
     calls = []
 
-    def delete(project_id):
+    def delete(self, project_id):
         calls.append(project_id)
         if backend_fails:
             raise OSError('Backend failure after possible commit')
         return 'deleted'
 
-    monkeypatch.setattr(db._db, 'delete_project', delete)
+    from db.backend_manager import DatabaseManager as CoreDatabaseManager
+    monkeypatch.setattr(CoreDatabaseManager, 'delete_project', delete)
     prepared = db.prepare_operation(
         'delete_project', reason='Test one-shot retirement', project_id='chosen'
     )

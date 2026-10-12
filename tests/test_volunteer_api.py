@@ -107,7 +107,7 @@ def test_started_volunteering_rejects_dismissed_role(db) -> None:
     role = _role(db, "dismissed")
     assert client.delete(f"/api/jobs/{role['id']}").status_code == 200
     assert client.post(f"/api/jobs/{role['id']}/volunteering").status_code == 404
-    with db._db._get_conn() as conn:
+    with db._get_conn() as conn:
         row = conn.execute(
             "SELECT volunteering_since FROM jobs WHERE id = ?", (role["id"],)
         ).fetchone()
@@ -156,7 +156,7 @@ def test_every_undismissed_state_appears_in_exactly_one_place(
 ) -> None:
     client = TestClient(app)
     row = _role(db, "state", kind=kind)
-    with db._db._get_conn() as conn:
+    with db._get_conn() as conn:
         conn.execute(
             "UPDATE jobs SET volunteering_since = ? WHERE id = ?",
             ("2026-09-01T00:00:00+00:00" if since else None, row["id"]),
@@ -203,7 +203,7 @@ def test_volunteer_sections_come_from_one_snapshot(db, monkeypatch) -> None:
     from contextlib import contextmanager
 
     role = _role(db, "snap")
-    real_get_conn = db._db._get_conn
+    real_get_conn = db._get_conn
 
     def other_tab_starts_volunteering() -> None:
         with real_get_conn() as other:
@@ -248,7 +248,7 @@ def test_volunteer_sections_come_from_one_snapshot(db, monkeypatch) -> None:
             proxies.append(proxy)
             yield proxy
 
-    monkeypatch.setattr(db._db, "_get_conn", proxied_conn)
+    monkeypatch.setattr(db, "_get_conn", proxied_conn)
     sections = db.get_volunteer_roles()
     monkeypatch.undo()
 

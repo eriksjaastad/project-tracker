@@ -247,7 +247,7 @@ def test_replied_removes_from_list_but_keeps_row(db) -> None:
     ids = [row["id"] for row in client.get("/api/outreach/contacts").json()["contacts"]]
     assert ids == [kept["id"]]
 
-    with db._db._get_conn() as conn:
+    with db._get_conn() as conn:
         row = conn.execute(
             "SELECT replied_at FROM outreach_contacts WHERE id = ?",
             (finished["id"],),
@@ -277,7 +277,7 @@ def test_delete_soft_deletes_and_unknown_ids_return_404(db) -> None:
     assert client.get("/api/outreach/contacts").json()["contacts"] == []
     assert client.delete(f"/api/outreach/contacts/{contact['id']}").status_code == 404
 
-    with db._db._get_conn() as conn:
+    with db._get_conn() as conn:
         row = conn.execute(
             "SELECT deleted_at FROM outreach_contacts WHERE id = ?",
             (contact["id"],),
