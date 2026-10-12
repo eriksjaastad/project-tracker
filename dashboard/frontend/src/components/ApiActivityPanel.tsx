@@ -6,8 +6,8 @@ import type { Usage, Activity } from '../utils/apiActivity';
 
 // The panel asks /api/costs/usage for up to LIMIT rows since the chosen day,
 // with no upper bound, and filters that day locally; when the cap is hit it
-// warns, because newer calls may crowd out a historical day. The rows are
-// observed telemetry, not a billing statement.
+// warns that the day may be incomplete. The rows are observed telemetry, not
+// a billing statement.
 const LIMIT = 5000;
 
 function localDate() {

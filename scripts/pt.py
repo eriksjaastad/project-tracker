@@ -2753,9 +2753,9 @@ def memory_group(ctx: click.Context) -> None:
       pt memory write "Decision: use Haiku for routine tasks" --type decision
       pt memory stats
 
-    The read-only --json modes (search, recent, stats) print one JSON object
-    with schema_version, ok and read_only beside the rows; export prints
-    NDJSON. When those modes or export fail their own checks they exit 2
+    On success the read-only --json modes (search, recent, stats) print one
+    JSON object carrying schema_version, ok and read_only beside its data;
+    export prints NDJSON. When those modes or export fail their own checks they exit 2
     (invalid input), 3 (memory backend unavailable) or 4 (query failed).
     Option parsing errors, such as a non-integer --limit, are Click's plain
     usage message with exit 2.
