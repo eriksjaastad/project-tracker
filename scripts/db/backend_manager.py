@@ -13,7 +13,7 @@ import os
 import time
 import traceback
 from contextlib import contextmanager
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
@@ -452,19 +452,6 @@ class DatabaseManager:
             cursor.execute(f"UPDATE projects SET {fields} WHERE id = ?", values)
             conn.commit()
     
-    def update_health(self, project_id: str, score: int, grade: str) -> None:
-        """Update health_score and health_grade for a project."""
-        # 🛡️ Input validation
-        if not isinstance(score, int) or not (0 <= score <= 100):
-            raise ValueError(f"score must be int 0-100, got: {score}")
-        if grade not in {"A", "B", "C", "D", "F"}:
-            raise ValueError(f"grade must be A-F, got: {grade}")
-            
-        with self._get_conn() as conn:
-            cursor = conn.cursor()
-            self._update_health_with_cursor(cursor, project_id, score, grade)
-            conn.commit()
-
     def _update_health_with_cursor(self, cursor: sqlite3.Cursor, project_id: str, score: int, grade: str) -> None:
         """Update health_score and health_grade using an existing cursor."""
         cursor.execute("""
@@ -564,20 +551,6 @@ class DatabaseManager:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     
-    def delete_cron_jobs(self, project_id: str) -> None:
-        """Delete all cron jobs for a project."""
-        # 🛡️ SAFETY: Backup before delete
-        self._backup_before_delete(
-            table="cron_jobs",
-            where_clause="project_id = ?",
-            params=(project_id,),
-            reason=f"Deleting cron jobs for project: {project_id}"
-        )
-        with self._get_conn() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM cron_jobs WHERE project_id = ?", (project_id,))
-            conn.commit()
-
     def _sync_cron_jobs_with_cursor(
         self,
         cursor: sqlite3.Cursor,
@@ -668,20 +641,6 @@ class DatabaseManager:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     
-    def delete_ai_agents(self, project_id: str) -> None:
-        """Delete all AI agents for a project."""
-        # 🛡️ SAFETY: Backup before delete
-        self._backup_before_delete(
-            table="ai_agents",
-            where_clause="project_id = ?",
-            params=(project_id,),
-            reason=f"Deleting AI agents for project: {project_id}"
-        )
-        with self._get_conn() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM ai_agents WHERE project_id = ?", (project_id,))
-            conn.commit()
-
     def _sync_ai_agents_with_cursor(
         self,
         cursor: sqlite3.Cursor,
@@ -771,20 +730,6 @@ class DatabaseManager:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     
-    def delete_services(self, project_id: str) -> None:
-        """Delete all services for a project."""
-        # 🛡️ SAFETY: Backup before delete
-        self._backup_before_delete(
-            table="service_dependencies",
-            where_clause="project_id = ?",
-            params=(project_id,),
-            reason=f"Deleting services for project: {project_id}"
-        )
-        with self._get_conn() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM service_dependencies WHERE project_id = ?", (project_id,))
-            conn.commit()
-
     def _sync_services_with_cursor(
         self,
         cursor: sqlite3.Cursor,
@@ -843,13 +788,6 @@ class DatabaseManager:
                 deleted = cursor.rowcount or 0
 
         return {"added": added, "updated": updated, "deleted": deleted}
-    
-    # ==================== ACTIVITY FEED ====================
-    
-    def get_activity(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get recent activity from the audit log (Interface placeholder)."""
-        # TODO: Implement reading from WARDEN_LOG.yaml
-        return []
     
     # ==================== TASK OPERATIONS ====================
     
@@ -1934,66 +1872,6 @@ class DatabaseManager:
                 cursor.execute("UPDATE _delete_permissions SET enabled = 0 WHERE id = 1")
                 conn.commit()
 
-    def get_task_history(
-        self,
-        days: int = 30,
-        project_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """Get task completion history for productivity graphs.
-        
-        Args:
-            days: Number of days to look back (default: 30)
-            project_id: Filter by project ID (optional)
-            
-        Returns:
-            List of dictionaries with date, completed count, and project_id
-            Format: [{"date": "2026-01-25", "completed": 5, "project_id": "project-tracker"}, ...]
-        """
-        # Calculate start date
-        start_date = (datetime.now() - timedelta(days=days)).isoformat()
-        
-        with self._get_conn() as conn:
-            cursor = conn.cursor()
-            
-            # Query for completion events (event_type = 'completed')
-            if project_id:
-                cursor.execute("""
-                    SELECT 
-                        DATE(timestamp) as date,
-                        project_id,
-                        COUNT(*) as completed
-                    FROM task_history
-                    WHERE event_type = 'completed'
-                        AND timestamp >= ?
-                        AND project_id = ?
-                    GROUP BY DATE(timestamp), project_id
-                    ORDER BY date ASC
-                """, (start_date, project_id))
-            else:
-                cursor.execute("""
-                    SELECT 
-                        DATE(timestamp) as date,
-                        project_id,
-                        COUNT(*) as completed
-                    FROM task_history
-                    WHERE event_type = 'completed'
-                        AND timestamp >= ?
-                    GROUP BY DATE(timestamp), project_id
-                    ORDER BY date ASC
-                """, (start_date,))
-            
-            rows = cursor.fetchall()
-            
-            # Convert to list of dicts
-            result = []
-            for row in rows:
-                result.append({
-                    "date": row["date"],
-                    "completed": row["completed"],
-                    "project_id": row["project_id"]
-                })
-            
-            return result
     def raw_import_tasks(self, tasks: list[dict[str, Any]]) -> int:
         """Raw import tasks, preserving IDs. Use for disaster recovery."""
         success_count = 0
@@ -2276,19 +2154,3 @@ class DatabaseManager:
                 )
             conn.commit()
             return True
-
-    def health_snapshot(self) -> dict:
-        """Task count and the database path, for /api/health.
-
-        The path is returned because the health payload has always shown it and
-        operators use it to confirm which database is live.
-        """
-        import time
-        started = time.perf_counter()
-        with self._get_conn() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
-        return {
-            "task_count": int(count),
-            "path": str(self.db_path),
-            "query_ms": round((time.perf_counter() - started) * 1000, 1),
-        }
