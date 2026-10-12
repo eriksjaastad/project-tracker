@@ -387,3 +387,49 @@ def test_prune_dry_run_moves_nothing(db, monkeypatch):
 
     assert result["pruned"] == ["tracker_20260920_000000.db", "tracker_20260921_000000.db"]
     assert len(list(directory.glob("tracker_*.db"))) == 12
+
+
+def test_prune_keeps_sidecars_with_a_database_that_cannot_move(db, monkeypatch):
+    import os
+    import send2trash
+
+    trashed = []
+
+    def trash(path):
+        if path.endswith(".db"):
+            raise PermissionError(1, "Operation not permitted")
+        trashed.append(Path(path).name)
+
+    monkeypatch.setattr(send2trash, "send2trash", trash)
+    directory = db.entry.backup_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    for i in range(11):
+        for suffix in ("", "-wal", "-shm") if i == 10 else ("",):
+            path = directory / f"tracker_202609{i + 10:02d}_000000.db{suffix}"
+            path.write_text("x")
+            os.utime(path, (1_000_000 - i, 1_000_000 - i))
+
+    result = db.backup_prune()
+
+    assert trashed == []  # the oldest database stayed, so its WAL and SHM stayed too
+    assert result["errors"] == ["tracker_20260920_000000.db: [Errno 1] Operation not permitted"]
+
+
+def test_prune_reports_an_unreadable_backup_directory(db, monkeypatch):
+    import send2trash
+
+    monkeypatch.setattr(send2trash, "send2trash", lambda path: pytest.fail(f"trashed {path}"))
+    directory = db.entry.backup_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    real_iterdir = Path.iterdir
+
+    def iterdir(self):
+        if self == directory:
+            raise PermissionError(13, "Permission denied")
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+
+    result = db.backup_prune()
+
+    assert result["errors"] and result["errors"][0].startswith("listing backups:")

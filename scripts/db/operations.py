@@ -657,47 +657,60 @@ class ProjectTrackerOps(BackendDatabaseManager):
             "verified": True,
         }
 
-    def _backups_to_prune(self) -> list[Path]:
-        """Every backup file the retention rule drops, read-only.
+    def _backups_to_prune(self) -> list[list[Path]]:
+        """Every backup the retention rule drops, as move units, read-only.
 
         In each backup directory a kind (``tracker``, ``before_destructive``,
         ``tasks_delete_backup``, ...) keeps its newest backups by modification
         time: _KEEP_SNAPSHOTS for ``tracker``, _KEEP_OTHER for every other
-        kind. A ``-wal`` or ``-shm`` sidecar goes with its database, and one
-        whose database is gone is dropped. Files whose names carry no kind and
-        timestamp, or that are not .db/.json backups, are never touched.
+        kind. A unit is a database followed by its ``-wal``/``-shm`` sidecars,
+        or a lone sidecar whose database is gone. Files whose names carry no
+        kind and timestamp, or that are not .db/.json backups, are never
+        touched. A missing directory is skipped; any other OS error raises.
         """
-        dropped: list[Path] = []
+        import stat as stat_mode
+
+        units: list[list[Path]] = []
         for directory in self._backup_dirs():
-            if not directory.is_dir():
+            try:
+                entries = list(directory.iterdir())
+            except FileNotFoundError:
                 continue
             kinds: dict[str, dict[str, list[Path]]] = {}
-            for path in directory.iterdir():
-                if not path.is_file() or path.is_symlink():
+            mtimes: dict[str, float] = {}
+            for path in entries:
+                try:
+                    info = path.lstat()
+                except FileNotFoundError:
+                    continue
+                if not stat_mode.S_ISREG(info.st_mode):
                     continue
                 base = path.name.removesuffix("-wal").removesuffix("-shm")
                 match = self._BACKUP_KIND.match(base)
                 if not match or not base.endswith((".db", ".json")):
                     continue
                 kinds.setdefault(match["kind"], {}).setdefault(base, []).append(path)
+                if path.name == base:
+                    mtimes[base] = info.st_mtime
             for kind, backups in kinds.items():
                 keep = self._KEEP_SNAPSHOTS if kind == "tracker" else self._KEEP_OTHER
-                present = [base for base in backups if (directory / base).is_file()]
-                present.sort(key=lambda base: (directory / base).stat().st_mtime, reverse=True)
+                present = sorted((b for b in backups if b in mtimes), key=mtimes.get, reverse=True)
                 kept = set(present[:keep])
-                for base, paths in backups.items():
+                for base, paths in sorted(backups.items()):
                     if base not in kept:
-                        dropped.extend(paths)
-        return sorted(dropped)
+                        # The database first, so its sidecars move only after it.
+                        units.append(sorted(paths, key=lambda p: (p.name != base, p.name)))
+        return units
 
     def backup_prune(self, dry_run: bool = False) -> dict:
-        """Move every file _backups_to_prune names to the Trash.
+        """Move every unit _backups_to_prune names to the Trash.
 
         These are real database contents, so they go to the Trash rather than
-        being deleted: recoverable if the retention rule turns out wrong. Any
-        OS error, listing the directories or moving one file, is collected in
-        ``errors`` rather than raised; a file already gone is skipped. With
-        ``dry_run`` nothing moves and ``pruned`` lists what would.
+        being deleted: recoverable if the retention rule turns out wrong. If a
+        database cannot be moved, its sidecars stay with it. Any OS error,
+        listing the directories or moving a file, is collected in ``errors``
+        rather than raised; a file already gone is skipped. With ``dry_run``
+        nothing moves and ``pruned`` lists what would.
         """
         from send2trash import send2trash
 
@@ -705,21 +718,25 @@ class ProjectTrackerOps(BackendDatabaseManager):
         errors: list[str] = []
         size = 0
         try:
-            candidates = self._backups_to_prune()
+            units = self._backups_to_prune()
         except OSError as err:
             return {"pruned": [], "size_bytes": 0, "errors": [f"listing backups: {err}"]}
-        for path in candidates:
-            try:
-                file_size = path.stat().st_size
-                if not dry_run:
-                    send2trash(str(path))
-            except FileNotFoundError:
-                continue
-            except OSError as err:
-                errors.append(f"{path.name}: {err}")
-                continue
-            pruned.append(path.name)
-            size += file_size
+        for unit in units:
+            has_database = not unit[0].name.endswith(("-wal", "-shm"))
+            for index, path in enumerate(unit):
+                try:
+                    file_size = path.stat().st_size
+                    if not dry_run:
+                        send2trash(str(path))
+                except FileNotFoundError:
+                    continue
+                except OSError as err:
+                    errors.append(f"{path.name}: {err}")
+                    if index == 0 and has_database:
+                        break  # keep the sidecars with the database left in place
+                    continue
+                pruned.append(path.name)
+                size += file_size
         return {"pruned": pruned, "size_bytes": size, "errors": errors}
 
     def backup_list(self) -> list:
