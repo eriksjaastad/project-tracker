@@ -118,3 +118,39 @@ def test_get_backup_status_distinguishes_empty_backup_directory(tmp_path, monkey
 
     assert status["status"] == "critical"
     assert status["local_full"]["state"] == "empty"
+
+
+def test_get_backup_status_warns_when_the_last_prune_failed(tmp_path, monkeypatch):
+    backup_dir = tmp_path / "full-backups"
+    log_path = tmp_path / "backup.log"
+    rclone_config_path = tmp_path / "rclone.conf"
+    db_path = tmp_path / "data" / "tracker.db"
+    _touch_with_age(backup_dir / "tracker_20260423_141355.db", timedelta(hours=2))
+    _write(
+        log_path,
+        "\n".join(
+            [
+                f"{_iso_age(timedelta(hours=2))} | backup | ok",
+                f"{_iso_age(timedelta(hours=2))} | cloud_copy | ok | b2:tracker-backups/x.db",
+                f"{_iso_age(timedelta(hours=2))} | prune | failed | moved 0 file(s), 0.0 MB; failed for 2, left in place: x.db: denied",
+            ]
+        ),
+    )
+    _write(rclone_config_path, "[b2]\ntype = b2\n")
+    monkeypatch.setenv("PT_EXTERNAL_BACKUP_DIR", str(backup_dir))
+    monkeypatch.setenv("PT_BACKUP_LOG_PATH", str(log_path))
+    monkeypatch.setenv("PT_BACKUP_LAUNCH_AGENT_PATH", str(tmp_path / "missing.plist"))
+    monkeypatch.setenv("PT_BACKUP_RCLONE_DEST", "b2:tracker-backups")
+    monkeypatch.setenv("RCLONE_CONFIG", str(rclone_config_path))
+    monkeypatch.setattr(backup_reader, "DATABASE_PATH", db_path)
+
+    status = backup_reader.get_backup_status()
+
+    assert status["status"] == "warning"
+    assert "Pruning old backups failed" in status["message"] and "x.db: denied" in status["message"]
+
+    # Not hidden behind a cloud warning either.
+    monkeypatch.setenv("PT_BACKUP_RCLONE_DEST", "")
+    status = backup_reader.get_backup_status()
+    assert status["status"] == "warning"
+    assert "not configured" in status["message"] and "Pruning old backups failed" in status["message"]

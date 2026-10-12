@@ -1520,8 +1520,38 @@ def backup_create():
         raise SystemExit(2)
     size_mb = result["size_bytes"] / (1024 * 1024)
     console.print(f"[green]✓ backup {Path(result['path']).name} ({size_mb:.1f} MB), verified[/green]")
-    if result["pruned"]:
-        click.echo(f"Pruned {len(result['pruned'])} snapshot(s) past the retention window.")
+
+
+@backup_group.command(name="prune")
+@click.option("--dry-run", is_flag=True, help="List what would move; move nothing.")
+def backup_prune(dry_run):
+    """Move old backups to the Trash.
+
+    In each backup location every kind of backup (its name before the first
+    timestamp) keeps its newest 10 (scheduled snapshots) or 5 (every other
+    kind, such as the pre-destructive copies). The scheduled backup job runs
+    this after the snapshot and the offsite copy. Exits 1 if anything could
+    not be moved or listed.
+    """
+    def one_line(text):
+        # The scheduled job logs this output as one `|`-separated field.
+        return " ".join(str(text).split()).replace("|", "/")
+
+    try:
+        result = DatabaseManager().backup_prune(dry_run=dry_run)
+    except _LOCAL_DB_ERRORS as err:
+        click.echo(one_line(f"pt backup prune: {err}"))
+        raise SystemExit(2)
+    size_mb = result["size_bytes"] / (1024 * 1024)
+    if dry_run:
+        for name in result["pruned"]:
+            click.echo(name)
+    summary = f"{'would move' if dry_run else 'moved'} {len(result['pruned'])} file(s), {size_mb:.1f} MB"
+    if result["errors"]:
+        summary += f"; failed for {len(result['errors'])}, left in place: {result['errors'][0]}"
+    click.echo(one_line(summary))
+    if result["errors"]:
+        raise SystemExit(1)
 
 
 @backup_group.command(name="offsite")

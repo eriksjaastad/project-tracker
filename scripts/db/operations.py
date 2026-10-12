@@ -1,6 +1,7 @@
 """In-process project operations shared by the CLI and dashboard."""
 from __future__ import annotations
 
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -565,14 +566,22 @@ class ProjectTrackerOps(BackendDatabaseManager):
 
     # -- backup and restore -------------------------------------------------
 
-    _BACKUP_RETENTION_DAYS = 30
+    # Retention (Erik, #8093 D3, 2026-10-09): in each backup directory keep the
+    # newest 10 scheduled snapshots and the newest 5 of every other kind.
+    _KEEP_SNAPSHOTS = 10
+    _KEEP_OTHER = 5
+    # A backup's kind is its name before the first timestamp.
+    _BACKUP_KIND = re.compile(r"^(?P<kind>.+?)_\d{8}[T_]\d{6}")
 
     def _backup_dirs(self) -> list[Path]:
         """Both DECISIONS.md backup locations, primary first."""
         return [self.entry.backup_dir, self.entry.external_backup_dir]
 
-    def backup_create(self, retention_days: int | None = None) -> dict:
-        """Timestamped snapshot to both locations, then prune old ones.
+    def backup_create(self) -> dict:
+        """Timestamped, verified snapshot to both locations.
+
+        Pruning old backups is a separate step (backup_prune), so a failure
+        there can never undo or hide a snapshot that succeeded.
 
         Replaces `scripts/backup-db.sh`, which shelled out to the `sqlite3`
         binary and built its dot-command by interpolating an environment
@@ -584,14 +593,10 @@ class ProjectTrackerOps(BackendDatabaseManager):
         if not self.verify_backup(str(primary)):
             raise RuntimeError(f"backup at {primary} failed verification")
 
-        pruned = self._prune_backups(
-            self._BACKUP_RETENTION_DAYS if retention_days is None else retention_days
-        )
         return {
             "path": str(primary),
             "size_bytes": primary.stat().st_size,
             "verified": True,
-            "pruned": pruned,
         }
 
 
@@ -652,27 +657,91 @@ class ProjectTrackerOps(BackendDatabaseManager):
             "verified": True,
         }
 
-    def _prune_backups(self, retention_days: int) -> list:
-        """Trash snapshots older than the retention window.
+    def _backups_to_prune(self, directory: Path) -> list[list[Path]]:
+        """Every backup in ``directory`` the retention rule drops, as move units.
 
-        The shell version used `find -delete`. These are real database
-        contents, so they go to the Trash: recoverable if the retention window
-        turns out to have been wrong.
+        Read-only. A kind (``tracker``, ``before_destructive``,
+        ``tasks_delete_backup``, ...) keeps its newest backups by modification
+        time: _KEEP_SNAPSHOTS for ``tracker``, _KEEP_OTHER for every other
+        kind. A unit is a database followed by its ``-wal``/``-shm`` sidecars,
+        or a lone sidecar whose database is gone. Files whose names carry no
+        kind and timestamp, or that are not .db/.json backups, are never
+        touched. A missing directory has none; any other OS error raises.
+        """
+        import stat as stat_mode
+
+        try:
+            entries = list(directory.iterdir())
+        # governance: allow-silent SF002: a backup directory that does not exist holds no backups to prune; any other OSError raises and backup_prune reports it
+        except FileNotFoundError:
+            return []
+        kinds: dict[str, dict[str, list[Path]]] = {}
+        mtimes: dict[str, float] = {}
+        for path in entries:
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                continue
+            if not stat_mode.S_ISREG(info.st_mode):
+                continue
+            base = path.name.removesuffix("-wal").removesuffix("-shm")
+            match = self._BACKUP_KIND.match(base)
+            if not match or not base.endswith((".db", ".json")):
+                continue
+            kinds.setdefault(match["kind"], {}).setdefault(base, []).append(path)
+            if path.name == base:
+                mtimes[base] = info.st_mtime
+        units: list[list[Path]] = []
+        for kind, backups in kinds.items():
+            keep = self._KEEP_SNAPSHOTS if kind == "tracker" else self._KEEP_OTHER
+            # Newest first; the name breaks mtime ties, so a dry run matches the real one.
+            present = sorted((b for b in backups if b in mtimes), key=lambda b: (mtimes[b], b), reverse=True)
+            kept = set(present[:keep])
+            for base, paths in sorted(backups.items()):
+                if base not in kept:
+                    # The database first, so its sidecars move only after it.
+                    units.append(sorted(paths, key=lambda p: (p.name != base, p.name)))
+        return units
+
+    def backup_prune(self, dry_run: bool = False) -> dict:
+        """Move every unit _backups_to_prune names to the Trash.
+
+        These are real database contents, so they go to the Trash rather than
+        being deleted: recoverable if the retention rule turns out wrong. If a
+        database cannot be moved, its sidecars stay with it. Any OS error,
+        listing the directories or moving a file, is collected in ``errors``
+        rather than raised; a file already gone is skipped. With ``dry_run``
+        nothing moves and ``pruned`` lists what would.
         """
         from send2trash import send2trash
 
-        if retention_days <= 0:
-            return []
-        cutoff = time.time() - retention_days * 86400
         pruned: list[str] = []
+        errors: list[str] = []
+        size = 0
+        units: list[list[Path]] = []
         for directory in self._backup_dirs():
-            if not directory.is_dir():
-                continue
-            for candidate in sorted(directory.glob("tracker_*.db")):
-                if candidate.stat().st_mtime < cutoff:
-                    send2trash(str(candidate))
-                    pruned.append(candidate.name)
-        return pruned
+            # One unreadable directory is reported; the other is still pruned.
+            try:
+                units.extend(self._backups_to_prune(directory))
+            except OSError as err:
+                errors.append(f"listing {directory}: {err}")
+        for unit in units:
+            has_database = not unit[0].name.endswith(("-wal", "-shm"))
+            for index, path in enumerate(unit):
+                try:
+                    file_size = path.stat().st_size
+                    if not dry_run:
+                        send2trash(str(path))
+                except FileNotFoundError:
+                    continue
+                except OSError as err:
+                    errors.append(f"{path.name}: {err}")
+                    if index == 0 and has_database:
+                        break  # keep the sidecars with the database left in place
+                    continue
+                pruned.append(path.name)
+                size += file_size
+        return {"pruned": pruned, "size_bytes": size, "errors": errors}
 
     def backup_list(self) -> list:
         """Every restorable snapshot, newest first, named not pathed.

@@ -17,3 +17,10 @@ if OFFSITE_OUT="$(./pt backup offsite 2>&1)"; then
 else
   echo "$(date -Iseconds) | cloud_copy | failed | ${OFFSITE_OUT}"
 fi
+
+# Retention last, logged the same way; a failure leaves the files in place.
+if PRUNE_OUT="$(./pt backup prune 2>&1)"; then
+  echo "$(date -Iseconds) | prune | ok | ${PRUNE_OUT}"
+else
+  echo "$(date -Iseconds) | prune | failed | ${PRUNE_OUT}"
+fi
