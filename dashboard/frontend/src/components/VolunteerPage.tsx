@@ -72,8 +72,10 @@ export function VolunteerPage() {
 
   // One request per role at a time; the row moves between sections only
   // after the server confirms, using the latest state rather than a snapshot.
+  // `update` gets the response body, so dates shown are the server's: the
+  // volunteering endpoint is idempotent and keeps an earlier start date.
   async function act(roleId: number, request: () => Promise<Response>,
-    update: (prev: VolunteerData) => VolunteerData, success: string, failure: string) {
+    update: (prev: VolunteerData, body: unknown) => VolunteerData, success: string, failure: string) {
     if (busy.has(roleId)) {
       return;
     }
@@ -89,7 +91,9 @@ export function VolunteerPage() {
         setNotification({ message: detail ? `${failure}: ${detail}` : failure, type: 'error' });
         return;
       }
-      setData(update);
+      // The write succeeded; an unreadable body only means no date to show.
+      const body: unknown = await response.json().catch(() => null);
+      setData(prev => update(prev, body));
       setNotification({ message: success, type: 'success' });
     } catch (error) {
       console.error(failure, error);
@@ -118,28 +122,32 @@ export function VolunteerPage() {
   }
 
   function handleSubmitted(role: Role) {
-    const submittedAt = new Date().toISOString();
     act(role.id, () => fetch(`/api/jobs/${role.id}/submissions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     }),
-    prev => ({
+    (prev, body) => ({
       ...withoutPossible(prev, role.id),
-      applied: [{ ...role, last_submitted_at: submittedAt }, ...prev.applied],
+      applied: [
+        { ...role, last_submitted_at: (body as { submission?: { submitted_at?: string } } | null)?.submission?.submitted_at ?? null },
+        ...prev.applied,
+      ],
     }),
     'Marked as applied', 'Failed to mark as applied');
   }
 
   function handleStarted(role: Role) {
-    const since = new Date().toISOString();
     act(role.id, () => fetch(`/api/jobs/${role.id}/volunteering`, { method: 'POST' }),
       // From Applied or straight from Possible: a role Erik already
       // volunteers at needs no fictitious application first.
-      prev => ({
+      (prev, body) => ({
         ...withoutPossible(prev, role.id),
         applied: prev.applied.filter(item => item.id !== role.id),
-        current: [{ ...role, volunteering_since: since }, ...prev.current],
+        current: [
+          { ...role, volunteering_since: (body as { job?: { volunteering_since?: string | null } } | null)?.job?.volunteering_since ?? null },
+          ...prev.current,
+        ],
       }),
       'Marked as volunteering', 'Failed to mark as volunteering');
   }
@@ -221,7 +229,9 @@ export function VolunteerPage() {
                     <div className="job-main">
                       <RoleLink role={role} />
                       <span className="job-location">{role.company}</span>
-                      <span className="job-date">since {dateOnly(role.volunteering_since)}</span>
+                      {role.volunteering_since && (
+                        <span className="job-date">since {dateOnly(role.volunteering_since)}</span>
+                      )}
                     </div>
                   </div>
                 ))}

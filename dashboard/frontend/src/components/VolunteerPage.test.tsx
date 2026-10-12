@@ -125,6 +125,53 @@ describe('VolunteerPage', () => {
     expect(section('Applied').queryByText('Role 5')).not.toBeInTheDocument();
   });
 
+  it('shows the dates the server recorded, not the browser clock', async () => {
+    const user = userEvent.setup();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-12-31T12:00:00Z'));
+    try {
+      vi.mocked(fetch).mockResolvedValueOnce(respond({
+        current: [], applied: [], possible: [role(8), role(9)], possible_stale: [],
+      }));
+      render(<VolunteerPage />);
+      await waitFor(() => expect(screen.getByText('Role 8')).toBeInTheDocument());
+
+      vi.mocked(fetch).mockResolvedValueOnce(respond({
+        submission: { id: 3, job_id: 8, submitted_at: '2026-10-05T09:00:00+00:00' },
+      }));
+      await user.click(screen.getByLabelText('Mark Role 8 as submitted'));
+      await waitFor(() => expect(section('Applied').getByText('applied 2026-10-05')).toBeInTheDocument());
+
+      // Another tab already started this role: the idempotent endpoint keeps
+      // the original date, and that is the date shown.
+      vi.mocked(fetch).mockResolvedValueOnce(respond({
+        job: { id: 9, volunteering_since: '2026-09-15T08:00:00+00:00' },
+      }));
+      await user.click(section('Possible').getByLabelText('Started volunteering at Org 9'));
+      await waitFor(() => expect(section('Currently volunteering').getByText('since 2026-09-15')).toBeInTheDocument());
+      expect(screen.queryByText(/2026-12-31/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still moves the row when a successful response has no readable body', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce(respond({
+      current: [], applied: [], possible: [role(10)], possible_stale: [],
+    }));
+    render(<VolunteerPage />);
+    await waitFor(() => expect(screen.getByText('Role 10')).toBeInTheDocument());
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true, status: 200, json: async () => { throw new SyntaxError('bad json'); },
+    } as unknown as Response);
+    await user.click(section('Possible').getByLabelText('Started volunteering at Org 10'));
+    await waitFor(() => expect(section('Currently volunteering').getByText('Role 10')).toBeInTheDocument());
+    expect(screen.getByRole('alert')).toHaveTextContent('Marked as volunteering');
+    expect(section('Currently volunteering').queryByText(/since/)).not.toBeInTheDocument();
+  });
+
   it('limits Possible to the top 25 and hides stale listings behind a count', async () => {
     const user = userEvent.setup();
     const possible = Array.from({ length: 27 }, (_, i) => role(100 + i));
