@@ -122,7 +122,8 @@ def _check_fresh_database(db_path: Path) -> None:
                     f"   To proceed anyway: PT_ALLOW_FRESH_DB=1 pt <command>\n"
                     f"   To restore: check data/backups/ or ~/.project-tracker/backups/\n"
                     f"\n"
-                    f"   If you emptied it on purpose: delete {fingerprint_path} and try again."
+                    f"   If this database is new, or you emptied it on purpose:\n"
+                    f"   delete {fingerprint_path} and try again."
                 )
 
             backup_dir = db_path.parent / "backups"
@@ -200,7 +201,10 @@ def create_database(db_path: Path | None = None) -> None:
     database is never changed here: its migrations are `pt db migrate`'s job.
     The fresh-database guard's marker is left the first time an existing
     database holds a project or a task, not at creation: an install's own new,
-    empty database must not look like a replaced one.
+    empty database must not look like a replaced one. Until then there is no
+    marker, so a database replaced before any process has opened it with data
+    is not caught. A marker that cannot be written fails the call rather than
+    leaving the guard without it.
 
     A non-empty database without the `schema_migrations` ledger predates the
     migration runner. Upgrading it would mean replaying table rebuilds over
