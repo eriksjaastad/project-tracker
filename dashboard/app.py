@@ -2953,10 +2953,13 @@ def delete_marker(marker_id: str):
 
 
 def _brain_stats(read, *args):
-    """Run one dashboard.brain_stats reader; an unreadable brain.db is a 503 with the cause."""
+    """Run one dashboard.brain_stats reader; an unreadable brain.db is a 503 with the cause.
+
+    The window ends today in UTC, the day ai-memory stamps on each call.
+    """
     brain_db = config_projects_root() / "ai-memory" / "brain.db"
     try:
-        return read(brain_db, datetime.now().date(), *args)
+        return read(brain_db, datetime.now(timezone.utc).date(), *args)
     except BrainStatsUnavailable as exc:
         logger.error("%s", exc)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
