@@ -20,8 +20,9 @@ import {
   fetchBashStats,
   isAbortError,
 } from '../api';
-import type { AgenticMarker, AgenticSeriesEntry, AgenticSummaryResponse, BashStatsResponse, ToolStatsResponse } from '../types';
+import type { AgenticMarker, AgenticSeriesEntry, AgenticSummaryResponse } from '../types';
 import { useProjects } from '../hooks/useProjects';
+import { useRequest } from '../hooks/useRequest';
 import { PageShell } from './PageShell';
 import './AgenticDashboard.css';
 
@@ -47,13 +48,9 @@ export function AgenticDashboard() {
 
   // WebSearch tracking
   const [toolView, setToolView] = useState<ToolView>('all');
-  const [toolStats, setToolStats] = useState<ToolStatsResponse | null>(null);
-  const [toolStatsLoading, setToolStatsLoading] = useState(true);
 
   // Stuck score (bash error rate)
   const [bashView, setBashView] = useState<ToolView>('all');
-  const [bashStats, setBashStats] = useState<BashStatsResponse | null>(null);
-  const [bashStatsLoading, setBashStatsLoading] = useState(true);
 
   // Marker state
   const [markers, setMarkers] = useState<AgenticMarker[]>([]);
@@ -113,47 +110,11 @@ export function AgenticDashboard() {
     return () => controller.abort();
   }, [timeRange, selectedProject]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    async function loadToolStats() {
-      setToolStatsLoading(true);
-      try {
-        const days = timeRange === 'week' ? 7 : 30;
-        const data = await fetchToolStats(days, undefined, controller.signal);
-        setToolStats(data);
-      } catch (err) {
-        if (isAbortError(err)) {
-          return;
-        }
-        console.error('Failed to load tool stats:', err);
-      } finally {
-        if (!controller.signal.aborted) setToolStatsLoading(false);
-      }
-    }
-    loadToolStats();
-    return () => controller.abort();
-  }, [timeRange]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    async function loadBashStats() {
-      setBashStatsLoading(true);
-      try {
-        const days = timeRange === 'week' ? 7 : 30;
-        const data = await fetchBashStats(days, controller.signal);
-        setBashStats(data);
-      } catch (err) {
-        if (isAbortError(err)) {
-          return;
-        }
-        console.error('Failed to load bash stats:', err);
-      } finally {
-        if (!controller.signal.aborted) setBashStatsLoading(false);
-      }
-    }
-    loadBashStats();
-    return () => controller.abort();
-  }, [timeRange]);
+  const statsDays = timeRange === 'week' ? 7 : 30;
+  const toolRequest = useRequest(signal => fetchToolStats(statsDays, undefined, signal), [statsDays]);
+  const toolStats = toolRequest.data;
+  const bashRequest = useRequest(signal => fetchBashStats(statsDays, signal), [statsDays]);
+  const bashStats = bashRequest.data;
 
   const projectChartData = useMemo(() => {
     if (!toolStats) return [];
@@ -435,8 +396,10 @@ export function AgenticDashboard() {
               </button>
             </div>
           </div>
-          {toolStatsLoading ? (
+          {toolRequest.loading ? (
             <div className="agentic-loading">Loading search data...</div>
+          ) : toolRequest.error ? (
+            <div className="agentic-error" role="alert">Error: {toolRequest.error.message}</div>
           ) : !toolStats || toolStats.by_date.every(d => d.total === 0) ? (
             <div className="agentic-empty">No WebSearch data yet — hook must fire at least once.</div>
           ) : toolView === 'all' ? (
@@ -523,9 +486,11 @@ export function AgenticDashboard() {
               </button>
             </div>
           </div>
-          {bashStatsLoading ? (
+          {bashRequest.loading ? (
             <div className="agentic-loading">Loading stuck score...</div>
-          ) : !bashStats || bashStats.by_date.length === 0 ? (
+          ) : bashRequest.error ? (
+            <div className="agentic-error" role="alert">Error: {bashRequest.error.message}</div>
+          ) : !bashStats || bashStats.by_date.every(d => d.total === 0) ? (
             <div className="agentic-empty">No bash call data yet.</div>
           ) : bashView === 'all' ? (
             <ResponsiveContainer width="100%" height={300}>
