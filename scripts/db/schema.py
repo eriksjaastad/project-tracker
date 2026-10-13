@@ -57,7 +57,7 @@ class FreshDatabaseError(Exception):
 
 
 def _mark_data_location(db_path: Path) -> None:
-    """Leave the marker _check_fresh_database looks for: a database lives here.
+    """Leave the marker _check_fresh_database looks for: a database with data lives here.
 
     It sits outside the database on purpose. If the file is later replaced by
     an empty one, the marker remains and the guard refuses to treat the empty
@@ -122,8 +122,7 @@ def _check_fresh_database(db_path: Path) -> None:
                     f"   To proceed anyway: PT_ALLOW_FRESH_DB=1 pt <command>\n"
                     f"   To restore: check data/backups/ or ~/.project-tracker/backups/\n"
                     f"\n"
-                    f"   If this IS intentional (first run after clean install):\n"
-                    f"   Delete {fingerprint_path} and try again."
+                    f"   If you emptied it on purpose: delete {fingerprint_path} and try again."
                 )
 
             backup_dir = db_path.parent / "backups"
@@ -199,6 +198,9 @@ def create_database(db_path: Path | None = None) -> None:
     for every migration the file already contains; newer migrations then
     apply through `pt db migrate` like on any other database. An existing
     database is never changed here: its migrations are `pt db migrate`'s job.
+    The fresh-database guard's marker is left the first time an existing
+    database holds a project or a task, not at creation: an install's own new,
+    empty database must not look like a replaced one.
 
     A non-empty database without the `schema_migrations` ledger predates the
     migration runner. Upgrading it would mean replaying table rebuilds over
@@ -223,6 +225,10 @@ def create_database(db_path: Path | None = None) -> None:
                     "the migration runner (April 2026) and cannot be upgraded in place. "
                     "Restore a newer backup (`pt backup list`)."
                 )
+            if conn.execute(
+                "SELECT EXISTS (SELECT 1 FROM projects) OR EXISTS (SELECT 1 FROM tasks)"
+            ).fetchone()[0]:
+                _mark_data_location(db_path)
             return
 
         schema = SCHEMA_SQL.read_text()
@@ -232,7 +238,6 @@ def create_database(db_path: Path | None = None) -> None:
         missing = sorted(set(range(2, version + 1)) - {m.version for m in contained})
         if missing:
             raise RuntimeError(f"schema.sql contains migrations {missing} that are not in {MIGRATIONS_DIR}")
-        _mark_data_location(db_path)
         now = datetime.now(UTC)
         conn.execute("BEGIN IMMEDIATE")
         try:
