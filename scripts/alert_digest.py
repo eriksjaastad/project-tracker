@@ -45,8 +45,7 @@ FROM_ADDR = os.environ.get(
 )
 RESEND_URL = "https://api.resend.com/emails"
 # api.resend.com sits behind Cloudflare, which 403s Python's default urllib
-# User-Agent (error code 1010). A browser-ish UA gets through. Same trick lives
-# in scaffold/alerts.py for the Discord path.
+# User-Agent (error code 1010). A browser-ish UA gets through.
 BROWSER_UA = "Mozilla/5.0 (portfolio-alert-digest)"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
