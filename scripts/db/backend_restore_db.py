@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 from datetime import datetime, timezone
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.config import DATABASE_PATH
+from scripts.db.schema import mark_if_holding_data
 
 
 class BackupRestoreError(RuntimeError):
@@ -108,6 +110,11 @@ def restore_database(
         if sidecar.exists():
             sidecar.unlink()
             removed_sidecars.append(str(sidecar))
+
+    # A restore replaces the database on purpose; the fresh-database guard
+    # now protects the restored data.
+    with closing(sqlite3.connect(db_path)) as conn:
+        mark_if_holding_data(conn, db_path)
 
     return {
         "restored_path": str(db_path),
