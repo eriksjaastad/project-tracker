@@ -56,16 +56,25 @@ class FreshDatabaseError(Exception):
     """Raised when we detect a fresh database where we expected data."""
 
 
-def _mark_data_location(db_path: Path) -> None:
-    """Leave the marker _check_fresh_database looks for: a database lives here.
+def mark_if_holding_data(conn: sqlite3.Connection, db_path: Path) -> bool:
+    """Leave the marker _check_fresh_database looks for once the database holds a project or task.
 
-    It sits outside the database on purpose. If the file is later replaced by
-    an empty one, the marker remains and the guard refuses to treat the empty
-    file as new. Only its existence matters; an existing marker is kept.
+    Returns True when the marker is in place. It sits outside the database on
+    purpose: if the file is later replaced by an empty one, the marker remains
+    and the guard refuses to treat the empty file as new. Only its existence
+    matters; an existing marker is kept. It is not left on an install's own
+    new, empty database, which must not look like a replaced one (#8243). A
+    marker that cannot be written raises rather than leaving the guard without it.
     """
     marker = db_path.parent / ".db-fingerprint"
-    if not marker.exists():
-        marker.write_text(str(uuid.uuid4()))
+    if marker.exists():
+        return True
+    if not conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM projects) OR EXISTS (SELECT 1 FROM tasks)"
+    ).fetchone()[0]:
+        return False
+    marker.write_text(str(uuid.uuid4()))
+    return True
 
 
 def _check_fresh_database(db_path: Path) -> None:
@@ -122,8 +131,8 @@ def _check_fresh_database(db_path: Path) -> None:
                     f"   To proceed anyway: PT_ALLOW_FRESH_DB=1 pt <command>\n"
                     f"   To restore: check data/backups/ or ~/.project-tracker/backups/\n"
                     f"\n"
-                    f"   If this IS intentional (first run after clean install):\n"
-                    f"   Delete {fingerprint_path} and try again."
+                    f"   If this database is new, or you emptied it on purpose:\n"
+                    f"   delete {fingerprint_path} and try again."
                 )
 
             backup_dir = db_path.parent / "backups"
@@ -199,6 +208,9 @@ def create_database(db_path: Path | None = None) -> None:
     for every migration the file already contains; newer migrations then
     apply through `pt db migrate` like on any other database. An existing
     database is never changed here: its migrations are `pt db migrate`'s job.
+    An existing database that holds data gets the fresh-database guard's
+    marker here (a restored one, say); DatabaseManager leaves it after the
+    first committed write. A new database never gets it at creation.
 
     A non-empty database without the `schema_migrations` ledger predates the
     migration runner. Upgrading it would mean replaying table rebuilds over
@@ -223,6 +235,7 @@ def create_database(db_path: Path | None = None) -> None:
                     "the migration runner (April 2026) and cannot be upgraded in place. "
                     "Restore a newer backup (`pt backup list`)."
                 )
+            mark_if_holding_data(conn, db_path)
             return
 
         schema = SCHEMA_SQL.read_text()
@@ -232,7 +245,6 @@ def create_database(db_path: Path | None = None) -> None:
         missing = sorted(set(range(2, version + 1)) - {m.version for m in contained})
         if missing:
             raise RuntimeError(f"schema.sql contains migrations {missing} that are not in {MIGRATIONS_DIR}")
-        _mark_data_location(db_path)
         now = datetime.now(UTC)
         conn.execute("BEGIN IMMEDIATE")
         try:

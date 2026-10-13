@@ -1,8 +1,10 @@
 """create_database: one creation path (schema.sql), one ledger (schema_migrations)."""
 
 import sqlite3
+import sys
 from contextlib import closing
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -122,14 +124,14 @@ def test_two_processes_creating_the_same_new_database_both_succeed(tmp_path, mon
     """The second creator finds the tables under the write lock and stands down."""
     monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
     db_path = tmp_path / "tracker.db"
-    real = schema._mark_data_location
+    real = schema._statements
 
-    def other_process_builds_first(path):
-        monkeypatch.setattr(schema, "_mark_data_location", real)
-        schema.create_database(path)  # wins the race between our check and our lock
-        real(path)
+    def other_process_builds_first(script):
+        monkeypatch.setattr(schema, "_statements", real)
+        schema.create_database(db_path)  # wins the race between our check and our lock
+        return real(script)
 
-    monkeypatch.setattr(schema, "_mark_data_location", other_process_builds_first)
+    monkeypatch.setattr(schema, "_statements", other_process_builds_first)
     schema.create_database(db_path)
     with closing(sqlite3.connect(db_path)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] > 0
@@ -177,14 +179,39 @@ def test_calendar_entry_points_create_a_fresh_database(tmp_path, monkeypatch):
     assert response.json()["events"] == []
 
 
-def test_creation_leaves_the_marker_the_fresh_database_guard_needs(tmp_path, monkeypatch):
-    """The marker outlives a replaced database file; an existing one is kept."""
-    monkeypatch.setenv("PT_ALLOW_FRESH_DB", "1")
+@pytest.fixture
+def live_guard(monkeypatch):
+    """Run the fresh-database guard as outside the test suite."""
+    monkeypatch.delenv("PT_ALLOW_FRESH_DB", raising=False)
+    monkeypatch.delenv("PT_TEST_MODE", raising=False)
+    monkeypatch.setattr(schema, "sys", SimpleNamespace(modules={k: v for k, v in sys.modules.items() if k != "pytest"}))
+
+
+def test_a_new_install_is_not_refused_until_its_data_goes_missing(tmp_path, live_guard):
+    """#8243: the marker comes with the first committed project, in the process that wrote it."""
+    from scripts.db.manager import DatabaseManager
+
     db_path = tmp_path / "tracker.db"
     marker = tmp_path / ".db-fingerprint"
     schema.create_database(db_path)
+    schema.create_database(db_path)  # an install's second command
+    assert not marker.exists()
+    DatabaseManager(db_path).add_project("p", "P", "/p", "active")
     first = marker.read_text()
-    assert first
+
     db_path.rename(tmp_path / "replaced.db")  # the database goes; the marker stays
     schema.create_database(db_path)
+    with pytest.raises(schema.FreshDatabaseError, match="UNEXPECTED FRESH DATABASE"):
+        schema.create_database(db_path)
     assert marker.read_text() == first
+
+
+def test_opening_a_database_that_holds_data_leaves_the_marker(tmp_path, live_guard):
+    """A database written without DatabaseManager (a restore, say) is marked when opened."""
+    db_path = tmp_path / "tracker.db"
+    schema.create_database(db_path)
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.execute("INSERT INTO projects (id, name, path, status) VALUES ('p', 'P', '/p', 'active')")
+    assert not (tmp_path / ".db-fingerprint").exists()
+    schema.create_database(db_path)
+    assert (tmp_path / ".db-fingerprint").exists()

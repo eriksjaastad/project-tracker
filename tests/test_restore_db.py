@@ -37,6 +37,7 @@ def test_restore_database_replaces_live_db_and_keeps_pre_restore_copy(tmp_path):
     result = restore_database(backup_db, db_path=live_db, backup_dir=pre_restore_dir)
 
     assert _read_task_text(live_db) == "restored task"
+    assert (live_db.parent / ".db-fingerprint").exists()  # #8243: the guard protects restored data
     assert result["pre_restore_backup"] is not None
     assert Path(result["pre_restore_backup"]).exists()
     assert _read_task_text(Path(result["pre_restore_backup"])) == "live task"

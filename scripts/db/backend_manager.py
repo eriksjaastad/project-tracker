@@ -21,6 +21,7 @@ from .schema import (
     create_database,
     get_db_path,
     has_legacy_crsql_triggers,
+    mark_if_holding_data,
 )
 from .pt_id import next_id as pt_next_id
 from scripts.utils.validation import (
@@ -72,6 +73,7 @@ class DatabaseManager:
     def __init__(self, db_path: Optional[Path] = None):
         """Initialize the local manager."""
         self.db_path = Path(db_path) if db_path is not None else get_db_path()
+        self._data_marked = False
         # Run safety checks + schema migrations once per DB path.
         db_key = str(self.db_path.resolve())
         if db_key not in _local_schema_ensured_paths:
@@ -97,6 +99,10 @@ class DatabaseManager:
         conn.row_factory = sqlite3.Row  # Enable dict-like access
         try:
             yield conn
+            # The process that commits the first project or task leaves the
+            # fresh-database guard's marker, before the file can be replaced.
+            if not self._data_marked and conn.total_changes and not conn.in_transaction:
+                self._data_marked = mark_if_holding_data(conn, self.db_path)
         finally:
             conn.close()
     
