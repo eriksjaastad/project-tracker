@@ -92,6 +92,8 @@ def test_local_board_calendar_and_restore_work_without_service(db, monkeypatch, 
     backup_name = Path(created['path']).name
     assert {row['name'] for row in db.backup_list()} == {backup_name}
     later = db.add_task('After snapshot', 'recovery')
+    marker = db.db_path.parent / '.db-fingerprint'
+    marker.rename(tmp_path / 'set-aside-marker')  # #8243: the restore itself must leave one
     existing_reader = sqlite3.connect(db.db_path)
     try:
         assert existing_reader.execute('SELECT COUNT(*) FROM tasks').fetchone()[0] == 2
@@ -99,6 +101,7 @@ def test_local_board_calendar_and_restore_work_without_service(db, monkeypatch, 
         assert existing_reader.execute('SELECT COUNT(*) FROM tasks').fetchone()[0] == 1
     finally:
         existing_reader.close()
+    assert marker.exists()
     restored = DatabaseManager(db.db_path)
     assert restored.get_task(first['id'])['text'] == 'Preserve this card'
     assert restored.get_task(later['id']) is None

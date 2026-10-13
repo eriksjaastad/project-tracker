@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from .backend_manager import DatabaseManager as BackendDatabaseManager
+from .schema import mark_if_holding_data
 
 # Migration 018 removes cr-sqlite; see _migrations_apply.
 _CR_SQLITE_CLEANUP_VERSION = 18
@@ -815,6 +816,7 @@ class ProjectTrackerOps(BackendDatabaseManager):
                     if time.monotonic() > deadline:
                         raise TimeoutError("Restore timed out waiting for database access")
                 src.backup(dst, pages=256, progress=progress)
+                mark_if_holding_data(dst, self.db_path)
             finally:
                 dst.close()
         finally:
