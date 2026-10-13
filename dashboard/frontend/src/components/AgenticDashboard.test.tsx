@@ -47,7 +47,7 @@ const SUMMARY = {
 const EMPTY_TOOL_STATS = { by_date: [], by_project: [], by_model: [], projects: [], models: [] };
 const EMPTY_BASH_STATS = { by_date: [], by_project: [], projects: [] };
 
-describe('AgenticDashboard — markers loading', () => {
+describe('AgenticDashboard — load failures', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(fetchProjects).mockResolvedValue(PROJECTS);
@@ -99,5 +99,17 @@ describe('AgenticDashboard — markers loading', () => {
     );
     expect(screen.queryByRole('button', { name: 'Add Marker' })).not.toBeInTheDocument();
     expect(screen.getByText(/Marker editing is disabled/)).toBeInTheDocument();
+  });
+
+  it('shows why the brain.db charts are unavailable instead of an empty chart', async () => {
+    vi.mocked(fetchToolStats).mockRejectedValue(new Error('Cannot read /p/brain.db: no such table: tool_invocations'));
+    vi.mocked(fetchBashStats).mockRejectedValue(new Error('Cannot read /p/brain.db: no such table: bash_calls'));
+
+    render(<AgenticDashboard />, { wrapper: ProjectsProvider });
+
+    expect(await screen.findByText(/no such table: tool_invocations/)).toBeInTheDocument();
+    expect(await screen.findByText(/no such table: bash_calls/)).toBeInTheDocument();
+    expect(screen.queryByText(/No WebSearch data yet/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No bash call data yet/)).not.toBeInTheDocument();
   });
 });

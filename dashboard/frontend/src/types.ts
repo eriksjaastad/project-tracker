@@ -261,55 +261,10 @@ export interface BashStatsByProject {
   error_rate: number;
 }
 
-export interface BashStatsSummary {
-  total: number;
-  errors: number;
-  error_rate: number;
-  retries: number;
-  retry_rate: number;
-  hook_blocks: number;
-  hook_block_rate: number;
-  auth_errors: number;
-  auth_error_rate: number;
-}
-
-export interface BashStatsAnomalyByDate {
-  date: string;
-  retries: number;
-  hook_blocks: number;
-  auth_errors: number;
-  usage_errors: number;
-}
-
-export interface BashStatsErrorKind {
-  error_kind: string;
-  count: number;
-}
-
-export interface BashStatsPrefixStat {
-  command_prefix: string;
-  total: number;
-  errors: number;
-  hook_blocks: number;
-  auth_errors: number;
-}
-
-export interface BashStatsCallerTypeStat {
-  caller_type: string;
-  total: number;
-  errors: number;
-  error_rate: number;
-}
-
 export interface BashStatsResponse {
   by_date: BashStatsByDate[];
   by_project: BashStatsByProject[];
   projects: string[];
-  summary?: BashStatsSummary;
-  anomalies_by_date?: BashStatsAnomalyByDate[];
-  error_kinds?: BashStatsErrorKind[];
-  top_prefixes?: BashStatsPrefixStat[];
-  by_caller_type?: BashStatsCallerTypeStat[];
 }
 
 // Ideas (Task #4583)
