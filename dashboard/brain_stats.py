@@ -43,7 +43,8 @@ def _rate(errors: int, total: int) -> float:
 def tool_stats(brain_db: Path, today: date, tool: str, days: int, model: Optional[str]) -> dict:
     """Calls of one tool per day: in total, per project and per model.
 
-    ``model``, when given, scopes every series to that model. ``by_date``
+    ``model``, when given, scopes every series to that model; "unknown" picks
+    calls with no model recorded, as the series label them. ``by_date``
     has one entry for every day in the window; the per-project and per-model
     series list only days with calls.
     """
@@ -51,7 +52,7 @@ def tool_stats(brain_db: Path, today: date, tool: str, days: int, model: Optiona
     where = f"tool_name = ? AND {_DAY} BETWEEN ? AND ?"
     params = [tool, dates[0], dates[-1]]
     if model is not None:
-        where += " AND model = ?"
+        where += " AND COALESCE(model, 'unknown') = ?"
         params.append(model)
     rows = _read(
         brain_db,

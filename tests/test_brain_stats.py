@@ -30,6 +30,7 @@ def test_tool_stats_counts_one_tool_per_day_project_and_model(tmp_path: Path):
             ("WebSearch", "pt", "opus", "2026-04-19T09:00:00Z"),
             ("WebSearch", "pt", "sonnet", "2026-04-19T10:00:00+00:00"),
             ("WebSearch", None, "opus", "2026-04-21T11:00:00Z"),
+            ("WebSearch", "pt", None, "2026-04-20T09:00:00Z"),
             ("WebFetch", "pt", "opus", "2026-04-20T09:00:00Z"),  # other tool
             ("WebSearch", "pt", "opus", "2026-04-18T09:00:00Z"),  # before the window
             ("WebSearch", "pt", "opus", "2026-04-22T01:00:00Z"),  # after it
@@ -39,24 +40,27 @@ def test_tool_stats_counts_one_tool_per_day_project_and_model(tmp_path: Path):
     assert tool_stats(brain_db, TODAY, "WebSearch", 3, None) == {
         "by_date": [
             {"date": "2026-04-19", "total": 2},
-            {"date": "2026-04-20", "total": 0},
+            {"date": "2026-04-20", "total": 1},
             {"date": "2026-04-21", "total": 1},
         ],
         "by_project": [
             {"date": "2026-04-19", "project": "pt", "count": 2},
+            {"date": "2026-04-20", "project": "pt", "count": 1},
             {"date": "2026-04-21", "project": "unknown", "count": 1},
         ],
         "by_model": [
             {"date": "2026-04-19", "model": "opus", "count": 1},
             {"date": "2026-04-19", "model": "sonnet", "count": 1},
+            {"date": "2026-04-20", "model": "unknown", "count": 1},
             {"date": "2026-04-21", "model": "opus", "count": 1},
         ],
         "projects": ["pt", "unknown"],
-        "models": ["opus", "sonnet"],
+        "models": ["opus", "sonnet", "unknown"],
     }
     scoped = tool_stats(brain_db, TODAY, "WebSearch", 3, "sonnet")
     assert [d["total"] for d in scoped["by_date"]] == [1, 0, 0]
     assert scoped["by_project"] == [{"date": "2026-04-19", "project": "pt", "count": 1}]
+    assert [d["total"] for d in tool_stats(brain_db, TODAY, "WebSearch", 3, "unknown")["by_date"]] == [0, 1, 0]
 
 
 def test_bash_stats_error_rate_per_day_and_project(tmp_path: Path):
