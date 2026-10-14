@@ -1,7 +1,4 @@
-<!-- GENERATED FROM: CLAUDE.md -->
-<!-- DO NOT EDIT DIRECTLY. Edit CLAUDE.md and run instruction-writer . --changed claude --write from the project directory -->
-
-# CLAUDE.md - project-tracker
+# AGENTS.md - project-tracker
 
 **What this is:** project-tracker is the `pt` CLI, Kanban board, and dashboard that every other project in `~/projects` depends on for task coordination, agent memory, and cross-project messaging. If this project breaks, every other agent loses its work queue and its shared memory surface. "Broken" means: `pt` exits non-zero on common commands, the Kanban DB loses rows, or the dashboard stops loading. Treat data loss here as portfolio-wide damage, not a local bug.
 
@@ -207,13 +204,20 @@ https://google.github.io/eng-practices/review/reviewer/looking-for.html
 - Every line, Context: read every line, and check the change makes the whole system healthier.
 Python style is PEP 8, enforced by ruff.
 
+**Before you code:** State the problem in one sentence and the goal: how we'll know it's solved.
+Is the change needed? What's the smallest, simplest version that works? What could break? Build that
+and test what could break. When a test, a review or a new fact contradicts your problem statement,
+restate the problem before you patch again.
+
 **Our rules on top** (agent-specific; a finding names the one it breaks, e.g. `Breaks: 6 Tested`):
-0. **One purpose.** One change per PR. Refactors and moves go in their own PR.
+0. **One purpose.** One purpose per PR. Bundle the cards that serve that one purpose; split unrelated work.
+   Refactors and moves go in their own PR.
 1. **Reuse.** Use what exists: the standard library, the standard tool, or the rule the code already
    has. Never add a second copy of a rule. No repeated reads or calls inside loops.
 2. **Nothing extra.** No mechanism nobody asked for: undo files, retries, caches, fallbacks, options.
-3. **Split only to simplify.** Split a function only when that makes the code simpler, never to hit
-   a size or count. Line, argument and file counts are signals, not rules.
+3. **Split only to simplify.** Say in one sentence what the function does; split only where that
+   sentence needs "and". Never split to hit a size or count. Line, argument and file counts are
+   signals, not rules.
 4. **Honest.** No swallowed errors, no "success" after a failure, no secrets in output or logs.
 5. **Docs in the code.** Docstrings, `--help`, comments for why. No separate doc that can drift.
 6. **Tested, no more.** Test only the new paths this change adds, one test each, not one per
@@ -227,8 +231,9 @@ Python style is PEP 8, enforced by ruff.
 - If test lines added are more than about 2x the app lines changed, cut back to one test per new path.
 - If the card's checklist conflicts with this section, this section wins. Note the conflict in the PR body.
 
-**Reviewers:** mark each finding blocking (it makes the code worse) or nit. Approve once the change
-clearly makes the code better, even if it isn't perfect.
+**Reviewers:** mark each finding blocking (it makes the code worse) or nit. Mechanical checks (M1–M5)
+always block. For judgment findings, approve once the change clearly makes the code better; list the
+rest as nits.
 
 ### Mechanical checks
 
