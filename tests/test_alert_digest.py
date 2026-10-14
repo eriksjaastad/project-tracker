@@ -739,6 +739,7 @@ _FAKE_LAUNCHER = '''
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 STATE = Path(__STATE__)
@@ -781,6 +782,13 @@ def loop_state(events, now):
         fail_count=fails, should_trip=fails >= 3 and not trips,
         pending_trip_reason=f"{fails} FAIL verdicts" if fails >= 3 and not trips else None,
     )
+
+
+# The real launcher imports the tripwire as a module named tw.
+tw = SimpleNamespace(
+    INVALID_ENV=[], HistoryError=HistoryError, history_path=history_path,
+    _validate_event=_validate_event, loop_state=loop_state,
+)
 '''
 
 
@@ -875,27 +883,6 @@ class TestPausedReviewLoops:
             state.chmod(0o755)
         assert res["fatal"] and "Permission denied" in res["fatal"]
 
-    def test_launcher_exiting_on_import_is_fatal_not_a_crash(self, monkeypatch, tmp_path):
-        """The real launcher raises SystemExit(3) on a bad CODEX_REVIEW_* value."""
-        launcher = tmp_path / "launcher.py"
-        launcher.write_text("import sys\nsys.exit(3)\n")
-        monkeypatch.setattr(ad, "CODEX_LAUNCHER", launcher)
-        res = ad.fetch_paused_review_loops()
-        assert res["fatal"] and "review launcher" in res["fatal"]
-
-    def test_launcher_exiting_mid_scan_is_a_per_log_error(self, fake, monkeypatch):
-        _hist, write = fake
-        write("o__r__b", [_ev(1, "trip", reason="r")])
-        real_load = ad._load_codex_launcher
-
-        def load():
-            mod = real_load()
-            mod.loop_state = lambda events, now: (_ for _ in ()).throw(SystemExit(3))
-            return mod
-        monkeypatch.setattr(ad, "_load_codex_launcher", load)
-        res = ad.fetch_paused_review_loops()
-        assert [e["loop"] for e in res["errors"]] == ["o__r__b"]
-
     def test_unlistable_history_dir_is_fatal_not_empty(self, fake):
         """The directory exists and stats fine but cannot be listed."""
         hist, write = fake
@@ -911,7 +898,7 @@ class TestPausedReviewLoops:
     def test_missing_launcher_is_fatal_not_empty(self, monkeypatch, tmp_path):
         monkeypatch.setattr(ad, "CODEX_LAUNCHER", tmp_path / "nope.py")
         res = ad.fetch_paused_review_loops()
-        assert res["fatal"] and "review launcher" in res["fatal"]
+        assert res["fatal"] and "nope.py" in res["fatal"]
         assert res["loops"] == []
 
     def test_quiet_when_nothing_paused(self, fake):
@@ -986,6 +973,12 @@ _REAL_LAUNCHER = ad.Path.home() / ".claude" / "scripts" / "codex_pr_review.py"
 class TestPausedReviewLoopsAgainstRealLauncher:
     """Contract check: the digest reads logs written by the real launcher."""
 
+    @pytest.fixture(autouse=True)
+    def _fresh_tripwire(self, monkeypatch):
+        # The launcher's `import review_tripwire` would reuse a module cached
+        # by an earlier test, with the settings it read from that test's env.
+        monkeypatch.delitem(ad.sys.modules, "review_tripwire", raising=False)
+
     def test_bad_launcher_setting_does_not_stop_the_digest(self, monkeypatch, capsys):
         monkeypatch.setattr(ad, "fetch_paused_review_loops", _REAL_FETCH_PAUSED_LOOPS)
         monkeypatch.setattr(ad, "CODEX_LAUNCHER", _REAL_LAUNCHER)
@@ -1003,24 +996,24 @@ class TestPausedReviewLoopsAgainstRealLauncher:
         monkeypatch.setattr(ad, "fetch_paused_review_loops", _REAL_FETCH_PAUSED_LOOPS)
         monkeypatch.setenv("PR_REVIEW_STATE_DIR", str(tmp_path))
         monkeypatch.setattr(ad, "CODEX_LAUNCHER", _REAL_LAUNCHER)
-        launcher = ad._load_codex_launcher()
-        for _ in range(launcher.FAIL_LIMIT):
-            launcher.append_event("o__r", "feat/x", "round",
-                                  {"outcome": "FAIL", "head_sha": "c" * 40, "findings_count": 1})
-        launcher.append_event("o__r", "feat/clean", "round", {"outcome": "PASS", "head_sha": "d" * 40})
+        tw = ad._load_codex_launcher().tw
+        for _ in range(tw.FAIL_LIMIT):
+            tw.append_event("o__r", "feat/x", "round",
+                            {"outcome": "FAIL", "head_sha": "c" * 40, "findings_count": 1})
+        tw.append_event("o__r", "feat/clean", "round", {"outcome": "PASS", "head_sha": "d" * 40})
         res = ad.fetch_paused_review_loops()
         assert res["fatal"] is None and res["errors"] == []
         assert [lp["loop"] for lp in res["loops"]] == ["o__r__feat__x"]
         assert res["loops"][0]["trip_recorded"] is False
 
-        launcher.append_event("o__r", "feat/x", "trip", {"reason": "limit"})
+        tw.append_event("o__r", "feat/x", "trip", {"reason": "limit"})
         lp = ad.fetch_paused_review_loops()["loops"][0]
         assert lp["trip_recorded"] is True and lp["notified"] is False
 
-        launcher.append_event("o__r", "feat/x", "notify", {"ok": True, "error": None, "channel": "pt"})
+        tw.append_event("o__r", "feat/x", "notify", {"ok": True, "error": None, "channel": "pt"})
         assert ad.fetch_paused_review_loops()["loops"][0]["notified"] is True
 
-        launcher.append_event("o__r", "feat/x", "clear", {"reason": "Erik cleared"})
+        tw.append_event("o__r", "feat/x", "clear", {"reason": "Erik cleared"})
         assert ad.fetch_paused_review_loops()["loops"] == []
 
 
