@@ -90,10 +90,13 @@ DOCUMENTED_NONFAILURE_EXIT_CODES: dict[str, dict[int, dict[str, str]]] = {
 }
 
 # The Codex review launcher (claude-user-config, synced into ~/.claude on both
-# machines) owns the tripwire log format and the rule for when a review loop is
-# paused (#7738, #7877). The digest imports it rather than re-implementing
-# loop_state(), so a threshold change there can never drift from what the email
-# reports. Override for tests or a non-default install.
+# machines) imports the tripwire as `tw`, which owns the log format and the
+# rule for when a review loop is paused (#7738, #7877). The digest takes `tw`
+# from the launcher rather than re-implementing loop_state(), so a threshold
+# change there can never drift from what the email reports. It loads the
+# launcher, not review_tripwire.py itself, because only the launcher puts the
+# directory holding tw's own imports on sys.path. Override for tests or a
+# non-default install.
 CODEX_LAUNCHER = Path(
     os.environ.get(
         "PT_CODEX_LAUNCHER", str(Path.home() / ".claude" / "scripts" / "codex_pr_review.py")
@@ -359,17 +362,17 @@ def _load_codex_launcher():
     return module
 
 
-def _read_history_file(launcher, path: Path) -> list[dict]:
-    """Replay one tripwire log with the launcher's own validator.
+def _read_history_file(tripwire, path: Path) -> list[dict]:
+    """Replay one tripwire log with the tripwire's own validator.
 
-    Mirrors launcher.read_log(), which is keyed by slug+branch; the file name
+    Mirrors tripwire.read_log(), which is keyed by slug+branch; the file name
     hashes those, so the digest reads by path instead. Raises
-    launcher.HistoryError (or OSError) on anything it can't trust.
+    tripwire.HistoryError on anything it can't trust.
     """
     try:
         raw = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        raise launcher.HistoryError(f"could not read {path}: {exc}") from exc
+        raise tripwire.HistoryError(f"could not read {path}: {exc}") from exc
     events = []
     for lineno, line in enumerate(raw.splitlines(), start=1):
         if not line.strip():
@@ -377,14 +380,14 @@ def _read_history_file(launcher, path: Path) -> list[dict]:
         try:
             event = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise launcher.HistoryError(f"{path} line {lineno} is not valid JSON: {exc}") from exc
-        launcher._validate_event(event, path, lineno)
+            raise tripwire.HistoryError(f"{path} line {lineno} is not valid JSON: {exc}") from exc
+        tripwire._validate_event(event, path, lineno)
         events.append(event)
     return events
 
 
 def _loop_label(path: Path) -> str:
-    """Readable repo/branch from a log name: the launcher writes
+    """Readable repo/branch from a log name: the tripwire writes
     <owner>__<repo>__<branch with / as __>__<sha12>.jsonl; drop the hash."""
     stem = path.stem
     head, sep, tail = stem.rpartition("__")
@@ -398,22 +401,22 @@ def fetch_paused_review_loops(now: datetime | None = None) -> dict:
     morning email lists each paused loop and flags loudly any whose alert was
     never delivered. Returns
       {"loops": [...], "errors": [...], "fatal": str | None, "history_dir": str}
-    A loop is paused exactly when the launcher's pretrip_check() would refuse:
+    A loop is paused exactly when the tripwire's pretrip_check() would refuse:
     a recorded trip, or rounds that already meet a threshold. Never returns a
-    silently empty result: an unloadable launcher or unreadable directory sets
-    `fatal`, and each unreadable/malformed log is its own entry in `errors`.
-
-    Every call into the launcher also catches SystemExit: it is a CLI script
-    and exits (status 3) on import when a CODEX_REVIEW_* setting is invalid,
-    which must cost this one section, not the whole morning email.
+    silently empty result: an unloadable launcher, an invalid CODEX_REVIEW_*
+    setting (the launcher then refuses every review) or an unreadable
+    directory sets `fatal`, and each unreadable/malformed log is its own entry
+    in `errors`.
     """
     now = now or datetime.now(timezone.utc)
     result: dict = {"loops": [], "errors": [], "fatal": None, "history_dir": ""}
     try:
-        launcher = _load_codex_launcher()
-        history_dir = Path(launcher.history_path("probe__probe", "probe")).parent
-    except (Exception, SystemExit) as exc:  # noqa: BLE001
-        result["fatal"] = f"could not load the review launcher {CODEX_LAUNCHER}: {exc}"
+        tripwire = _load_codex_launcher().tw
+        if tripwire.INVALID_ENV:
+            raise RuntimeError("; ".join(tripwire.INVALID_ENV))
+        history_dir = Path(tripwire.history_path("probe__probe", "probe")).parent
+    except Exception as exc:  # noqa: BLE001
+        result["fatal"] = f"could not load the review tripwire via {CODEX_LAUNCHER}: {exc}"
         log(f"ERROR paused-loops: {result['fatal']}")
         return result
     result["history_dir"] = str(history_dir)
@@ -431,9 +434,9 @@ def fetch_paused_review_loops(now: datetime | None = None) -> dict:
     for path in paths:
         label = _loop_label(path)
         try:
-            events = _read_history_file(launcher, path)
-            state = launcher.loop_state(events, now)
-        except (Exception, SystemExit) as exc:  # noqa: BLE001
+            events = _read_history_file(tripwire, path)
+            state = tripwire.loop_state(events, now)
+        except Exception as exc:  # noqa: BLE001
             result["errors"].append({"loop": label, "error": str(exc)})
             log(f"ERROR paused-loops: {label}: {exc}")
             continue
