@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -14,6 +16,11 @@ from pt import cli  # noqa: E402
 from dashboard.app import app  # noqa: E402
 
 client = TestClient(app)
+ENV = {"PT_NO_BANNER": "1", "PT_SUPPRESS_MIGRATION_WARNING": "1"}
+
+
+def _pt(*args: str):
+    return CliRunner().invoke(cli, list(args), env=ENV)
 
 
 def _add(name: str, **fields) -> dict:
@@ -49,17 +56,29 @@ def test_reminder_lifecycle_add_built_in_remove() -> None:
 
 
 def test_pt_reminders_add_appears_on_the_page_and_in_the_list() -> None:
-    env = {"PT_NO_BANNER": "1", "PT_SUPPRESS_MIGRATION_WARNING": "1"}
-    result = CliRunner().invoke(
-        cli,
-        ["reminders", "add", "Saraev prompt pack", "--purpose", "Audit", "--location", "~/p"],
-        env=env,
-    )
+    result = _pt("reminders", "add", "Saraev prompt pack", "--purpose", "Audit", "--location", "~/p")
     assert result.exit_code == 0, result.output
     [reminder] = client.get("/api/reminders").json()["active"]
     assert (reminder["name"], reminder["purpose"], reminder["location"]) == (
         "Saraev prompt pack", "Audit", "~/p")
 
-    listed = CliRunner().invoke(cli, ["reminders"], env=env)
+    listed = _pt("reminders")
     assert listed.exit_code == 0, listed.output
     assert f"#{reminder['id']} Saraev prompt pack" in listed.output
+
+
+def test_pt_reminders_built_in_retires_it_from_the_page() -> None:
+    reminder = _add("Cold email guide")
+    result = _pt("reminders", "built-in", str(reminder["id"]))
+    assert result.exit_code == 0, result.output
+    assert _names("active") == [] and _names("built_in") == ["Cold email guide"]
+    assert _pt("reminders", "built-in", "999999").exit_code != 0
+
+
+def test_pt_reminders_without_migration_022_says_to_migrate() -> None:
+    # The per-test database copy, not the live one.
+    with sqlite3.connect(os.environ["PT_DB_PATH"]) as conn:
+        conn.execute("DROP TABLE reminders")
+    result = _pt("reminders")
+    assert result.exit_code != 0
+    assert "run `pt db migrate`" in result.output
