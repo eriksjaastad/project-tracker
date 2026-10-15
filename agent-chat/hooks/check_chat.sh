@@ -18,7 +18,7 @@
 #                        this env var is machine-global and cannot distinguish
 #                        concurrent floor managers, so it is a fallback only.
 #
-# Failures are appended to ~/.claude/open-brain/agent_chat_drops.log. This hook
+# Failures are appended to ~/.claude/ai-memory/agent_chat_drops.log. This hook
 # must never block Claude, but it must not fail silently either: DMs were
 # dropped here for five weeks and nothing reported it.
 
@@ -30,11 +30,8 @@ set -euo pipefail
 CHAT_URL="${AGENT_CHAT_URL:-https://agent-chat-90116449356.us-central1.run.app}"
 API_KEY="${AGENT_CHAT_API_KEY:-}"
 LEGACY_CURSOR_FILE="$HOME/.claude/chat_cursor"
-# NOTE: the ~/.claude/open-brain/ directory keeps its legacy name on purpose.
-# ai-memory's state_paths.resolve_state_dir leaves existing installs there so
-# pending writes and checkpoints are never split, and it RAISES if both
-# open-brain/ and ai-memory/ exist. Do not rename this path (#7093).
-DROP_LOG="$HOME/.claude/open-brain/agent_chat_drops.log"
+# ai-memory's Claude state directory (its state_paths.resolve_state_dir).
+DROP_LOG="$HOME/.claude/ai-memory/agent_chat_drops.log"
 # Locked, never-backward cursor writes. Shared with the SessionStart hook,
 # which freezes each session's seed (see agent-chat/chat_cursor.py).
 CURSOR_HELPER="$(dirname "${BASH_SOURCE[0]}")/../chat_cursor.py"

@@ -265,7 +265,7 @@ class TestNoIdentityIsConservative:
 
     def test_failure_is_recorded_not_silent(self, tmp_path):
         run_hook(tmp_path, [msg(9, "auxesis-ops", None, "public")], identity=None)
-        drops = tmp_path / "home" / ".claude" / "open-brain" / "agent_chat_drops.log"
+        drops = tmp_path / "home" / ".claude" / "ai-memory" / "agent_chat_drops.log"
         assert drops.exists()
         assert "no_identity" in drops.read_text()
 
@@ -379,7 +379,7 @@ def assert_session_start(value):
 
 
 def drops(home):
-    log = Path(home) / ".claude" / "open-brain" / "agent_chat_drops.log"
+    log = Path(home) / ".claude" / "ai-memory" / "agent_chat_drops.log"
     return log.read_text() if log.exists() else ""
 
 
