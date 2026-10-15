@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
@@ -54,6 +55,11 @@ def is_staff_or_principal_only(title: str) -> bool:
     text = _SENIOR_TOP_RE.sub(r"\1", _NOT_A_LEVEL_RE.sub("", title))
     top = _PRINCIPAL_RE.search(text) or (_STAFF_RE.search(text) and _LADDER_ROLE_RE.search(text))
     return bool(top) and not _LOWER_LEVEL_RE.search(text)
+
+
+def _listed(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The open jobs the Jobs page shows; its list and category counts agree."""
+    return [j for j in jobs if not is_staff_or_principal_only(j["title"])]
 
 
 def validate_import_record(record: Any) -> dict[str, Any]:
@@ -221,9 +227,7 @@ class JobsMixin:
         """Open listings ranked by fit, split into fresh and stale (#101679546294759424)."""
         today = datetime.now(timezone.utc).date()
         jobs = self.get_open_jobs(kind)
-        if kind == "job":
-            jobs = [j for j in jobs if not is_staff_or_principal_only(j["title"])]
-        return ranked_split(jobs, today)
+        return ranked_split(_listed(jobs) if kind == "job" else jobs, today)
 
     def get_volunteer_roles(self) -> dict[str, Any]:
         """The Volunteer page: current, applied, and ranked possible roles.
@@ -380,13 +384,12 @@ class JobsMixin:
                    WHERE {kind_sql} = 'job'
                    GROUP BY substr(s.submitted_at, 1, 10) ORDER BY date"""
             ).fetchall()
-            categories = conn.execute(
-                f"""SELECT j.category, COUNT(*) AS count FROM jobs AS j
-                    WHERE {kind_sql} = 'job' AND {_OPEN}
-                    GROUP BY j.category ORDER BY count DESC, j.category"""
-            ).fetchall()
-            return {
-                "jobs_per_day": [dict(row) for row in jobs],
-                "submissions_per_day": [dict(row) for row in submissions],
-                "categories": [dict(row) for row in categories],
-            }
+        counts = Counter(j["category"] for j in _listed(self.get_open_jobs("job")))
+        return {
+            "jobs_per_day": [dict(row) for row in jobs],
+            "submissions_per_day": [dict(row) for row in submissions],
+            "categories": [
+                {"category": c, "count": n}
+                for c, n in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+            ],
+        }
