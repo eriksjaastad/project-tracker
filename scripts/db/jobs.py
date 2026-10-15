@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
@@ -23,6 +25,41 @@ _OPEN = """j.deleted_at IS NULL AND NOT EXISTS (
 
 _REQUIRED_IMPORT_FIELDS = ("company", "title", "url", "source")
 _OPTIONAL_TEXT_FIELDS = ("location", "posted_date", "raw")
+
+# Erik, 2026-10-15: Staff/Principal roles stay off the Jobs list. Principal
+# and Distinguished are senior wherever they appear, but Staff is a level only
+# on the engineering, product, design and science ladders: 'Staff Accountant'
+# is entry-level and 'Staff Writer' is no level at all, and remote work of any
+# kind stays in (2026-09-23 rule).
+_NOT_A_LEVEL_RE = re.compile(
+    r"\b(?:member of technical staff|chief of staff|(?:assistant|vice|school)[\s-]principal)\b",
+    re.IGNORECASE,
+)
+_LADDER_ROLE_RE = re.compile(
+    r"\b(?:engineers?|developers?|designers?|scientists?|architects?|product managers?|pms?)\b",
+    re.IGNORECASE,
+)
+_SENIOR_TOP_RE = re.compile(r"\b(?:senior|sr\.?)\s+(staff|principal)\b", re.IGNORECASE)
+_PRINCIPAL_RE = re.compile(r"\b(?:principal|distinguished)\b", re.IGNORECASE)
+_STAFF_RE = re.compile(r"\bstaff\b", re.IGNORECASE)
+_LOWER_LEVEL_RE = re.compile(r"\b(?:senior|sr|mid|junior|jr|associate|entry)\b", re.IGNORECASE)
+
+
+def is_staff_or_principal_only(title: str) -> bool:
+    """True when every level the title names is Staff, Principal or Distinguished.
+
+    'Staff/Principal Software Engineer' is left out; 'Senior/Staff Engineer'
+    still offers a level Erik takes, so it stays. 'Senior Staff' and 'Sr
+    Principal' are one level each. Staff counts only beside a ladder role.
+    """
+    text = _SENIOR_TOP_RE.sub(r"\1", _NOT_A_LEVEL_RE.sub("", title))
+    top = _PRINCIPAL_RE.search(text) or (_STAFF_RE.search(text) and _LADDER_ROLE_RE.search(text))
+    return bool(top) and not _LOWER_LEVEL_RE.search(text)
+
+
+def _listed(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The open jobs the Jobs page shows; its list and category counts agree."""
+    return [j for j in jobs if not is_staff_or_principal_only(j["title"])]
 
 
 def validate_import_record(record: Any) -> dict[str, Any]:
@@ -189,7 +226,8 @@ class JobsMixin:
     def get_ranked_open_jobs(self, kind: str = "job") -> dict[str, list[dict[str, Any]]]:
         """Open listings ranked by fit, split into fresh and stale (#101679546294759424)."""
         today = datetime.now(timezone.utc).date()
-        return ranked_split(self.get_open_jobs(kind), today)
+        jobs = self.get_open_jobs(kind)
+        return ranked_split(_listed(jobs) if kind == "job" else jobs, today)
 
     def get_volunteer_roles(self) -> dict[str, Any]:
         """The Volunteer page: current, applied, and ranked possible roles.
@@ -346,13 +384,12 @@ class JobsMixin:
                    WHERE {kind_sql} = 'job'
                    GROUP BY substr(s.submitted_at, 1, 10) ORDER BY date"""
             ).fetchall()
-            categories = conn.execute(
-                f"""SELECT j.category, COUNT(*) AS count FROM jobs AS j
-                    WHERE {kind_sql} = 'job' AND {_OPEN}
-                    GROUP BY j.category ORDER BY count DESC, j.category"""
-            ).fetchall()
-            return {
-                "jobs_per_day": [dict(row) for row in jobs],
-                "submissions_per_day": [dict(row) for row in submissions],
-                "categories": [dict(row) for row in categories],
-            }
+        counts = Counter(j["category"] for j in _listed(self.get_open_jobs("job")))
+        return {
+            "jobs_per_day": [dict(row) for row in jobs],
+            "submissions_per_day": [dict(row) for row in submissions],
+            "categories": [
+                {"category": c, "count": n}
+                for c, n in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+            ],
+        }
