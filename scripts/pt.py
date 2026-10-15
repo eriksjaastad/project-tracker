@@ -4940,8 +4940,8 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
         Distinguished levels (Erik, 2026-10-15). Staff counts only beside an
         engineer, developer, designer, scientist, architect or product
         manager role, so 'Staff Accountant' imports. 'Senior/Staff Engineer'
-        still imports; 'Member of Technical Staff' and 'Chief of Staff' are
-        titles, not levels.
+        still imports; 'Member of Technical Staff', 'Chief of Staff' and
+        'Assistant/Vice/School Principal' are titles, not levels.
 
     \b
     HN "Who's Hiring" comments (free text, often several roles each):

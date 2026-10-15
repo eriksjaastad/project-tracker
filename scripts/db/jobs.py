@@ -30,7 +30,10 @@ _OPTIONAL_TEXT_FIELDS = ("location", "posted_date", "raw")
 # on the engineering, product, design and science ladders: 'Staff Accountant'
 # is entry-level and 'Staff Writer' is no level at all, and remote work of any
 # kind stays in (2026-09-23 rule).
-_NOT_A_LEVEL_RE = re.compile(r"\b(?:member of technical staff|chief of staff)\b", re.IGNORECASE)
+_NOT_A_LEVEL_RE = re.compile(
+    r"\b(?:member of technical staff|chief of staff|(?:assistant|vice|school) principal)\b",
+    re.IGNORECASE,
+)
 _LADDER_ROLE_RE = re.compile(
     r"\b(?:engineers?|developers?|designers?|scientists?|architects?|product managers?|pms?)\b",
     re.IGNORECASE,
