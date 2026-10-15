@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -49,10 +50,44 @@ def test_reminder_lifecycle_add_built_in_remove() -> None:
 
     assert client.delete(f"/api/reminders/{third['id']}").status_code == 200
     assert _names("active") == ["Guide"]
+    # A built-in reminder can still be removed.
+    assert client.delete(f"/api/reminders/{first['id']}").status_code == 200
+    assert _names("built_in") == []
     # A removed reminder is gone for both actions; the row itself is kept.
     assert client.delete(f"/api/reminders/{third['id']}").status_code == 404
     assert client.post(f"/api/reminders/{third['id']}/built-in").status_code == 404
     assert client.delete("/api/reminders/999999").status_code == 404
+
+
+def test_built_in_mark_loses_to_a_removal_that_lands_first(db, monkeypatch) -> None:
+    reminder = db.add_reminder("Guide")
+    original = type(db)._get_conn
+
+    class RemovalLandsFirst:
+        """Lets another connection remove the row just before the built-in UPDATE."""
+
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def execute(self, sql, *args):
+            if sql.startswith("UPDATE reminders SET built_in_at"):
+                with sqlite3.connect(os.environ["PT_DB_PATH"]) as other:
+                    other.execute(
+                        "UPDATE reminders SET deleted_at = 'now' WHERE id = ?", (reminder["id"],))
+            return self._conn.execute(sql, *args)
+
+    @contextmanager
+    def racing_conn(self):
+        with original(self) as conn:
+            yield RemovalLandsFirst(conn)
+
+    monkeypatch.setattr(type(db), "_get_conn", racing_conn)
+    assert db.mark_reminder_built_in(reminder["id"]) is None
+    monkeypatch.undo()
+    assert db.list_reminders() == {"active": [], "built_in": []}
 
 
 def test_pt_reminders_add_appears_on_the_page_and_in_the_list() -> None:

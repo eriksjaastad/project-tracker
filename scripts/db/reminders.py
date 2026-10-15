@@ -59,29 +59,31 @@ class RemindersMixin:
             return dict(row)
 
     def _retire_reminder(self, reminder_id: int, column: str) -> dict[str, Any] | None:
-        """Stamp built_in_at or deleted_at once; None when the reminder is gone."""
+        """Stamp built_in_at or deleted_at once; None when the reminder is gone.
+
+        The guard is in the UPDATE itself, so a built-in mark racing a
+        removal cannot report success on a row that removal already deleted.
+        """
+        now = _utc_now()
         with self._get_conn() as conn:
+            cursor = conn.execute(
+                f"UPDATE reminders SET {column} = ?, updated_at = ? "  # noqa: S608 - column is one of two literals
+                f"WHERE id = ? AND deleted_at IS NULL AND {column} IS NULL",
+                (now, now, reminder_id),
+            )
             row = conn.execute(
                 "SELECT * FROM reminders WHERE id = ?", (reminder_id,)
             ).fetchone()
-            if row is None or row["deleted_at"] is not None:
-                return None
-            if row[column] is None:
-                now = _utc_now()
-                conn.execute(
-                    f"UPDATE reminders SET {column} = ?, updated_at = ? WHERE id = ?",  # noqa: S608 - column is one of two literals
-                    (now, now, reminder_id),
-                )
-                row = conn.execute(
-                    "SELECT * FROM reminders WHERE id = ?", (reminder_id,)
-                ).fetchone()
-                conn.commit()
-            return dict(row)
+            conn.commit()
+        # No update: missing, already removed, or (built-in only) already built in.
+        if cursor.rowcount == 0 and (row is None or row["deleted_at"] is not None):
+            return None
+        return dict(row)
 
     def mark_reminder_built_in(self, reminder_id: int) -> dict[str, Any] | None:
         """Retire a reminder whose content now lives in a process, skill or tool."""
         return self._retire_reminder(reminder_id, "built_in_at")
 
     def remove_reminder(self, reminder_id: int) -> dict[str, Any] | None:
-        """Soft-delete a reminder; the row is never hard-deleted."""
+        """Soft-delete an active or built-in reminder; never hard-deleted."""
         return self._retire_reminder(reminder_id, "deleted_at")

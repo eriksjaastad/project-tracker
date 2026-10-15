@@ -63,6 +63,11 @@ describe('RemindersPage', () => {
     expect(screen.getByRole('link', { name: 'https://example.com/guide' })).toHaveAttribute('target', '_blank');
     expect(screen.getAllByText('added 2026-10-14')).toHaveLength(2);
     expect(screen.getByText('Built in (1)')).toBeInTheDocument();
+    // Built-in rows keep why and where, and can be removed but not re-marked.
+    expect(screen.getByText('Use 3')).toBeInTheDocument();
+    expect(screen.getByText('~/projects/item-3.md')).toBeInTheDocument();
+    expect(screen.getByText('built in 2026-10-15')).toBeInTheDocument();
+    expect(screen.getByLabelText('Remove Item 3')).toBeInTheDocument();
     expect(screen.queryByLabelText('Mark Item 3 built in')).not.toBeInTheDocument();
   });
 
@@ -92,16 +97,19 @@ describe('RemindersPage', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(7));
   });
 
-  it('reloads after a failed write, so a row changed elsewhere does not linger', async () => {
+  it.each([
+    ['answers 404', () => Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: 'Reminder not found' }) } as Response)],
+    ['is dropped', () => Promise.reject(new TypeError('Failed to fetch'))],
+  ])('reloads after a write that %s, so a row changed elsewhere does not linger', async (_, failure) => {
     const user = userEvent.setup();
     await renderLoaded();
     vi.mocked(fetch)
-      .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({ detail: 'Reminder not found' }) } as Response)
+      .mockImplementationOnce(failure)
       .mockResolvedValueOnce(respond({ active: [reminder(2)], built_in: LIST.built_in }));
 
     await user.click(screen.getByLabelText('Mark Item 1 built in'));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to mark built in: Reminder not found');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to mark built in');
     await waitFor(() => expect(screen.queryByText('Item 1')).not.toBeInTheDocument());
   });
 });

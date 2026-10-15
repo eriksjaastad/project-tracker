@@ -69,9 +69,6 @@ export function RemindersPage() {
   async function send(request: () => Promise<Response>, success: string, failure: string): Promise<boolean> {
     try {
       const response = await request();
-      // Reload after any answer: a 404 means the row already changed
-      // elsewhere, and only the server's list shows where it went.
-      reload();
       if (!response.ok) {
         const detail = await errorDetail(response);
         console.error(failure, `HTTP ${response.status}`, detail);
@@ -84,6 +81,10 @@ export function RemindersPage() {
       console.error(failure, error);
       setNotification({ message: failure, type: 'error' });
       return false;
+    } finally {
+      // Reload whatever happened: a failed or dropped request may still have
+      // changed the row (here or elsewhere), and only the server's list says.
+      reload();
     }
   }
 
@@ -109,6 +110,49 @@ export function RemindersPage() {
     }), 'Reminder added', 'Failed to add reminder');
     if (added) setDraft({ name: '', purpose: '', location: '' });
     setAdding(false);
+  }
+
+  // Built-in reminders keep their purpose and location, and can be removed.
+  function renderRow(reminder: Reminder) {
+    return (
+      <li key={reminder.id} className="job-row reminder-row">
+        <div className="job-main">
+          <span className="reminder-name">{reminder.name}</span>
+          {reminder.purpose && <span className="job-location">{reminder.purpose}</span>}
+          {reminder.location && <Location value={reminder.location} />}
+          <span className="job-date">
+            {reminder.built_in_at ? `built in ${dateOnly(reminder.built_in_at)}` : `added ${dateOnly(reminder.created_at)}`}
+          </span>
+        </div>
+        <div className="job-actions">
+          {!reminder.built_in_at && (
+            <button
+              type="button"
+              className="job-submit-btn"
+              onClick={() => act(reminder,
+                () => fetch(`/api/reminders/${reminder.id}/built-in`, { method: 'POST' }),
+                'Marked built in', 'Failed to mark built in')}
+              disabled={locked(reminder.id)}
+              aria-label={`Mark ${reminder.name} built in`}
+              title="Its content now lives in a process, skill or tool"
+            >
+              Built in
+            </button>
+          )}
+          <button
+            type="button"
+            className="job-delete-btn"
+            onClick={() => act(reminder,
+              () => fetch(`/api/reminders/${reminder.id}`, { method: 'DELETE' }),
+              'Reminder removed', 'Failed to remove reminder')}
+            disabled={locked(reminder.id)}
+            aria-label={`Remove ${reminder.name}`}
+          >
+            ×
+          </button>
+        </div>
+      </li>
+    );
   }
 
   const active = data?.active ?? [];
@@ -150,41 +194,7 @@ export function RemindersPage() {
               <p className="reminders-empty">No reminders yet</p>
             ) : (
               <ul className="jobs-list reminders-list">
-                {active.map(reminder => (
-                  <li key={reminder.id} className="job-row reminder-row">
-                    <div className="job-main">
-                      <span className="reminder-name">{reminder.name}</span>
-                      {reminder.purpose && <span className="job-location">{reminder.purpose}</span>}
-                      {reminder.location && <Location value={reminder.location} />}
-                      <span className="job-date">added {dateOnly(reminder.created_at)}</span>
-                    </div>
-                    <div className="job-actions">
-                      <button
-                        type="button"
-                        className="job-submit-btn"
-                        onClick={() => act(reminder,
-                          () => fetch(`/api/reminders/${reminder.id}/built-in`, { method: 'POST' }),
-                          'Marked built in', 'Failed to mark built in')}
-                        disabled={locked(reminder.id)}
-                        aria-label={`Mark ${reminder.name} built in`}
-                        title="Its content now lives in a process, skill or tool"
-                      >
-                        Built in
-                      </button>
-                      <button
-                        type="button"
-                        className="job-delete-btn"
-                        onClick={() => act(reminder,
-                          () => fetch(`/api/reminders/${reminder.id}`, { method: 'DELETE' }),
-                          'Reminder removed', 'Failed to remove reminder')}
-                        disabled={locked(reminder.id)}
-                        aria-label={`Remove ${reminder.name}`}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </li>
-                ))}
+                {active.map(renderRow)}
               </ul>
             )}
 
@@ -220,14 +230,7 @@ export function RemindersPage() {
             <details className="company-group reminders-built-in">
               <summary>Built in ({builtIn.length})</summary>
               <ul className="jobs-list reminders-list">
-                {builtIn.map(reminder => (
-                  <li key={reminder.id} className="job-row reminder-row">
-                    <div className="job-main">
-                      <span className="reminder-name">{reminder.name}</span>
-                      <span className="job-date">built in {dateOnly(reminder.built_in_at)}</span>
-                    </div>
-                  </li>
-                ))}
+                {builtIn.map(renderRow)}
               </ul>
             </details>
           )}
