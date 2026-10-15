@@ -4937,7 +4937,9 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
     \b
     Skipped (not an error; counted and listed in the output):
       - non-volunteer lines whose title names only Staff, Principal or
-        Distinguished levels (Erik, 2026-10-15). 'Senior/Staff Engineer'
+        Distinguished levels (Erik, 2026-10-15). Staff counts only beside an
+        engineer, developer, designer, scientist, architect or product
+        manager role, so 'Staff Accountant' imports. 'Senior/Staff Engineer'
         still imports; 'Member of Technical Staff' and 'Chief of Staff' are
         titles, not levels.
 

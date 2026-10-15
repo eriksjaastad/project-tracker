@@ -392,19 +392,20 @@ def test_cli_import_kind_and_rejects_unknown_kind(db, tmp_path: Path) -> None:
 
 
 def test_cli_import_skips_staff_or_principal_only_titles(db, tmp_path: Path) -> None:
-    """Staff/Principal-only titles are skipped, not errors; mixed levels and MTS still import."""
+    """Staff/Principal-only titles are skipped, not errors; mixed levels, MTS and non-ladder Staff still import."""
     jsonl = tmp_path / "levels.jsonl"
     jsonl.write_text(
         '{"company": "Seeq", "title": "Staff/Principal Software Engineer", "url": "https://example.test/s1", "source": "hn"}\n'
         '{"company": "Acme", "title": "Senior/Staff Backend Engineer", "url": "https://example.test/s2", "source": "hn"}\n'
         '{"company": "GC AI", "title": "Member of Technical Staff, Applied AI", "url": "https://example.test/s3", "source": "hn"}\n'
+        '{"company": "Ledger Co", "title": "Staff Accountant", "url": "https://example.test/s4", "source": "manual"}\n'
     )
     response = json.loads(_run_import_json(jsonl).stdout)
     assert response["ok"] is True
     assert response["result"]["skipped"] == 1
     assert response["result"]["details"]["skipped"][0]["url"] == "https://example.test/s1"
     assert {job["url"] for job in db.get_open_jobs()} == {
-        "https://example.test/s2", "https://example.test/s3",
+        "https://example.test/s2", "https://example.test/s3", "https://example.test/s4",
     }
 
 

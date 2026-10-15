@@ -25,11 +25,19 @@ _OPEN = """j.deleted_at IS NULL AND NOT EXISTS (
 _REQUIRED_IMPORT_FIELDS = ("company", "title", "url", "source")
 _OPTIONAL_TEXT_FIELDS = ("location", "posted_date", "raw")
 
-# Erik, 2026-10-15: Staff/Principal roles stay off the Jobs list. These two
-# are titles, not levels, so they never count.
+# Erik, 2026-10-15: Staff/Principal roles stay off the Jobs list. Principal
+# and Distinguished are senior wherever they appear, but Staff is a level only
+# on the engineering, product, design and science ladders: 'Staff Accountant'
+# is entry-level and 'Staff Writer' is no level at all, and remote work of any
+# kind stays in (2026-09-23 rule).
 _NOT_A_LEVEL_RE = re.compile(r"\b(?:member of technical staff|chief of staff)\b", re.IGNORECASE)
-_SENIOR_STAFF_RE = re.compile(r"\b(?:senior|sr\.?)\s+staff\b", re.IGNORECASE)
-_TOP_LEVEL_RE = re.compile(r"\b(?:staff|principal|distinguished)\b", re.IGNORECASE)
+_LADDER_ROLE_RE = re.compile(
+    r"\b(?:engineers?|developers?|designers?|scientists?|architects?|product managers?|pms?)\b",
+    re.IGNORECASE,
+)
+_SENIOR_TOP_RE = re.compile(r"\b(?:senior|sr\.?)\s+(staff|principal)\b", re.IGNORECASE)
+_PRINCIPAL_RE = re.compile(r"\b(?:principal|distinguished)\b", re.IGNORECASE)
+_STAFF_RE = re.compile(r"\bstaff\b", re.IGNORECASE)
 _LOWER_LEVEL_RE = re.compile(r"\b(?:senior|sr|mid|junior|jr|associate|entry)\b", re.IGNORECASE)
 
 
@@ -37,10 +45,12 @@ def is_staff_or_principal_only(title: str) -> bool:
     """True when every level the title names is Staff, Principal or Distinguished.
 
     'Staff/Principal Software Engineer' is skipped; 'Senior/Staff Engineer'
-    still offers a level Erik takes, so it stays. 'Senior Staff' is one level.
+    still offers a level Erik takes, so it stays. 'Senior Staff' and 'Sr
+    Principal' are one level each. Staff counts only beside a ladder role.
     """
-    text = _SENIOR_STAFF_RE.sub("staff", _NOT_A_LEVEL_RE.sub("", title))
-    return bool(_TOP_LEVEL_RE.search(text)) and not _LOWER_LEVEL_RE.search(text)
+    text = _SENIOR_TOP_RE.sub(r"\1", _NOT_A_LEVEL_RE.sub("", title))
+    top = _PRINCIPAL_RE.search(text) or (_STAFF_RE.search(text) and _LADDER_ROLE_RE.search(text))
+    return bool(top) and not _LOWER_LEVEL_RE.search(text)
 
 
 def validate_import_record(record: Any) -> dict[str, Any]:
