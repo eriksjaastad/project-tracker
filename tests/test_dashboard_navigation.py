@@ -54,6 +54,7 @@ def test_navigation_api_returns_shared_contract():
         "group-jobs",
         "group-agents",
         "group-memory",
+        "reminders",
     ]
     assert items[0]["href"] == "/morning"
     assert items[0]["navigation_type"] == "spa"
@@ -221,3 +222,14 @@ def test_codebase_spa_route_and_navigation():
     assert leaf_by_id(build_navigation("/codebase"), "codebase")["active"]
     if response.status_code == 200:
         assert '"id": "codebase"' in response.text
+
+
+def test_reminders_is_a_top_level_tab_on_spa_and_document_pages():
+    response = client.get("/reminders")
+    assert response.status_code in (200, 503)
+    item = next(i for i in client.get("/api/navigation").json()["items"] if i["id"] == "reminders")
+    assert (item["label"], item["href"], item["navigation_type"]) == (
+        "Erik's Reminders", "/reminders", "spa")
+    assert leaf_by_id(build_navigation("/reminders"), "reminders")["active"]
+    # The Jinja shell (/memory, /graph) renders the same top-level tab.
+    assert 'href="/reminders"' in client.get("/graph").text

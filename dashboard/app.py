@@ -140,7 +140,9 @@ if frontend_dist.exists():
 
 NAVIGATION_TITLE = "Project Tracker"
 # Single source of truth for the shared navigation shell. Top-level order is
-# significant: six compact entries, four of them dropdown groups. Each leaf
+# significant: seven compact entries, four of them dropdown groups. Erik's
+# Reminders stays a top-level leaf: the label on every page is the reminder
+# (#8282). Each leaf
 # keeps its original id/href/match_prefixes/navigation_type; only some labels
 # changed when the leaves moved inside a group (#7637).
 NAVIGATION_ITEMS = [
@@ -251,6 +253,13 @@ NAVIGATION_ITEMS = [
                 "navigation_type": "document",
             },
         ],
+    },
+    {
+        "id": "reminders",
+        "label": "Erik's Reminders",
+        "href": "/reminders",
+        "match_prefixes": ["/reminders"],
+        "navigation_type": "spa",
     },
 ]
 
@@ -414,6 +423,7 @@ async def serve_spa_shell(request: Request):
 @app.get("/jobs/volunteer", response_class=HTMLResponse)
 @app.get("/codebase", response_class=HTMLResponse)
 @app.get("/morning", response_class=HTMLResponse)
+@app.get("/reminders", response_class=HTMLResponse)
 async def serve_react_app(request: Request):
     """Serve the React frontend for SPA routes."""
     return await serve_spa_shell(request)
@@ -3219,6 +3229,71 @@ def soft_delete_outreach_contact(contact_id: int):
     if contact is None:
         raise HTTPException(status_code=404, detail="Contact not found")
     return {"contact": contact}
+
+
+# --- Erik's Reminders API Endpoints (#8282) ---
+
+class ReminderRequest(BaseModel):
+    name: str
+    purpose: Optional[str] = None
+    location: Optional[str] = None
+
+
+def _reminders_db_error(action: str, exc: Exception) -> HTTPException:
+    """Log the failure; a missing table says how to fix it."""
+    logger.exception("Failed to %s", action)
+    if "no such table" in str(exc):
+        return HTTPException(
+            status_code=500, detail="Table reminders is missing; run `pt db migrate`."
+        )
+    return HTTPException(status_code=500, detail=f"Failed to {action}")
+
+
+@app.get("/api/reminders")
+def list_reminders():
+    """Active reminders in the order added, then built-in ones newest first."""
+    try:
+        return DatabaseManager().list_reminders()
+    except Exception as exc:
+        raise _reminders_db_error("list reminders", exc)
+
+
+@app.post("/api/reminders", status_code=201)
+@_serialized
+def add_reminder(payload: ReminderRequest):
+    try:
+        reminder = DatabaseManager().add_reminder(
+            payload.name, payload.purpose, payload.location
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Name is required")
+    except Exception as exc:
+        raise _reminders_db_error("add reminder", exc)
+    return {"reminder": reminder}
+
+
+@app.post("/api/reminders/{reminder_id}/built-in")
+@_serialized
+def mark_reminder_built_in(reminder_id: int):
+    try:
+        reminder = DatabaseManager().mark_reminder_built_in(reminder_id)
+    except Exception as exc:
+        raise _reminders_db_error("mark reminder built in", exc)
+    if reminder is None:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    return {"reminder": reminder}
+
+
+@app.delete("/api/reminders/{reminder_id}")
+@_serialized
+def remove_reminder(reminder_id: int):
+    try:
+        reminder = DatabaseManager().remove_reminder(reminder_id)
+    except Exception as exc:
+        raise _reminders_db_error("remove reminder", exc)
+    if reminder is None:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    return {"reminder": reminder}
 
 
 # --- Morning warm-up API Endpoint (#7616) ---
