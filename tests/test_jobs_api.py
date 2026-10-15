@@ -52,6 +52,15 @@ def test_open_jobs_excludes_submitted_and_dismissed_without_erasing_rows(db):
     assert refreshed["deleted_at"] is not None
 
 
+def test_jobs_list_leaves_out_staff_or_principal_only_titles(db):
+    """Erik 2026-10-15: Staff/Principal-only roles stay off; other Staff uses and mixed levels show."""
+    titles = ["Staff/Principal Software Engineer", "Senior/Staff Engineer", "Staff Accountant"]
+    for n, title in enumerate(titles):
+        db.upsert_job(company="Co", title=title, url=f"https://example.test/level/{n}", source="hn")
+    listed = TestClient(app).get("/api/jobs").json()
+    assert {row["title"] for row in listed["jobs"] + listed["stale"]} == set(titles[1:])
+
+
 def test_repeat_submissions_are_grouped_newest_first_and_counted(db):
     client = TestClient(app)
     job = _job(db, "repeat", "Backend")

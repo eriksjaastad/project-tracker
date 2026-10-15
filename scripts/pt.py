@@ -4935,15 +4935,6 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
         and keeps the stored raw when the new raw is null
 
     \b
-    Skipped (not an error; counted and listed in the output):
-      - non-volunteer lines whose title names only Staff, Principal or
-        Distinguished levels (Erik, 2026-10-15). Staff counts only beside an
-        engineer, developer, designer, scientist, architect or product
-        manager role, so 'Staff Accountant' imports. 'Senior/Staff Engineer'
-        still imports; 'Member of Technical Staff', 'Chief of Staff' and
-        'Assistant/Vice/School Principal' are titles, not levels.
-
-    \b
     HN "Who's Hiring" comments (free text, often several roles each):
       - required: one line per comment with url {comment_url}#post, title
         "Full HN post (read for every role)" and the full comment text in raw;
@@ -4958,9 +4949,7 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
       {"company": "Acme Corp", "title": "Senior React Engineer", "url": "https://jobs.acme.com/123", "source": "ats_sweep", "category": "Frontend/React", "raw": "..."}
       {"company": "Example Food Bank", "title": "Website volunteer", "url": "https://volunteer.example.org/roles/42", "source": "manual", "kind": "volunteer", "raw": "..."}
     """
-    from db.jobs import (
-        JobsMigrationPendingError, is_staff_or_principal_only, validate_import_record,
-    )
+    from db.jobs import JobsMigrationPendingError, validate_import_record
     
     errors: list[dict] = []
     imported: list[dict] = []
@@ -4990,10 +4979,6 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
                     fields = validate_import_record(record)
                 except ValueError as exc:
                     errors.append({"line": line_num, "reason": str(exc), "data": record})
-                    continue
-
-                if fields["kind"] != "volunteer" and is_staff_or_principal_only(fields["title"]):
-                    skipped.append({"line": line_num, "url": record["url"], "title": fields["title"]})
                     continue
 
                 if dry_run:
@@ -5049,12 +5034,10 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
             "command": "jobs.import",
             "result": {
                 "imported": len(imported),
-                "skipped": len(skipped),
                 "errors": len(errors),
                 "dry_run": dry_run,
                 "details": {
                     "imported": imported,
-                    "skipped": skipped,
                     "errors": errors,
                 },
             },
@@ -5064,10 +5047,6 @@ def jobs_import(jsonl_path: Path, dry_run: bool, json_output: bool) -> None:
             click.echo(f"DRY RUN: Would import {len(imported)} job(s) from {jsonl_path}")
         else:
             click.echo(f"✓ Imported {len(imported)} job(s) from {jsonl_path}")
-        if skipped:
-            click.echo(f"Skipped {len(skipped)} Staff/Principal-only title(s):")
-            for item in skipped:
-                click.echo(f"  line {item['line']}: {item['title']}")
         
         if errors:
             click.echo(f"✗ {len(errors)} error(s):", err=True)

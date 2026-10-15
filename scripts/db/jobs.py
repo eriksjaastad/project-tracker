@@ -31,7 +31,7 @@ _OPTIONAL_TEXT_FIELDS = ("location", "posted_date", "raw")
 # is entry-level and 'Staff Writer' is no level at all, and remote work of any
 # kind stays in (2026-09-23 rule).
 _NOT_A_LEVEL_RE = re.compile(
-    r"\b(?:member of technical staff|chief of staff|(?:assistant|vice|school) principal)\b",
+    r"\b(?:member of technical staff|chief of staff|(?:assistant|vice|school)[\s-]principal)\b",
     re.IGNORECASE,
 )
 _LADDER_ROLE_RE = re.compile(
@@ -47,7 +47,7 @@ _LOWER_LEVEL_RE = re.compile(r"\b(?:senior|sr|mid|junior|jr|associate|entry)\b",
 def is_staff_or_principal_only(title: str) -> bool:
     """True when every level the title names is Staff, Principal or Distinguished.
 
-    'Staff/Principal Software Engineer' is skipped; 'Senior/Staff Engineer'
+    'Staff/Principal Software Engineer' is left out; 'Senior/Staff Engineer'
     still offers a level Erik takes, so it stays. 'Senior Staff' and 'Sr
     Principal' are one level each. Staff counts only beside a ladder role.
     """
@@ -220,7 +220,10 @@ class JobsMixin:
     def get_ranked_open_jobs(self, kind: str = "job") -> dict[str, list[dict[str, Any]]]:
         """Open listings ranked by fit, split into fresh and stale (#101679546294759424)."""
         today = datetime.now(timezone.utc).date()
-        return ranked_split(self.get_open_jobs(kind), today)
+        jobs = self.get_open_jobs(kind)
+        if kind == "job":
+            jobs = [j for j in jobs if not is_staff_or_principal_only(j["title"])]
+        return ranked_split(jobs, today)
 
     def get_volunteer_roles(self) -> dict[str, Any]:
         """The Volunteer page: current, applied, and ranked possible roles.
