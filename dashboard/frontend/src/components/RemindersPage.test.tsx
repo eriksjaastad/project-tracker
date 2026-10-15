@@ -91,4 +91,17 @@ describe('RemindersPage', () => {
     // One initial load, three writes, and a reload after each write.
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(7));
   });
+
+  it('reloads after a failed write, so a row changed elsewhere does not linger', async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({ detail: 'Reminder not found' }) } as Response)
+      .mockResolvedValueOnce(respond({ active: [reminder(2)], built_in: LIST.built_in }));
+
+    await user.click(screen.getByLabelText('Mark Item 1 built in'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to mark built in: Reminder not found');
+    await waitFor(() => expect(screen.queryByText('Item 1')).not.toBeInTheDocument());
+  });
 });

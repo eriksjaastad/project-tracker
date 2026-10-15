@@ -69,6 +69,9 @@ export function RemindersPage() {
   async function send(request: () => Promise<Response>, success: string, failure: string): Promise<boolean> {
     try {
       const response = await request();
+      // Reload after any answer: a 404 means the row already changed
+      // elsewhere, and only the server's list shows where it went.
+      reload();
       if (!response.ok) {
         const detail = await errorDetail(response);
         console.error(failure, `HTTP ${response.status}`, detail);
@@ -76,7 +79,6 @@ export function RemindersPage() {
         return false;
       }
       setNotification({ message: success, type: 'success' });
-      reload();
       return true;
     } catch (error) {
       console.error(failure, error);

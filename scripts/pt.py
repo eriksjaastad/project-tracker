@@ -5728,8 +5728,8 @@ def reminders_group(ctx: click.Context) -> None:
     """Things Erik wants to remember: tools, guides, research, tips, decisions.
 
     They show on the dashboard's "Erik's Reminders" page (/reminders), one
-    line each. Keep one until its content is built into a process, skill or
-    tool, then mark it built in. With no subcommand, lists the active ones.
+    line each, where Erik marks one built in once its content is part of a
+    process, skill or tool. With no subcommand, lists the active ones.
 
     \b
     Add one (agents: this is the command):
@@ -5761,16 +5761,6 @@ def reminders_add(name: str, purpose: Optional[str], location: Optional[str]) ->
     except ValueError as exc:
         raise click.BadParameter(str(exc), param_hint="NAME") from exc
     click.echo(f"Added reminder #{reminder['id']}: {reminder['name']}")
-
-
-@reminders_group.command(name="built-in")
-@click.argument("reminder_id", type=int)
-def reminders_built_in(reminder_id: int) -> None:
-    """Retire a reminder whose content is now part of a process, skill or tool."""
-    reminder = DatabaseManager().mark_reminder_built_in(reminder_id)
-    if reminder is None:
-        raise click.ClickException(f"no reminder #{reminder_id}")
-    click.echo(f"Reminder #{reminder_id} marked built in: {reminder['name']}")
 
 
 # =============================================================================
