@@ -1,6 +1,6 @@
 -- Maintained by scripts/db/schema_dump.py (make schema). Never edit by hand: add a migration.
--- Migrations: through 021
--- Body sha256: 74a5ba629af5450a8faaba8364f43d1b0a01f14a33ed39a2ca45bb79e485a12c
+-- Migrations: through 022
+-- Body sha256: 48fa6a652d34a8a2e6daf7989b7b1410261d1e031944ea52a2f7bdb7b07b9f7d
 
 CREATE TABLE _delete_permissions (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -217,6 +217,17 @@ CREATE TABLE "projects" (
             index_updated_at TEXT,
             project_type TEXT DEFAULT 'standard'
         , health_score INTEGER, health_grade TEXT, scaffolding_version TEXT, rules_version TEXT, scaffolding_applied_at TEXT, tier INTEGER, healthcheck_cmd TEXT, commands_to_run TEXT, cron_jobs_config TEXT, template_version_installed TEXT, template_version_expected TEXT, drift_status TEXT, autonomy_level TEXT DEFAULT 'report', machine TEXT);
+
+CREATE TABLE reminders (
+        id          INTEGER PRIMARY KEY NOT NULL,
+        name        TEXT NOT NULL,
+        purpose     TEXT,
+        location    TEXT,
+        created_at  TEXT NOT NULL,
+        built_in_at TEXT,
+        deleted_at  TEXT,
+        updated_at  TEXT NOT NULL
+    );
 
 CREATE TABLE schema_migrations (
             version    INTEGER PRIMARY KEY,

@@ -5718,6 +5718,62 @@ def size_command(ctx: click.Context, json_output: bool, snapshot: bool) -> None:
 
 
 # =============================================================================
+# pt reminders: the dashboard's Erik's Reminders page (#8282)
+# =============================================================================
+
+
+@click.group(name="reminders", invoke_without_command=True)
+@click.pass_context
+def reminders_group(ctx: click.Context) -> None:
+    """Things Erik wants to remember: tools, guides, research, tips, decisions.
+
+    They show on the dashboard's "Erik's Reminders" page (/reminders), one
+    line each. Keep one until its content is built into a process, skill or
+    tool, then mark it built in. With no subcommand, lists the active ones.
+
+    \b
+    Add one (agents: this is the command):
+      pt reminders add "Saraev prompt pack" \\
+        --purpose "Run a client's work audit, then evals, skills and a schedule" \\
+        --location ~/projects/analyze-youtube-videos/library/nick-saraev/
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    reminders = DatabaseManager().list_reminders()
+    for r in reminders["active"]:
+        click.echo(f"#{r['id']} {r['name']}  (added {r['created_at'][:10]})")
+        for value in (r["purpose"], r["location"]):
+            if value:
+                click.echo(f"    {value}")
+    if not reminders["active"]:
+        click.echo("No active reminders.")
+    click.echo(f"{len(reminders['built_in'])} built in.")
+
+
+@reminders_group.command(name="add")
+@click.argument("name")
+@click.option("--purpose", help="Why or when to reach for it")
+@click.option("--location", help="Where it lives: a path or a link")
+def reminders_add(name: str, purpose: Optional[str], location: Optional[str]) -> None:
+    """Add a reminder; it appears on the dashboard page on the next load."""
+    try:
+        reminder = DatabaseManager().add_reminder(name, purpose, location)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="NAME") from exc
+    click.echo(f"Added reminder #{reminder['id']}: {reminder['name']}")
+
+
+@reminders_group.command(name="built-in")
+@click.argument("reminder_id", type=int)
+def reminders_built_in(reminder_id: int) -> None:
+    """Retire a reminder whose content is now part of a process, skill or tool."""
+    reminder = DatabaseManager().mark_reminder_built_in(reminder_id)
+    if reminder is None:
+        raise click.ClickException(f"no reminder #{reminder_id}")
+    click.echo(f"Reminder #{reminder_id} marked built in: {reminder['name']}")
+
+
+# =============================================================================
 # Register subgroups and run
 # =============================================================================
 
@@ -5738,6 +5794,7 @@ cli.add_command(db_group)
 cli.add_command(handoff_group)
 cli.add_command(jobs_group)
 cli.add_command(size_command)
+cli.add_command(reminders_group)
 cli.add_command(migration_group)
 
 def main() -> NoReturn:

@@ -9,6 +9,7 @@ import { JobsSubmittedPage } from './components/JobsSubmittedPage';
 import { VolunteerPage } from './components/VolunteerPage';
 import { CodebasePage } from './components/CodebasePage';
 import { MorningPage } from './components/MorningPage';
+import { RemindersPage } from './components/RemindersPage';
 import { Spinner } from './components/Spinner';
 import { PageBoundary } from './components/RouteErrorBoundary';
 import { ProjectsProvider } from './hooks/ProjectsProvider';
@@ -41,6 +42,7 @@ function App() {
                 <Route path="/jobs/volunteer" element={<VolunteerPage />} />
                 <Route path="/codebase" element={<CodebasePage />} />
                 <Route path="/morning" element={<MorningPage />} />
+                <Route path="/reminders" element={<RemindersPage />} />
                 <Route path="*" element={<Navigate to="/kanban" replace />} />
               </Routes>
             </Suspense>
