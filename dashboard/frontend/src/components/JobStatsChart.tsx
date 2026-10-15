@@ -53,7 +53,7 @@ export function JobStatsChart({ stats }: Props) {
       {hasData ? (
         <div className="job-stats-plot" role="img" aria-label="Daily job activity time series">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+            <LineChart data={chartData} margin={{ top: 8, right: 0, left: 0, bottom: 4 }}>
               <CartesianGrid stroke="#364052" strokeDasharray="3 3" />
               <XAxis
                 dataKey="date"
@@ -61,7 +61,15 @@ export function JobStatsChart({ stats }: Props) {
                 stroke="#acb5c3"
                 minTickGap={16}
               />
-              <YAxis stroke="#acb5c3" width={52} />
+              <YAxis yAxisId="jobs" stroke="#68b5ff" width={52} />
+              {/* Submissions run far below discoveries, so they get their own scale. */}
+              <YAxis
+                yAxisId="submissions"
+                orientation="right"
+                stroke="#66d9a7"
+                width={40}
+                allowDecimals={false}
+              />
               <Tooltip
                 labelFormatter={value => String(value)}
                 contentStyle={{ background: '#1e2530', border: '1px solid #47536a' }}
@@ -69,6 +77,7 @@ export function JobStatsChart({ stats }: Props) {
               <Legend />
               <Line
                 type="linear"
+                yAxisId="jobs"
                 dataKey="jobs"
                 name="Jobs discovered"
                 stroke="#68b5ff"
@@ -78,6 +87,7 @@ export function JobStatsChart({ stats }: Props) {
               />
               <Line
                 type="linear"
+                yAxisId="submissions"
                 dataKey="submissions"
                 name="Submissions"
                 stroke="#66d9a7"
