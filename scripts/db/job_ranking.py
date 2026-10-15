@@ -8,7 +8,9 @@ The score is a plain sum, so a surprising rank can be explained by reading
 the inputs below. Edit the keyword list and weights here; nothing else in the
 codebase hardcodes them. Seniority words are deliberately absent: Erik's
 2026-09-23 rule is that remote roles are never hidden or buried by title or
-level. Demoted rows still show, just lower.
+level. Demoted rows still show, just lower. The one exception is applied
+at import, not here: Staff/Principal-only titles are skipped (Erik,
+2026-10-15; db.jobs.is_staff_or_principal_only).
 """
 
 from __future__ import annotations

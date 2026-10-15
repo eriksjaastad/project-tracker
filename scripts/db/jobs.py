@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -23,6 +24,23 @@ _OPEN = """j.deleted_at IS NULL AND NOT EXISTS (
 
 _REQUIRED_IMPORT_FIELDS = ("company", "title", "url", "source")
 _OPTIONAL_TEXT_FIELDS = ("location", "posted_date", "raw")
+
+# Erik, 2026-10-15: Staff/Principal roles stay off the Jobs list. These two
+# are titles, not levels, so they never count.
+_NOT_A_LEVEL_RE = re.compile(r"\b(?:member of technical staff|chief of staff)\b", re.IGNORECASE)
+_SENIOR_STAFF_RE = re.compile(r"\b(?:senior|sr\.?)\s+staff\b", re.IGNORECASE)
+_TOP_LEVEL_RE = re.compile(r"\b(?:staff|principal|distinguished)\b", re.IGNORECASE)
+_LOWER_LEVEL_RE = re.compile(r"\b(?:senior|sr|mid|junior|jr|associate|entry)\b", re.IGNORECASE)
+
+
+def is_staff_or_principal_only(title: str) -> bool:
+    """True when every level the title names is Staff, Principal or Distinguished.
+
+    'Staff/Principal Software Engineer' is skipped; 'Senior/Staff Engineer'
+    still offers a level Erik takes, so it stays. 'Senior Staff' is one level.
+    """
+    text = _SENIOR_STAFF_RE.sub("staff", _NOT_A_LEVEL_RE.sub("", title))
+    return bool(_TOP_LEVEL_RE.search(text)) and not _LOWER_LEVEL_RE.search(text)
 
 
 def validate_import_record(record: Any) -> dict[str, Any]:
