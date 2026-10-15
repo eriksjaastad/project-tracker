@@ -20,11 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 AGENT_CHAT_ROOT = Path(__file__).resolve().parent.parent
-# The ~/.claude/open-brain/ directory keeps its legacy name deliberately:
-# ai-memory's state_paths.resolve_state_dir keeps existing installs there so
-# pending writes and checkpoints are never split, and raises if both it and
-# ai-memory/ exist. Do not rename this path (#7093).
-DROP_LOG = Path.home() / ".claude" / "open-brain" / "agent_chat_drops.log"
+# ai-memory's Claude state directory (its state_paths.resolve_state_dir).
+DROP_LOG = Path.home() / ".claude" / "ai-memory" / "agent_chat_drops.log"
 
 
 def _drop(reason: str, detail: str = "") -> None:
