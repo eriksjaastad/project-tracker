@@ -120,9 +120,8 @@ export function RemindersPage() {
           <span className="reminder-name">{reminder.name}</span>
           {reminder.purpose && <span className="job-location">{reminder.purpose}</span>}
           {reminder.location && <Location value={reminder.location} />}
-          <span className="job-date">
-            {reminder.built_in_at ? `built in ${dateOnly(reminder.built_in_at)}` : `added ${dateOnly(reminder.created_at)}`}
-          </span>
+          <span className="job-date">added {dateOnly(reminder.created_at)}</span>
+          {reminder.built_in_at && <span className="job-date">built in {dateOnly(reminder.built_in_at)}</span>}
         </div>
         <div className="job-actions">
           {!reminder.built_in_at && (

@@ -61,7 +61,8 @@ describe('RemindersPage', () => {
     expect(screen.getByText('Use 1')).toBeInTheDocument();
     expect(screen.getByText('~/projects/item-1.md').tagName).toBe('CODE');
     expect(screen.getByRole('link', { name: 'https://example.com/guide' })).toHaveAttribute('target', '_blank');
-    expect(screen.getAllByText('added 2026-10-14')).toHaveLength(2);
+    // Every row, built in or not, keeps its date added.
+    expect(screen.getAllByText('added 2026-10-14')).toHaveLength(3);
     expect(screen.getByText('Built in (1)')).toBeInTheDocument();
     // Built-in rows keep why and where, and can be removed but not re-marked.
     expect(screen.getByText('Use 3')).toBeInTheDocument();
