@@ -83,13 +83,15 @@ class CheckoutsMixin:
         with self._get_conn() as conn:
             if not _has_checkouts_table(conn):
                 raise CheckoutsMigrationPendingError()
-            if conn.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone() is None:
-                raise ValueError(f"no project {project_id!r}")
             try:
+                # One statement, so the project check and the insert share the
+                # write lock: a delete_project() can't land between them and
+                # leave a checkout for a project that is gone.
                 cursor = conn.execute(
                     "INSERT INTO project_checkouts "
-                    "(project_id, machine, holder, note, checked_out_at) VALUES (?, ?, ?, ?, ?)",
-                    (project_id, machine, holder, note, _utc_now()),
+                    "(project_id, machine, holder, note, checked_out_at) "
+                    "SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM projects WHERE id = ?)",
+                    (project_id, machine, holder, note, _utc_now(), project_id),
                 )
             except sqlite3.IntegrityError:
                 # The open-checkout unique index refused it: report who has it.
@@ -100,6 +102,8 @@ class CheckoutsMixin:
                 if held is None:
                     raise  # some other constraint; don't blame a holder
                 raise ProjectCheckedOut(dict(held)) from None
+            if cursor.rowcount == 0:
+                raise ValueError(f"no project {project_id!r}")
             row = conn.execute(
                 "SELECT * FROM project_checkouts WHERE id = ?", (cursor.lastrowid,)
             ).fetchone()

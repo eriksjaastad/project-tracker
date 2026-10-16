@@ -1288,12 +1288,11 @@ def project_checkout(project, machine, holder, note):
         raise click.ClickException(f"Project '{project}' not found")
     try:
         checkout = db.checkout_project(project_id, machine, holder, note)
-    except CheckoutsMigrationPendingError as exc:
-        raise click.ClickException(str(exc)) from exc
     except ProjectCheckedOut as exc:
         raise click.ClickException(f"refused: {exc}") from exc
     except ValueError as exc:
-        raise click.BadParameter(str(exc), param_hint="--holder") from exc
+        # Migration 023 pending, an empty --holder, or the project was just deleted.
+        raise click.ClickException(str(exc)) from exc
     click.echo(f"{project_id}: {_checkout_label(checkout)}")
 
 

@@ -40,6 +40,15 @@ def test_second_checkout_is_refused_naming_the_holder(holoscape) -> None:
     assert holoscape.get_open_checkouts()["holoscape"]["holder"] == "Qwen on Mini"
 
 
+def test_checkout_of_a_missing_project_inserts_nothing(holoscape) -> None:
+    # The project check is part of the INSERT, so a project deleted just
+    # before it leaves no orphan checkout behind.
+    with pytest.raises(ValueError, match="no project 'gone'"):
+        holoscape.checkout_project("gone", "mini", "Qwen on Mini")
+    with holoscape._get_conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM project_checkouts").fetchone()[0] == 0
+
+
 def test_checkin_records_who_and_frees_the_project(holoscape) -> None:
     holoscape.checkout_project("holoscape", "mini", "Qwen on Mini")
     result = _pt("project", "checkin", "holoscape", "--by", "Claude on MacBook")
