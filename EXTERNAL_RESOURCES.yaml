@@ -1904,8 +1904,10 @@ monitoring:
       state, not a new incident. Agents never run rclone against live DB files.
     rclone_remotes_present_on_laptop: [gbackup, r2_pose_factory, r2_flo_fi, s3]
     wired_today: [project-tracker, ai-memory]
+    # trading-copilot is off this list: Erik retired its backup 2026-10-16
+    # (trading-copilot PR #73).
     not_wired: [agent-chat, muffinpanrecipes, hypocrisynow, synth-insight-labs,
-                land-tracker, trading-copilot, tax-organizer, cortana-personal-ai,
+                land-tracker, tax-organizer, cortana-personal-ai,
                 fci-kwiky-thumbs]
 
   # --- secrets ---------------------------------------------------------------
