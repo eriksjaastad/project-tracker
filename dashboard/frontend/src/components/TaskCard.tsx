@@ -3,6 +3,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { ProjectCheckout, Task } from '../types';
 import { TASK_TYPE_LABELS } from '../types';
+import { CheckoutBadge } from './CheckoutBadge';
 import './TaskCard.css';
 
 interface TaskCardProps {
@@ -78,14 +79,7 @@ export function TaskCard({ task, onClick, checkout }: TaskCardProps) {
         </p>
         <div className="task-card-meta">
           <span className="task-card-project">{task.project_id}</span>
-          {checkout && (
-            <span
-              className="task-card-checkout-badge"
-              title={`${task.project_id} is checked out to the ${checkout.machine_label} by ${checkout.holder}; develop it only there`}
-            >
-              Checked out · {checkout.machine_label}
-            </span>
-          )}
+          {checkout && <CheckoutBadge projectId={task.project_id} checkout={checkout} />}
           {task.category && (
             <span className="task-card-category" title="Category">
               {task.category}

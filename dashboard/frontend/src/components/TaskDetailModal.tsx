@@ -3,6 +3,7 @@ import type { Task, TaskStatus, TaskPriority, TaskType, Attachment } from '../ty
 import { KANBAN_STATUSES, TASK_PRIORITIES, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from '../types';
 import { updateTask, fetchTask, toggleChecklistItem, NotesConflictError, fetchAttachments, uploadAttachment, deleteAttachment, isAbortError } from '../api';
 import { useProjects } from '../hooks/useProjects';
+import { CheckoutBadge } from './CheckoutBadge';
 import { parseNotesLines } from '../utils/checklist';
 import './TaskDetailModal.css';
 
@@ -545,7 +546,8 @@ export function TaskDetailModal({
                 <div className="task-detail-field">
                   <label className="task-detail-label">Project</label>
                   <div className="task-detail-value">
-                    {project?.name || task.project_id}
+                    {project?.name || task.project_id}{' '}
+                    {project?.checkout && <CheckoutBadge projectId={task.project_id} checkout={project.checkout} />}
                   </div>
                 </div>
 

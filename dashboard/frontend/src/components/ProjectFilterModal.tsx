@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Project } from '../types';
 import { useProjects } from '../hooks/useProjects';
+import { CheckoutBadge } from './CheckoutBadge';
 import './ProjectFilterModal.css';
 
 interface ProjectFilterModalProps {
@@ -146,6 +147,7 @@ export function ProjectFilterModal({
                           <span className="project-filter-badge">{project.portfolio_label}</span>
                         )}
                         <span className="project-filter-name">{project.name}</span>
+                        {project.checkout && <CheckoutBadge projectId={project.id} checkout={project.checkout} />}
                       </span>
                       {typeof project.task_count === 'number' && (
                         <span className="project-filter-count">{project.task_count}</span>

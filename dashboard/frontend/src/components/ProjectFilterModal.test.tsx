@@ -131,3 +131,16 @@ describe('ProjectFilterModal on the shared project list', () => {
     expect(screen.queryByText('Loading projects...')).toBeNull();
   });
 });
+
+describe('ProjectFilterModal checkouts', () => {
+  it('badges a project that is checked out (#8339)', async () => {
+    vi.mocked(fetchProjects).mockResolvedValue([
+      {
+        id: 'holoscape', name: 'holoscape', path: 'virtual://holoscape', status: 'active',
+        checkout: { machine: 'mini', machine_label: 'Mac Mini', holder: 'Qwen on Mini', note: null, checked_out_at: '2026-10-16' },
+      },
+    ]);
+    renderModal(true);
+    expect(await screen.findByText('Checked out · Mac Mini')).toBeTruthy();
+  });
+});

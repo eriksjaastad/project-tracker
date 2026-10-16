@@ -64,6 +64,8 @@ def test_listings_and_api_show_the_checkout(holoscape) -> None:
     assert "[OUT: Mac Mini] | holoscape |" in everything.output
     # Board cells wrap at 20 columns, so check the start of the marker.
     assert "[OUT:" in _pt("tasks", "--board").output
+    assert "CHECKED OUT — Mac Mini" in _pt("status", "holoscape").output
+    assert "holoscape | active | - | 0% | ! | CHECKED OUT — Mac Mini" in _pt("list").output
 
     [project] = [p for p in TestClient(app).get("/api/projects").json()["projects"] if p["id"] == "holoscape"]
     assert (project["checkout"]["machine_label"], project["checkout"]["holder"]) == ("Mac Mini", "Qwen on Mini")

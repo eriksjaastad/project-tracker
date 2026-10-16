@@ -655,12 +655,15 @@ def list_projects():
     if not projects:
         print("No projects found. Run 'pt scan' first.")
         return
+    checkouts = db.get_open_checkouts()
     print("Projects\n")
     for project in projects:
         idx = "✓" if project.get("has_index") and project.get("index_is_valid") else "!"
         phase = project.get("phase") or "-"
         pct = project.get("completion_pct", 0)
-        print(f"{project['name']} | {project['status']} | {phase} | {pct}% | {idx}")
+        checkout = checkouts.get(project["id"])
+        out = f" | {_checkout_label(checkout)}" if checkout else ""
+        print(f"{project['name']} | {project['status']} | {phase} | {pct}% | {idx}{out}")
     print(f"\nTotal: {len(projects)} projects")
 
 
@@ -675,6 +678,9 @@ def status(name):
         console.print(f"[red]Project '{name}' not found[/red]")
         return
     console.print(f"\n[bold cyan]{project['name']}[/bold cyan]")
+    checkout = db.get_open_checkouts().get(project["id"])
+    if checkout:
+        console.print(f"[bold red]{escape(_checkout_label(checkout))}[/bold red]")
     console.print(f"Path: {project['path']}")
     console.print(f"Status: [green]{project['status']}[/green]")
     if project.get("phase"): console.print(f"Phase: {project['phase']}")
@@ -1199,8 +1205,9 @@ def project_group():
     Mac Mini) is developed only there, for as long as it stays out, which
     can be weeks. Before development work, check `pt project checkouts`.
     Cards can still be added to a checked-out project: the board is how you
-    reach the floor manager working it. `pt tasks`, `pt tasks next`,
-    `pt tasks show` and the dashboard board all show CHECKED OUT.
+    reach the floor manager working it. `pt list`, `pt status`, `pt tasks`
+    (and its --board and --json), `pt tasks next`, `pt tasks show` and the
+    dashboard's board, cards, task details and project filter all show it.
       pt project checkout holoscape --machine mini --holder "Qwen on Mini"
       pt project checkin holoscape --by "Claude on MacBook"
     """
