@@ -69,6 +69,27 @@ describe('KanbanBoard', () => {
     expect(await screen.findByRole('button', { name: /add task/i })).toBeInTheDocument();
   });
 
+  it('shows a CHECKED OUT banner on a project checked out to another machine', async () => {
+    vi.mocked(fetchProjects).mockResolvedValue([
+      {
+        id: 'holoscape', name: 'holoscape', path: 'virtual://holoscape', status: 'active',
+        checkout: { machine: 'mini', machine_label: 'Mac Mini', holder: 'Qwen on Mini', note: null, checked_out_at: '2026-10-16T12:00:00+00:00' },
+      },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/kanban/holoscape']}>
+        <Routes>
+          <Route path="/kanban/:project" element={<KanbanBoard />} />
+        </Routes>
+      </MemoryRouter>
+    , { wrapper: ProjectsProvider });
+
+    const banner = await screen.findByRole('status');
+    expect(banner).toHaveTextContent('CHECKED OUT — Mac Mini');
+    expect(banner).toHaveTextContent('Qwen on Mini has had it since 2026-10-16');
+  });
+
   describe('network', () => {
     afterEach(() => vi.unstubAllGlobals());
 

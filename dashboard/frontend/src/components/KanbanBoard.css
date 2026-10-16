@@ -187,3 +187,21 @@
   max-height: 90vh;
   overflow-y: auto;
 }
+/* A project checked out to a machine is developed only there (#8339). */
+.kanban-checkout-banner {
+  border: 2px solid var(--danger);
+  background: rgba(255, 107, 107, 0.12);
+  border-radius: 8px;
+  padding: var(--space-md) var(--space-lg);
+}
+
+.kanban-checkout-banner strong {
+  display: block;
+  color: var(--danger);
+  font-size: 1.1rem;
+  letter-spacing: 0.04em;
+}
+
+.kanban-checkout-banner p {
+  margin: var(--space-xs) 0 0;
+}

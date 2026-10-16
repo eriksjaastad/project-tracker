@@ -125,6 +125,16 @@ export interface Project {
   portfolio_group?: string | null;
   portfolio_label?: string | null;
   portfolio_parent?: string | null;
+  /** The open checkout (#8339): the project is developed only on that machine. */
+  checkout?: ProjectCheckout | null;
+}
+
+export interface ProjectCheckout {
+  machine: string;
+  machine_label: string;
+  holder: string;
+  note: string | null;
+  checked_out_at: string;
 }
 
 export interface NavigationItem {

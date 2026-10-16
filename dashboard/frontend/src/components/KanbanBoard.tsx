@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { DndContext, rectIntersection, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
-import type { Task, TaskStatus, TaskPriority, TaskType } from '../types';
+import type { ProjectCheckout, Task, TaskStatus, TaskPriority, TaskType } from '../types';
 import { KANBAN_STATUSES, TASK_STATUS_LABELS } from '../types';
 import { fetchTasks, updateTask, createTask, deleteTask, isAbortError } from '../api';
 import { useProjects } from '../hooks/useProjects';
@@ -244,6 +244,14 @@ export function KanbanBoard() {
   );
   const currentProject = project ? projects?.find((entry) => entry.id === project) : undefined;
   const canCreateCards = !project || currentProject?.can_create_cards !== false;
+  const checkouts = useMemo(() => {
+    const byProject: Record<string, ProjectCheckout> = {};
+    for (const entry of projects ?? []) {
+      if (entry.checkout) byProject[entry.id] = entry.checkout;
+    }
+    return byProject;
+  }, [projects]);
+  const currentCheckout = project ? checkouts[project] : undefined;
 
   const headerActions = (
     <>
@@ -300,6 +308,16 @@ export function KanbanBoard() {
         </div>
       ) : (
         <div className="kanban-board">
+          {currentCheckout && (
+            <div className="kanban-checkout-banner" role="status">
+              <strong>CHECKED OUT — {currentCheckout.machine_label}</strong>
+              <p>
+                {currentCheckout.holder} has had it since {currentCheckout.checked_out_at.slice(0, 10)}
+                {currentCheckout.note ? `: ${currentCheckout.note}` : ''}. Develop it only on the{' '}
+                {currentCheckout.machine_label}. Cards added here reach the floor manager working it there.
+              </p>
+            </div>
+          )}
           <DndContext
             sensors={sensors}
             collisionDetection={rectIntersection}
@@ -313,6 +331,7 @@ export function KanbanBoard() {
                   status={status}
                   tasks={tasksByStatus[status]}
                   onTaskClick={handleTaskClick}
+                  checkouts={checkouts}
                 />
               ))}
             </div>

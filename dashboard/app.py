@@ -38,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from db.attachment_paths import attachments_dir
 from db.backend_manager import NotesConflictError
+from db.checkouts import MACHINE_LABELS
 from db.jobs import JobsMigrationPendingError
 from db.manager import DatabaseManager
 from db.outreach import ContactStateConflictError
@@ -857,10 +858,15 @@ def api_projects():
     
     # Enrich with related data (bulk — 4 queries instead of 4N)
     enriched_projects = _bulk_enrich(projects, db)
+    checkouts = db.get_open_checkouts()
 
     for project in enriched_projects:
         project["can_create_cards"] = is_card_creation_allowed(project["id"])
         project["blocked_card_reason"] = get_blocked_card_reason(project["id"])
+        checkout = checkouts.get(project["id"])
+        project["checkout"] = (
+            {**checkout, "machine_label": MACHINE_LABELS[checkout["machine"]]} if checkout else None
+        )
 
     return {"projects": enriched_projects}
 

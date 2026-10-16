@@ -1,16 +1,18 @@
 import { useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { Task } from '../types';
+import type { ProjectCheckout, Task } from '../types';
 import { TASK_TYPE_LABELS } from '../types';
 import './TaskCard.css';
 
 interface TaskCardProps {
   task: Task;
   onClick?: () => void;
+  /** Set when the card's project is checked out to a machine (#8339). */
+  checkout?: ProjectCheckout | null;
 }
 
-export function TaskCard({ task, onClick }: TaskCardProps) {
+export function TaskCard({ task, onClick, checkout }: TaskCardProps) {
   const {
     attributes,
     listeners,
@@ -76,6 +78,14 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
         </p>
         <div className="task-card-meta">
           <span className="task-card-project">{task.project_id}</span>
+          {checkout && (
+            <span
+              className="task-card-checkout-badge"
+              title={`${task.project_id} is checked out to the ${checkout.machine_label} by ${checkout.holder}; develop it only there`}
+            >
+              Checked out · {checkout.machine_label}
+            </span>
+          )}
           {task.category && (
             <span className="task-card-category" title="Category">
               {task.category}

@@ -1,6 +1,6 @@
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import type { Task, TaskStatus } from '../types';
+import type { ProjectCheckout, Task, TaskStatus } from '../types';
 import { TASK_STATUS_LABELS } from '../types';
 import { TaskCard } from './TaskCard';
 import './Column.css';
@@ -9,9 +9,11 @@ interface ColumnProps {
   status: TaskStatus;
   tasks: Task[];
   onTaskClick?: (task: Task) => void;
+  /** Open checkouts by project id (#8339); a card from one shows a badge. */
+  checkouts?: Record<string, ProjectCheckout>;
 }
 
-export function Column({ status, tasks, onTaskClick }: ColumnProps) {
+export function Column({ status, tasks, onTaskClick, checkouts }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: status,
   });
@@ -35,6 +37,7 @@ export function Column({ status, tasks, onTaskClick }: ColumnProps) {
               key={task.id}
               task={task}
               onClick={onTaskClick ? () => onTaskClick(task) : undefined}
+              checkout={checkouts?.[task.project_id]}
             />
           ))}
         </div>
