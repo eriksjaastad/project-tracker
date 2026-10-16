@@ -34,11 +34,11 @@ accounts:
     type: business
     email: "admin@synthinsightlabs.com"
     domain: "synthinsightlabs.com"
-    github: "10 GitHub Apps managed under synth-insight-labs Doppler (architect, manager, claude, ai-memory, hypocrisynow, muffinpanrecipes, tax-organizer, synthinsightlabs, tools, auxesis-coder)"
+    github: "No writer Apps since their deletion on 2026-10-16; the Auxesis App is listed under the auxesis project entry."
     bank: "confirm — not yet documented"
     llc: true  # Confirmed by Erik 2026-06-29: SIL is a real LLC.
     ein: "Obtained (confirmed 2026-06-29). Value stored in Doppler as SYNTH_INSIGHT_LABS_LLC_EIN (synth-insight-labs + auxesis configs); not inlined here per the no-secret-values policy."
-    notes: "Real business entity (LLC + EIN). Also the company identity/infra hub — see the synth-insight-labs project entry below (GitHub App creds, Google OAuth, Resend, Bluesky, Paddle). Re-check market_data_policy now that SIL is incorporated: keep market-data subscriptions under the personal (spudlogic) account to avoid 'professional subscriber' fees."
+    notes: "Real business entity (LLC + EIN). Also the company identity/infra hub — see the synth-insight-labs project entry below (Google OAuth, Resend, Bluesky, Paddle). Re-check market_data_policy now that SIL is incorporated: keep market-data subscriptions under the personal (spudlogic) account to avoid 'professional subscriber' fees."
 
 # VENDORS WITH AN ACCOUNT ON BOTH IDENTITIES
 # A vendor listed here has TWO separate accounts, one per identity. Logging in shows
@@ -1171,7 +1171,7 @@ api_key_inventory:
       api_key_names_from_repo:
         - COST_TRACKER_API_KEY
         - XAI_API_KEY
-      notes: "Prior audit called this the shared infra hub. It may intentionally hold central GitHub App/package tokens; AI provider key sharing should be reviewed."
+      notes: "Prior audit called this the shared infra hub. It may intentionally hold central package tokens (no GitHub App keys since 2026-10-16); AI provider key sharing should be reviewed."
 
     trading-copilot:
       configs_seen: ["dev"]
