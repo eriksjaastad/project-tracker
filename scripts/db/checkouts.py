@@ -28,6 +28,26 @@ class ProjectCheckedOut(Exception):
         )
 
 
+class CheckoutsMigrationPendingError(ValueError):
+    """A checkout or check-in on a database still waiting for migration 023."""
+
+    def __init__(self) -> None:
+        super().__init__("project checkouts need migration 023; run `pt db migrate`")
+
+
+def _has_checkouts_table(conn: Any) -> bool:
+    """True once migration 023 has created project_checkouts.
+
+    Numbered migrations reach an existing database only through
+    `pt db migrate`; neither the dashboard nor `pt` applies them at startup.
+    Until then no project can be checked out, so reads report none and
+    `pt tasks` and the board keep working; only writes refuse.
+    """
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'project_checkouts'"
+    ).fetchone() is not None
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -43,8 +63,10 @@ class CheckoutsMixin:
     """Checkout operations exposed through the shared DatabaseManager."""
 
     def get_open_checkouts(self) -> dict[str, dict[str, Any]]:
-        """Every project's open checkout, keyed by project id."""
+        """Every project's open checkout, keyed by project id; none before migration 023."""
         with self._get_conn() as conn:
+            if not _has_checkouts_table(conn):
+                return {}
             rows = conn.execute(
                 "SELECT * FROM project_checkouts WHERE checked_in_at IS NULL"
             ).fetchall()
@@ -59,6 +81,8 @@ class CheckoutsMixin:
         holder = _required(holder, "holder")
         note = (note or "").strip() or None
         with self._get_conn() as conn:
+            if not _has_checkouts_table(conn):
+                raise CheckoutsMigrationPendingError()
             if conn.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone() is None:
                 raise ValueError(f"no project {project_id!r}")
             try:
@@ -84,6 +108,8 @@ class CheckoutsMixin:
         """Close the open checkout, recording who and when; None if none is open."""
         by = _required(by, "by")
         with self._get_conn() as conn:
+            if not _has_checkouts_table(conn):
+                raise CheckoutsMigrationPendingError()
             row = conn.execute(
                 "UPDATE project_checkouts SET checked_in_at = ?, checked_in_by = ? "
                 "WHERE project_id = ? AND checked_in_at IS NULL RETURNING *",

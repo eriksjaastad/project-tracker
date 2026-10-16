@@ -45,7 +45,7 @@ from db.schema import (
     init_db, get_db_path, SafetyError, FreshDatabaseError,
 )
 from db.manager import DatabaseManager
-from db.checkouts import MACHINE_LABELS, ProjectCheckedOut
+from db.checkouts import MACHINE_LABELS, CheckoutsMigrationPendingError, ProjectCheckedOut
 from db.backend_calendar_manager import validate_event_date, validate_event_time
 from discovery.project_scanner import (
     PORTFOLIO_ROOTS,
@@ -397,16 +397,6 @@ def _blocked_label(blocking_ids, reason, display_map) -> str:
     if reason:
         return "unreadable"
     return ",".join(str(display_map.get(int(i), i)) for i in blocking_ids)
-
-def _checkouts(call: Callable[[], Any]) -> Any:
-    """Run one project-checkout call; a database without migration 023 says how to fix it."""
-    try:
-        return call()
-    except sqlite3.OperationalError as exc:
-        if "no such table" in str(exc):
-            raise click.ClickException("table project_checkouts is missing; run `pt db migrate`") from exc
-        raise
-
 
 def _checkout_label(checkout: dict) -> str:
     """`CHECKED OUT — Mac Mini (Qwen on Mini, since 2026-10-16)`, the one wording every surface prints."""
@@ -1285,7 +1275,9 @@ def project_checkout(project, machine, holder, note):
     if not project_id:
         raise click.ClickException(f"Project '{project}' not found")
     try:
-        checkout = _checkouts(lambda: db.checkout_project(project_id, machine, holder, note))
+        checkout = db.checkout_project(project_id, machine, holder, note)
+    except CheckoutsMigrationPendingError as exc:
+        raise click.ClickException(str(exc)) from exc
     except ProjectCheckedOut as exc:
         raise click.ClickException(f"refused: {exc}") from exc
     except ValueError as exc:
@@ -1303,7 +1295,9 @@ def project_checkin(project, by):
     if not project_id:
         raise click.ClickException(f"Project '{project}' not found")
     try:
-        checkout = _checkouts(lambda: db.checkin_project(project_id, by))
+        checkout = db.checkin_project(project_id, by)
+    except CheckoutsMigrationPendingError as exc:
+        raise click.ClickException(str(exc)) from exc
     except ValueError as exc:
         raise click.BadParameter(str(exc), param_hint="--by") from exc
     if checkout is None:
@@ -1317,7 +1311,7 @@ def project_checkin(project, by):
 @project_group.command(name="checkouts")
 def project_checkouts():
     """List every project that is checked out, and to which machine."""
-    checkouts = _checkouts(DatabaseManager().get_open_checkouts)
+    checkouts = DatabaseManager().get_open_checkouts()
     if not checkouts:
         click.echo("No projects are checked out.")
     for project_id, checkout in sorted(checkouts.items()):
@@ -1775,7 +1769,7 @@ def _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt
         task_list = [t for t in task_list if not t.get("prompt")]
     if ready:
         task_list = [t for t in task_list if t["status"] == "To Do" and _has_complete_prompt(t.get("prompt"))]
-    checkouts = _checkouts(db.get_open_checkouts)
+    checkouts = db.get_open_checkouts()
     if project_id in checkouts and not json_output:
         console.print(f"[bold red]{escape(_checkout_label(checkouts[project_id]))}[/bold red]")
         console.print(
@@ -2205,7 +2199,7 @@ def tasks_show(task_ids, json_output):
     """Show full details of one or more tasks including prompt."""
     db = DatabaseManager()
     tasks = []
-    checkouts = _checkouts(db.get_open_checkouts)
+    checkouts = db.get_open_checkouts()
 
     # Show sizing reminder once at the top for agent/human planning
     if not json_output and task_ids:
@@ -2269,7 +2263,7 @@ def tasks_next(project, json_output):
     status_rank = {"In Progress": 0, "To Do": 1}
     actionable.sort(key=lambda t: (status_rank.get(t["status"], 99), priority_rank.get(t.get("priority"), 4)))
     task = actionable[0]
-    checkout = _checkouts(db.get_open_checkouts).get(task["project_id"])
+    checkout = db.get_open_checkouts().get(task["project_id"])
     if json_output:
         import json as json_lib
         print(json_lib.dumps({**task, "checkout": checkout}, indent=2))

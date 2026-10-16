@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -63,3 +65,15 @@ def test_listings_and_api_show_the_checkout(holoscape) -> None:
 
     [project] = [p for p in TestClient(app).get("/api/projects").json()["projects"] if p["id"] == "holoscape"]
     assert (project["checkout"]["machine_label"], project["checkout"]["holder"]) == ("Mac Mini", "Qwen on Mini")
+
+
+def test_before_migration_023_listings_work_and_checkout_says_to_migrate(holoscape) -> None:
+    # The per-test database copy, not the live one.
+    with sqlite3.connect(os.environ["PT_DB_PATH"]) as conn:
+        conn.execute("DROP TABLE project_checkouts")
+    assert _pt("tasks", "-p", "holoscape").exit_code == 0
+    response = TestClient(app).get("/api/projects")
+    assert response.status_code == 200
+    assert all(p["checkout"] is None for p in response.json()["projects"])
+    refused = _pt("project", "checkout", "holoscape", "--machine", "mini", "--holder", "Qwen")
+    assert refused.exit_code != 0 and "run `pt db migrate`" in refused.output
