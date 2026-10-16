@@ -97,6 +97,8 @@ class CheckoutsMixin:
                     "SELECT * FROM project_checkouts WHERE project_id = ? AND checked_in_at IS NULL",
                     (project_id,),
                 ).fetchone()
+                if held is None:
+                    raise  # some other constraint; don't blame a holder
                 raise ProjectCheckedOut(dict(held)) from None
             row = conn.execute(
                 "SELECT * FROM project_checkouts WHERE id = ?", (cursor.lastrowid,)
