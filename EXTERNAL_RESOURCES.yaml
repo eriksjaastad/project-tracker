@@ -864,22 +864,6 @@ projects:
         status: not_signed_up
         notes: "No Azure account exists; Erik declined to sign up (2026-10-07). See rejected_services."
 
-  twitter-growth:
-    monthly_cost: "audit"
-    account: spudlogic
-    credential_file: "Doppler (twitter-growth/dev)"
-    services:
-      - name: X API v2
-        purpose: "Account/feed analysis scripts (scripts/*.py → api.x.com/2)"
-        type: social
-        env_var: "CONSUMER_KEY, CONSUMER_KEY_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET"
-        cost: "audit"
-      - name: Congress.gov API
-        purpose: "Legislator data"
-        type: data
-        env_var: "CONGRESS_API_KEY"
-        cost: 0
-
   # Portfolio-wide accounts that are not tied to one project.
   portfolio-wide:
     account: spudlogic
@@ -1502,8 +1486,8 @@ recent_changes:
   - date: "2026-10-07"
     change: |
       Audit pass against code in ~/projects (env var NAMES, SDK imports, workflows; no secret values
-      read). Added portfolio-wide (OpenRouter, Claude Code, Codex CLI, GitHub, Google Drive, Tailscale),
-      ledgercheck and twitter-growth. Corrected project-tracker (not 100% local), cortana and
+      read). Added portfolio-wide (OpenRouter, Claude Code, Codex CLI, GitHub, Google Drive, Tailscale)
+      and ledgercheck. Corrected project-tracker (not 100% local), cortana and
       ai-memory-replay (now OpenRouter), agent-runtime-config (OpenRouter; DeepSeek/OpenAI direct
       retired), land-tracker (Gmail email now wired), agent-chat (Cloud Run + Cloud SQL), and filled in
       hypocrisynow, muffinpanrecipes, flo-fi, ai-memory and synth-insight-labs services. Marked DeepSeek
@@ -1920,7 +1904,7 @@ monitoring:
       state, not a new incident. Agents never run rclone against live DB files.
     rclone_remotes_present_on_laptop: [gbackup, r2_pose_factory, r2_flo_fi, s3]
     wired_today: [project-tracker, ai-memory]
-    not_wired: [agent-chat, muffinpanrecipes, hypocrisynow, synth-insight-labs, twitter-growth,
+    not_wired: [agent-chat, muffinpanrecipes, hypocrisynow, synth-insight-labs,
                 land-tracker, trading-copilot, tax-organizer, cortana-personal-ai,
                 fci-kwiky-thumbs]
 
