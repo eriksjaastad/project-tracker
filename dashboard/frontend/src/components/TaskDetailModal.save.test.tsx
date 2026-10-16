@@ -51,6 +51,21 @@ function renderModal(task = makeTask(), onUpdate = vi.fn()) {
   return { onUpdate };
 }
 
+describe('TaskDetailModal checkout', () => {
+  it("badges the project when it is checked out (#8339)", async () => {
+    vi.resetAllMocks();
+    vi.mocked(fetchAttachments).mockResolvedValue([]);
+    vi.mocked(fetchProjects).mockResolvedValue([
+      {
+        id: 'project-tracker', name: 'Project Tracker', path: '/p', status: 'active',
+        checkout: { machine: 'mini', machine_label: 'Mac Mini', holder: 'Qwen on Mini', note: null, checked_out_at: '2026-10-16' },
+      },
+    ]);
+    renderModal();
+    expect(await screen.findByText('Checked out · Mac Mini')).toBeInTheDocument();
+  });
+});
+
 describe('TaskDetailModal edit Save', () => {
   beforeEach(() => {
     vi.resetAllMocks();

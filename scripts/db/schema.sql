@@ -1,6 +1,6 @@
 -- Maintained by scripts/db/schema_dump.py (make schema). Never edit by hand: add a migration.
--- Migrations: through 022
--- Body sha256: 48fa6a652d34a8a2e6daf7989b7b1410261d1e031944ea52a2f7bdb7b07b9f7d
+-- Migrations: through 023
+-- Body sha256: b1f2905d1df7e852426f4b80cd04687b22027bbb02a5905e312142c56672b03b
 
 CREATE TABLE _delete_permissions (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -193,6 +193,17 @@ CREATE TABLE outreach_contacts (
             updated_at   TEXT NOT NULL
         );
 
+CREATE TABLE project_checkouts (
+        id             INTEGER PRIMARY KEY NOT NULL,
+        project_id     TEXT NOT NULL,
+        machine        TEXT NOT NULL,
+        holder         TEXT NOT NULL,
+        note           TEXT,
+        checked_out_at TEXT NOT NULL,
+        checked_in_at  TEXT,
+        checked_in_by  TEXT
+    );
+
 CREATE TABLE "project_info" (
             id INTEGER PRIMARY KEY NOT NULL,
             project_id TEXT,
@@ -357,6 +368,9 @@ CREATE INDEX idx_migrations_status
 
 CREATE INDEX idx_outreach_contacts_deleted_replied
         ON outreach_contacts(deleted_at, replied_at);
+
+CREATE UNIQUE INDEX idx_project_checkouts_open
+        ON project_checkouts (project_id) WHERE checked_in_at IS NULL;
 
 CREATE INDEX idx_project_info_project ON project_info(project_id);
 

@@ -45,6 +45,7 @@ from db.schema import (
     init_db, get_db_path, SafetyError, FreshDatabaseError,
 )
 from db.manager import DatabaseManager
+from db.checkouts import MACHINE_LABELS, CheckoutsMigrationPendingError, ProjectCheckedOut
 from db.backend_calendar_manager import validate_event_date, validate_event_time
 from discovery.project_scanner import (
     PORTFOLIO_ROOTS,
@@ -397,9 +398,26 @@ def _blocked_label(blocking_ids, reason, display_map) -> str:
         return "unreadable"
     return ",".join(str(display_map.get(int(i), i)) for i in blocking_ids)
 
-def _display_tasks(task_list, project=None, json_output=False, db=None):
+def _checkout_label(checkout: dict) -> str:
+    """`CHECKED OUT — Mac Mini (Qwen on Mini, since 2026-10-16)`, the one wording every surface prints."""
+    return (
+        f"CHECKED OUT — {MACHINE_LABELS[checkout['machine']]} "
+        f"({checkout['holder']}, since {checkout['checked_out_at'][:10]})"
+    )
+
+
+def _checkout_marker(checkouts: dict, project_id: str) -> str:
+    """`[OUT: Mac Mini] ` for a card whose project is checked out, else empty."""
+    checkout = checkouts.get(project_id)
+    return f"[OUT: {MACHINE_LABELS[checkout['machine']]}] " if checkout else ""
+
+
+def _display_tasks(task_list, project=None, json_output=False, db=None, checkouts=None):
     import json as json_lib
+    checkouts = checkouts or {}
     if json_output:
+        for task in task_list:
+            task["checkout"] = checkouts.get(task["project_id"])
         backend = "local"
         print(json_lib.dumps({"tasks": task_list, "total": len(task_list), "backend": backend}, indent=2))
         return
@@ -439,7 +457,8 @@ def _display_tasks(task_list, project=None, json_output=False, db=None):
         if project:
             print(f"#{label} {prompt_marker}{blocked_marker}| {status} | {priority} | {task_text}")
         else:
-            print(f"#{label} {prompt_marker}{blocked_marker}| {task['project_id']} | {status} | {priority} | {task_text}")
+            out_marker = _checkout_marker(checkouts, task["project_id"])
+            print(f"#{label} {prompt_marker}{blocked_marker}{out_marker}| {task['project_id']} | {status} | {priority} | {task_text}")
     status_counts = {}
     for task in task_list:
         status_counts[task["status"]] = status_counts.get(task["status"], 0) + 1
@@ -636,12 +655,15 @@ def list_projects():
     if not projects:
         print("No projects found. Run 'pt scan' first.")
         return
+    checkouts = db.get_open_checkouts()
     print("Projects\n")
     for project in projects:
         idx = "✓" if project.get("has_index") and project.get("index_is_valid") else "!"
         phase = project.get("phase") or "-"
         pct = project.get("completion_pct", 0)
-        print(f"{project['name']} | {project['status']} | {phase} | {pct}% | {idx}")
+        checkout = checkouts.get(project["id"])
+        out = f" | {_checkout_label(checkout)}" if checkout else ""
+        print(f"{project['name']} | {project['status']} | {phase} | {pct}% | {idx}{out}")
     print(f"\nTotal: {len(projects)} projects")
 
 
@@ -656,6 +678,9 @@ def status(name):
         console.print(f"[red]Project '{name}' not found[/red]")
         return
     console.print(f"\n[bold cyan]{project['name']}[/bold cyan]")
+    checkout = db.get_open_checkouts().get(project["id"])
+    if checkout:
+        console.print(f"[bold red]{escape(_checkout_label(checkout))}[/bold red]")
     console.print(f"Path: {project['path']}")
     console.print(f"Status: [green]{project['status']}[/green]")
     if project.get("phase"): console.print(f"Phase: {project['phase']}")
@@ -1173,7 +1198,19 @@ def launch(port, no_scan, reload):
 
 @cli.group(name="project")
 def project_group():
-    """Manage manually tracked project records."""
+    """Manage project records and which machine a project is checked out to.
+
+    \b
+    Checkouts: a project checked out to one machine (the MacBook or the
+    Mac Mini) is developed only there, for as long as it stays out, which
+    can be weeks. Before development work, check `pt project checkouts`.
+    Cards can still be added to a checked-out project: the board is how you
+    reach the floor manager working it. `pt list`, `pt status`, `pt tasks`
+    (and its --board and --json), `pt tasks next`, `pt tasks show` and the
+    dashboard's board, cards, task details and project filter all show it.
+      pt project checkout holoscape --machine mini --holder "Qwen on Mini"
+      pt project checkin holoscape --by "Claude on MacBook"
+    """
     pass
 
 
@@ -1232,6 +1269,66 @@ def project_add(project_id, name, project_path, virtual, description, status):
         f"({cleaned_id})[/green]"
     )
     console.print(f"[dim]Path: {resolved_path}[/dim]")
+
+
+@project_group.command(name="checkout")
+@click.argument("project")
+@click.option("--machine", required=True, type=click.Choice(sorted(MACHINE_LABELS)),
+              help="laptop (the MacBook) or mini (the Mac Mini)")
+@click.option("--holder", required=True, help='Who has it, e.g. "Qwen on Mini"')
+@click.option("--note", default=None, help="Optional: what it is out for")
+def project_checkout(project, machine, holder, note):
+    """Check PROJECT out to a machine; refused while someone else has it.
+
+    It stays out until `pt project checkin`. There is no expiry.
+    """
+    db = DatabaseManager()
+    project_id = _resolve_project_id(db, project)
+    if not project_id:
+        raise click.ClickException(f"Project '{project}' not found")
+    try:
+        checkout = db.checkout_project(project_id, machine, holder, note)
+    except ProjectCheckedOut as exc:
+        raise click.ClickException(f"refused: {exc}") from exc
+    except ValueError as exc:
+        # Migration 023 pending, an empty --holder, or the project was just deleted.
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"{project_id}: {_checkout_label(checkout)}")
+
+
+@project_group.command(name="checkin")
+@click.argument("project")
+@click.option("--by", "by", required=True, help='Who is checking it in, e.g. "Claude on MacBook"')
+def project_checkin(project, by):
+    """Check PROJECT back in, recording who and when."""
+    db = DatabaseManager()
+    project_id = _resolve_project_id(db, project)
+    if not project_id:
+        raise click.ClickException(f"Project '{project}' not found")
+    try:
+        checkout = db.checkin_project(project_id, by)
+    except CheckoutsMigrationPendingError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--by") from exc
+    if checkout is None:
+        raise click.ClickException(f"{project_id} is not checked out")
+    click.echo(
+        f"{project_id} checked in by {checkout['checked_in_by']} "
+        f"(was out to {MACHINE_LABELS[checkout['machine']]} with {checkout['holder']})"
+    )
+
+
+@project_group.command(name="checkouts")
+def project_checkouts():
+    """List every project that is checked out, and to which machine."""
+    checkouts = DatabaseManager().get_open_checkouts()
+    if not checkouts:
+        click.echo("No projects are checked out.")
+    for project_id, checkout in sorted(checkouts.items()):
+        click.echo(f"{project_id}: {_checkout_label(checkout)}")
+        if checkout["note"]:
+            click.echo(f"    {checkout['note']}")
 
 
 def _scan_portfolio_for_references(project_id: str, project_name: str, projects_root: Path) -> tuple[list[tuple[Path, int, str]], list[tuple[Path, str]]]:
@@ -1296,7 +1393,7 @@ def retire_project(project, execute, keep_files, yes):
     What retire does:
       1. Sends the project directory to Trash (via send2trash; never rm)
       2. Deletes the project row and cascade-deletes tasks, cron jobs, agents,
-         and service dependencies via db.delete_project()
+         service dependencies and checkouts via db.delete_project()
       3. Prints a report of stale references to this project found in other
          projects' markdown/yaml/json (for manual review — retire never
          auto-edits files outside the retired project).
@@ -1683,6 +1780,13 @@ def _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt
         task_list = [t for t in task_list if not t.get("prompt")]
     if ready:
         task_list = [t for t in task_list if t["status"] == "To Do" and _has_complete_prompt(t.get("prompt"))]
+    checkouts = db.get_open_checkouts()
+    if project_id in checkouts and not json_output:
+        console.print(f"[bold red]{escape(_checkout_label(checkouts[project_id]))}[/bold red]")
+        console.print(
+            f"[red]Develop it only on the {MACHINE_LABELS[checkouts[project_id]['machine']]}. "
+            "Cards added here reach the floor manager working it there.[/red]\n"
+        )
     if board and not json_output:
         statuses = ["Backlog", "To Do", "In Progress", "Review", "Done"]
         table = Table(show_header=True, header_style="bold")
@@ -1690,7 +1794,9 @@ def _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt
         def format_task(task):
             text = task["text"]
             if len(text) > 18: text = text[:17] + "..."
-            label = f"#{task['id']} {text}"
+            # A project-scoped board has the banner above; the all-projects board marks each card.
+            out_marker = "" if project_id else escape(_checkout_marker(checkouts, task["project_id"]))
+            label = f"{out_marker}#{task['id']} {text}"
             priority = task.get("priority")
             color = {"Critical": "red", "High": "red", "Medium": "yellow", "Low": "green"}.get(priority)
             return f"[{color}]{label}[/]" if color else label
@@ -1706,7 +1812,7 @@ def _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt
             table.add_row(*row)
         console.print(table)
         return
-    _display_tasks(task_list, project_label, json_output=json_output, db=db)
+    _display_tasks(task_list, project_label, json_output=json_output, db=db, checkouts=checkouts)
 
 
 @click.group(name="tasks", invoke_without_command=True)
@@ -2106,7 +2212,8 @@ def tasks_show(task_ids, json_output):
     """Show full details of one or more tasks including prompt."""
     db = DatabaseManager()
     tasks = []
-    
+    checkouts = db.get_open_checkouts()
+
     # Show sizing reminder once at the top for agent/human planning
     if not json_output and task_ids:
         console.print("[dim]PR sizing: Aim for ~500 substantive changed lines per PR, plus/minus. "
@@ -2122,11 +2229,13 @@ def tasks_show(task_ids, json_output):
                 continue
             display_id = db.get_task_display_id(task_id) or task_id
             if json_output:
-                tasks.append(task)
+                tasks.append({**task, "checkout": checkouts.get(task["project_id"])})
             else:
                 if i > 0: print("\n" + "-" * 40 + "\n")
                 print(f"Task #{display_id} (pk: {task['id']})")
                 print(f"Project: {task['project_id']}")
+                checkout = checkouts.get(task["project_id"])
+                if checkout: print(f"Project is {_checkout_label(checkout)}")
                 print(f"Status: {task['status']}")
                 print(f"Priority: {task.get('priority') or 'None'}")
                 blocked_report = _blocked_by_report(db, task)
@@ -2167,12 +2276,14 @@ def tasks_next(project, json_output):
     status_rank = {"In Progress": 0, "To Do": 1}
     actionable.sort(key=lambda t: (status_rank.get(t["status"], 99), priority_rank.get(t.get("priority"), 4)))
     task = actionable[0]
+    checkout = db.get_open_checkouts().get(task["project_id"])
     if json_output:
         import json as json_lib
-        print(json_lib.dumps(task, indent=2))
+        print(json_lib.dumps({**task, "checkout": checkout}, indent=2))
     else:
         priority = task.get("priority") or "-"
         print(f"#{task['id']} | {task['project_id']} | {task['status']} | {priority} | {task['text']}")
+        if checkout: print(f"Project is {_checkout_label(checkout)}: develop it only there.")
     sys.exit(0)
 
 

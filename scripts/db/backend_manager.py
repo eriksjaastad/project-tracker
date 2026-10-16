@@ -531,6 +531,9 @@ class DatabaseManager:
                 cursor.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
                 if _tbl_exists("project_info"):
                     cursor.execute("DELETE FROM project_info WHERE project_id = ?", (project_id,))
+                if _tbl_exists("project_checkouts"):
+                    # A deleted project is checked out nowhere; a recreated id starts free.
+                    cursor.execute("DELETE FROM project_checkouts WHERE project_id = ?", (project_id,))
                 cursor.execute("DELETE FROM ai_agents WHERE project_id = ?", (project_id,))
                 cursor.execute("DELETE FROM service_dependencies WHERE project_id = ?", (project_id,))
                 cursor.execute("DELETE FROM cron_jobs WHERE project_id = ?", (project_id,))
