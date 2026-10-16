@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { DndContext, rectIntersection, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -27,7 +27,7 @@ interface NotificationState {
 export function KanbanBoard() {
   const { project } = useParams<{ project?: string }>();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const { projects } = useProjects();
+  const { projects, reload: reloadProjects } = useProjects();
   const [loading, setLoading] = useState(true);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -67,6 +67,21 @@ export function KanbanBoard() {
     loadTasks(controller.signal);
     return () => controller.abort();
   }, [loadTasks]);
+
+  // Checkouts (#8339) change while a board is open. Switching project keeps
+  // this component mounted, so refetch the project list then; mount is
+  // already covered by useProjects.
+  const shownProject = useRef(project);
+  useEffect(() => {
+    if (shownProject.current === project) return;
+    shownProject.current = project;
+    reloadProjects();
+  }, [project, reloadProjects]);
+
+  const handleRefresh = () => {
+    loadTasks();
+    reloadProjects();
+  };
 
   const handleSearchTask = () => {
     // The search box takes the small display id (#6100) people actually
@@ -281,7 +296,7 @@ export function KanbanBoard() {
         </button>
       </div>
       {canCreateCards && <AddTaskButton onClick={() => setShowTaskForm(true)} />}
-      <button onClick={() => loadTasks()} className="refresh-button" type="button">
+      <button onClick={handleRefresh} className="refresh-button" type="button">
         Refresh
       </button>
     </>

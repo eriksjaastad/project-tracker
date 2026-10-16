@@ -130,6 +130,11 @@ def test_delete_project_cleans_children_without_fk_cascade(tmp_path: Path):
     db.set_info("stack", "python", project_id="proj")
     event_id = cal.add_event("Milestone", "2026-06-01", project_id="proj")
     cal.link_task(event_id, task["id"])
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO project_checkouts (project_id, machine, holder, checked_out_at) "
+            "VALUES ('proj', 'mini', 'Qwen on Mini', '2026-10-16T00:00:00+00:00')"
+        )
 
     db.delete_project("proj")
 
@@ -140,6 +145,7 @@ def test_delete_project_cleans_children_without_fk_cascade(tmp_path: Path):
         assert _count(conn, "task_attachments") == 0
         assert _count(conn, "calendar_event_tasks") == 0
         assert _count(conn, "project_info") == 0
+        assert _count(conn, "project_checkouts") == 0
         assert _count(conn, "ai_agents") == 0
         assert _count(conn, "service_dependencies") == 0
         assert _count(conn, "cron_jobs") == 0

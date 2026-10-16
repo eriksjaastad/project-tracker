@@ -406,6 +406,12 @@ def _checkout_label(checkout: dict) -> str:
     )
 
 
+def _checkout_marker(checkouts: dict, project_id: str) -> str:
+    """`[OUT: Mac Mini] ` for a card whose project is checked out, else empty."""
+    checkout = checkouts.get(project_id)
+    return f"[OUT: {MACHINE_LABELS[checkout['machine']]}] " if checkout else ""
+
+
 def _display_tasks(task_list, project=None, json_output=False, db=None, checkouts=None):
     import json as json_lib
     checkouts = checkouts or {}
@@ -451,8 +457,7 @@ def _display_tasks(task_list, project=None, json_output=False, db=None, checkout
         if project:
             print(f"#{label} {prompt_marker}{blocked_marker}| {status} | {priority} | {task_text}")
         else:
-            checkout = checkouts.get(task["project_id"])
-            out_marker = f"[OUT: {MACHINE_LABELS[checkout['machine']]}] " if checkout else ""
+            out_marker = _checkout_marker(checkouts, task["project_id"])
             print(f"#{label} {prompt_marker}{blocked_marker}{out_marker}| {task['project_id']} | {status} | {priority} | {task_text}")
     status_counts = {}
     for task in task_list:
@@ -1382,7 +1387,7 @@ def retire_project(project, execute, keep_files, yes):
     What retire does:
       1. Sends the project directory to Trash (via send2trash; never rm)
       2. Deletes the project row and cascade-deletes tasks, cron jobs, agents,
-         and service dependencies via db.delete_project()
+         service dependencies and checkouts via db.delete_project()
       3. Prints a report of stale references to this project found in other
          projects' markdown/yaml/json (for manual review — retire never
          auto-edits files outside the retired project).
@@ -1783,7 +1788,9 @@ def _tasks_list_impl(project, status, show_all, board, json_output, needs_prompt
         def format_task(task):
             text = task["text"]
             if len(text) > 18: text = text[:17] + "..."
-            label = f"#{task['id']} {text}"
+            # A project-scoped board has the banner above; the all-projects board marks each card.
+            out_marker = "" if project_id else escape(_checkout_marker(checkouts, task["project_id"]))
+            label = f"{out_marker}#{task['id']} {text}"
             priority = task.get("priority")
             color = {"Critical": "red", "High": "red", "Medium": "yellow", "Low": "green"}.get(priority)
             return f"[{color}]{label}[/]" if color else label

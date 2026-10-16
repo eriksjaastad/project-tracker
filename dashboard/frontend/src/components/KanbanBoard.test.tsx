@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { ProjectsProvider } from '../hooks/ProjectsProvider';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { KanbanBoard } from './KanbanBoard';
@@ -26,6 +27,19 @@ vi.mock('./SkeletonCard', () => ({ SkeletonCard: () => <div /> }));
 vi.mock('./IdeasSection', () => ({ IdeasSection: () => null }));
 
 import { fetchProjects, fetchTasks } from '../api';
+import type { Project } from '../types';
+
+const holoscape = (checkedOut: boolean): Project => ({
+  id: 'holoscape', name: 'holoscape', path: 'virtual://holoscape', status: 'active',
+  checkout: checkedOut
+    ? { machine: 'mini', machine_label: 'Mac Mini', holder: 'Qwen on Mini', note: null, checked_out_at: '2026-10-16T12:00:00+00:00' }
+    : null,
+});
+
+function GoTo({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return <button type="button" onClick={() => navigate(to)}>go</button>;
+}
 
 describe('KanbanBoard', () => {
   beforeEach(() => {
@@ -85,9 +99,42 @@ describe('KanbanBoard', () => {
       </MemoryRouter>
     , { wrapper: ProjectsProvider });
 
-    const banner = await screen.findByRole('status');
-    expect(banner).toHaveTextContent('CHECKED OUT — Mac Mini');
-    expect(banner).toHaveTextContent('Qwen on Mini has had it since 2026-10-16');
+    // Not by role: dnd-kit renders its own role="status" live region.
+    expect(await screen.findByText('CHECKED OUT — Mac Mini')).toBeInTheDocument();
+    expect(screen.getByText(/Qwen on Mini has had it since 2026-10-16/)).toBeInTheDocument();
+  });
+
+  it('picks up a checkout made while the board is open when Refresh is clicked', async () => {
+    vi.mocked(fetchProjects).mockResolvedValue([holoscape(false)]);
+    render(
+      <MemoryRouter initialEntries={['/kanban/holoscape']}>
+        <Routes>
+          <Route path="/kanban/:project" element={<KanbanBoard />} />
+        </Routes>
+      </MemoryRouter>
+    , { wrapper: ProjectsProvider });
+    await screen.findAllByTestId('column');
+    expect(screen.queryByText('CHECKED OUT — Mac Mini')).not.toBeInTheDocument();
+
+    vi.mocked(fetchProjects).mockResolvedValue([holoscape(true)]);
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(await screen.findByText('CHECKED OUT — Mac Mini')).toBeInTheDocument();
+  });
+
+  it('refetches checkouts when the board switches project', async () => {
+    vi.mocked(fetchProjects).mockResolvedValue([holoscape(false)]);
+    render(
+      <MemoryRouter initialEntries={['/kanban/other']}>
+        <Routes>
+          <Route path="/kanban/:project" element={<><KanbanBoard /><GoTo to="/kanban/holoscape" /></>} />
+        </Routes>
+      </MemoryRouter>
+    , { wrapper: ProjectsProvider });
+    await screen.findAllByTestId('column');
+
+    vi.mocked(fetchProjects).mockResolvedValue([holoscape(true)]);
+    await userEvent.click(screen.getByRole('button', { name: 'go' }));
+    expect(await screen.findByText('CHECKED OUT — Mac Mini')).toBeInTheDocument();
   });
 
   describe('network', () => {
