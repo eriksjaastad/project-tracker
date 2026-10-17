@@ -1873,16 +1873,7 @@ def tasks_create(text, project, status, priority, prompt, category, description,
 
         pt tasks create "Fix flaky retry" -p myproject \\
             -d "- [ ] pytest tests/test_retry.py passes"
-
-    \b
-    PR sizing: Aim for ~500 substantive changed lines per PR, plus/minus.
-    Not a hard gate. Keep related work bundled when coherent.
-    Excludes generated files, lockfiles, vendored code, snapshots.
     """
-    # Show sizing reminder at task creation (not just in --help)
-    console.print("[dim]PR sizing: Aim for ~500 substantive changed lines per PR, plus/minus. "
-                 "Not a hard gate. Keep related work bundled when coherent.[/dim]")
-    
     db = DatabaseManager()
     if project: project_id = _resolve_project_id(db, project)
     else: project_id = _detect_project_from_cwd(db)
@@ -2214,12 +2205,6 @@ def tasks_show(task_ids, json_output):
     tasks = []
     checkouts = db.get_open_checkouts()
 
-    # Show sizing reminder once at the top for agent/human planning
-    if not json_output and task_ids:
-        console.print("[dim]PR sizing: Aim for ~500 substantive changed lines per PR, plus/minus. "
-                     "Not a hard gate. Keep related work bundled when coherent. "
-                     "Excludes generated/lockfile/vendored/mechanical.[/dim]\n")
-    
     for i, task_id in enumerate(task_ids):
         try:
             task_id = _resolve_task_id(db, task_id)
