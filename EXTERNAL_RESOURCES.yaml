@@ -1624,9 +1624,18 @@ monitoring:
     scheduled:
       - id: hypocrisynow-cron
         where: railway
-        schedule: UNKNOWN
+        # Source: hypocrisynow/railway.cron.toml and README.md on origin/main.
+        schedule: daily 00:00 UTC (Railway cron `0 0 * * *`)
         log: railway logs
-        expect: UNKNOWN
+        expect: >-
+          Exit 0 after every scheduled stream has run. Any failed stream exits
+          nonzero after the remaining streams are attempted; IndexNow failures
+          are reported but do not change the exit status. Confirm the run and
+          its stream outcomes in Railway logs and cross-check ingest,
+          processing, source and pipeline health separately. The MacBook
+          Railway CLI was unauthorized on 2026-10-17, so this records the
+          repository's Railway config-as-code contract, not a live provider
+          observation.
     database:
       engine: postgres (Railway)
       offsite_dest: gbackup:db-backups/hypocrisynow/
@@ -1679,6 +1688,8 @@ monitoring:
       host_provider: Google Cloud SQL
       cloud_sql_instance: synth-insight-labs:us-central1:synth-insight-labs-pg
       host_evidence: Makefile deploy-chat --add-cloudsql-instances (Cloud SQL Unix socket)
+      # Source attempt 2026-10-17: the active gcloud account's refresh token is
+      # revoked, so Cloud SQL backup/export settings could not be established.
       offsite_dest: UNKNOWN
       offsite_wired: false
     owner: floor-manager (project-tracker)
@@ -1729,7 +1740,9 @@ monitoring:
 
   logicdesigns:
     prod_url: https://logicdesigns.com
-    repo: UNKNOWN
+    # Source: Vercel project/deployment inspection plus the complete GitHub and
+    # local project inventories on 2026-10-17 found no linked source repository.
+    repo: null
     provider: vercel
     health:
       check: GET https://logicdesigns.com/ expect 200
@@ -1742,18 +1755,20 @@ monitoring:
 
   website:
     prod_url: null
-    repo: UNKNOWN
-    provider: vercel
+    # Source: `vercel project ls` and `vercel project inspect website` on
+    # 2026-10-17; the historical Vercel project no longer exists.
+    repo: null
+    provider: null
     health: null
     scheduled: []
     database: null
     owner: erik
     notes: >-
-      Vercel project with NO production URL, untouched 168d. Candidate for
-      deletion — do not monitor. Listed so Saga stops rediscovering it.
+      Historical Vercel project; no current project or production URL was found
+      on 2026-10-17. Do not monitor. Listed so Saga stops rediscovering it.
 
   # --- scheduled-job surface -------------------------------------------------
-  # 31 launchd agents + 2 crontab entries on the LAPTOP are tracked below
+  # 27 launchd agents + 1 crontab entry on the LAPTOP are tracked below
   # (2026-10-01: slack-listener removed when its project was archived, #7835;
   # 2026-10-02: five installed agents added, #7845). This list is the only
   # scheduled-job registry; CRON_JOBS.md was retired in its favour (#7845).
@@ -1812,8 +1827,16 @@ monitoring:
       - {id: com.eriksjaastad.job-search-hn,          project: job-search,           schedule: daily 06:15,  log: ~/projects/job-search/market-monitor/snapshots/hn-jobs-cron.log}
       - {id: com.user.cortana_daily_update,           project: cortana-personal-ai,  schedule: daily 22:00,  log: ~/projects/cortana-personal-ai/data/logs/daily_update.log}
       - {id: com.user.cortana_health_check,           project: cortana-personal-ai,  schedule: daily 23:00,  log: ~/projects/cortana-personal-ai/data/logs/health_check.log}
-      - {id: com.erik.trading-copilot.alpha-watcher,  project: trading-copilot,      schedule: UNKNOWN,      log: ~/projects/trading-copilot/logs/alpha_watcher.log}
-      - {id: com.erik.fci-kwiky-thumbs.exports-watcher, project: fci-kwiky-thumbs,   schedule: UNKNOWN,      log: ~/projects/fci-kwiky-thumbs/logs/exports_watcher.log}
+      - id: com.erik.trading-copilot.alpha-watcher
+        project: trading-copilot
+        # Source: installed LaunchAgent plist and `launchctl print` on 2026-10-17.
+        schedule: on file change in ~/projects/trading-copilot/Alfa reports (WatchPaths)
+        log: ~/projects/trading-copilot/logs/alpha_watcher.log
+        expect: >-
+          Idle and silent while no file changes is healthy. After a WatchPaths
+          trigger, the run count advances and the last exit code is 0; converter
+          failures exit nonzero and are written to the log. A newly loaded job
+          with no trigger can legitimately report that it has never exited.
       - id: com.eriksjaastad.hypocrisynow-backup
         project: hypocrisynow
         schedule: every 21600s (and at load)
@@ -1897,8 +1920,7 @@ monitoring:
     # trading-copilot is off this list: Erik retired its backup 2026-10-16
     # (trading-copilot PR #73).
     not_wired: [agent-chat, muffinpanrecipes, hypocrisynow, synth-insight-labs,
-                land-tracker, tax-organizer, cortana-personal-ai,
-                fci-kwiky-thumbs]
+                land-tracker, tax-organizer, cortana-personal-ai]
 
   # --- secrets ---------------------------------------------------------------
   _secrets:
