@@ -46,7 +46,6 @@ This repo runs **self-contained** through Doppler. There is no `.env`, no export
 
 | Token | What it's for | Required when |
 |---|---|---|
-| `COST_TRACKER_API_KEY` | Auth for the SIL cost-tracker API the dashboard queries (`dashboard/app.py`) | Whenever the dashboard's cost panel needs live data |
 | `DOPPLER_PROJECT`, `DOPPLER_CONFIG`, `DOPPLER_ENVIRONMENT` | Doppler's own metadata, injected automatically | Never set by hand |
 
 **Secrets this repo's scripts need that do *not* live in `project-tracker/dev`.** This is a real deviation from the portfolio pattern: several scripts pass an explicit `--project/--config` because their secret belongs to a different product's Doppler project. Do not "fix" this by copying the secret into `project-tracker/dev`.
