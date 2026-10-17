@@ -494,7 +494,7 @@ projects:
         type: hosting
         cost: 0
       - name: Google Cloud (Cloud Run + Cloud SQL)
-        purpose: "Agent Chat API at api.synthinsightlabs.com (Cloud Run + Cloud SQL Postgres). The spend-tracking routes were retired (#8376); OpenRouter and the vendor dashboards are the spend record."
+        purpose: "Agent Chat API at api.synthinsightlabs.com (Cloud Run + Cloud SQL Postgres). The spend-tracking routes were retired with the cost tracker; OpenRouter and the vendor dashboards are the spend record."
         type: cloud
         cost: "audit"
     notes: |
