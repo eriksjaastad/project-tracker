@@ -322,11 +322,6 @@ projects:
         type: email
         env_var: "RESEND_API_KEY"
         cost: 0
-      - name: Cost Tracker API
-        purpose: "Spend logging (api.synthinsightlabs.com)"
-        type: monitoring
-        env_var: "COST_TRACKER_API_KEY"
-        cost: 0
       - name: Google Drive (rclone gbackup)
         purpose: "Offsite DB backups (gbackup:db-backups/project-tracker/)"
         type: storage
@@ -499,9 +494,8 @@ projects:
         type: hosting
         cost: 0
       - name: Google Cloud (Cloud Run + Cloud SQL)
-        purpose: "Cost Tracker API at api.synthinsightlabs.com (api-cost-tracker/server writes to Cloud SQL Postgres); also hosts agent-chat"
+        purpose: "Agent Chat API at api.synthinsightlabs.com (Cloud Run + Cloud SQL Postgres). The spend-tracking routes were retired (#8376); OpenRouter and the vendor dashboards are the spend record."
         type: cloud
-        env_var: "COST_TRACKER_API_KEY, COST_TRACKER_DATABASE_URL"
         cost: "audit"
     notes: |
       COMPANY IDENTITY/INFRA HUB (not the near-empty entity the accounts block implied). Google OAuth +
@@ -570,11 +564,6 @@ projects:
         type: data
         env_var: "FIRECRAWL_API_KEY"
         cost: 0  # spudlogic account, free tier (audited 2026-09-05)
-      - name: Cost Tracker
-        purpose: "Internal spend tracking API"
-        type: monitoring
-        env_var: "COST_TRACKER_API_KEY, COST_TRACKER_URL"
-        cost: 0
     notes: "Research arm of Auxesis (Mac Mini)."
 
   flo-fi:
@@ -1072,7 +1061,6 @@ api_key_inventory:
         - ANTHROPIC_API_KEY
         - CLOUDFLARE_API_KEY
         - CLOUDFLARE_API_TOKEN
-        - COST_TRACKER_API_KEY
         - DEEPSEEK_API_KEY
         - FIRECRAWL_API_KEY
         - GOOGLE_API_KEY
@@ -1105,7 +1093,6 @@ api_key_inventory:
       configs_seen: ["dev"]
       api_key_names_confirmed_by_doppler:
         - ANTHROPIC_API_KEY
-        - COST_TRACKER_API_KEY
         - GOOGLE_API_KEY
         - OPENAI_API_KEY
         - XAI_API_KEY
@@ -1169,7 +1156,6 @@ api_key_inventory:
     synth-insight-labs:
       configs_seen: ["prd"]
       api_key_names_from_repo:
-        - COST_TRACKER_API_KEY
         - XAI_API_KEY
       notes: "Prior audit called this the shared infra hub. It may intentionally hold central package tokens (no GitHub App keys since 2026-10-16); AI provider key sharing should be reviewed."
 

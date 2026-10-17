@@ -5,10 +5,8 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { DashboardPage } from './DashboardPage';
 
 // Panels that fetch on their own — not under test here.
-vi.mock('./CostPanel', () => ({ CostPanel: () => <div>Independent costs</div> }));
 vi.mock('./KanbanBreakdown', () => ({ KanbanBreakdown: () => null }));
-vi.mock('./ShadowPricingPanel', () => ({ ShadowPricingPanel: () => null }));
-vi.mock('./ApiActivityPanel', () => ({ ApiActivityPanel: () => null }));
+vi.mock('./ShadowPricingPanel', () => ({ ShadowPricingPanel: () => <div>Independent pricing</div> }));
 
 const BASE = {
   user: { login: 'testuser', name: 'Test', avatar_url: '', public_repos: 1, private_repos: 0 },
@@ -45,11 +43,11 @@ function renderPage() {
 describe('DashboardPage — independent loading', () => {
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-  it('renders costs and clocks before the GitHub request resolves', () => {
+  it('renders pricing and clocks before the GitHub request resolves', () => {
     const fetcher = vi.fn().mockReturnValue(new Promise(() => {}));
     vi.stubGlobal('fetch', fetcher);
     const view = renderPage();
-    expect(screen.getByText('Independent costs')).toBeInTheDocument();
+    expect(screen.getByText('Independent pricing')).toBeInTheDocument();
     expect(screen.getAllByText('Fetching GitHub…').length).toBeGreaterThan(1);
     expect(screen.queryByText('Repos')).not.toBeInTheDocument();
     const signal = fetcher.mock.calls[0][1].signal;
@@ -83,14 +81,14 @@ describe('DashboardPage — independent loading', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
     expect(screen.getByText('Repos')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('Showing the last available results');
-    expect(screen.getByText('Independent costs')).toBeInTheDocument();
+    expect(screen.getByText('Independent pricing')).toBeInTheDocument();
   });
 
   it('keeps independent panels available when GitHub returns an HTTP error', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
     renderPage();
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
-    expect(screen.getByText('Independent costs')).toBeInTheDocument();
+    expect(screen.getByText('Independent pricing')).toBeInTheDocument();
     expect(screen.queryByText('Repos')).not.toBeInTheDocument();
   });
 });

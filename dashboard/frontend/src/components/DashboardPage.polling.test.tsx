@@ -5,10 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardPage } from './DashboardPage';
 
 // Panels that fetch on their own — not under test here.
-vi.mock('./CostPanel', () => ({ CostPanel: () => null }));
 vi.mock('./KanbanBreakdown', () => ({ KanbanBreakdown: () => null }));
 vi.mock('./ShadowPricingPanel', () => ({ ShadowPricingPanel: () => null }));
-vi.mock('./ApiActivityPanel', () => ({ ApiActivityPanel: () => null }));
 
 const SNAPSHOT = {
   repos: [],
