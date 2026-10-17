@@ -494,8 +494,9 @@ projects:
         type: hosting
         cost: 0
       - name: Google Cloud (Cloud Run + Cloud SQL)
-        purpose: "Agent Chat API at api.synthinsightlabs.com (Cloud Run + Cloud SQL Postgres). The spend-tracking routes were retired with the cost tracker; OpenRouter and the vendor dashboards are the spend record."
+        purpose: "Cloud Run (us-central1) + Cloud SQL Postgres synth-insight-labs-pg. Two separate services: Agent Chat is Cloud Run service agent-chat (database agent_chat; Doppler agent-chat/prd; source in project-tracker/agent-chat). The retired cost tracker is Cloud Run service cost-tracker (database cost_tracker; custom domain api.synthinsightlabs.com). 2026-10-17: every consumer's use of the tracker is removed except Cortana (#8371), and the cost-tracker service, its database and its keys are STILL LIVE until #8376 and Erik's approval. OpenRouter and the vendor dashboards are the spend record."
         type: cloud
+        env_var: "COST_TRACKER_API_KEY, COST_TRACKER_DATABASE_URL (still present until #8376; deletion is Erik's)"
         cost: "audit"
     notes: |
       COMPANY IDENTITY/INFRA HUB (not the near-empty entity the accounts block implied). Google OAuth +
@@ -1054,6 +1055,11 @@ api_key_inventory:
     - OPENAI_API_KEY
     - XAI_API_KEY
 
+  # 2026-10-17 names-only Doppler audit (values not read). The April 30 confirmed lists below are restored as recorded.
+  # COST_TRACKER_API_KEY still exists in: ai-memory, auxesis, auxesis-research-labs, cortana-personal-ai, hypocrisynow,
+  # muffinpanrecipes, project-tracker, synth-insight-labs, trading-copilot (dev, dev_personal and prd, plus
+  # auxesis dev_auxesis); COST_TRACKER_URL in auxesis-research-labs dev and dev_personal; COST_TRACKER_DATABASE_URL in
+  # synth-insight-labs dev, dev_personal, stg and prd. Deleting them is Erik's decision under #8376.
   doppler_projects:
     auxesis:
       configs_seen: ["dev"]
@@ -1061,6 +1067,7 @@ api_key_inventory:
         - ANTHROPIC_API_KEY
         - CLOUDFLARE_API_KEY
         - CLOUDFLARE_API_TOKEN
+        - COST_TRACKER_API_KEY
         - DEEPSEEK_API_KEY
         - FIRECRAWL_API_KEY
         - GOOGLE_API_KEY
@@ -1081,6 +1088,7 @@ api_key_inventory:
       configs_seen: ["dev"]
       api_key_names_confirmed_by_doppler:
         - ANTHROPIC_API_KEY
+        - COST_TRACKER_API_KEY
         - DEEPSEEK_API_KEY
         - DISCORD_BOT_TOKEN
         - GATEWAY_TOKEN
@@ -1156,6 +1164,7 @@ api_key_inventory:
     synth-insight-labs:
       configs_seen: ["prd"]
       api_key_names_from_repo:
+        - COST_TRACKER_API_KEY
         - XAI_API_KEY
       notes: "Prior audit called this the shared infra hub. It may intentionally hold central package tokens (no GitHub App keys since 2026-10-16); AI provider key sharing should be reviewed."
 

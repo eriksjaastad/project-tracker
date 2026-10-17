@@ -86,12 +86,9 @@ when the change generates frontmatter. Test path traversal and unbounded scans
 where user input or scale makes them relevant. Bounded or cached scans can be
 appropriate; zero results are only alarming when the contract expects items.
 
-At card pickup, estimate substantive PR size and split naturally separable
-work likely to exceed roughly 800 lines. At local pre-push review, inspect the
-actual diff against the base and document a coherent exception if it remains
-materially above the roughly 500-line target. Generated files, lockfiles,
-vendored code and mechanical snapshots do not count as substantive lines.
-Keep related work together when splitting would create artificial micro-PRs.
+PR size follows the root `~/projects/AGENTS.md` rule: prefer slices of at most
+100 added lines (deleted lines ignored); after a review FAIL, split the rebuild
+into slices of at most 100 added lines, each reviewed separately.
 
 ## Evidence cues for applicable checks
 
