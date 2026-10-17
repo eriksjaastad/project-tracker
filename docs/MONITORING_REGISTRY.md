@@ -258,8 +258,16 @@ Four of the five blockers Saga reported are already resolved or were misread:
    `doppler run --`, and copies none. Preserve the existing per-machine Agent
    Chat client exception described above.
 2. **"Vercel plugin is not installed"** — no plugin exists or is needed. The
-   laptop's `vercel` CLI is authenticated as `eriksjaastad`. For the Mini, put
-   a Vercel API token in Doppler.
+   laptop's `vercel` CLI is authenticated as `eriksjaastad`. The Mini reads the
+   account-level token only from Doppler `openclaw/dev` as
+   `VERCEL_API_TOKEN`; no other OpenClaw config carries it. Read-only calls to
+   `GET /v2/user` and `GET /v9/projects` succeeded from the Mini on 2026-10-17.
+   Account-level project listing is allowed only for registry-drift discovery;
+   a newly discovered project produces a card and receives no deploy/detail
+   checks until it is registered. Routine deploy and runtime queries are
+   restricted to the recorded project IDs: `hypocrisynow`
+   (`prj_uCozI3c4jYwdJRjbEAfm6Az1sK3S`) and `muffinpanrecipes`
+   (`prj_zQgUD5QXAc1OHpgyzyTlbqxvN1Ww`).
 3. **"RunPod needs a token"** — the token exists:
    `MUFFIN_RUNPOD_API_KEY` in the muffinpanrecipes Doppler config. The account
    is spudlogic personal, not SIL.
