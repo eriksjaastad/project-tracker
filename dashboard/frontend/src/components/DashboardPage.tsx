@@ -1,9 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { PageShell } from './PageShell';
 import { KanbanBreakdown } from './KanbanBreakdown';
-import { CostPanel } from './CostPanel';
 import { ShadowPricingPanel } from './ShadowPricingPanel';
-import { ApiActivityPanel } from './ApiActivityPanel';
 import { isWithinRecentWindow, timeAgo } from '../utils/recentActivity';
 import './DashboardPage.css';
 
@@ -308,10 +306,6 @@ export function DashboardPage() {
       <div className="dashboard-grid">
         {/* Kanban board breakdown — the work in flight, before anything else */}
         <KanbanBreakdown />
-
-        {/* API Cost Overview */}
-        <CostPanel />
-        <ApiActivityPanel />
 
         {/* Shadow Pricing — subscription value */}
         <ShadowPricingPanel />

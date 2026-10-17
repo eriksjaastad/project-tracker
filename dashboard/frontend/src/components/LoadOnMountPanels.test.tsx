@@ -2,7 +2,6 @@ import { render, screen, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { CostPanel } from './CostPanel';
 import { ShadowPricingPanel } from './ShadowPricingPanel';
 import { Navigation } from './Navigation';
 
@@ -53,29 +52,6 @@ describe('ShadowPricingPanel', () => {
     const { unmount } = render(<ShadowPricingPanel />);
     unmount();
     expect(signals.length).toBe(1);
-    expect(signals.every(s => s.aborted)).toBe(true);
-  });
-});
-
-describe('CostPanel', () => {
-  it('shows the loading text, then unavailable when a request fails', async () => {
-    stubFetch(() => Promise.reject(new Error('net')));
-    render(<CostPanel />);
-    expect(screen.getByText('Loading cost data...')).toBeTruthy();
-    expect(await screen.findByText('Cost tracker unavailable')).toBeTruthy();
-  });
-
-  it('renders wrapped and bare responses', async () => {
-    stubFetch(url => json(url.includes('daily') ? { data: [{ date: '2026-10-01', calls: 3, total_tokens: 1500, total_cost: '4.5' }] } : []));
-    render(<CostPanel />);
-    expect(await screen.findAllByText('$4.50')).toBeTruthy();
-  });
-
-  it('aborts all three requests on unmount', async () => {
-    const signals = stubFetch(() => new Promise(() => {}));
-    const { unmount } = render(<CostPanel />);
-    unmount();
-    expect(signals.length).toBe(3);
     expect(signals.every(s => s.aborted)).toBe(true);
   });
 });
