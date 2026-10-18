@@ -110,16 +110,22 @@ class CheckoutsMixin:
             conn.commit()
             return dict(row)
 
-    def checkin_project(self, project_id: str, by: str) -> dict[str, Any] | None:
-        """Close the open checkout, recording who and when; None if none is open."""
+    def checkin_project(
+        self, project_id: str, by: str, checkout_id: int | None = None
+    ) -> dict[str, Any] | None:
+        """Close the matching open checkout; None if no matching checkout is open."""
         by = _required(by, "by")
         with self._get_conn() as conn:
             if not _has_checkouts_table(conn):
                 raise CheckoutsMigrationPendingError()
-            row = conn.execute(
+            sql = (
                 "UPDATE project_checkouts SET checked_in_at = ?, checked_in_by = ? "
-                "WHERE project_id = ? AND checked_in_at IS NULL RETURNING *",
-                (_utc_now(), by, project_id),
-            ).fetchone()
+                "WHERE project_id = ? AND checked_in_at IS NULL"
+            )
+            parameters: list[Any] = [_utc_now(), by, project_id]
+            if checkout_id is not None:
+                sql += " AND id = ?"
+                parameters.append(checkout_id)
+            row = conn.execute(sql + " RETURNING *", parameters).fetchone()
             conn.commit()
         return dict(row) if row else None

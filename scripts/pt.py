@@ -1299,20 +1299,26 @@ def project_checkout(project, machine, holder, note):
 @project_group.command(name="checkin")
 @click.argument("project")
 @click.option("--by", "by", required=True, help='Who is checking it in, e.g. "Claude on MacBook"')
-def project_checkin(project, by):
+@click.option(
+    "--checkout-id",
+    type=click.IntRange(min=1),
+    help="Only check in this exact checkout record (prevents releasing a replacement checkout).",
+)
+def project_checkin(project, by, checkout_id):
     """Check PROJECT back in, recording who and when."""
     db = DatabaseManager()
     project_id = _resolve_project_id(db, project)
     if not project_id:
         raise click.ClickException(f"Project '{project}' not found")
     try:
-        checkout = db.checkin_project(project_id, by)
+        checkout = db.checkin_project(project_id, by, checkout_id)
     except CheckoutsMigrationPendingError as exc:
         raise click.ClickException(str(exc)) from exc
     except ValueError as exc:
         raise click.BadParameter(str(exc), param_hint="--by") from exc
     if checkout is None:
-        raise click.ClickException(f"{project_id} is not checked out")
+        suffix = f" with checkout id {checkout_id}" if checkout_id is not None else ""
+        raise click.ClickException(f"{project_id} is not checked out{suffix}")
     click.echo(
         f"{project_id} checked in by {checkout['checked_in_by']} "
         f"(was out to {MACHINE_LABELS[checkout['machine']]} with {checkout['holder']})"
