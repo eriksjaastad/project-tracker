@@ -145,7 +145,12 @@ def test_delete_project_cleans_children_without_fk_cascade(tmp_path: Path):
         assert _count(conn, "task_attachments") == 0
         assert _count(conn, "calendar_event_tasks") == 0
         assert _count(conn, "project_info") == 0
-        assert _count(conn, "project_checkouts") == 0
+        assert _count(conn, "project_checkouts") == 1
+        checkout = conn.execute(
+            "SELECT checked_in_at, checked_in_by FROM project_checkouts WHERE project_id = ?",
+            ("proj",),
+        ).fetchone()
+        assert checkout[0] and checkout[1] == "project deletion"
         assert _count(conn, "ai_agents") == 0
         assert _count(conn, "service_dependencies") == 0
         assert _count(conn, "cron_jobs") == 0

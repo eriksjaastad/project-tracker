@@ -532,8 +532,14 @@ class DatabaseManager:
                 if _tbl_exists("project_info"):
                     cursor.execute("DELETE FROM project_info WHERE project_id = ?", (project_id,))
                 if _tbl_exists("project_checkouts"):
-                    # A deleted project is checked out nowhere; a recreated id starts free.
-                    cursor.execute("DELETE FROM project_checkouts WHERE project_id = ?", (project_id,))
+                    # Preserve checkout history so primary-key identities cannot be reused.
+                    # An open checkout is closed as part of the same delete transaction.
+                    cursor.execute(
+                        "UPDATE project_checkouts "
+                        "SET checked_in_at = ?, checked_in_by = ? "
+                        "WHERE project_id = ? AND checked_in_at IS NULL",
+                        (datetime.now(timezone.utc).isoformat(), "project deletion", project_id),
+                    )
                 cursor.execute("DELETE FROM ai_agents WHERE project_id = ?", (project_id,))
                 cursor.execute("DELETE FROM service_dependencies WHERE project_id = ?", (project_id,))
                 cursor.execute("DELETE FROM cron_jobs WHERE project_id = ?", (project_id,))

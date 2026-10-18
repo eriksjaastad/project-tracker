@@ -62,6 +62,37 @@ def test_checkin_records_who_and_frees_the_project(holoscape) -> None:
     assert holoscape.checkout_project("holoscape", "laptop", "Claude")["machine"] == "laptop"
 
 
+def test_checkin_with_checkout_id_is_atomic(holoscape) -> None:
+    checkout = holoscape.checkout_project("holoscape", "mini", "Qwen on Mini")
+    refused = _pt(
+        "project", "checkin", "holoscape", "--by", "Claude on MacBook",
+        "--checkout-id", str(checkout["id"] + 1),
+    )
+    assert refused.exit_code != 0
+    assert holoscape.get_open_checkouts()["holoscape"]["id"] == checkout["id"]
+
+    accepted = _pt(
+        "project", "checkin", "holoscape", "--by", "Claude on MacBook",
+        "--checkout-id", str(checkout["id"]),
+    )
+    assert accepted.exit_code == 0, accepted.output
+    replacement = holoscape.checkout_project("holoscape", "laptop", "Claude")
+    assert replacement["id"] != checkout["id"]
+    stale = _pt(
+        "project", "checkin", "holoscape", "--by", "stale cleanup",
+        "--checkout-id", str(checkout["id"]),
+    )
+    assert stale.exit_code != 0
+    assert holoscape.get_open_checkouts()["holoscape"]["id"] == replacement["id"]
+
+    overflow = _pt(
+        "project", "checkin", "holoscape", "--by", "tester",
+        "--checkout-id", str(2**63),
+    )
+    assert overflow.exit_code == 2
+    assert "not in the range" in overflow.output
+
+
 def test_listings_and_api_show_the_checkout(holoscape) -> None:
     holoscape.add_task(text="Wire the tab bar", project_id="holoscape", status="To Do")
     holoscape.checkout_project("holoscape", "mini", "Qwen on Mini")
