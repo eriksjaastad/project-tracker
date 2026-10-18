@@ -1301,7 +1301,7 @@ def project_checkout(project, machine, holder, note):
 @click.option("--by", "by", required=True, help='Who is checking it in, e.g. "Claude on MacBook"')
 @click.option(
     "--checkout-id",
-    type=click.IntRange(min=1),
+    type=click.IntRange(min=1, max=2**63 - 1),
     help="Only check in this exact checkout record (prevents releasing a replacement checkout).",
 )
 def project_checkin(project, by, checkout_id):

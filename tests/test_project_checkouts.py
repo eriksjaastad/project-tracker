@@ -76,7 +76,21 @@ def test_checkin_with_checkout_id_is_atomic(holoscape) -> None:
         "--checkout-id", str(checkout["id"]),
     )
     assert accepted.exit_code == 0, accepted.output
-    assert holoscape.get_open_checkouts() == {}
+    replacement = holoscape.checkout_project("holoscape", "laptop", "Claude")
+    assert replacement["id"] != checkout["id"]
+    stale = _pt(
+        "project", "checkin", "holoscape", "--by", "stale cleanup",
+        "--checkout-id", str(checkout["id"]),
+    )
+    assert stale.exit_code != 0
+    assert holoscape.get_open_checkouts()["holoscape"]["id"] == replacement["id"]
+
+    overflow = _pt(
+        "project", "checkin", "holoscape", "--by", "tester",
+        "--checkout-id", str(2**63),
+    )
+    assert overflow.exit_code == 2
+    assert "not in the range" in overflow.output
 
 
 def test_listings_and_api_show_the_checkout(holoscape) -> None:
