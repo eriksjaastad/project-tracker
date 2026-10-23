@@ -13,7 +13,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _run_job(tmp_path, dest):
+def _run_job(tmp_path, dest, **extra_env):
     """Run the job with a stub ./pt and PROJECTS_ROOT=<tmp>/rules; return (result, rules)."""
     rules = tmp_path / "rules"
     rules.mkdir()
@@ -31,7 +31,7 @@ def _run_job(tmp_path, dest):
     (tmp_path / "rclone.conf").write_text("")
     env = {**os.environ, "PT_BACKUP_RCLONE_DEST": dest, "PROJECTS_ROOT": str(rules),
            "RCLONE_CONFIG": str(tmp_path / "rclone.conf"),
-           "PT_BACKUP_LAUNCH_AGENT_PATH": str(tmp_path / "absent.plist")}
+           "PT_BACKUP_LAUNCH_AGENT_PATH": str(tmp_path / "absent.plist"), **extra_env}
     result = subprocess.run(["bash", str(tracker / "scripts/backup-db.sh")],
                             check=False, env=env, capture_output=True, text=True,
                             timeout=120)
@@ -49,12 +49,22 @@ def test_bundle_restores_rules_repo_head(tmp_path):
     assert subprocess.check_output(head, cwd=clone) == subprocess.check_output(head, cwd=rules)
 
 
-@pytest.mark.parametrize("dest, reason", [
-    ("missingremote:backups", "missingremote"),
-    ("", "Set PT_BACKUP_RCLONE_DEST"),
+def _hung_rclone(tmp_path):
+    """PATH and timeout env whose rclone never finishes."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "rclone").write_text("#!/bin/bash\nexec sleep 60\n")
+    (bin_dir / "rclone").chmod(0o755)
+    return {"PATH": f"{bin_dir}:{os.environ['PATH']}", "PT_BACKUP_RULES_COPY_TIMEOUT": "1"}
+
+
+@pytest.mark.parametrize("dest, reason, hung", [
+    ("missingremote:backups", "missingremote", False),
+    ("", "Set PT_BACKUP_RCLONE_DEST", False),
+    ("remote", "passed the 1s limit", True),
 ])
-def test_bundle_failure_is_logged_and_db_backup_stands(tmp_path, dest, reason):
-    result, _ = _run_job(tmp_path, dest)
+def test_bundle_failure_is_logged_and_db_backup_stands(tmp_path, dest, reason, hung):
+    result, _ = _run_job(tmp_path, dest, **(_hung_rclone(tmp_path) if hung else {}))
     assert result.returncode == 0, result.stderr
     assert "| backup | pt backup create" in result.stdout
     # One log line carries the whole failure, even when the output was multiline.

@@ -25,9 +25,8 @@ pt backup prune
 pt backup status
 ```
 
-The scheduled job runs `scripts/backup-db.sh`, which runs create, offsite and
-prune in that order. Local snapshots remain available when upload fails; the job logs the
-offsite and prune results separately. Snapshot history lives in `data/backups/`
+The scheduled job is `scripts/backup-db.sh`; its header says what it runs.
+Snapshot history lives in `data/backups/`
 and `~/.project-tracker/backups/`; `pt backup prune` keeps the newest backups of
 each kind there and moves the rest to the Trash (`pt backup prune --help` gives
 the counts; `--dry-run` lists what would move). A successful upload
