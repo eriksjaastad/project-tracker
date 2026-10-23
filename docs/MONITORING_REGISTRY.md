@@ -268,9 +268,12 @@ Four of the five blockers Saga reported are already resolved or were misread:
    restricted to the recorded project IDs: `hypocrisynow`
    (`prj_uCozI3c4jYwdJRjbEAfm6Az1sK3S`) and `muffinpanrecipes`
    (`prj_zQgUD5QXAc1OHpgyzyTlbqxvN1Ww`).
-3. **"RunPod needs a token"** — the token exists:
-   `MUFFIN_RUNPOD_API_KEY` in the muffinpanrecipes Doppler config. The account
-   is spudlogic personal, not SIL.
+3. **"RunPod needs a token"** — the Mini's monitoring token is
+   `RUNPOD_API_KEY` in Doppler `openclaw/dev`, not a Muffin project secret. A
+   read-only identity query authenticated it to the spudlogic personal account
+   on 2026-10-17. The account currently has zero Pods, consistent with Muffin
+   moving production images to Gemini in #8068 and retaining RunPod/R2 only as
+   a legacy optional path.
 4. **"Hosted DB monitoring depends on provider: Neon/Supabase"** — there is no
    Supabase and no Neon in the registry. The portfolio has two hosted
    databases: hypocrisynow's Railway Postgres, and agent-chat's production

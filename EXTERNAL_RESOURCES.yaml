@@ -1,13 +1,13 @@
 # External Resources & Services
 # Purpose: Track which external services, APIs, and resources are used across all projects
-# Last Updated: 2026-10-07 (PROPOSED audit pass — see recent_changes 2026-10-07)
+# Last Updated: 2026-10-17 (Muffin provider monitoring correction — see recent_changes)
 #
 # NOTE: Moved from project-scaffolding to project-tracker on 2026-09-18
 #       (project-tracker is now the canonical home for portfolio-wide resource registry)
 
 metadata:
   purpose: "Track external services and costs across all projects"
-  last_updated: "2026-10-07"
+  last_updated: "2026-10-17"
   why_exists: "When you get a bill or notification, you need to know which project uses that service"
 
 # MARKET DATA POLICY
@@ -348,7 +348,7 @@ projects:
         cost: "Variable"
         notes: "2026-10-07 audit: model_router.py still also has direct OPENAI_API_KEY / ANTHROPIC_API_KEY paths — confirm whether they are live or fallback-only."
       - name: Cloudflare R2
-        purpose: "Job files for image generation (scripts/trigger_generation.py)"
+        purpose: "Legacy optional RunPod job handoff (scripts/trigger_generation.py); not the production image path after #8068"
         type: storage
         env_var: "MUFFINPANRECIPES_R2_ACCESS_KEY_ID, MUFFINPANRECIPES_R2_SECRET_ACCESS_KEY, MUFFINPANRECIPES_R2_ENDPOINT"
         cost: "audit"
@@ -368,7 +368,7 @@ projects:
         env_var: "MUFFINPAN_DISCORD_WEBHOOK"
         cost: 0
       - name: Google OAuth + Gemini image ("Nano Banana")
-        purpose: "Admin login (GOOGLE_CLIENT_ID/SECRET) and image-provider comparison (scripts/compare_image_providers.py)"
+        purpose: "Admin login (GOOGLE_CLIENT_ID/SECRET) and production image generation after #8068"
         type: cloud
         env_var: "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_API_KEY, NANOBANANA_API_KEY"
         cost: "Pay-per-use"
@@ -380,17 +380,17 @@ projects:
       - name: Vercel
         purpose: "Site hosting"
         type: hosting
-        env_var: "MUFFIN_VERCEL_TOKEN"
+        env_var: "VERCEL_API_TOKEN (monitoring only; Doppler openclaw/dev)"
         cost: 0
       - name: Stability AI
-        purpose: "High-end photography generation"
+        purpose: "Legacy optional direct_harvest.py image path after #8068"
         type: ai
         env_var: "MUFFIN_STABILITY_API_KEY"
         cost: "Pay-per-use + $12/mo sub"
       - name: RunPod
-        purpose: "GPU processing"
+        purpose: "Legacy optional GPU processing; production images moved to Gemini in #8068"
         type: hosting
-        env_var: "MUFFIN_RUNPOD_API_KEY"
+        env_var: "RUNPOD_API_KEY (monitoring only; Doppler openclaw/dev)"
         cost: "Pay-per-use"
 
   ai-memory:
@@ -639,6 +639,12 @@ projects:
         env_var: "OPENROUTER_API_KEY, OPENAI_API_KEY, XAI_API_KEY, DEEPSEEK_API_KEY, GOOGLE_API_KEY"
         cost: "Variable"
         notes: "DeepSeek direct access unhooked 2026-09-30. Remaining providers unverified from the laptop (Mini-only project)."
+      - name: Vercel + RunPod monitoring
+        purpose: "Read-only registered-project deployment and legacy GPU account monitoring"
+        type: monitoring
+        env_var: "VERCEL_API_TOKEN, RUNPOD_API_KEY"
+        cost: 0
+        notes: "Saga restricts Vercel queries to registered project IDs. RunPod authenticated to the spudlogic account and had zero Pods on 2026-10-17."
     notes: "OpenClaw agent gateway (Mac Mini). Launches under doppler run --project openclaw --config dev."
 
   hermes:
@@ -1088,6 +1094,8 @@ api_key_inventory:
         - GATEWAY_TOKEN
         - GOOGLE_API_KEY
         - OPENAI_API_KEY
+        - RUNPOD_API_KEY
+        - VERCEL_API_TOKEN
         - XAI_API_KEY
       notes: "OpenClaw gateway launches under doppler run --project openclaw --config dev on the Mini; treat as a live consumer."
 
@@ -1473,6 +1481,13 @@ security:
 
 # RECENT DISCOVERIES
 recent_changes:
+  - date: "2026-10-17"
+    change: |
+      Corrected Muffin monitoring credentials from nonexistent project-scoped names to
+      openclaw/dev VERCEL_API_TOKEN and RUNPOD_API_KEY. A read-only RunPod identity query
+      verified the spudlogic account and found zero Pods. Updated the service descriptions
+      to match #8068: Gemini is the production image path; Stability/RunPod/R2 are legacy
+      optional paths.
   - date: "2026-10-07"
     change: |
       Audit pass against code in ~/projects (env var NAMES, SDK imports, workflows; no secret values
@@ -1612,7 +1627,10 @@ monitoring:
       any Claude session opened inside the repo — built after a Monday failure
       went unnoticed until Saturday. Saga should call the same
       scripts/session_pipeline_status.py rather than invent a second check.
-      Uses Stability AI + RunPod; RunPod key is MUFFIN_RUNPOD_API_KEY in Doppler.
+      Production image generation moved to Gemini in #8068. The old
+      Stability/RunPod/R2 scripts remain a legacy optional path. Saga's
+      read-only RunPod monitor uses openclaw/dev RUNPOD_API_KEY; it is not a
+      Muffin runtime secret.
 
   hypocrisynow:
     prod_url: https://hypocrisynow-erik-sjaastads-projects.vercel.app
@@ -1938,8 +1956,10 @@ monitoring:
       client file as data, never shell-source it; do not print credentials or
       put the API key in a URL or diagnostic log.
     known_gaps:
-      - RunPod account is spudlogic personal; the muffinpanrecipes key lives at
-        Doppler muffinpanrecipes/MUFFIN_RUNPOD_API_KEY. No portfolio-wide key.
-      - Vercel monitoring from the Mini needs a Vercel API token in Doppler.
-        The laptop's `vercel` CLI is already authenticated as eriksjaastad;
-        the Mini is not. No Vercel "plugin" is required either way.
+      - RunPod is the spudlogic personal account. Saga's read-only token is
+        Doppler openclaw/dev RUNPOD_API_KEY; the account had zero Pods on
+        2026-10-17, and Muffin's RunPod/R2 path is legacy after #8068.
+      - Vercel monitoring from the Mini uses Doppler openclaw/dev
+        VERCEL_API_TOKEN and is restricted by Saga to registered project IDs.
+        The laptop's `vercel` CLI remains authenticated as eriksjaastad. No
+        Vercel plugin is required either way.
