@@ -49,22 +49,22 @@ def test_bundle_restores_rules_repo_head(tmp_path):
     assert subprocess.check_output(head, cwd=clone) == subprocess.check_output(head, cwd=rules)
 
 
-def _hung_rclone(tmp_path):
-    """PATH and timeout env whose rclone never finishes."""
+def _broken_rclone(tmp_path):
+    """PATH whose first rclone cannot start, as when it is missing or damaged."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "rclone").write_text("#!/bin/bash\nexec sleep 60\n")
+    (bin_dir / "rclone").write_text("#!/nonexistent/interpreter\n")
     (bin_dir / "rclone").chmod(0o755)
-    return {"PATH": f"{bin_dir}:{os.environ['PATH']}", "PT_BACKUP_RULES_COPY_TIMEOUT": "1"}
+    return {"PATH": f"{bin_dir}:{os.environ['PATH']}"}
 
 
-@pytest.mark.parametrize("dest, reason, hung", [
+@pytest.mark.parametrize("dest, reason, broken", [
     ("missingremote:backups", "missingremote", False),
     ("", "Set PT_BACKUP_RCLONE_DEST", False),
-    ("remote", "passed the 1s limit", True),
+    ("remote", "bad interpreter", True),
 ])
-def test_bundle_failure_is_logged_and_db_backup_stands(tmp_path, dest, reason, hung):
-    result, _ = _run_job(tmp_path, dest, **(_hung_rclone(tmp_path) if hung else {}))
+def test_bundle_failure_is_logged_and_db_backup_stands(tmp_path, dest, reason, broken):
+    result, _ = _run_job(tmp_path, dest, **(_broken_rclone(tmp_path) if broken else {}))
     assert result.returncode == 0, result.stderr
     assert "| backup | pt backup create" in result.stdout
     # One log line carries the whole failure, even when the output was multiline.

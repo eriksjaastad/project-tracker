@@ -25,10 +25,9 @@ fi
 
 # The ~/projects rules repo (projects_root()) has no git remote, so it goes to
 # the same destination as projects.bundle, a `git bundle --all` overwritten each
-# run. Restore: `git clone projects.bundle <dir>`. rclone's own timeouts only
-# catch idle connections and macOS has no timeout(1), so perl's alarm bounds the
-# whole upload; PT_BACKUP_RULES_COPY_TIMEOUT (seconds) exists for the tests.
-RULES_COPY_TIMEOUT="${PT_BACKUP_RULES_COPY_TIMEOUT:-300}"
+# run. Restore: `git clone projects.bundle <dir>`. rclone's default --contimeout
+# and --timeout end a stalled upload; a slow one that keeps sending is left to
+# finish (the bundle is a few MB, and launchd never overlaps runs of one label).
 if RULES_OUT="$({
   BUNDLE_DIR="$(mktemp -d)" && trap 'rm -rf "$BUNDLE_DIR"' EXIT &&
   SETTINGS="$("$HOME/.local/bin/uv" run --no-project python -c '
@@ -37,13 +36,9 @@ from scripts.config import projects_root
 print(rclone_destination(), rclone_config_path(), projects_root(), sep="\n")')" &&
   { read -r DEST; read -r CONFIG; read -r RULES_REPO; } <<<"$SETTINGS" &&
   { [ -n "$DEST" ] || { echo "Set PT_BACKUP_RCLONE_DEST"; false; }; } &&
-  { [[ "$RULES_COPY_TIMEOUT" =~ ^[1-9][0-9]*$ ]] ||
-    { echo "PT_BACKUP_RULES_COPY_TIMEOUT must be whole seconds"; false; }; } &&
   git -C "$RULES_REPO" bundle create -q "$BUNDLE_DIR/projects.bundle" --all &&
-  { perl -e 'alarm shift; exec @ARGV' "$RULES_COPY_TIMEOUT" \
-      rclone copyto "$BUNDLE_DIR/projects.bundle" "${DEST%/}/projects.bundle" \
-      --config "$CONFIG" --checksum --retries 3 ||
-    { echo "rclone failed or passed the ${RULES_COPY_TIMEOUT}s limit (exit $?)"; false; }; } &&
+  rclone copyto "$BUNDLE_DIR/projects.bundle" "${DEST%/}/projects.bundle" \
+    --config "$CONFIG" --checksum --retries 3 &&
   echo "projects.bundle -> ${DEST%/}/projects.bundle"
 } 2>&1)"; then
   echo "$(date -Iseconds) | rules_copy | ok | ${RULES_OUT//[$'\r\n']/ }"
