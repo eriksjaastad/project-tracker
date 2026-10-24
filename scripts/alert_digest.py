@@ -32,6 +32,8 @@ import urllib.request
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from scheduled_jobs import launchctl_list
+
 # --- Config -----------------------------------------------------------------
 
 ALERTS_URL = os.environ.get("PT_ALERTS_URL", "http://localhost:8000/api/alerts")
@@ -315,32 +317,13 @@ def fetch_scheduled_jobs() -> list | None:
     the status is that of the previous run.
     """
     try:
-        proc = subprocess.run(
-            ["launchctl", "list"], capture_output=True, text=True, timeout=15
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(f"launchctl exit {proc.returncode}: {proc.stderr[:200]}")
+        rows = launchctl_list()
     # governance: allow-silent SF002: None is the documented "no job data" value; _render_job_group prints a no-job-data warning in the digest for it
     except Exception as exc:  # noqa: BLE001
         log(f"WARN scheduled-jobs fetch failed: {exc}")
         return None
 
-    jobs = []
-    for line in proc.stdout.splitlines()[1:]:  # skip header
-        parts = line.split(None, 2)
-        if len(parts) != 3:
-            continue
-        pid_s, status_s, label = parts
-        if not label.startswith(JOB_LABEL_PREFIXES):
-            continue
-        try:
-            last_exit = None if status_s == "-" else int(status_s)
-        except ValueError:
-            # Malformed status column — don't let one bad line crash the digest.
-            last_exit = None
-        jobs.append(
-            {"label": label, "pid": None if pid_s == "-" else pid_s, "last_exit": last_exit}
-        )
+    jobs = [r for r in rows if r["label"].startswith(JOB_LABEL_PREFIXES)]
     log(f"scheduled jobs: {len(jobs)} of ours")
     return jobs
 
